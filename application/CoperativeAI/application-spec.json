@@ -19,17 +19,17 @@
     },
     "frameworks": {
       "question": "What frameworks, libraries, or UI toolkit should it use?",
-      "answer": ""
+      "answer": "Tauri for the GUI shell (window + drag-and-drop canvas, via its web-based frontend). The in-app terminal is a real embedded shell — a genuine OS shell process (e.g. via a PTY crate such as portable-pty) rendered inside the Tauri window (e.g. via xterm.js in the frontend) — not a simulated command box and not a text-mode UI crate like ratatui, which can't render inside a GUI webview."
     }
   },
   "accessAndInterface": {
     "authType": {
       "question": "How does this solution authenticate or authorise callers/users?",
-      "answer": ""
+      "answer": "User login and role-based access control (from the Project Brief). On first run, the default Role rows are seeded automatically. If no users exist yet, the app shows the First Run Setup page instead of login — see CoperativeAI/firstRunSetup.md — where the person creates the Super Admin account themselves (their own username and password; nothing generated or hardcoded). After that, a Super Admin can add/remove users and assign roles."
     },
     "rolesOrClaims": {
       "question": "Does it authorise by Claims or Roles?",
-      "answer": "Roles — Product Edit, Product View (from the Project Brief)."
+      "answer": "Roles — Product Edit, Product View, Code View, Code Edit (from the Project Brief). Each user holds exactly one role; a role grants a bundle of permissions (e.g. view or edit access to an area) — see the Role database model in CoperativeAIdb."
     },
     "lookAndFeel": {
       "question": "What is the overall look and feel?",
@@ -51,11 +51,11 @@
   "conventions": {
     "configLocation": {
       "question": "Where does it read/write its own config and data on disk?",
-      "answer": ""
+      "answer": "To the local database file (CoperativeAIdb) in the OS-appropriate default app-data folder, overridable by an environment variable."
     },
     "errorLogging": {
       "question": "How do we log errors and issues?",
-      "answer": ""
+      "answer": "To the local database file (CoperativeAIdb) in the OS-appropriate default app-data folder, overridable by an environment variable."
     },
     "documentation": {
       "question": "How is this solution documented for its users or callers?",
@@ -77,11 +77,11 @@
     },
     "commands": {
       "question": "The commands the AI should use to work with this repo.",
-      "install": "",
-      "run": "",
-      "build": "",
-      "deploy": "",
-      "test": ""
+      "install": "install Rust and Cargo, then run `cargo fetch` to download dependencies.",
+      "run": "run `cargo run` to start the application in development mode.",
+      "build": " build release binaries for Windows and Linux with `cargo build --release`.",
+      "deploy": " N/A — no server-side deployment. Release binaries are produced by the pipeline and published as downloadable artifacts.",
+      "test": " run `cargo test` to execute the test suite."
     },
     "note": "Based on the rust-cli-app boilerplate; the testing answer above overrides the boilerplate's testing entry. Commands are left blank — no overrides."
   },
@@ -93,7 +93,11 @@
     "rules": {
       "question": "Any extra security rules for this solution?",
       "entries": [
-        "Any file dragged in or opened by the user is validated (path, type, size) before being read."
+        "Any file dragged in or opened by the user is validated (path, type, size) before being read.",
+        "There is no default or seeded password anywhere in the application — the first (Super Admin) account is always created interactively by a person via First Run Setup.",
+        "The embedded terminal runs as a real shell with the same permissions as the OS user running the app — no privilege escalation, and no separate elevated process.",
+        "The embedded terminal is local only — never exposed over a network socket or remote-accessible interface.",
+        "Output copied from or displayed in the embedded terminal is never logged or persisted by the application itself."
       ]
     }
   },
@@ -132,9 +136,7 @@
     }
   },
   "openQuestions": [
-    "Which UI toolkit for the terminal + drag-and-drop canvas (e.g. ratatui for the terminal, egui/Tauri/iced for the drag-and-drop window)? Not stated in the Project Brief.",
-    "How does the application decide who is 'Product Edit' vs 'Product View' — a login, a config file, an OS account? accessAndInterface.authType is unanswered.",
-    "Where on disk does it read/write config and data, and how are errors logged? Both unanswered in conventions.",
+    "The embedded terminal is a real shell with full OS-user permissions — should it be restricted in any way (e.g. confined to the project's working directory, or a denylist of commands), or is full shell access intended?",
     "Any must-not-do constraints for this solution specifically (beyond the project-wide rules)?"
   ]
 }
