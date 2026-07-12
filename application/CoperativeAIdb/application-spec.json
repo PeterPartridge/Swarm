@@ -1,0 +1,94 @@
+{
+  "form": "application-spec",
+  "solutionName": "CoperativeAIdb",
+  "solutionType": "database",
+  "status": "filled",
+  "exampleOf": "../../template/_forms/application-spec.json",
+  "core": {
+    "purpose": {
+      "question": "What is the purpose of this solution?",
+      "answer": ""
+    },
+    "hosting": {
+      "question": "Where will it be hosted, deployed, or distributed?",
+      "answer": "Embedded inside the CoperativeAI application — opened in-process as a local file, not a separate hosted server."
+    },
+    "language": {
+      "question": "What language will it use?",
+      "answer": "turso"
+    },
+    "frameworks": {
+      "question": "What frameworks, libraries, or UI toolkit should it use?",
+      "answer": ""
+    }
+  },
+  "scaffold": {
+    "boilerplate": {
+      "question": "Start from a named boilerplate?",
+      "answer": "turso-embedded"
+    },
+    "fileLayout": {
+      "question": "What is the folder and file layout of this solution's repo?",
+      "answer": []
+    },
+    "testing": {
+      "question": "What test framework should be used, and what kinds of tests?",
+      "answer": ""
+    },
+    "commands": {
+      "question": "The commands the AI should use to work with this repo.",
+      "install": "",
+      "build": "",
+      "deploy": "",
+      "test": ""
+    },
+    "note": "Everything comes from the turso-embedded boilerplate in _forms/boilerplates.json — no overrides. It has no 'deploy' command since the database ships embedded inside the CoperativeAI application build, per notes.mustNotDo below."
+  },
+  "security": {
+    "baseline": {
+      "question": "Start from a named security baseline?",
+      "answer": "embedded-database-baseline"
+    },
+    "rules": {
+      "question": "Any extra security rules for this solution?",
+      "note": "Trimmed to what the embedded-database-baseline doesn't already cover (it already requires: no hard-coded credentials, parameterised queries, encryption at rest, least privilege). Multi-factor auth and connection strings don't apply to an in-process embedded file, so they were dropped.",
+      "entries": [
+        "Regularly update the turso crate to pick up security fixes",
+        "Enable auditing/logging of database activity, without logging user data",
+        "Regularly back up the database file and test restore procedures"
+      ]
+    }
+  },
+  "infrastructure": {
+    "resources": {
+      "question": "What infrastructure resources does this solution need?",
+      "entries": []
+    },
+    "provisioning": {
+      "question": "How is infrastructure created, and by whom?",
+      "answer": "Part of the CoperativeAI application build process — no separate provisioning."
+    },
+    "environments": {
+      "question": "What environments exist, and which may the AI deploy to?",
+      "answer": "dev (AI may deploy), production (people deploy after review)."
+    },
+    "settings": {
+      "question": "What named settings and secrets does this solution need at build or run time?",
+      "entries": []
+    },
+    "pipeline": {
+      "question": "What CI/CD pipeline should this solution have?",
+      "answer": "No separate pipeline — the database is built and tested as part of the CoperativeAI application's own pipeline (see ../CoperativeAI/application-spec.json)."
+    }
+  },
+  "notes": {
+    "mustNotDo": {
+      "question": "Anything this solution must NOT do / cannot deploy?",
+      "answer": "Only deploy with the main application — it has no independent deployment."
+    },
+    "limits": {
+      "question": "Any limits (rate limits, payload size, memory, startup time, supported platforms)?",
+      "answer": ""
+    }
+  }
+}

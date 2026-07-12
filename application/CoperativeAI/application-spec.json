@@ -1,0 +1,140 @@
+{
+  "form": "application-spec",
+  "solutionName": "CoperativeAI",
+  "solutionType": "application",
+  "status": "filled",
+  "exampleOf": "../../template/_forms/application-spec.json",
+  "core": {
+    "purpose": {
+      "question": "What is the purpose of this solution?",
+      "answer": "The Rust application developers and Product use to run the CooperativeAICoding loop — filling in briefs, translating them, building, and reviewing — from a terminal, with a drag-and-drop canvas for arranging code blocks and UI designs."
+    },
+    "hosting": {
+      "question": "Where will it be hosted, deployed, or distributed?",
+      "answer": "A downloadable native executable for Windows and Linux; no server-side hosting. Coded for low memory usage and good performance on low-spec machines."
+    },
+    "language": {
+      "question": "What language will it use?",
+      "answer": "Rust."
+    },
+    "frameworks": {
+      "question": "What frameworks, libraries, or UI toolkit should it use?",
+      "answer": ""
+    }
+  },
+  "accessAndInterface": {
+    "authType": {
+      "question": "How does this solution authenticate or authorise callers/users?",
+      "answer": ""
+    },
+    "rolesOrClaims": {
+      "question": "Does it authorise by Claims or Roles?",
+      "answer": "Roles — Product Edit, Product View (from the Project Brief)."
+    },
+    "lookAndFeel": {
+      "question": "What is the overall look and feel?",
+      "answer": "Minimal and easy to use."
+    },
+    "stylingOrToolkit": {
+      "question": "What styling approach, component library, or UI toolkit?",
+      "answer": ""
+    },
+    "interactionModel": {
+      "question": "How do people interact with it?",
+      "answer": "Both — typed commands in a terminal, and mouse drag-and-drop to move code blocks or UI designs around."
+    },
+    "customisation": {
+      "question": "Any customisation users control?",
+      "answer": "Customisable colours."
+    }
+  },
+  "conventions": {
+    "configLocation": {
+      "question": "Where does it read/write its own config and data on disk?",
+      "answer": ""
+    },
+    "errorLogging": {
+      "question": "How do we log errors and issues?",
+      "answer": ""
+    },
+    "documentation": {
+      "question": "How is this solution documented for its users or callers?",
+      "answer": ""
+    }
+  },
+  "scaffold": {
+    "boilerplate": {
+      "question": "Start from a named boilerplate?",
+      "answer": "rust-cli-app"
+    },
+    "fileLayout": {
+      "question": "What is the folder and file layout of this solution's repo?",
+      "answer": []
+    },
+    "testing": {
+      "question": "What test framework should be used, and what kinds of tests?",
+      "answer": "TDD per the Project Brief's dev-rules: always write a failing test first, then just enough code to pass it. Tests start simple and grow more complex as functionality is added."
+    },
+    "commands": {
+      "question": "The commands the AI should use to work with this repo.",
+      "install": "",
+      "run": "",
+      "build": "",
+      "deploy": "",
+      "test": ""
+    },
+    "note": "Based on the rust-cli-app boilerplate; the testing answer above overrides the boilerplate's testing entry. Commands are left blank — no overrides."
+  },
+  "security": {
+    "baseline": {
+      "question": "Start from a named security baseline?",
+      "answer": "application-baseline"
+    },
+    "rules": {
+      "question": "Any extra security rules for this solution?",
+      "entries": [
+        "Any file dragged in or opened by the user is validated (path, type, size) before being read."
+      ]
+    }
+  },
+  "infrastructure": {
+    "resources": {
+      "question": "What infrastructure resources does this solution need?",
+      "entries": []
+    },
+    "provisioning": {
+      "question": "How is infrastructure created, and by whom?",
+      "answer": "N/A — no server-side infrastructure. Release binaries are produced by the pipeline and published as downloadable artifacts."
+    },
+    "environments": {
+      "question": "What environments exist, and which may the AI deploy to?",
+      "answer": "Development (AI may build and deploy debug builds), production (people deploy after review) — performance-focused release builds."
+    },
+    "settings": {
+      "question": "What named settings and secrets does this solution need at build or run time?",
+      "entries": [
+        { "name": "COPERATIVEAI_DATA_DIR", "whatItIs": "Where the app stores its local data, including the embedded CoperativeAIdb database file", "secret": false, "where": "OS-appropriate default app-data folder, overridable by an environment variable" }
+      ]
+    },
+    "pipeline": {
+      "question": "What CI/CD pipeline should this solution have?",
+      "answer": "GitHub Actions: on PR → cargo fetch, cargo build, cargo test; on merge to main → build release binaries for Windows and Linux and publish as artifacts for the target environment."
+    }
+  },
+  "notes": {
+    "mustNotDo": {
+      "question": "Anything this solution must NOT do / cannot deploy?",
+      "answer": ""
+    },
+    "limits": {
+      "question": "Any limits (rate limits, payload size, memory, startup time, supported platforms)?",
+      "answer": "Low memory usage and good performance on low-spec Windows and Linux machines (from the Project Brief)."
+    }
+  },
+  "openQuestions": [
+    "Which UI toolkit for the terminal + drag-and-drop canvas (e.g. ratatui for the terminal, egui/Tauri/iced for the drag-and-drop window)? Not stated in the Project Brief.",
+    "How does the application decide who is 'Product Edit' vs 'Product View' — a login, a config file, an OS account? accessAndInterface.authType is unanswered.",
+    "Where on disk does it read/write config and data, and how are errors logged? Both unanswered in conventions.",
+    "Any must-not-do constraints for this solution specifically (beyond the project-wide rules)?"
+  ]
+}
