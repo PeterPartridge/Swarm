@@ -1,0 +1,57 @@
+{
+  "form": "database-model",
+  "modelName": "Product",
+  "status": "built",
+  "dependsOn": {
+    "guidance": "Briefs that must be built before this one — usually the tables this model's relationships point at.",
+    "example": ["ClothingDatabase/Customer.json"],
+    "entries": []
+  },
+  "instructions": {
+    "whoFillsThisIn": "Developers (Product can sanity-check the information being stored).",
+    "when": "Whenever a page needs to store data. One of these per model/table.",
+    "how": "Answer in plain English where you can.",
+    "note": "Solution = the folder this file sits in. Table / object name = this file's name."
+  },
+  "whatThisModelIs": {
+    "question": "What does this model represent, in one line?",
+    "example": "A customer's order.",
+    "answer": "A Product being planned in the app — created by answering the Project_brief's Product questions; everything on the Product side (work items, sprints, feature designs, solutions) attaches to one."
+  },
+  "fields": {
+    "guidance": "One entry per piece of data.",
+    "entries": [
+      { "fieldName": "id", "type": "id / key", "nullable": false, "default": "auto", "rules": "unique", "description": "The unique identifier" },
+      { "fieldName": "name", "type": "text", "nullable": false, "default": "", "rules": "unique; not empty", "description": "The Product's title, shown at the top of its workspace" },
+      { "fieldName": "answers", "type": "text", "nullable": false, "default": "{}", "rules": "valid JSON keyed by Project_brief question ids (purpose, problem, users, appsYouLike, appsToAvoid, designs)", "description": "The Product's brief answers, in the person's plain English" },
+      { "fieldName": "createdAt", "type": "date", "nullable": false, "default": "now", "rules": "", "description": "When the Product was created" },
+      { "fieldName": "updatedAt", "type": "date", "nullable": false, "default": "now", "rules": "updated on every change", "description": "When the Product last changed" }
+    ]
+  },
+  "relationships": {
+    "guidance": "How this model connects to others. Leave entries empty if it stands alone.",
+    "entries": []
+  },
+  "lookupsAndPerformance": {
+    "question": "Which fields do we search or filter on a lot?",
+    "answer": ["name"]
+  },
+  "lifecycleAndRules": {
+    "retention": {
+      "question": "How long do we keep this data / when is it deleted?",
+      "answer": "Until the user deletes the Product; deleting it removes its work items (and their policies/designs) and its solutions."
+    },
+    "sensitiveFields": {
+      "question": "Any sensitive fields that need extra protection?",
+      "answer": "No."
+    },
+    "invariants": {
+      "question": "Anything that must always be true?",
+      "answer": "name is unique and non-empty; answers always parses as JSON."
+    }
+  },
+  "changesOverTime": {
+    "guidance": "Each time you come back to change this model, add an entry describing what should change.",
+    "rounds": []
+  }
+}

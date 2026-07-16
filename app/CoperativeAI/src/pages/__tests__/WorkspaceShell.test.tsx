@@ -2,13 +2,18 @@ import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// The Product tab mounts the planning board; give it a quiet backend.
+// The Product/Develop tabs mount live pages; give them a quiet backend.
 vi.mock("../../lib/backend", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../lib/backend")>();
   return {
     ...original,
-    listWorkItems: vi.fn().mockResolvedValue([]),
-    listRepositories: vi.fn().mockResolvedValue([]),
+    listProducts: vi.fn().mockResolvedValue([]),
+    getPlanningHierarchy: vi
+      .fn()
+      .mockResolvedValue(["epic", "feature", "userStory", "task"]),
+    getRoadmapMode: vi.fn().mockResolvedValue("sprints"),
+    listTeamMembers: vi.fn().mockResolvedValue([]),
+    listSolutions: vi.fn().mockResolvedValue([]),
   };
 });
 import WorkspaceShell from "../WorkspaceShell";

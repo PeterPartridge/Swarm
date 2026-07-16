@@ -123,6 +123,131 @@ body {
   color: #6b7280;
 }
 
+.product-home,
+.develop-area {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.planning-settings {
+  display: flex;
+  gap: 1.5rem;
+  font-size: 0.85rem;
+  align-items: center;
+}
+
+.planning-settings label {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.product-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.product-card,
+.develop-card {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-left: 4px solid var(--env-color, #7c3aed);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.product-card label,
+.develop-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.8rem;
+}
+
+.product-card textarea,
+.develop-card textarea {
+  min-height: 2.2rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.375rem;
+  padding: 0.3rem;
+}
+
+.workspace-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  border-bottom: 2px solid var(--env-color, #7c3aed);
+  padding-bottom: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.workspace-header h2 {
+  margin: 0;
+}
+
+.workspace-header .screen-active {
+  background: var(--env-color, #7c3aed);
+  color: #fff;
+}
+
+.card-parent,
+.card-dates {
+  font-size: 0.7rem;
+  color: #9ca3af;
+}
+
+.roadmap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.roadmap-lane {
+  background: #f3f4f6;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.roadmap-lane header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.roadmap-lane h2 {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7280;
+  margin: 0.25rem 0;
+}
+
+.lane-dates {
+  font-size: 0.75rem;
+  color: #9ca3af;
+}
+
+.lane-items {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.lane-items .card {
+  min-width: 160px;
+}
+
+.lane-empty {
+  font-size: 0.8rem;
+  color: #9ca3af;
+  margin: 0.25rem 0;
+}
+
 .colour-settings {
   display: flex;
   gap: 1.5rem;

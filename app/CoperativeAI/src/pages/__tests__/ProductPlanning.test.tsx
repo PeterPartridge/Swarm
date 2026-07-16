@@ -2,18 +2,24 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ProductPlanning from "../ProductPlanning";
-import type { Repository, WorkItem } from "../../lib/backend";
+import type { Product } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../lib/backend")>();
   return {
     ...original,
+    listProducts: vi.fn(),
+    createProduct: vi.fn(),
+    getProduct: vi.fn(),
+    deleteProduct: vi.fn(),
+    getPlanningHierarchy: vi.fn(),
+    getRoadmapMode: vi.fn(),
+    setPlanningHierarchy: vi.fn(),
+    setRoadmapMode: vi.fn(),
     listWorkItems: vi.fn(),
-    listRepositories: vi.fn(),
-    createWorkItem: vi.fn(),
-    updateWorkItemStatus: vi.fn(),
-    deleteWorkItem: vi.fn(),
-    addRepository: vi.fn(),
+    listTeamMembers: vi.fn(),
+    listSprints: vi.fn(),
+    openScreenWindow: vi.fn(),
   };
 });
 
@@ -21,132 +27,75 @@ import * as backend from "../../lib/backend";
 
 const mocked = vi.mocked(backend);
 
-const repo: Repository = {
-  id: 1,
-  name: "main-repo",
-  localPath: "C:/repos/main",
-  isActive: true,
-};
+const product: Product = { id: 1, name: "Shop App", answers: "{}" };
 
-function item(overrides: Partial<WorkItem>): WorkItem {
-  return {
-    id: 1,
-    title: "Login feature",
-    itemType: "feature",
-    status: "planned",
-    description: null,
-    repositoryId: 1,
-    parentItemId: null,
-    ...overrides,
-  };
-}
-
-describe("ProductPlanning", () => {
+describe("ProductPlanning (Product home)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocked.listRepositories.mockResolvedValue([repo]);
+    mocked.listProducts.mockResolvedValue([product]);
+    mocked.getPlanningHierarchy.mockResolvedValue([
+      "epic",
+      "feature",
+      "userStory",
+      "task",
+    ]);
+    mocked.getRoadmapMode.mockResolvedValue("sprints");
     mocked.listWorkItems.mockResolvedValue([]);
+    mocked.listTeamMembers.mockResolvedValue([]);
+    mocked.listSprints.mockResolvedValue([]);
   });
 
-  it("shows the five status columns", async () => {
+  it("shows Products as cards plus the Add a Product card", async () => {
     render(<ProductPlanning />);
-    for (const status of backend.STATUSES) {
-      expect(
-        await screen.findByRole("region", { name: status }),
-      ).toBeInTheDocument();
-    }
+    expect(await screen.findByRole("article", { name: "Shop App" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add a Product" })).toBeInTheDocument();
   });
 
-  it("shows work items in the column matching their status", async () => {
-    mocked.listWorkItems.mockResolvedValue([
-      item({ id: 1, title: "Login feature", status: "planned" }),
-      item({ id: 2, title: "Fix crash", itemType: "bug", status: "building" }),
-    ]);
+  it("shows the How Products are planned settings", async () => {
     render(<ProductPlanning />);
-
-    const planned = await screen.findByRole("region", { name: "planned" });
-    const building = await screen.findByRole("region", { name: "building" });
-    expect(planned).toHaveTextContent("Login feature");
-    expect(building).toHaveTextContent("Fix crash");
+    expect(await screen.findByLabelText("How Products are planned")).toBeInTheDocument();
+    expect(screen.getByLabelText("RoadMap style")).toBeInTheDocument();
   });
 
-  it("creates a work item from the form and refreshes the board", async () => {
+  it("asks the Project brief questions and opens the workspace on create", async () => {
     const user = userEvent.setup();
-    mocked.createWorkItem.mockResolvedValue(7);
+    mocked.createProduct.mockResolvedValue(2);
     render(<ProductPlanning />);
 
-    await user.type(await screen.findByLabelText("Title"), "New feature");
-    await user.selectOptions(screen.getByLabelText("Type"), "feature");
-    await user.click(screen.getByRole("button", { name: "Create" }));
+    await user.click(await screen.findByRole("button", { name: "Add a Product" }));
+    expect(screen.getByLabelText(/purpose of this product/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/problem does it solve/i)).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Product name"), "New Product");
+    await user.type(
+      screen.getByLabelText(/purpose of this product/i),
+      "Sell things",
+    );
+    await user.click(screen.getByRole("button", { name: "Create Product" }));
 
     await waitFor(() =>
-      expect(mocked.createWorkItem).toHaveBeenCalledWith({
-        title: "New feature",
-        itemType: "feature",
-        repositoryId: 1,
-      }),
-    );
-    expect(mocked.listWorkItems).toHaveBeenCalledTimes(2);
-  });
-
-  it("changes an item's status", async () => {
-    const user = userEvent.setup();
-    mocked.listWorkItems.mockResolvedValue([
-      item({ id: 3, title: "Login feature", status: "planned" }),
-    ]);
-    mocked.updateWorkItemStatus.mockResolvedValue();
-    render(<ProductPlanning />);
-
-    await user.selectOptions(
-      await screen.findByLabelText("Status of Login feature"),
-      "designing",
-    );
-    await waitFor(() =>
-      expect(mocked.updateWorkItemStatus).toHaveBeenCalledWith(3, "designing"),
-    );
-  });
-
-  it("deletes an item", async () => {
-    const user = userEvent.setup();
-    mocked.listWorkItems.mockResolvedValue([
-      item({ id: 4, title: "Old idea", status: "planned" }),
-    ]);
-    mocked.deleteWorkItem.mockResolvedValue();
-    render(<ProductPlanning />);
-
-    await user.click(
-      await screen.findByRole("button", { name: "Delete Old idea" }),
-    );
-    await waitFor(() => expect(mocked.deleteWorkItem).toHaveBeenCalledWith(4));
-  });
-
-  it("offers first-repository registration when none exist", async () => {
-    const user = userEvent.setup();
-    mocked.listRepositories.mockResolvedValue([]);
-    mocked.addRepository.mockResolvedValue(1);
-    render(<ProductPlanning />);
-
-    expect(
-      await screen.findByRole("form", { name: "Register first repository" }),
-    ).toBeInTheDocument();
-    await user.type(screen.getByLabelText("Repository name"), "main-repo");
-    await user.type(screen.getByLabelText("Local folder"), "C:/repos/main");
-    await user.click(
-      screen.getByRole("button", { name: "Register repository" }),
-    );
-    await waitFor(() =>
-      expect(mocked.addRepository).toHaveBeenCalledWith(
-        "main-repo",
-        "C:/repos/main",
+      expect(mocked.createProduct).toHaveBeenCalledWith(
+        "New Product",
+        JSON.stringify({ purpose: "Sell things" }),
       ),
     );
+    // Straight into the workspace: title header + screens menu.
+    expect(await screen.findByRole("heading", { name: "New Product" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Planning" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "RoadMap" })).toBeInTheDocument();
   });
 
-  it("surfaces backend errors instead of crashing", async () => {
-    mocked.listWorkItems.mockRejectedValue("backend unavailable");
+  it("opens an existing Product's workspace and can pop it out", async () => {
+    const user = userEvent.setup();
+    mocked.openScreenWindow.mockResolvedValue();
     render(<ProductPlanning />);
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "backend unavailable",
+
+    await user.click(await screen.findByRole("button", { name: "Open Shop App" }));
+    expect(await screen.findByRole("heading", { name: "Shop App" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Open in its own window" }));
+    await waitFor(() =>
+      expect(mocked.openScreenWindow).toHaveBeenCalledWith("planning", 1, "Shop App"),
     );
   });
 });

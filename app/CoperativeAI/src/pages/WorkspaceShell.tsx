@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import TabBar, { ENVIRONMENTS } from "../components/TabBar";
 import ProductPlanning from "./ProductPlanning";
+import DevelopSolutions from "./DevelopSolutions";
 import {
   applyTabColors,
   loadTabColors,
@@ -43,6 +44,8 @@ export default function WorkspaceShell() {
         <h1>{activeLabel}</h1>
         {active === "product" ? (
           <ProductPlanning />
+        ) : active === "develop" ? (
+          <DevelopSolutions />
         ) : (
           <p>{ENVIRONMENT_PLACEHOLDERS[active]}</p>
         )}

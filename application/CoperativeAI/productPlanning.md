@@ -3,7 +3,7 @@ form: page-brief
 page: "Product Planning"
 solution: "CoperativeAI"
 depends-on: ["workspaceShell.md", "CoperativeAIdb/WorkItem-model.json"]
-status: built            # blank | filled | approved | built
+status: built            # blank | filled | approved | built (round 2 built)
 ---
 
 # Page Brief — Product Planning
@@ -65,4 +65,4 @@ Mid-range model, medium effort.
 ## Part 4 — changes-over-time
 
 > Each time you come back to improve the page, add a bullet describing what you want to change. Keep changes small.
-> - Round 2: …
+- Round 2: The Product side does not use repositories. The page becomes the **Product home**: cards listing Products plus an "Add a Product" card asking the Project_brief's Product questions (purpose, problem, users, apps you like, apps to avoid, design notes). Creating or opening a Product enters its **Product workspace**: the Product title at the top with menu options — **Planning** and **RoadMap** — and every screen has a button to pull it out into its own OS window. Planning is the hierarchy board (epics, features, user stories, tasks per the planningHierarchy setting; bug/test at any level): add sub-items under an item, assign items to team members (from the Developer Area), schedule into sprints or optional dates. Feature cards get an **"AI: create user stories"** button (shown only when the hierarchy includes user stories) — it goes through the per-item AI policy gate and, until an AI provider is configured, explains that one must be added in AI Settings. A settings row (hierarchy preset + roadmap mode) lives on the Product home.

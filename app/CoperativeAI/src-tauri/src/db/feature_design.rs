@@ -129,11 +129,12 @@ fn validate_canvas(canvas: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::work_item::{self, tests::db_with_repo};
+    use crate::db::product::tests::db_with_product;
+    use crate::db::work_item;
 
     async fn db_with_item() -> (Connection, i64) {
-        let (conn, repo_id) = db_with_repo().await;
-        let item_id = work_item::create(&conn, "Login", "feature", repo_id, None, None)
+        let (conn, product_id) = db_with_product().await;
+        let item_id = work_item::create(&conn, "Login", "feature", product_id, None, None)
             .await
             .expect("create item");
         (conn, item_id)

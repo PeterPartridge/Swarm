@@ -1,38 +1,28 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import ProductWorkspace from "../components/ProductWorkspace";
+import PlanningMethodSetting from "../components/PlanningMethodSetting";
 import {
-  createWorkItem,
-  deleteWorkItem,
-  listRepositories,
-  listWorkItems,
-  updateWorkItemStatus,
-  addRepository,
-  ITEM_TYPES,
-  STATUSES,
-  type Repository,
-  type WorkItem,
+  createProduct,
+  deleteProduct,
+  listProducts,
+  PRODUCT_QUESTIONS,
+  type Product,
 } from "../lib/backend";
 
+/** The Product environment's home: Products as cards, an "Add a Product"
+ *  card asking the Project_brief's Product questions, and the planning
+ *  settings. Opening a Product enters its workspace. */
 export default function ProductPlanning() {
-  const [items, setItems] = useState<WorkItem[]>([]);
-  const [repos, setRepos] = useState<Repository[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [openProduct, setOpenProduct] = useState<Product | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [title, setTitle] = useState("");
-  const [itemType, setItemType] = useState<string>(ITEM_TYPES[0]);
-  const [repositoryId, setRepositoryId] = useState<number | "">("");
-  const [newRepoName, setNewRepoName] = useState("");
-  const [newRepoPath, setNewRepoPath] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState("");
+  const [answers, setAnswers] = useState<Record<string, string>>({});
 
   const refresh = useCallback(async () => {
     try {
-      const [loadedItems, loadedRepos] = await Promise.all([
-        listWorkItems(),
-        listRepositories(),
-      ]);
-      setItems(loadedItems);
-      setRepos(loadedRepos);
-      setRepositoryId((current) =>
-        current === "" && loadedRepos.length > 0 ? loadedRepos[0].id : current,
-      );
+      setProducts(await listProducts());
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -43,125 +33,94 @@ export default function ProductPlanning() {
     void refresh();
   }, [refresh]);
 
-  async function run(action: () => Promise<unknown>) {
+  async function onCreate(e: FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) return;
     try {
-      await action();
+      const id = await createProduct(name, JSON.stringify(answers));
+      setName("");
+      setAnswers({});
+      setCreating(false);
       await refresh();
-    } catch (e) {
-      setError(String(e));
+      // Creating a Product opens straight into its workspace.
+      setOpenProduct({ id, name, answers: JSON.stringify(answers) });
+    } catch (err) {
+      setError(String(err));
     }
   }
 
-  async function onCreate(e: FormEvent) {
-    e.preventDefault();
-    if (!title.trim() || repositoryId === "") return;
-    await run(() =>
-      createWorkItem({ title, itemType, repositoryId: Number(repositoryId) }),
-    );
-    setTitle("");
+  async function onDelete(product: Product) {
+    try {
+      await deleteProduct(product.id);
+      await refresh();
+    } catch (err) {
+      setError(String(err));
+    }
   }
 
-  async function onAddRepository(e: FormEvent) {
-    e.preventDefault();
-    if (!newRepoName.trim() || !newRepoPath.trim()) return;
-    await run(() => addRepository(newRepoName, newRepoPath));
-    setNewRepoName("");
-    setNewRepoPath("");
+  if (openProduct) {
+    return (
+      <ProductWorkspace product={openProduct} onBack={() => setOpenProduct(null)} />
+    );
   }
 
   return (
-    <div className="product-planning">
+    <div className="product-home">
       {error && <p role="alert">{error}</p>}
+      <PlanningMethodSetting />
 
-      {repos.length === 0 ? (
-        <form onSubmit={onAddRepository} aria-label="Register first repository">
-          <p>
-            Work items belong to a repository. Register your first repository
-            to start planning (full repository management lives in Develop).
-          </p>
-          <label>
-            Repository name
-            <input
-              value={newRepoName}
-              onChange={(e) => setNewRepoName(e.target.value)}
-            />
-          </label>
-          <label>
-            Local folder
-            <input
-              value={newRepoPath}
-              onChange={(e) => setNewRepoPath(e.target.value)}
-            />
-          </label>
-          <button type="submit">Register repository</button>
-        </form>
-      ) : (
-        <form onSubmit={onCreate} aria-label="Create work item">
-          <input
-            aria-label="Title"
-            placeholder="What needs doing?"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-          <select
-            aria-label="Type"
-            value={itemType}
-            onChange={(e) => setItemType(e.target.value)}
-          >
-            {ITEM_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Repository"
-            value={repositoryId}
-            onChange={(e) => setRepositoryId(Number(e.target.value))}
-          >
-            {repos.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </select>
-          <button type="submit">Create</button>
-        </form>
-      )}
-
-      <div className="board">
-        {STATUSES.map((status) => (
-          <section key={status} className="board-column" aria-label={status}>
-            <h2>{status}</h2>
-            {items
-              .filter((item) => item.status === status)
-              .map((item) => (
-                <article key={item.id} className="card" aria-label={item.title}>
-                  <strong>{item.title}</strong>
-                  <span className="card-type">{item.itemType}</span>
-                  <select
-                    aria-label={`Status of ${item.title}`}
-                    value={item.status}
-                    onChange={(e) =>
-                      run(() => updateWorkItemStatus(item.id, e.target.value))
-                    }
-                  >
-                    {STATUSES.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    aria-label={`Delete ${item.title}`}
-                    onClick={() => run(() => deleteWorkItem(item.id))}
-                  >
-                    Delete
-                  </button>
-                </article>
-              ))}
-          </section>
+      <div className="product-cards">
+        {products.map((product) => (
+          <article key={product.id} className="product-card" aria-label={product.name}>
+            <strong>{product.name}</strong>
+            <button
+              aria-label={`Open ${product.name}`}
+              onClick={() => setOpenProduct(product)}
+            >
+              Open
+            </button>
+            <button
+              aria-label={`Delete ${product.name}`}
+              onClick={() => onDelete(product)}
+            >
+              Delete
+            </button>
+          </article>
         ))}
+
+        {!creating ? (
+          <article className="product-card add-card">
+            <button aria-label="Add a Product" onClick={() => setCreating(true)}>
+              + Add a Product
+            </button>
+          </article>
+        ) : (
+          <form
+            className="product-card"
+            onSubmit={onCreate}
+            aria-label="New Product"
+          >
+            <label>
+              Product name
+              <input value={name} onChange={(e) => setName(e.target.value)} />
+            </label>
+            {PRODUCT_QUESTIONS.map((q) => (
+              <label key={q.id}>
+                {q.label}
+                <textarea
+                  value={answers[q.id] ?? ""}
+                  onChange={(e) =>
+                    setAnswers({ ...answers, [q.id]: e.target.value })
+                  }
+                />
+              </label>
+            ))}
+            <button type="submit">Create Product</button>
+            <button type="button" onClick={() => setCreating(false)}>
+              Cancel
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );

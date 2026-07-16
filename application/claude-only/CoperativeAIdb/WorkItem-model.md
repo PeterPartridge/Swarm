@@ -1,55 +1,26 @@
 # Page Spec — WorkItem (database model)
 
-> Produced by `/translate` from [`../../CoperativeAIdb/WorkItem-model.json`](../../CoperativeAIdb/WorkItem-model.json). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
+> Produced by `/translate` from [`../../CoperativeAIdb/WorkItem-model.json`](../../CoperativeAIdb/WorkItem-model.json). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest. **Round 2**: planning attaches to Products, not repositories.
 
 **Objective** _(unchanging)_
-A unit of planned work (feature / bug / test / spec) on the Product Planning board — the anchor for feature designs, AI policies, and QA scenarios.
-
-**Model & effort**
-Mid-range tier (Claude Sonnet 5), medium effort.
+A unit of planned work on a Product's board — epic, feature, user story, task, bug, or test — arranged in a hierarchy, optionally assigned and scheduled.
 
 **Depends on**
-- `CoperativeAIdb/Repository-model.json`
+- `CoperativeAIdb/Product-model.json`, `CoperativeAIdb/TeamMember-model.json`, `CoperativeAIdb/Sprint-model.json`
 
 **Data to store**
+id · title (non-empty) · itemType (epic/feature/userStory/task/bug/test) · status (planned/designing/building/testing/done) · description? · productId FK → Product · parentItemId? FK → WorkItem · assigneeId? FK → TeamMember · sprintId? FK → Sprint (same Product) · startDate?/endDate? (end ≥ start) · createdAt/updatedAt.
 
-| Field | What it looks like |
-|-------|---------------------|
-| id | Unique identifier (auto). |
-| title | Text, not empty. |
-| itemType | One of: feature / bug / test / spec (default feature). |
-| status | One of: planned / designing / building / testing / done (default planned). |
-| description | Optional text. |
-| repositoryId | FK → Repository.id (required). |
-| parentItemId | Optional FK → WorkItem.id (test scenarios under a feature). |
-| createdAt, updatedAt | Timestamps; updatedAt maintained on change. |
+**Invariants / tests**
+- [x] Title/type/Product required; types outside the active planning hierarchy rejected (bug/test always allowed).
+- [x] Hierarchy children sit deeper than their parent (skipping levels downward allowed; upward/same-level rejected); sub-items stay in their parent's Product.
+- [x] Assignee/sprint validated; a sprint must belong to the item's own Product; end-before-start rejected.
+- [x] No policy row → closed to AI (deny-by-default, enforced by work_item_policy).
+- [x] Round-2 migration: a legacy repositoryId table is dropped and recreated.
 
-**Access & security**
-Not sensitive itself — but an item with no WorkItemPolicy row is completely closed to AI (deny-by-default invariant, enforced in the AI call path).
+**Status:** built — round 2 (2026-07-16)
 
-**Tests**
-- [ ] Title/type/repository required.
-- [ ] itemType and status restricted to their lists.
-- [ ] FK to Repository and (when set) parent WorkItem enforced.
-- [ ] updatedAt changes on update.
+## Report back
+Rewrote `src-tauri/src/db/work_item.rs`: productId + hierarchy invariant against `system_setting::get_planning_hierarchy`, `update_item` (assignee/sprint/dates), `list_by_product`, and a create_table migration that drops the legacy repository-based table (pre-release data; exercised at startup against a real old database file). 8 cargo tests cover the invariants above. Commands: create/list-by-product/update_status/update_item/delete + `generate_user_stories` (see productPlanning report-back).
 
-**Open questions**
-- (none)
-
-#### Page Skills
-| Skill | Why it's needed | How the AI will use it | New for this page? |
-|-------|------------------|--------------------------|----------------------|
-| (covered by project skills) | Embedded db. | Table + queries in `src-tauri/src/db/work_item.rs`. | No. |
-
----
-
-## PLAN
-
-**Summary:** Create the WorkItem table and CRUD queries with list/status constraints and FKs; indexes on status, repositoryId, itemType, parentItemId.
-
-**Changes:**
-- Schema + CRUD in `src-tauri/src/db/work_item.rs`; TDD per the tests above.
-
-**Expected technical debt:** none anticipated.
-
-**Status:** translated — waiting for approval
+**Technical debt:** migration is drop-and-recreate — acceptable only while pre-release; once real users exist, schema changes need proper data-preserving migrations. Noted as the standing pattern to replace.

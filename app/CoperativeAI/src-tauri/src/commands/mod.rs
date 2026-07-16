@@ -1,6 +1,12 @@
 //! Tauri command handlers — one file per command group as pages are built.
 
+pub mod products;
 pub mod repositories;
+pub mod settings;
+pub mod solutions;
+pub mod sprints;
+pub mod team_members;
+pub mod windows;
 pub mod work_items;
 
 use tokio::sync::Mutex;

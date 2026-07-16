@@ -5,7 +5,7 @@
   "dependsOn": {
     "guidance": "Briefs that must be built before this one — usually the tables this model's relationships point at.",
     "example": ["ClothingDatabase/Customer.json"],
-    "entries": ["CoperativeAIdb/Repository-model.json"]
+    "entries": ["CoperativeAIdb/Product-model.json", "CoperativeAIdb/TeamMember-model.json", "CoperativeAIdb/Sprint-model.json"]
   },
   "instructions": {
     "whoFillsThisIn": "Developers (Product can sanity-check the information being stored).",
@@ -16,18 +16,22 @@
   "whatThisModelIs": {
     "question": "What does this model represent, in one line?",
     "example": "A customer's order.",
-    "answer": "A unit of planned work (feature, bug, test, or spec) on the Product Planning board — the thing feature designs, AI policies, and QA test scenarios attach to."
+    "answer": "A unit of planned work on a Product's planning board — an epic, feature, user story, task, bug, or test — arranged in a hierarchy, optionally assigned to a team member and scheduled into a sprint or dates."
   },
   "fields": {
     "guidance": "One entry per piece of data.",
     "entries": [
       { "fieldName": "id", "type": "id / key", "nullable": false, "default": "auto", "rules": "unique", "description": "The unique identifier" },
       { "fieldName": "title", "type": "text", "nullable": false, "default": "", "rules": "not empty", "description": "Short title of the work item" },
-      { "fieldName": "itemType", "type": "list", "nullable": false, "default": "feature", "rules": "one of: feature / bug / test / spec", "description": "What kind of work item this is" },
+      { "fieldName": "itemType", "type": "list", "nullable": false, "default": "feature", "rules": "one of: epic / feature / userStory / task / bug / test", "description": "What kind of work item this is. epic/feature/userStory/task form the planning hierarchy (which levels exist comes from the planningHierarchy setting); bug and test may attach at any level" },
       { "fieldName": "status", "type": "list", "nullable": false, "default": "planned", "rules": "one of: planned / designing / building / testing / done", "description": "Where the item is in the workflow" },
       { "fieldName": "description", "type": "text", "nullable": true, "default": "", "rules": "", "description": "Plain-English description of the work" },
-      { "fieldName": "repositoryId", "type": "id / key", "nullable": false, "default": "", "rules": "must reference a Repository row", "description": "The repository this work belongs to" },
-      { "fieldName": "parentItemId", "type": "id / key", "nullable": true, "default": "", "rules": "must reference a WorkItem row when set", "description": "The parent work item, for test scenarios attached to a feature" },
+      { "fieldName": "productId", "type": "id / key", "nullable": false, "default": "", "rules": "must reference a Product row", "description": "The Product this work belongs to" },
+      { "fieldName": "parentItemId", "type": "id / key", "nullable": true, "default": "", "rules": "must reference a WorkItem row when set; a hierarchy child's type must sit deeper in the active planning hierarchy than its parent's type (bug/test attach anywhere)", "description": "The parent work item" },
+      { "fieldName": "assigneeId", "type": "id / key", "nullable": true, "default": "", "rules": "must reference a TeamMember row when set", "description": "The team member the work is assigned to" },
+      { "fieldName": "sprintId", "type": "id / key", "nullable": true, "default": "", "rules": "must reference a Sprint row of the same Product when set", "description": "The sprint the item is scheduled into" },
+      { "fieldName": "startDate", "type": "date", "nullable": true, "default": "", "rules": "", "description": "Optional start date — teams that don't set times leave this empty" },
+      { "fieldName": "endDate", "type": "date", "nullable": true, "default": "", "rules": "must not be before startDate when both are set", "description": "Optional target date" },
       { "fieldName": "createdAt", "type": "date", "nullable": false, "default": "now", "rules": "", "description": "When the item was created" },
       { "fieldName": "updatedAt", "type": "date", "nullable": false, "default": "now", "rules": "updated on every change", "description": "When the item last changed" }
     ]
@@ -35,18 +39,20 @@
   "relationships": {
     "guidance": "How this model connects to others.",
     "entries": [
-      { "field": "repositoryId", "relationship": "many-to-one", "relatedTable": "Repository", "relatedField": "id", "constraintName": "FK_WorkItem_Repository" },
-      { "field": "parentItemId", "relationship": "many-to-one", "relatedTable": "WorkItem", "relatedField": "id", "constraintName": "FK_WorkItem_Parent" }
+      { "field": "productId", "relationship": "many-to-one", "relatedTable": "Product", "relatedField": "id", "constraintName": "FK_WorkItem_Product" },
+      { "field": "parentItemId", "relationship": "many-to-one", "relatedTable": "WorkItem", "relatedField": "id", "constraintName": "FK_WorkItem_Parent" },
+      { "field": "assigneeId", "relationship": "many-to-one", "relatedTable": "TeamMember", "relatedField": "id", "constraintName": "FK_WorkItem_Assignee" },
+      { "field": "sprintId", "relationship": "many-to-one", "relatedTable": "Sprint", "relatedField": "id", "constraintName": "FK_WorkItem_Sprint" }
     ]
   },
   "lookupsAndPerformance": {
     "question": "Which fields do we search or filter on a lot?",
-    "answer": ["status", "repositoryId", "itemType", "parentItemId"]
+    "answer": ["productId", "status", "itemType", "parentItemId", "sprintId", "assigneeId"]
   },
   "lifecycleAndRules": {
     "retention": {
       "question": "How long do we keep this data / when is it deleted?",
-      "answer": "Until the user deletes the item."
+      "answer": "Until the user deletes the item or its Product. Removing a team member or sprint clears the reference — never deletes the item."
     },
     "sensitiveFields": {
       "question": "Any sensitive fields that need extra protection?",
@@ -54,11 +60,13 @@
     },
     "invariants": {
       "question": "Anything that must always be true?",
-      "answer": "A work item always has a title, a type, and a repository. A work item with no WorkItemPolicy row is completely closed to AI (deny-by-default)."
+      "answer": "A work item always has a title, a type, and a Product. A hierarchy child sits deeper in the active planning hierarchy than its parent (bug/test attach anywhere). A work item with no WorkItemPolicy row is completely closed to AI (deny-by-default). Dates are optional; when both are set, endDate is not before startDate."
     }
   },
   "changesOverTime": {
     "guidance": "Each time you come back to change this model, add an entry describing what should change.",
-    "rounds": []
+    "rounds": [
+      { "round": 2, "change": "Planning now attaches to Products, not repositories: productId replaces repositoryId. itemType list becomes epic/feature/userStory/task (the hierarchy, governed by the planningHierarchy setting) plus bug/test (any level). New optional fields: assigneeId (TeamMember), sprintId (Sprint), startDate, endDate — all nullable so teams that don't assign or schedule aren't forced to." }
+    ]
   }
 }
