@@ -7,7 +7,7 @@
   "core": {
     "purpose": {
       "question": "What is the purpose of this solution?",
-      "answer": "The Rust application developers and Product use to run the CooperativeAICoding loop — filling in briefs, translating them, building, and reviewing — from a terminal, with a drag-and-drop canvas for arranging code blocks and UI designs."
+      "answer": "A Product / Development / QA workspace: the Rust desktop application teams use to run the CooperativeAICoding loop. The main window has a top menu with three tabs — Product, Develop, Test — each with its own colour; clicking a tab enters that environment. Product plans products (work items, drag-and-drop feature design, specs that generate endpoints/front-end/database designs); Develop builds them (code editor, real embedded terminal, multi-repository support, AI via API keys with per-work-item policies); Test designs QA tests around work items that AI can implement."
     },
     "hosting": {
       "question": "Where will it be hosted, deployed, or distributed?",
@@ -19,25 +19,25 @@
     },
     "frameworks": {
       "question": "What frameworks, libraries, or UI toolkit should it use?",
-      "answer": "Tauri for the GUI shell (window + drag-and-drop canvas, via its web-based frontend). The in-app terminal is a real embedded shell — a genuine OS shell process (e.g. via a PTY crate such as portable-pty) rendered inside the Tauri window (e.g. via xterm.js in the frontend) — not a simulated command box and not a text-mode UI crate like ratatui, which can't render inside a GUI webview."
+      "answer": "Tauri for the GUI shell. The frontend is React 19 + Vite + TypeScript: Monaco (VS Code's editor component) for the code editor, dnd-kit for the drag-and-drop feature-design canvas, and xterm.js for the terminal view. The in-app terminal is a real embedded shell — a genuine OS shell process (via a PTY crate such as portable-pty) rendered inside the Tauri window via xterm.js — not a simulated command box and not a text-mode UI crate like ratatui, which can't render inside a GUI webview."
     }
   },
   "accessAndInterface": {
     "authType": {
       "question": "How does this solution authenticate or authorise callers/users?",
-      "answer": "User login and role-based access control (from the Project Brief). On first run, the default Role rows are seeded automatically. If no users exist yet, the app shows the First Run Setup page instead of login — see CoperativeAI/firstRunSetup.md — where the person creates the Super Admin account themselves (their own username and password; nothing generated or hardcoded). After that, a Super Admin can add/remove users and assign roles."
+      "answer": "None — single-user local desktop app; no login, no user accounts. The app opens straight into the workspace."
     },
     "rolesOrClaims": {
       "question": "Does it authorise by Claims or Roles?",
-      "answer": "Roles — Product Edit, Product View, Code View, Code Edit (from the Project Brief). Each user holds exactly one role; a role grants a bundle of permissions (e.g. view or edit access to an area) — see the Role database model in CoperativeAIdb."
+      "answer": "None — no roles or claims; everyone using the app sees all three workspace tabs."
     },
     "lookAndFeel": {
       "question": "What is the overall look and feel?",
-      "answer": "Minimal and easy to use."
+      "answer": "Minimal and easy to use. A top menu with three tabs — Product, Develop, Test — each with its own colour identifying its environment; clicking a tab enters that environment."
     },
     "stylingOrToolkit": {
       "question": "What styling approach, component library, or UI toolkit?",
-      "answer": ""
+      "answer": "Plain CSS with CSS-variable theming: one variable set per workspace tab colour plus the user-customisable colours. No CSS framework — keeps the dependency footprint small for low-spec machines."
     },
     "interactionModel": {
       "question": "How do people interact with it?",
@@ -70,7 +70,16 @@
     },
     "fileLayout": {
       "question": "What is the folder and file layout of this solution's repo?",
-      "answer": []
+      "answer": [
+        "app/CoperativeAI/src/ — React + TypeScript frontend (Vite)",
+        "app/CoperativeAI/src/pages/ — one component per page brief (workspace shell, product planning, editor, terminal, …)",
+        "app/CoperativeAI/src/components/ — shared UI components",
+        "app/CoperativeAI/src/lib/ — shared frontend logic (Tauri command wrappers, theming)",
+        "app/CoperativeAI/src/pages/__tests__/ — Vitest tests mirroring src/pages/",
+        "app/CoperativeAI/src-tauri/src/commands/ — Tauri command handlers",
+        "app/CoperativeAI/src-tauri/src/db/ — all turso database access (one module per table)",
+        "app/CoperativeAI/src-tauri/src/terminal/ — PTY shell integration"
+      ]
     },
     "testing": {
       "question": "What test framework should be used, and what kinds of tests?",
@@ -82,7 +91,7 @@
       "run": "`npm run tauri dev` to start the application in development mode.",
       "build": "`npm run tauri build` to produce release binaries for Windows and Linux.",
       "deploy": "N/A — no server-side deployment. Release binaries are produced by the pipeline and published as downloadable artifacts.",
-      "test": "`cargo test` from src-tauri/ for backend logic; the frontend's test command once it has real logic beyond markup."
+      "test": "`cargo test` from src-tauri/ for backend logic; `npm test` (Vitest) for the frontend."
     },
     "note": "Based on the tauri-desktop-app boilerplate; the testing answer above overrides the boilerplate's testing entry. Commands were originally written assuming a plain cargo binary — corrected here to match Tauri's actual install/run/build/test shape during the first build attempt."
   },
@@ -95,7 +104,8 @@
       "question": "Any extra security rules for this solution?",
       "entries": [
         "Any file dragged in or opened by the user is validated (path, type, size) before being read.",
-        "There is no default or seeded password anywhere in the application — the first (Super Admin) account is always created interactively by a person via First Run Setup.",
+        "AI provider API keys are stored in the OS credential store (Windows Credential Manager / Linux Secret Service) via a Tauri keyring plugin — never in plaintext in the database, config files, code, or logs. The database stores only a key alias.",
+        "Per-work-item AI policies are enforced deny-by-default: before any work-item content is sent to an AI provider, the item's policy must explicitly allow that use and that provider.",
         "The embedded terminal runs as a real shell with the same permissions as the OS user running the app — no privilege escalation, and no separate elevated process.",
         "The embedded terminal is local only — never exposed over a network socket or remote-accessible interface.",
         "Output copied from or displayed in the embedded terminal is never logged or persisted by the application itself."

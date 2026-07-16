@@ -1,0 +1,63 @@
+{
+  "form": "database-model",
+  "modelName": "WorkItemPolicy",
+  "status": "built",
+  "dependsOn": {
+    "guidance": "Briefs that must be built before this one — usually the tables this model's relationships point at.",
+    "example": ["ClothingDatabase/Customer.json"],
+    "entries": ["CoperativeAIdb/WorkItem-model.json", "CoperativeAIdb/AIProvider-model.json"]
+  },
+  "instructions": {
+    "whoFillsThisIn": "Developers (Product can sanity-check the information being stored).",
+    "when": "Whenever a page needs to store data. One of these per model/table.",
+    "how": "Answer in plain English where you can.",
+    "note": "Solution = the folder this file sits in. Table / object name = this file's name."
+  },
+  "whatThisModelIs": {
+    "question": "What does this model represent, in one line?",
+    "example": "A customer's order.",
+    "answer": "The per-work-item AI policy: what the AI may do with that item, which provider it may use, and at what effort — nothing is allowed without a row here (deny-by-default)."
+  },
+  "fields": {
+    "guidance": "One entry per piece of data.",
+    "entries": [
+      { "fieldName": "id", "type": "id / key", "nullable": false, "default": "auto", "rules": "unique", "description": "The unique identifier" },
+      { "fieldName": "workItemId", "type": "id / key", "nullable": false, "default": "", "rules": "unique; must reference a WorkItem row", "description": "The work item this policy governs (one policy per item)" },
+      { "fieldName": "allowRead", "type": "true/false", "nullable": false, "default": "false", "rules": "", "description": "May the AI read this item's content" },
+      { "fieldName": "allowEdit", "type": "true/false", "nullable": false, "default": "false", "rules": "", "description": "May the AI edit code for this item" },
+      { "fieldName": "allowGenerateTests", "type": "true/false", "nullable": false, "default": "false", "rules": "", "description": "May the AI generate tests for this item" },
+      { "fieldName": "providerId", "type": "id / key", "nullable": true, "default": "", "rules": "must reference an AIProvider row when set; when null, no provider is allowed", "description": "The only AI provider this item may be sent to" },
+      { "fieldName": "effortTier", "type": "list", "nullable": false, "default": "low", "rules": "one of: low / medium / high", "description": "The effort tier AI calls for this item use" },
+      { "fieldName": "updatedAt", "type": "date", "nullable": false, "default": "now", "rules": "updated on every change", "description": "When the policy last changed" }
+    ]
+  },
+  "relationships": {
+    "guidance": "How this model connects to others.",
+    "entries": [
+      { "field": "workItemId", "relationship": "one-to-one", "relatedTable": "WorkItem", "relatedField": "id", "constraintName": "FK_WorkItemPolicy_WorkItem" },
+      { "field": "providerId", "relationship": "many-to-one", "relatedTable": "AIProvider", "relatedField": "id", "constraintName": "FK_WorkItemPolicy_AIProvider" }
+    ]
+  },
+  "lookupsAndPerformance": {
+    "question": "Which fields do we search or filter on a lot?",
+    "answer": ["workItemId"]
+  },
+  "lifecycleAndRules": {
+    "retention": {
+      "question": "How long do we keep this data / when is it deleted?",
+      "answer": "Deleted with its work item."
+    },
+    "sensitiveFields": {
+      "question": "Any sensitive fields that need extra protection?",
+      "answer": "No — but this table is security-enforcing: every AI call must check it first."
+    },
+    "invariants": {
+      "question": "Anything that must always be true?",
+      "answer": "One policy row per work item at most. A work item with no policy row, or a policy with allowRead = false, never has its content sent to any provider. Every flag defaults to false (deny-by-default). Deleting a provider must null out (not bypass) the providerId of policies that used it."
+    }
+  },
+  "changesOverTime": {
+    "guidance": "Each time you come back to change this model, add an entry describing what should change.",
+    "rounds": []
+  }
+}

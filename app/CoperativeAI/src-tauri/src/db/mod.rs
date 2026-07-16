@@ -1,0 +1,69 @@
+// The data layer is built ahead of the command layer (tables first, per the
+// approved build order), so these APIs have no callers outside tests yet.
+// Remove this allow as commands start consuming each module.
+#![allow(dead_code)]
+
+pub mod ai_provider;
+pub mod feature_design;
+pub mod repository;
+pub mod solution_management;
+pub mod work_item;
+pub mod work_item_policy;
+
+use std::time::{SystemTime, UNIX_EPOCH};
+use turso::{Builder, Connection, Database};
+
+/// A database failure or a rejected value (invariants are enforced in code
+/// because the embedded engine does not enforce foreign keys for us).
+#[derive(Debug)]
+pub enum DbError {
+    Db(turso::Error),
+    Validation(String),
+}
+
+impl From<turso::Error> for DbError {
+    fn from(e: turso::Error) -> Self {
+        DbError::Db(e)
+    }
+}
+
+impl std::fmt::Display for DbError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DbError::Db(e) => write!(f, "database error: {e}"),
+            DbError::Validation(msg) => write!(f, "{msg}"),
+        }
+    }
+}
+
+impl std::error::Error for DbError {}
+
+pub type Result<T> = std::result::Result<T, DbError>;
+
+/// Opens the CoperativeAI database at the given path (or an in-memory database
+/// for `:memory:`, used by tests) and returns a ready connection.
+pub async fn connect(path: &str) -> turso::Result<Connection> {
+    let db: Database = Builder::new_local(path).build().await?;
+    db.connect()
+}
+
+/// Creates every table the app uses. Called once at startup (and by tests
+/// that exercise cross-table rules).
+pub async fn create_all_tables(conn: &Connection) -> Result<()> {
+    solution_management::create_table(conn).await?;
+    repository::create_table(conn).await?;
+    work_item::create_table(conn).await?;
+    ai_provider::create_table(conn).await?;
+    work_item_policy::create_table(conn).await?;
+    feature_design::create_table(conn).await?;
+    Ok(())
+}
+
+/// Timestamps are stored as unix milliseconds so ordering doesn't depend on
+/// SQL date functions.
+pub fn now_millis() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock before 1970")
+        .as_millis() as i64
+}

@@ -2,7 +2,7 @@
 form: page-brief
 page: "Create Solution"
 solution: "CoperativeAI"
-depends-on: ["CoperativeAIdb/SolutionManagement-model.json","AuditLog-model.json"]           # briefs that must be built first, e.g. [ClothingAPI/Login.json]
+depends-on: ["CoperativeAIdb/SolutionManagement-model.json","workspaceShell.md"]           # briefs that must be built first, e.g. [ClothingAPI/Login.json]
 status: filled            # blank | filled | approved | built
 ---
 
@@ -35,7 +35,7 @@ Desktop application with a box in the center displaying a list of projects and a
 List of users projects
 
 ### who-can-use — Who is allowed to use this page?
-Authenticated users
+Anyone using the app — it is a single-user local desktop application with no login.
 
 ---
 
@@ -44,8 +44,8 @@ Authenticated users
 > For each endpoint this page needs, copy [`_forms/endpoint.json`](../_forms/endpoint.json) into this solution folder. For each data model it stores, copy [`_forms/database-model.json`](../_forms/database-model.json). Link them from here.
 
 ### data-stored — What information needs to be stored, and what does each bit look like?
-If we create a new solution the name and file location and update an audit log.
-When we delete we remove the files at location and delete the entry and update the audit log.
+If we create a new solution the name and file location are stored in the SolutionManagement table.
+When we delete we remove the files at location and delete the entry.
 
 
 ### in-memory — Does anything need to be remembered while the page is open (not saved permanently)?

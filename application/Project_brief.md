@@ -23,13 +23,13 @@ status: filled            # blank | filled | approved
 ## Part 1 — The Idea *(Product answers this)*
 
 ### purpose — In one or two sentences, what is the purpose of this software?
-To provide a system to allow developers to build a solution with very little effort and cost using the Cooperative AI coding framework.
+A Product / Development / QA workspace: a desktop app where teams plan products, build developments, and design QA tests cooperatively with AI, using the Cooperative AI coding framework — with very little effort and cost.
 
 ### problem — What problem does it solve, and for whom?
-At the moment not many tools give developers a product a unified platform to work. With AI there are tools for single repos, but not for multiple repos to work easily. This is to allow developers and Product to work with AI to build end to end solutions using their expertise along with the power of AI.
+At the moment not many tools give developers and Product a unified platform to work. With AI there are tools for single repos, but not for multiple repos to work easily. This is to allow Product, Developers, and QA to work with AI to build end to end solutions using their expertise along with the power of AI. The workflow runs: Product plans products (work items, drag-and-drop feature design, specifications that generate API endpoints, front-end changes, and database designs) → Developers build them (code editor, real terminal, multi-repository support, AI via API keys, with per-work-item control of how AI may use each item) → QA designs tests around work items that AI can implement.
 
 ### users — Who will use this software?
-Developers, QA, Product Manager, Designers.
+Developers, QA, Product Manager, Designers — as a single local user on their own machine; there are no logins or user accounts. The main window has a top menu with three tabs — **Product**, **Develop**, **Test** — each with its own colour; clicking a tab enters that environment.
 
 ### apps-you-like — Are there any apps or websites you like?
 VS Code, Claude Code, Cursor, Jira 
@@ -50,18 +50,17 @@ Windows and Linux
 single 
 
 ### solutions — List each solution and where its code lives.
-- Name: CoperativeAI — type: Rust Application — repo: https://github.com/PeterPartridge/CooperativeAICoding  — local path: /app/CoperativeAI
-- Name: CoperativeAIdb — type: turso database embeded in the rust application — repo: https://github.com/PeterPartridge/CooperativeAICoding  — local path: /app/CoperativeAI/db
+- Name: CoperativeAI — type: Rust Application — repo: https://github.com/PeterPartridge/CooperativeAICoding  — local path: app/CoperativeAI (relative to this repo's root)
+- Name: CoperativeAIdb — type: turso database embeded in the rust application — repo: https://github.com/PeterPartridge/CooperativeAICoding  — local path: app/CoperativeAI/db (relative to this repo's root)
 
 ### dev-rules — Software development rules for the codebase.
-- Build this using DRY (Do not repeat yourself) — if you are repeating code three times.
+- Build this using DRY (Do not repeat yourself) — if you are repeating code three times, move it into a shared method or module and reuse it instead.
 - Use the SOLID principles, creating code with single responsibility with Objects, and use dependency injection and interfaces where practical. Plan for code changes on production code to be small or the code will be extended by a new version file.
 - Keep the code simple and only do enough code to finish the job.
 - Always create a test that fails then write just enough code to get a passed test. The tests should start simple and get more complex as we add more functionality. 
 
 ### roles — List the roles or claims used across the application.
-- Product Edit
-- Product View
+None — the app is a single-user local desktop application with no logins, accounts, or role-based access. Everyone using it sees all three workspace tabs (Product, Develop, Test).
 
 
 ### hosting — What technology will host these solutions?
@@ -81,7 +80,7 @@ N/A
 ## Part 3 — Look & Feel *(Product answers this)*
 
 ### designs — Do you have any designs, sketches, screenshots, or examples?
-I want this to be minimal and easy to use with a terminal to run commands and interact with files, but we also want a drag-and-drop system to allow users to move code blocks or UI designs around. We should have customisable colours.
+I want this to be minimal and easy to use with a terminal to run commands and interact with files, but we also want a drag-and-drop system to allow users to move code blocks or UI designs around. We should have customisable colours. The main window has a top menu with three tabs — Product, Develop, Test — each tab with its own colour so you always know which environment you are in; clicking a tab enters that environment.
 
 ---
 
@@ -108,6 +107,7 @@ I want this to be minimal and easy to use with a terminal to run commands and in
 ## Part 5 — Anything Else
 
 ### anything-else — Is there anything important we haven't asked about?
+This tool will also be used to design its own features as it matures: work items and feature designs made inside the app generate CooperativeAICoding briefs/specs (the same files under `application/`), which are then built through the framework's own loop. The Creation Page and the spec-generation roadmap item are the start of this self-hosting.
 
 ---
 

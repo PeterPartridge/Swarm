@@ -7,7 +7,7 @@
   "core": {
     "purpose": {
       "question": "What is the purpose of this solution?",
-      "answer": ""
+      "answer": "The embedded turso database for the CoperativeAI workspace app. It stores the app's own working data — solutions, repositories, work items, AI provider settings (key aliases only, never key values), per-work-item AI policies, and feature designs. It stores no user accounts or credentials — the app has no logins."
     },
     "hosting": {
       "question": "Where will it be hosted, deployed, or distributed?",

@@ -1,7 +1,7 @@
 {
   "form": "database-model",
   "modelName": "Solution Management",
-  "status": "filled",
+  "status": "built",
   "dependsOn": {
     "guidance": "Briefs that must be built before this one — usually the tables this model's relationships point at.",
     "example": ["ClothingDatabase/Customer.json"],

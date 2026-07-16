@@ -35,7 +35,7 @@ Desktop application with a box in the center displaying a drop down of type of s
 All information required to help create a set of files that the AI can use to convert into instructions to create the project.
 
 ### who-can-use — Who is allowed to use this page?
-Authenticated users
+Anyone using the app — it is a single-user local desktop application with no login.
 
 ---
 

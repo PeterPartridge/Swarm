@@ -15,7 +15,7 @@ High — reasonable given this page's real job (see Open Questions).
 
 | User | Can do |
 |------|--------|
-| Authenticated user | Choose a solution type from a dropdown, then fill in a form whose answers become the required files in the `template/` folder location. |
+| Anyone using the app | Choose a solution type from a dropdown, then fill in a form whose answers become the required files in the `template/` folder location. |
 
 **Information shown / collected**
 - Whatever information is needed to generate the solution's files (a project brief / solution spec / item briefs, depending on type).
@@ -24,7 +24,7 @@ High — reasonable given this page's real job (see Open Questions).
 - Files stored in a `.CoperativeAI` folder.
 
 **Access & security**
-Authenticated users only.
+No login — single-user local desktop app (project security model).
 
 **Tests**
 - [ ] A project with 3 AI endpoints and 1 database file is created.

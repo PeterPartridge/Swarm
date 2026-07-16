@@ -7,29 +7,30 @@
 ## Project System Spec
 
 **Purpose**
-A desktop application that lets developers and Product run the CooperativeAICoding framework — filling in briefs, translating them, building, and reviewing — with very little effort and cost.
+A Product / Development / QA workspace: a desktop app where teams plan products, build developments, and design QA tests cooperatively with AI, using the CooperativeAICoding framework — with very little effort and cost.
 
 **Users**
 
 | User | What they want to do |
 |------|----------------------|
-| Developers | Build solutions using the framework, with AI assistance, across single or multiple repos. *(Brief lists this group but doesn't break out per-role goals beyond the project purpose — see Open Questions.)* |
-| QA | *(Not detailed in the brief.)* |
-| Product Manager | *(Not detailed in the brief.)* |
-| Designers | *(Not detailed in the brief.)* |
+| Product Manager / Designers | Plan products in the **Product** environment: manage work items, design features on a drag-and-drop canvas, write specifications that generate endpoints/front-end/database designs. |
+| Developers | Build in the **Develop** environment: code editor, real terminal, multi-repository support, AI via API keys — deciding per work item how the AI may use it. |
+| QA | Design tests in the **Test** environment around work items, for the AI to implement. |
+
+All of them use the app as a **single local user** — no logins or accounts. The main window is a top menu with three tabs — Product, Develop, Test — each with its own colour; clicking a tab enters that environment.
 
 **Platforms & technology constraints**
 - Rust application, single repo, distributed as a native executable — Windows and Linux.
 - Coded for low memory usage and good performance on low-spec machines.
-- UI: Tauri (GUI shell + web-based frontend) for the window and drag-and-drop canvas; a real embedded shell terminal (a genuine OS shell process, e.g. via a PTY crate, rendered in the Tauri window) — not a text-mode UI crate.
+- UI: Tauri GUI shell with a React 19 + Vite + TypeScript frontend — Monaco for the code editor, dnd-kit for the drag-and-drop canvas, xterm.js + a PTY crate (portable-pty) for a real embedded shell terminal.
 - Database: turso (embedded, in-process — not a separately hosted server).
 
 **Solutions & repositories**
 
 | Solution | Type | Repository | Local path |
 |----------|------|------------|------------|
-| CoperativeAI | application | https://github.com/PeterPartridge/CooperativeAICoding | `/app/CoperativeAI` ⚠ not found on this machine — see Open Questions |
-| CoperativeAIdb | database (turso, embedded in CoperativeAI) | https://github.com/PeterPartridge/CooperativeAICoding | `/app/CoperativeAI/db` ⚠ not found on this machine — see Open Questions |
+| CoperativeAI | application | https://github.com/PeterPartridge/CooperativeAICoding | `app/CoperativeAI` (relative to this repo's root) |
+| CoperativeAIdb | database (turso, embedded in CoperativeAI) | https://github.com/PeterPartridge/CooperativeAICoding | `app/CoperativeAI/db` (relative to this repo's root) |
 
 **Infrastructure & environments**
 - Project Brief's `infrastructure-policy` answer is "N/A." The solution specs fill in the detail: no server-side infrastructure; the pipeline (GitHub Actions) builds, tests, and produces downloadable release artifacts — nothing is provisioned or hosted.
@@ -39,20 +40,20 @@ A desktop application that lets developers and Product run the CooperativeAICodi
 
 | Rule | What it means on this project |
 |------|-------------------------------|
-| DRY | If code is repeated three times, move it into a shared place. *(The brief's answer is cut off after "three times" — the standard next clause, "move it to a shared library," is assumed but not stated — see Open Questions.)* |
+| DRY | If code is repeated three times, move it into a shared method or module and reuse it. |
 | SOLID | Single-responsibility objects, dependency injection and interfaces where practical. |
 | Small production changes | Changes to production code should be small; if a change would be large, extend via a new version file instead of a big rewrite. |
 | Keep it simple | Only write enough code to finish the job — no speculative extra scope. |
 | TDD | Always write a failing test first, then just enough code to pass it. Tests start simple and grow more complex as functionality is added. |
 
 **Access & security**
-- User login with role-based access control. Each user holds exactly **one** role; a role bundles several capabilities (e.g. view/edit access to an area) rather than being a single flat permission.
-- Roles seeded automatically on first run (data, not a user account): Product Edit, Product View, Code View, Code Edit, Super Admin (full permissions, including managing users and roles; cannot be deleted or weakened).
-- No default or seeded password anywhere in the app. If no users exist, a First Run Setup screen lets a person create the Super Admin account themselves (their own username/password) — see the per-page spec.
-- ⚠ The Project Brief's own `roles` answer only lists **Product Edit, Product View** — narrower than the five roles actually defined in `CoperativeAI/application-spec.json` and the `Role` database model. Flagged under Open Questions rather than silently resolved.
+- **No authentication**: single-user local desktop app — no logins, accounts, roles, or claims. The app opens straight into the workspace.
+- AI provider **API keys** live in the OS credential store (Windows Credential Manager / Linux Secret Service) via a Tauri keyring plugin — never in plaintext in the database, config, code, or logs. The database stores only a key alias.
+- **Per-work-item AI policies, deny-by-default**: before any work-item content goes to an AI provider, the item's policy must explicitly allow that use and that provider.
+- The embedded terminal is a real shell with the OS user's own permissions, local only, and its output is never logged or persisted (per the solution spec's security rules).
 
 **Look & feel / design references**
-Minimal and easy to use. A terminal to run commands and interact with files, plus a drag-and-drop system to move code blocks or UI designs around. Customisable colours.
+Minimal and easy to use. A top menu with three tabs — Product, Develop, Test — each with its own colour so you always know which environment you're in. A terminal to run commands and interact with files, plus a drag-and-drop system to move code blocks or UI designs around. Customisable colours.
 
 **Model & effort selection**
 
@@ -69,24 +70,20 @@ Minimal and easy to use. A terminal to run commands and interact with files, plu
 | High | Architecture changes, cross-file refactors, complex implementation work. |
 
 **Open questions**
-- `CoperativeAI` and `CoperativeAIdb`'s declared local path (`/app/CoperativeAI`) does not exist on this machine, either as an absolute path or relative to the repo root. Confirm the intended location before any scaffolding.
-- Roles: the Project Brief lists only Product Edit / Product View; the solution spec and Role model define five (adds Code View, Code Edit, Super Admin). Should the Project Brief be updated to match, since roles are meant to be the shared project-wide vocabulary?
-- The `dev-rules` DRY answer is cut off mid-sentence ("...if you are repeating code three times.") — confirm the intended rule (assumed: move shared code to a common module).
 - Cheapest and mid-range model tiers both name "Claude Sonnet 5" — confirm this is intentional (i.e., two effort levels of the same model rather than two different models).
-- `CoperativeAIdb/application-spec.json`'s `core.purpose` answer is blank.
-- `CoperativeAI/application-spec.json`'s `stylingOrToolkit` answer is blank, and it carries its own open question: should the embedded terminal (a real shell) be restricted in any way, or is full OS-user shell access intended?
+- `CoperativeAI/application-spec.json` carries its own open question: should the embedded terminal (a real shell) be restricted in any way, or is full OS-user shell access intended?
 - `apps-to-avoid` and `anything-else` in the Project Brief are unanswered.
 
 ---
 
 ## Project Digest *(reused by page translations)*
 
-- **Platform / tech:** Rust, single repo, Windows + Linux native executable, low memory/low-spec target. Tauri GUI + embedded real-shell terminal. turso embedded database.
-- **Solutions & repos:** CoperativeAI (application) → github.com/PeterPartridge/CooperativeAICoding, local path `/app/CoperativeAI` (⚠ unresolved — see Open Questions); CoperativeAIdb (database, embedded in CoperativeAI) → same repo, `/app/CoperativeAI/db` (⚠ unresolved).
+- **Platform / tech:** Rust, single repo, Windows + Linux native executable, low memory/low-spec target. Tauri GUI + React 19/Vite/TypeScript frontend (Monaco editor, dnd-kit drag-drop, xterm.js terminal), portable-pty real shell. turso embedded database.
+- **Solutions & repos:** CoperativeAI (application) → github.com/PeterPartridge/CooperativeAICoding, local path `app/CoperativeAI`; CoperativeAIdb (database, embedded in CoperativeAI) → same repo, `app/CoperativeAI/db`.
 - **Infra & environments:** No hosted infrastructure — release artifacts only, via GitHub Actions. dev = AI may build/deploy debug builds; production = people deploy after review, performance-focused.
 - **House rules:** DRY, SOLID (DI + interfaces), small production changes (or a new version file), keep it simple, TDD (failing test first).
-- **Security model:** Login + role-based access, one role per user, roles bundle permissions. Roles auto-seeded on first run; Super Admin **user** created interactively via First Run Setup — no default/seeded password anywhere.
-- **Roles:** Product Edit, Product View, Code View, Code Edit, Super Admin (per the solution spec — wider than the Project Brief's own roles answer; flagged above).
+- **Security model:** No authentication (single-user local app). API keys in the OS credential store via keyring, aliases only in DB. Per-work-item AI policies, deny-by-default, checked before every AI call.
+- **Roles:** None — everyone sees all three workspace tabs (Product, Develop, Test).
 - **Model & effort tiers:** Cheapest/mid = Claude Sonnet 5 (routine vs. everyday feature work); most capable = Claude Fable 5 (complex/architecture). Low/medium/high effort per task difficulty as defined above.
 
 ---
@@ -95,16 +92,19 @@ Minimal and easy to use. A terminal to run commands and interact with files, plu
 
 | Skill | Why it's needed | How the AI will use it | Tools/approach |
 |-------|------------------|--------------------------|-----------------|
-| Rust + Tauri desktop development | The whole application is a Tauri-based native executable. | Build the window, routing between screens (login/setup/solution management/creation), and the Rust backend behind them. | Tauri, Rust, cargo. |
-| Embedded database integration | CoperativeAIdb is a turso file opened in-process, not a hosted server. | Define schema/migrations from each database-model brief, write parameterised queries, run in-process. | turso (libSQL) Rust crate. |
-| Authentication & role-based access control | Every page is gated by login and a single-role permission model, with a bootstrap (First Run Setup) case. | Implement password hashing, session/auth state, role-permission checks, the empty-database detection that shows First Run Setup instead of login. | Rust password-hashing crate (e.g. argon2), the Role/UserCredentials models. |
-| Secure secret & credential handling | No hardcoded or seeded secrets anywhere; passwords are user-chosen and hashed. | Apply the `application-baseline` and `embedded-database-baseline` security rules on every build; never write a literal credential into code. | Project's own security baselines in `boilerplates.json`. |
-| Desktop UI/UX (drag-and-drop canvas, forms) | Product wants a minimal UI with draggable code/UI blocks and customisable colours. | Build the frontend views in Tauri's webview per page brief; implement drag-and-drop for the Creation/SolutionManagement screens. | Tauri frontend (HTML/CSS/JS or a framework of choice — not yet specified). |
-| Embedded terminal / PTY integration | The brief calls for a real terminal inside the app, confirmed as a genuine embedded shell. | Spawn and render a real OS shell process inside the Tauri window, scoped by the security rules (local-only, no privilege escalation, no output logging). | A PTY crate (e.g. portable-pty) + a terminal renderer (e.g. xterm.js) in the frontend. |
-| Cross-platform CI/CD | Release binaries are needed for both Windows and Linux, built and tested automatically. | Implement the GitHub Actions pipeline described in the solution spec (PR → build/test; merge → release binaries). | GitHub Actions, cargo. |
-| Spec-generation logic (framework self-hosting) | The Creation Page's actual job is generating the same kind of brief/spec files this session has been hand-building all along. | Implement the logic that turns a filled-in form (inside the app) into the framework's own file layout — effectively reimplementing `/translate`'s reasoning as app behaviour. | The framework's own templates in `template/_forms/` and `template/claude-only/` as the reference shape. |
+| Rust + Tauri desktop development | The whole application is a Tauri-based native executable. | Build the window, the three-tab workspace shell, and the Rust backend commands behind each environment. | Tauri 2, Rust, cargo. |
+| React + TypeScript frontend | The frontend is React 19 + Vite + TS with Vitest. | One page component per page brief, shared components/lib, component tests per screen. | React, Vite, Vitest. |
+| Embedded database integration | CoperativeAIdb is a turso file opened in-process, not a hosted server. | Define schema from each database-model brief, write parameterised queries, run in-process. | turso (libSQL) Rust crate, isolated in `src-tauri/src/db/`. |
+| Secure secret & credential handling | AI provider API keys must never touch the database, config, code, or logs. | Store/retrieve keys via the OS credential store under an alias; apply both security baselines on every build. | Tauri keyring plugin; the project's security baselines in `boilerplates.json`. |
+| AI provider integration & policy enforcement | The app calls AI providers (Claude first, pluggable) and must gate every call on the per-work-item policy. | One shared AI-call path that resolves the item's policy (deny-by-default), the allowed provider, and the effort tier before sending anything. | Claude API (and pluggable HTTP providers), WorkItemPolicy model. |
+| Drag-and-drop canvas UI | Product designs features by arranging and connecting blocks on a canvas. | Implement the Feature Designer's palette, canvas, and connections; persist designs as JSON per work item. | dnd-kit, FeatureDesign model. |
+| Code editor integration | Developers edit repository files inside the app. | File tree + Monaco editor over the active repository, lazy-loaded, scoped to the repository folder. | Monaco, Tauri fs commands. |
+| Embedded terminal / PTY integration | The brief calls for a real terminal inside the app. | Spawn and render a real OS shell inside the Tauri window, scoped by the security rules (local-only, no output logging). | portable-pty + xterm.js. |
+| Multi-repository management | Work items and the editor/terminal operate against registered repositories. | Register/validate/switch repositories; keep one active repository. | Repository model, path validation. |
+| Cross-platform CI/CD | Release binaries are needed for both Windows and Linux, built and tested automatically. | Implement the GitHub Actions pipeline described in the solution spec (PR → build/test; merge → release binaries). | GitHub Actions, cargo, npm. |
+| Spec-generation logic (framework self-hosting) | The Creation Page's job is generating the same kind of brief/spec files this framework uses. | Turn a filled-in in-app form (or feature design) into the framework's own file layout. | The framework's templates in `template/_forms/` as the reference shape. |
 
-> This is a genuinely broad list for one project — a full desktop app with embedded auth, an embedded shell, drag-and-drop UI, and a meta spec-generation engine. No single skill looks invented or surprising, but the breadth is a sign to keep building one page/model at a time (as the framework already structures it) rather than attempting several skills at once.
+> This is a genuinely broad list for one project — a full desktop app with an editor, terminal, canvas, AI integration, and a meta spec-generation engine. No single skill looks invented, but the breadth is the signal to keep building one page/model at a time (as the framework already structures it) rather than attempting several skills at once.
 
 ---
 ## Working Agreement *(restated)*
