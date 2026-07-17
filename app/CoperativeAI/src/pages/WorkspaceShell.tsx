@@ -2,6 +2,9 @@ import { useEffect, useState, type CSSProperties } from "react";
 import TabBar, { ENVIRONMENTS } from "../components/TabBar";
 import ProductPlanning from "./ProductPlanning";
 import DevelopSolutions from "./DevelopSolutions";
+import AdminArea from "./AdminArea";
+import ActiveUserPicker from "../components/ActiveUserPicker";
+import { usePermissions, type Area } from "../lib/permissions";
 import {
   applyTabColors,
   loadTabColors,
@@ -14,15 +17,27 @@ const ENVIRONMENT_PLACEHOLDERS: Record<EnvironmentId, string> = {
   product: "Plan products: work items, feature designs, and specifications.",
   develop: "Build developments: repositories, code editor, terminal, and AI.",
   test: "Design QA tests around work items for the AI to implement.",
+  admin: "Manage team members, roles, and what each role can see.",
 };
 
 export default function WorkspaceShell() {
   const [active, setActive] = useState<EnvironmentId>("product");
   const [colors, setColors] = useState<TabColors>(() => loadTabColors());
+  const { canAccess } = usePermissions();
 
   useEffect(() => {
     applyTabColors(colors);
   }, [colors]);
+
+  const visibleTabs = ENVIRONMENTS.filter((e) => canAccess(e.id as Area));
+
+  // If the active user's role hides the current tab, fall back to the first
+  // one they can see.
+  useEffect(() => {
+    if (visibleTabs.length > 0 && !visibleTabs.some((t) => t.id === active)) {
+      setActive(visibleTabs[0].id);
+    }
+  }, [visibleTabs, active]);
 
   function updateColor(id: EnvironmentId, value: string) {
     const next = { ...colors, [id]: value };
@@ -34,7 +49,10 @@ export default function WorkspaceShell() {
 
   return (
     <div className="workspace-shell">
-      <TabBar active={active} colors={colors} onSelect={setActive} />
+      <div className="shell-topbar">
+        <TabBar active={active} colors={colors} onSelect={setActive} tabs={visibleTabs} />
+        <ActiveUserPicker />
+      </div>
       <main
         className="environment"
         role="tabpanel"
@@ -46,6 +64,8 @@ export default function WorkspaceShell() {
           <ProductPlanning />
         ) : active === "develop" ? (
           <DevelopSolutions />
+        ) : active === "admin" ? (
+          <AdminArea />
         ) : (
           <p>{ENVIRONMENT_PLACEHOLDERS[active]}</p>
         )}

@@ -26,7 +26,7 @@ export default function StandaloneScreen({ screen, productId }: StandaloneScreen
         <h2>{product.name}</h2>
         <span className="screen-name">{screen}</span>
       </header>
-      <WorkspaceScreen screen={screen} productId={productId} />
+      <WorkspaceScreen screen={screen} productId={productId} product={product} />
     </div>
   );
 }

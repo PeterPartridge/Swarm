@@ -66,7 +66,8 @@
   "changesOverTime": {
     "guidance": "Each time you come back to change this model, add an entry describing what should change.",
     "rounds": [
-      { "round": 2, "change": "Planning now attaches to Products, not repositories: productId replaces repositoryId. itemType list becomes epic/feature/userStory/task (the hierarchy, governed by the planningHierarchy setting) plus bug/test (any level). New optional fields: assigneeId (TeamMember), sprintId (Sprint), startDate, endDate — all nullable so teams that don't assign or schedule aren't forced to." }
+      { "round": 2, "change": "Planning now attaches to Products, not repositories: productId replaces repositoryId. itemType list becomes epic/feature/userStory/task (the hierarchy, governed by the planningHierarchy setting) plus bug/test (any level). New optional fields: assigneeId (TeamMember), sprintId (Sprint), startDate, endDate — all nullable so teams that don't assign or schedule aren't forced to." },
+      { "round": 3, "change": "Add a Deliverable link and commercial fields: deliverableId (nullable FK → Deliverable of the same Product), expectedCost, estimatedProfit (nullable money), chargeable (yes/no, default no), customerCoverPct (nullable 0–100). The three commercial fields' visibility is gated per Role in the UI (Role.seeCost/seeProfit/seeChargeable)." }
     ]
   }
 }

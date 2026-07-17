@@ -8,6 +8,8 @@ use turso::Connection;
 
 pub const SOLUTION_TYPES: &[&str] = &["website", "api", "database", "application"];
 
+pub const ORIGINS: &[&str] = &["created", "imported"];
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Solution {
     pub id: i64,
@@ -15,11 +17,31 @@ pub struct Solution {
     pub product_id: i64,
     pub solution_type: String,
     pub answers: String,
+    pub origin: String,
+    pub github_url: Option<String>,
+    pub github_visibility: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
+const SELECT: &str = "SELECT id, name, productId, solutionType, answers, origin, githubUrl, githubVisibility, createdAt, updatedAt FROM solutions";
+
 pub async fn create_table(conn: &Connection) -> Result<()> {
+    // Round-2 migration: add GitHub link columns. Pre-release → drop & recreate
+    // when the round-1 table (no `origin`) is present.
+    let mut columns: Vec<String> = Vec::new();
+    {
+        let mut rows = conn
+            .query("SELECT name FROM pragma_table_info('solutions')", ())
+            .await?;
+        while let Some(row) = rows.next().await? {
+            columns.push(row.get(0)?);
+        }
+    }
+    if !columns.is_empty() && !columns.iter().any(|c| c == "origin") {
+        conn.execute("DROP TABLE solutions", ()).await?;
+    }
+
     conn.execute(
         "CREATE TABLE IF NOT EXISTS solutions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -27,6 +49,9 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             productId INTEGER NOT NULL,
             solutionType TEXT NOT NULL DEFAULT 'application',
             answers TEXT NOT NULL DEFAULT '{}',
+            origin TEXT NOT NULL DEFAULT 'created',
+            githubUrl TEXT,
+            githubVisibility TEXT,
             createdAt INTEGER NOT NULL,
             updatedAt INTEGER NOT NULL,
             UNIQUE(productId, name)
@@ -35,6 +60,39 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
     )
     .await?;
     Ok(())
+}
+
+/// Links or updates a Solution's GitHub repository. `origin` is "created"
+/// (repo we made) or "imported" (an existing repo linked by URL).
+pub async fn set_github(
+    conn: &Connection,
+    id: i64,
+    github_url: Option<&str>,
+    github_visibility: Option<&str>,
+    origin: &str,
+) -> Result<()> {
+    if !ORIGINS.contains(&origin) {
+        return Err(DbError::Validation(format!("origin must be one of {ORIGINS:?}")));
+    }
+    if find_by_id(conn, id).await?.is_none() {
+        return Err(DbError::Validation(format!("no Solution with id {id}")));
+    }
+    conn.execute(
+        "UPDATE solutions SET githubUrl = ?1, githubVisibility = ?2, origin = ?3, updatedAt = ?4 WHERE id = ?5",
+        (github_url, github_visibility, origin, now_millis(), id),
+    )
+    .await?;
+    Ok(())
+}
+
+pub async fn find_by_id(conn: &Connection, id: i64) -> Result<Option<Solution>> {
+    let mut rows = conn
+        .query(&format!("{SELECT} WHERE id = ?1"), (id,))
+        .await?;
+    match rows.next().await? {
+        Some(row) => Ok(Some(row_to_solution(row)?)),
+        None => Ok(None),
+    }
 }
 
 pub async fn create(
@@ -70,13 +128,13 @@ pub async fn create(
 }
 
 pub async fn list_all(conn: &Connection) -> Result<Vec<Solution>> {
-    query_solutions(conn, "SELECT id, name, productId, solutionType, answers, createdAt, updatedAt FROM solutions ORDER BY productId, id", None).await
+    query_solutions(conn, &format!("{SELECT} ORDER BY productId, id"), None).await
 }
 
 pub async fn list_by_product(conn: &Connection, product_id: i64) -> Result<Vec<Solution>> {
     query_solutions(
         conn,
-        "SELECT id, name, productId, solutionType, answers, createdAt, updatedAt FROM solutions WHERE productId = ?1 ORDER BY id",
+        &format!("{SELECT} WHERE productId = ?1 ORDER BY id"),
         Some(product_id),
     )
     .await
@@ -99,17 +157,24 @@ async fn query_solutions(
     };
     let mut solutions = Vec::new();
     while let Some(row) = rows.next().await? {
-        solutions.push(Solution {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            product_id: row.get(2)?,
-            solution_type: row.get(3)?,
-            answers: row.get(4)?,
-            created_at: row.get(5)?,
-            updated_at: row.get(6)?,
-        });
+        solutions.push(row_to_solution(row)?);
     }
     Ok(solutions)
+}
+
+fn row_to_solution(row: turso::Row) -> Result<Solution> {
+    Ok(Solution {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        product_id: row.get(2)?,
+        solution_type: row.get(3)?,
+        answers: row.get(4)?,
+        origin: row.get(5)?,
+        github_url: row.get(6)?,
+        github_visibility: row.get(7)?,
+        created_at: row.get(8)?,
+        updated_at: row.get(9)?,
+    })
 }
 
 #[cfg(test)]
@@ -161,5 +226,31 @@ mod tests {
             .await
             .expect("product")
             .is_some());
+    }
+
+    #[tokio::test]
+    async fn new_solution_defaults_to_created_origin_with_no_repo() {
+        let (conn, product_id) = db_with_product().await;
+        let id = create(&conn, "API", product_id, "api", "{}").await.expect("create");
+        let sol = find_by_id(&conn, id).await.expect("find").expect("exists");
+        assert_eq!(sol.origin, "created");
+        assert_eq!(sol.github_url, None);
+        assert_eq!(sol.github_visibility, None);
+    }
+
+    #[tokio::test]
+    async fn set_github_links_a_repo_and_validates_origin() {
+        let (conn, product_id) = db_with_product().await;
+        let id = create(&conn, "API", product_id, "api", "{}").await.expect("create");
+        set_github(&conn, id, Some("https://github.com/me/api"), Some("private"), "imported")
+            .await
+            .expect("link");
+        let sol = find_by_id(&conn, id).await.expect("find").expect("exists");
+        assert_eq!(sol.github_url.as_deref(), Some("https://github.com/me/api"));
+        assert_eq!(sol.github_visibility.as_deref(), Some("private"));
+        assert_eq!(sol.origin, "imported");
+
+        assert!(set_github(&conn, id, None, None, "bogus").await.is_err());
+        assert!(set_github(&conn, 999, None, None, "created").await.is_err());
     }
 }

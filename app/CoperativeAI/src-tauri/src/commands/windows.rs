@@ -3,7 +3,7 @@
 
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
-const SCREENS: &[&str] = &["planning", "roadmap"];
+const SCREENS: &[&str] = &["planning", "roadmap", "overview"];
 
 #[tauri::command]
 pub async fn open_screen_window(

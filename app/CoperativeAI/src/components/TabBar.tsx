@@ -5,18 +5,20 @@ export const ENVIRONMENTS: { id: EnvironmentId; label: string }[] = [
   { id: "product", label: "Product" },
   { id: "develop", label: "Develop" },
   { id: "test", label: "Test" },
+  { id: "admin", label: "Admin" },
 ];
 
 interface TabBarProps {
   active: EnvironmentId;
   colors: TabColors;
   onSelect: (id: EnvironmentId) => void;
+  tabs?: { id: EnvironmentId; label: string }[];
 }
 
-export default function TabBar({ active, colors, onSelect }: TabBarProps) {
+export default function TabBar({ active, colors, onSelect, tabs = ENVIRONMENTS }: TabBarProps) {
   return (
     <nav className="tab-bar" role="tablist" aria-label="Workspace environments">
-      {ENVIRONMENTS.map(({ id, label }) => (
+      {tabs.map(({ id, label }) => (
         <button
           key={id}
           role="tab"

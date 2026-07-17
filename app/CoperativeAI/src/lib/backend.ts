@@ -1,5 +1,12 @@
 // Thin wrapper over Tauri invoke so pages depend on one mockable module.
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
+
+/** Opens the OS folder picker; returns the chosen path, or null if cancelled. */
+export async function pickFolder(): Promise<string | null> {
+  const chosen = await open({ directory: true, multiple: false });
+  return typeof chosen === "string" ? chosen : null;
+}
 
 export interface Product {
   id: number;
@@ -13,12 +20,51 @@ export interface Solution {
   productId: number;
   solutionType: string;
   answers: string;
+  origin: string; // "created" | "imported"
+  githubUrl: string | null;
+  githubVisibility: string | null; // "private" | "public" | null
+}
+
+export interface GithubStatus {
+  connected: boolean;
 }
 
 export interface TeamMember {
   id: number;
   name: string;
-  role: string;
+  roleId: number | null;
+}
+
+export interface Role {
+  id: number;
+  name: string;
+  canProduct: boolean;
+  canDevelop: boolean;
+  canTest: boolean;
+  canAdmin: boolean;
+  seeCost: boolean;
+  seeProfit: boolean;
+  seeChargeable: boolean;
+}
+
+export interface Deliverable {
+  id: number;
+  productId: number;
+  name: string;
+  description: string;
+}
+
+/** The active user's effective permissions (full access when no active user). */
+export interface ActivePermissions {
+  memberId: number | null;
+  role: Role | null;
+  canProduct: boolean;
+  canDevelop: boolean;
+  canTest: boolean;
+  canAdmin: boolean;
+  seeCost: boolean;
+  seeProfit: boolean;
+  seeChargeable: boolean;
 }
 
 export interface Sprint {
@@ -41,6 +87,11 @@ export interface WorkItem {
   sprintId: number | null;
   startDate: number | null;
   endDate: number | null;
+  deliverableId: number | null;
+  expectedCost: number | null;
+  estimatedProfit: number | null;
+  chargeable: boolean;
+  customerCoverPct: number | null;
 }
 
 export interface Repository {
@@ -49,6 +100,32 @@ export interface Repository {
   localPath: string;
   isActive: boolean;
 }
+
+export interface AiProvider {
+  id: number;
+  name: string;
+  apiBaseUrl: string;
+  models: string[];
+  keyStored: boolean;
+}
+
+export interface WorkItemPolicy {
+  workItemId: number;
+  allowRead: boolean;
+  allowEdit: boolean;
+  allowGenerateTests: boolean;
+  providerId: number | null;
+  effortTier: string;
+}
+
+export const EFFORT_TIERS = ["low", "medium", "high"] as const;
+
+/** Suggested defaults for the AI Settings form (Claude first, pluggable). */
+export const DEFAULT_PROVIDER = {
+  name: "Claude",
+  apiBaseUrl: "https://api.anthropic.com",
+  models: "claude-opus-4-8, claude-sonnet-5",
+};
 
 export const STATUSES = [
   "planned",
@@ -101,12 +178,35 @@ export const SOLUTION_QUESTIONS: { id: string; label: string }[] = [
   { id: "frameworks", label: "What frameworks, libraries, or UI toolkit should it use?" },
 ];
 
+/** Structured fields for each strategy area (product fields live in ProductStrategy). */
+export const DEVELOP_STRATEGY_FIELDS: { id: string; label: string }[] = [
+  { id: "infrastructure", label: "Required infrastructure" },
+  { id: "architecture", label: "Architecture requirements" },
+  { id: "solutionGuidelines", label: "Solution creation guidelines" },
+  { id: "dependencies", label: "Dependencies / environment prerequisites" },
+];
+
+export const TEST_STRATEGY_FIELDS: { id: string; label: string }[] = [
+  { id: "testPlans", label: "Test plans" },
+  { id: "testEnvironments", label: "Test environments" },
+  { id: "tooling", label: "Required tooling" },
+  { id: "testLinks", label: "Links to test cases / automated suites" },
+];
+
+export const DEV_VIEWS = ["board", "sprint", "list"] as const;
+
 // Products
 export const listProducts = (): Promise<Product[]> => invoke("list_products");
-export const createProduct = (name: string, answers: string): Promise<number> =>
-  invoke("create_product", { name, answers });
+export const createProduct = (
+  name: string,
+  answers: string,
+  scaffoldDir?: string,
+): Promise<number> =>
+  invoke("create_product", { name, answers, scaffoldDir: scaffoldDir ?? null });
 export const getProduct = (id: number): Promise<Product> =>
   invoke("get_product", { id });
+export const getProductScaffold = (name: string): Promise<string | null> =>
+  invoke("get_product_scaffold", { name });
 export const deleteProduct = (id: number): Promise<void> =>
   invoke("delete_product", { id });
 
@@ -121,13 +221,77 @@ export const createSolution = (args: {
 export const deleteSolution = (id: number): Promise<void> =>
   invoke("delete_solution", { id });
 
-// Team members
+// GitHub (token lives in the OS credential store — never returned)
+export const githubStatus = (): Promise<GithubStatus> =>
+  invoke("github_status");
+export const setGithubToken = (token: string): Promise<string> =>
+  invoke("set_github_token", { token });
+export const removeGithubToken = (): Promise<void> =>
+  invoke("remove_github_token");
+export const linkSolutionRepo = (solutionId: number, url: string): Promise<void> =>
+  invoke("link_solution_repo", { solutionId, url });
+export const createSolutionRepo = (args: {
+  solutionId: number;
+  repoName: string;
+  private: boolean;
+  description: string;
+}): Promise<string> => invoke("create_solution_repo", args);
+
+// Team members (roles assigned in the Admin area)
 export const listTeamMembers = (): Promise<TeamMember[]> =>
   invoke("list_team_members");
-export const addTeamMember = (name: string, role: string): Promise<number> =>
-  invoke("add_team_member", { name, role });
+export const addTeamMember = (
+  name: string,
+  roleId: number | null,
+): Promise<number> => invoke("add_team_member", { name, roleId });
+export const setMemberRole = (id: number, roleId: number | null): Promise<void> =>
+  invoke("set_member_role", { id, roleId });
 export const removeTeamMember = (id: number): Promise<void> =>
   invoke("remove_team_member", { id });
+
+// Roles + active-user permission gate
+export const listRoles = (): Promise<Role[]> => invoke("list_roles");
+export const createRole = (name: string): Promise<number> =>
+  invoke("create_role", { name });
+export const updateRole = (role: Role): Promise<void> =>
+  invoke("update_role", {
+    id: role.id,
+    canProduct: role.canProduct,
+    canDevelop: role.canDevelop,
+    canTest: role.canTest,
+    canAdmin: role.canAdmin,
+    seeCost: role.seeCost,
+    seeProfit: role.seeProfit,
+    seeChargeable: role.seeChargeable,
+  });
+export const deleteRole = (id: number): Promise<void> =>
+  invoke("delete_role", { id });
+export const getActiveMember = (): Promise<number | null> =>
+  invoke("get_active_member");
+export const setActiveMember = (id: number | null): Promise<void> =>
+  invoke("set_active_member", { id });
+export const getActivePermissions = (): Promise<ActivePermissions> =>
+  invoke("get_active_permissions");
+
+// Deliverables (Product strategy)
+export const listDeliverables = (productId: number): Promise<Deliverable[]> =>
+  invoke("list_deliverables", { productId });
+export const createDeliverable = (args: {
+  productId: number;
+  name: string;
+  description: string;
+}): Promise<number> => invoke("create_deliverable", args);
+export const deleteDeliverable = (id: number): Promise<void> =>
+  invoke("delete_deliverable", { id });
+
+// Strategy (structured document per product + area)
+export const getStrategy = (productId: number, area: string): Promise<string> =>
+  invoke("get_strategy", { productId, area });
+export const saveStrategy = (
+  productId: number,
+  area: string,
+  content: string,
+): Promise<void> => invoke("save_strategy", { productId, area, content });
 
 // Sprints
 export const listSprints = (productId: number): Promise<Sprint[]> =>
@@ -168,11 +332,44 @@ export const updateWorkItem = (args: {
   sprintId: number | null;
   startDate: number | null;
   endDate: number | null;
+  deliverableId: number | null;
+  expectedCost: number | null;
+  estimatedProfit: number | null;
+  chargeable: boolean;
+  customerCoverPct: number | null;
 }): Promise<void> => invoke("update_work_item", args);
 export const deleteWorkItem = (id: number): Promise<void> =>
   invoke("delete_work_item", { id });
-export const generateUserStories = (featureId: number): Promise<void> =>
+export const generateUserStories = (featureId: number): Promise<string[]> =>
   invoke("generate_user_stories", { featureId });
+
+// AI providers (keys live in the OS credential store — never returned)
+export const listAiProviders = (): Promise<AiProvider[]> =>
+  invoke("list_ai_providers");
+export const addAiProvider = (args: {
+  name: string;
+  apiBaseUrl: string;
+  models: string[];
+  apiKey: string;
+}): Promise<number> => invoke("add_ai_provider", args);
+export const removeAiProvider = (id: number): Promise<void> =>
+  invoke("remove_ai_provider", { id });
+export const testAiProvider = (id: number): Promise<string> =>
+  invoke("test_ai_provider", { id });
+
+// Work-item AI policies (deny-by-default)
+export const getWorkItemPolicy = (
+  workItemId: number,
+): Promise<WorkItemPolicy | null> =>
+  invoke("get_work_item_policy", { workItemId });
+export const setWorkItemPolicy = (policy: {
+  workItemId: number;
+  allowRead: boolean;
+  allowEdit: boolean;
+  allowGenerateTests: boolean;
+  providerId: number | null;
+  effortTier: string;
+}): Promise<void> => invoke("set_work_item_policy", policy);
 
 // Pull-out windows
 export const openScreenWindow = (

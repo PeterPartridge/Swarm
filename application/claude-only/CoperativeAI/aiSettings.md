@@ -63,4 +63,18 @@ Implements the project's key-handling security rule directly. The key value exis
 
 **Expected technical debt:** Linux keyring fallback deferred until a target distro without Secret Service is confirmed.
 
-**Status:** translated — waiting for approval
+**Status:** built (2026-07-16)
+
+---
+
+## Report back
+
+**Tests:** `cargo test` 62/62 green (4 new client tests: prompt building, story parsing, error cases; keyring behaviour verified manually — unit tests deliberately don't touch the real OS credential store). `npm test` 30/30 green (4 AiSettings tests: stored-state display, add-clears-key, test-connection notice, remove). UI verified in the browser; exe smoke test passed.
+
+**How it was implemented:**
+- `src-tauri/src/ai/keys.rs` — keyring 3.6.3 (windows-native / sync-secret-service): store/get/delete/exists under service "CoperativeAI" with the provider's alias; delete tolerates missing entries.
+- `src-tauri/src/ai/client.rs` — Claude Messages API over raw HTTPS (reqwest 0.12): `POST {base}/v1/messages` with x-api-key + anthropic-version headers; story generation uses structured outputs (`output_config.format` json_schema) so responses parse deterministically; `stop_reason: "refusal"` handled; effort tier from the item's policy maps to `output_config.effort`.
+- `commands/ai_settings.rs` — add (db row + keyring store, rolled back together), list (keyStored flag, never values), remove (keyring entry deleted with the row), test connection (tiny Messages call against the provider's first model).
+- `src/components/AiSettings.tsx` in the Develop tab — form defaults suggest Claude at https://api.anthropic.com with claude-opus-4-8; the key field is password-type and cleared the moment the key leaves for the credential store.
+
+**Technical debt:** Linux encrypted-file fallback still deferred; test-connection uses the provider's first model only; per-model 400s from providers whose models don't support `effort`/structured outputs are surfaced verbatim rather than adapted.

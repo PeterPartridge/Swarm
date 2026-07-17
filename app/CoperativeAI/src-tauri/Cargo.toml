@@ -4,11 +4,14 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+keyring = { version = "3", features = ["windows-native", "sync-secret-service"] }
+reqwest = { version = "0.12", features = ["json"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
-tauri = "2.11.5"
+tauri = { version = "2.11.5", features = [] }
+tauri-plugin-dialog = "2"
 tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros"] }
 turso = "0.6.1"
 
 [build-dependencies]
-tauri-build = "2.6.3"
+tauri-build = { version = "2.6.3", features = [] }

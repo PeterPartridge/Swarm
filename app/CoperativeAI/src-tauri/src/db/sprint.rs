@@ -158,9 +158,13 @@ mod tests {
         let item = work_item::create(&conn, "Feature", "feature", product_id, None, None)
             .await
             .expect("create item");
-        work_item::update_item(&conn, item, None, Some(sprint), None, None)
-            .await
-            .expect("schedule");
+        work_item::update_item(
+            &conn,
+            item,
+            work_item::WorkItemFields { sprint_id: Some(sprint), ..Default::default() },
+        )
+        .await
+        .expect("schedule");
 
         remove(&conn, sprint).await.expect("remove sprint");
 

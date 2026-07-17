@@ -1,8 +1,11 @@
 // Prevents an extra console window on Windows in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod ai;
 mod commands;
 mod db;
+mod github;
+mod scaffold;
 mod terminal;
 
 use std::path::PathBuf;
@@ -10,6 +13,7 @@ use tauri::Manager;
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // COPERATIVEAI_DATA_DIR overrides the OS app-data folder — see the
             // solution spec's infrastructure.settings entry of the same name.
@@ -42,13 +46,32 @@ fn main() {
             commands::products::list_products,
             commands::products::create_product,
             commands::products::get_product,
+            commands::products::get_product_scaffold,
             commands::products::delete_product,
             commands::solutions::list_solutions,
             commands::solutions::create_solution,
             commands::solutions::delete_solution,
+            commands::github::github_status,
+            commands::github::set_github_token,
+            commands::github::remove_github_token,
+            commands::github::link_solution_repo,
+            commands::github::create_solution_repo,
             commands::team_members::list_team_members,
             commands::team_members::add_team_member,
+            commands::team_members::set_member_role,
             commands::team_members::remove_team_member,
+            commands::roles::list_roles,
+            commands::roles::create_role,
+            commands::roles::update_role,
+            commands::roles::delete_role,
+            commands::roles::get_active_member,
+            commands::roles::set_active_member,
+            commands::roles::get_active_permissions,
+            commands::deliverables::list_deliverables,
+            commands::deliverables::create_deliverable,
+            commands::deliverables::delete_deliverable,
+            commands::strategy::get_strategy,
+            commands::strategy::save_strategy,
             commands::sprints::list_sprints,
             commands::sprints::create_sprint,
             commands::sprints::remove_sprint,
@@ -57,6 +80,12 @@ fn main() {
             commands::settings::get_roadmap_mode,
             commands::settings::set_roadmap_mode,
             commands::windows::open_screen_window,
+            commands::ai_settings::list_ai_providers,
+            commands::ai_settings::add_ai_provider,
+            commands::ai_settings::remove_ai_provider,
+            commands::ai_settings::test_ai_provider,
+            commands::policies::get_work_item_policy,
+            commands::policies::set_work_item_policy,
             commands::repositories::list_repositories,
             commands::repositories::add_repository,
         ])

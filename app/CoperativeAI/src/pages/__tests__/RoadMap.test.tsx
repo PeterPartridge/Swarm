@@ -33,6 +33,11 @@ function item(overrides: Partial<WorkItem>): WorkItem {
     sprintId: null,
     startDate: null,
     endDate: null,
+    deliverableId: null,
+    expectedCost: null,
+    estimatedProfit: null,
+    chargeable: false,
+    customerCoverPct: null,
     ...overrides,
   };
 }

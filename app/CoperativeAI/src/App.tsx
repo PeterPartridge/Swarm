@@ -1,5 +1,10 @@
 import WorkspaceShell from "./pages/WorkspaceShell";
+import { PermissionProvider } from "./lib/permissions";
 
 export default function App() {
-  return <WorkspaceShell />;
+  return (
+    <PermissionProvider>
+      <WorkspaceShell />
+    </PermissionProvider>
+  );
 }

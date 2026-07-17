@@ -61,4 +61,14 @@ This page *is* the enforcement surface for the project's deny-by-default AI rule
 
 **Expected technical debt:** none acceptable on the enforcement path — tests must cover every deny case.
 
-**Status:** translated — waiting for approval
+**Status:** built (2026-07-16)
+
+---
+
+## Report back
+
+**Tests:** deny cases covered at the db layer (7 work_item_policy tests) plus command-layer gate tests (no policy / wrong hierarchy / non-feature / deleted provider all block; gates-passed resolves provider + effort). Vitest covers the editor (deny-by-default start state, toggling saves, provider select).
+
+**How it was implemented:** `commands/policies.rs` (get/set over the tested db module) and `src/components/PolicyEditor.tsx` — an "AI policy" panel on every board card with the three allow switches, provider picker (from AI Settings), and effort tier. The enforcement path is `commands/work_items.rs::resolve_story_generation` — the single gate the AI-story feature (and every future AI feature) passes through before any content moves; with gates passed, generation reads the key from the OS credential store, calls the provider, and creates userStory items under the feature.
+
+**Technical debt:** `work_item_policy::is_allowed` (per-use gate incl. edit/tests) exists and is tested but only the read+provider path is exercised by a live feature so far — the edit/test-generation uses activate with the code-editor and QA-designer builds.

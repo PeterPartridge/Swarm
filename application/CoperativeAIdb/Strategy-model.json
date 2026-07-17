@@ -1,0 +1,44 @@
+{
+  "form": "database-model",
+  "modelName": "Strategy",
+  "status": "built",
+  "dependsOn": {
+    "guidance": "Briefs that must be built before this one — usually the tables this model's relationships point at.",
+    "example": ["ClothingDatabase/Customer.json"],
+    "entries": ["CoperativeAIdb/Product-model.json"]
+  },
+  "instructions": {
+    "whoFillsThisIn": "Developers (Product can sanity-check the information being stored).",
+    "when": "Whenever a page needs to store data. One of these per model/table.",
+    "how": "Answer in plain English where you can.",
+    "note": "Solution = the folder this file sits in. Table / object name = this file's name."
+  },
+  "whatThisModelIs": {
+    "question": "What does this model represent, in one line?",
+    "example": "A customer's order.",
+    "answer": "One structured strategy document per (Product, area). area = product / develop / test; content is JSON of that section's named fields (vision/goals for product; infrastructure/architecture for develop; plans/tooling for test)."
+  },
+  "fields": {
+    "guidance": "One entry per piece of data.",
+    "entries": [
+      { "fieldName": "id", "type": "id / key", "nullable": false, "default": "auto", "rules": "unique", "description": "The unique identifier" },
+      { "fieldName": "productId", "type": "id / key", "nullable": false, "default": "", "rules": "must reference a Product row", "description": "The Product this strategy belongs to" },
+      { "fieldName": "area", "type": "list", "nullable": false, "default": "product", "rules": "one of: product / develop / test", "description": "Which area's strategy this is" },
+      { "fieldName": "content", "type": "text", "nullable": false, "default": "{}", "rules": "valid JSON of the area's named fields", "description": "The structured strategy fields" },
+      { "fieldName": "updatedAt", "type": "date", "nullable": false, "default": "now", "rules": "updated on every save", "description": "When it last changed" }
+    ]
+  },
+  "relationships": {
+    "guidance": "How this model connects to others.",
+    "entries": [
+      { "field": "productId", "relationship": "many-to-one", "relatedTable": "Product", "relatedField": "id", "constraintName": "FK_Strategy_Product" }
+    ]
+  },
+  "lookupsAndPerformance": { "question": "Which fields do we search or filter on a lot?", "answer": ["productId", "area"] },
+  "lifecycleAndRules": {
+    "retention": { "question": "How long do we keep this data / when is it deleted?", "answer": "One row per (product, area), replaced on save; deleted with its Product." },
+    "sensitiveFields": { "question": "Any sensitive fields that need extra protection?", "answer": "No." },
+    "invariants": { "question": "Anything that must always be true?", "answer": "One row per (product, area); area in its list; content always parses as JSON." }
+  },
+  "changesOverTime": { "guidance": "Each time you come back to change this model, add an entry describing what should change.", "rounds": [] }
+}

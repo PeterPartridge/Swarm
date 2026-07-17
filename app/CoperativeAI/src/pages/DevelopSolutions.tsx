@@ -1,30 +1,30 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import AiSettings from "../components/AiSettings";
+import GithubCard from "../components/GithubCard";
+import SolutionRepo from "../components/SolutionRepo";
+import StrategyEditor from "../components/StrategyEditor";
+import WorkItemViews from "../components/WorkItemViews";
 import {
-  addTeamMember,
   createSolution,
   deleteSolution,
+  githubStatus,
   listProducts,
   listSolutions,
-  listTeamMembers,
-  removeTeamMember,
+  DEVELOP_STRATEGY_FIELDS,
   SOLUTION_QUESTIONS,
   SOLUTION_TYPES,
-  TEAM_ROLES,
   type Product,
   type Solution,
-  type TeamMember,
 } from "../lib/backend";
 
-/** The Develop environment: the Developer Area's team list, and Solution
- *  creation linked to a Product. */
+/** The Develop environment: pick a Product to see its Technical Strategy and
+ *  Board/Sprint/List views, then create Solutions and configure AI. */
 export default function DevelopSolutions() {
-  const [members, setMembers] = useState<TeamMember[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [solutions, setSolutions] = useState<Solution[]>([]);
+  const [activeProduct, setActiveProduct] = useState<number | "">("");
+  const [githubConnected, setGithubConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const [memberName, setMemberName] = useState("");
-  const [memberRole, setMemberRole] = useState<string>(TEAM_ROLES[0]);
 
   const [solutionName, setSolutionName] = useState("");
   const [solutionProduct, setSolutionProduct] = useState<number | "">("");
@@ -33,17 +33,15 @@ export default function DevelopSolutions() {
 
   const refresh = useCallback(async () => {
     try {
-      const [loadedMembers, loadedProducts, loadedSolutions] = await Promise.all([
-        listTeamMembers(),
+      const [loadedProducts, loadedSolutions] = await Promise.all([
         listProducts(),
         listSolutions(),
       ]);
-      setMembers(loadedMembers);
       setProducts(loadedProducts);
       setSolutions(loadedSolutions);
-      setSolutionProduct((current) =>
-        current === "" && loadedProducts.length > 0 ? loadedProducts[0].id : current,
-      );
+      const firstId = loadedProducts.length > 0 ? loadedProducts[0].id : "";
+      setActiveProduct((cur) => (cur === "" ? firstId : cur));
+      setSolutionProduct((cur) => (cur === "" ? firstId : cur));
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -61,13 +59,6 @@ export default function DevelopSolutions() {
     } catch (e) {
       setError(String(e));
     }
-  }
-
-  async function onAddMember(e: FormEvent) {
-    e.preventDefault();
-    if (!memberName.trim()) return;
-    await run(() => addTeamMember(memberName, memberRole));
-    setMemberName("");
   }
 
   async function onCreateSolution(e: FormEvent) {
@@ -92,42 +83,38 @@ export default function DevelopSolutions() {
     <div className="develop-area">
       {error && <p role="alert">{error}</p>}
 
-      <section className="develop-card" aria-label="Developer Area">
-        <h2>Developer Area — team</h2>
-        <form onSubmit={onAddMember} aria-label="Add team member">
-          <input
-            aria-label="Member name"
-            placeholder="Name"
-            value={memberName}
-            onChange={(e) => setMemberName(e.target.value)}
-          />
-          <select
-            aria-label="Member role"
-            value={memberRole}
-            onChange={(e) => setMemberRole(e.target.value)}
-          >
-            {TEAM_ROLES.map((r) => (
-              <option key={r} value={r}>
-                {r}
-              </option>
-            ))}
-          </select>
-          <button type="submit">Add member</button>
-        </form>
-        <ul>
-          {members.map((m) => (
-            <li key={m.id}>
-              {m.name} — {m.role}{" "}
-              <button
-                aria-label={`Remove ${m.name}`}
-                onClick={() => run(() => removeTeamMember(m.id))}
-              >
-                Remove
-              </button>
-            </li>
-          ))}
-        </ul>
-      </section>
+      {products.length === 0 ? (
+        <p>No Products yet — create one in the Product tab to develop against it.</p>
+      ) : (
+        <>
+          <label className="develop-product-picker">
+            Product
+            <select
+              aria-label="Develop product"
+              value={activeProduct}
+              onChange={(e) => setActiveProduct(Number(e.target.value))}
+            >
+              {products.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {activeProduct !== "" && (
+            <>
+              <StrategyEditor
+                productId={Number(activeProduct)}
+                area="develop"
+                title="Technical Strategy"
+                fields={DEVELOP_STRATEGY_FIELDS}
+              />
+              <WorkItemViews productId={Number(activeProduct)} />
+            </>
+          )}
+        </>
+      )}
 
       <section className="develop-card" aria-label="Create a Solution">
         <h2>Create a Solution</h2>
@@ -168,9 +155,7 @@ export default function DevelopSolutions() {
                 {q.label}
                 <textarea
                   value={answers[q.id] ?? ""}
-                  onChange={(e) =>
-                    setAnswers({ ...answers, [q.id]: e.target.value })
-                  }
+                  onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
                 />
               </label>
             ))}
@@ -191,6 +176,8 @@ export default function DevelopSolutions() {
           ))}
         </ul>
       </section>
+
+      <AiSettings />
     </div>
   );
 }

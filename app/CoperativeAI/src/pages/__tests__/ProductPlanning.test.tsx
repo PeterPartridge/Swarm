@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ProductPlanning from "../ProductPlanning";
@@ -20,6 +20,12 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     listTeamMembers: vi.fn(),
     listSprints: vi.fn(),
     openScreenWindow: vi.fn(),
+    getProductScaffold: vi.fn(),
+    getWorkItemPolicy: vi.fn(),
+    listAiProviders: vi.fn(),
+    pickFolder: vi.fn(),
+    listDeliverables: vi.fn(),
+    getStrategy: vi.fn(),
   };
 });
 
@@ -43,6 +49,11 @@ describe("ProductPlanning (Product home)", () => {
     mocked.listWorkItems.mockResolvedValue([]);
     mocked.listTeamMembers.mockResolvedValue([]);
     mocked.listSprints.mockResolvedValue([]);
+    mocked.getProductScaffold.mockResolvedValue(null);
+    mocked.getWorkItemPolicy.mockResolvedValue(null);
+    mocked.listAiProviders.mockResolvedValue([]);
+    mocked.listDeliverables.mockResolvedValue([]);
+    mocked.getStrategy.mockResolvedValue("{}");
   });
 
   it("shows Products as cards plus the Add a Product card", async () => {
@@ -57,7 +68,7 @@ describe("ProductPlanning (Product home)", () => {
     expect(screen.getByLabelText("RoadMap style")).toBeInTheDocument();
   });
 
-  it("asks the Project brief questions and opens the workspace on create", async () => {
+  it("scaffolds behind the scenes and opens the three-panel workspace on create", async () => {
     const user = userEvent.setup();
     mocked.createProduct.mockResolvedValue(2);
     render(<ProductPlanning />);
@@ -71,21 +82,28 @@ describe("ProductPlanning (Product home)", () => {
       screen.getByLabelText(/purpose of this product/i),
       "Sell things",
     );
+    mocked.pickFolder.mockResolvedValue("C:/somewhere");
+    await user.click(
+      screen.getByRole("button", { name: /Choose folder/i }),
+    );
+    await waitFor(() => expect(screen.getByText("C:/somewhere")).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "Create Product" }));
 
     await waitFor(() =>
       expect(mocked.createProduct).toHaveBeenCalledWith(
         "New Product",
         JSON.stringify({ purpose: "Sell things" }),
+        "C:/somewhere",
       ),
     );
-    // Straight into the workspace: title header + screens menu.
+    // Straight into the workspace with all three panels showing.
     expect(await screen.findByRole("heading", { name: "New Product" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Planning" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "RoadMap" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Planning" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "RoadMap" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Overview" })).toBeInTheDocument();
   });
 
-  it("opens an existing Product's workspace and can pop it out", async () => {
+  it("opens an existing Product's workspace; dragging a panel handle pops it out", async () => {
     const user = userEvent.setup();
     mocked.openScreenWindow.mockResolvedValue();
     render(<ProductPlanning />);
@@ -93,9 +111,33 @@ describe("ProductPlanning (Product home)", () => {
     await user.click(await screen.findByRole("button", { name: "Open Shop App" }));
     expect(await screen.findByRole("heading", { name: "Shop App" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Open in its own window" }));
+    // Dragging the RoadMap handle tears it out into its own window.
+    const handle = screen.getByRole("button", { name: "Drag to pop out RoadMap" });
+    fireEvent.dragStart(handle);
+    fireEvent.dragEnd(handle);
+
     await waitFor(() =>
-      expect(mocked.openScreenWindow).toHaveBeenCalledWith("planning", 1, "Shop App"),
+      expect(mocked.openScreenWindow).toHaveBeenCalledWith("roadmap", 1, "Shop App"),
     );
+  });
+
+  it("clicking a panel handle does not pop out (only a real drag does)", async () => {
+    const user = userEvent.setup();
+    mocked.openScreenWindow.mockResolvedValue();
+    render(<ProductPlanning />);
+    await user.click(await screen.findByRole("button", { name: "Open Shop App" }));
+
+    const handle = await screen.findByRole("button", { name: "Drag to pop out Planning" });
+    await user.click(handle);
+    expect(mocked.openScreenWindow).not.toHaveBeenCalled();
+  });
+
+  it("shows the scaffold location on the Overview panel", async () => {
+    const user = userEvent.setup();
+    mocked.getProductScaffold.mockResolvedValue("C:/somewhere/Shop-App");
+    render(<ProductPlanning />);
+
+    await user.click(await screen.findByRole("button", { name: "Open Shop App" }));
+    expect(await screen.findByText("C:/somewhere/Shop-App")).toBeInTheDocument();
   });
 });

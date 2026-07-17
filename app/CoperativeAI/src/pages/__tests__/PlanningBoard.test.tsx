@@ -17,6 +17,10 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     getPlanningHierarchy: vi.fn(),
     listTeamMembers: vi.fn(),
     listSprints: vi.fn(),
+    getWorkItemPolicy: vi.fn(),
+    setWorkItemPolicy: vi.fn(),
+    listAiProviders: vi.fn(),
+    listDeliverables: vi.fn(),
   };
 });
 
@@ -37,11 +41,16 @@ function item(overrides: Partial<WorkItem>): WorkItem {
     sprintId: null,
     startDate: null,
     endDate: null,
+    deliverableId: null,
+    expectedCost: null,
+    estimatedProfit: null,
+    chargeable: false,
+    customerCoverPct: null,
     ...overrides,
   };
 }
 
-const member: TeamMember = { id: 5, name: "Ada", role: "Developer" };
+const member: TeamMember = { id: 5, name: "Ada", roleId: null };
 const sprint: Sprint = {
   id: 9,
   productId: 7,
@@ -62,6 +71,17 @@ describe("PlanningBoard", () => {
     ]);
     mocked.listTeamMembers.mockResolvedValue([member]);
     mocked.listSprints.mockResolvedValue([sprint]);
+    mocked.listDeliverables.mockResolvedValue([]);
+    mocked.getWorkItemPolicy.mockResolvedValue(null);
+    mocked.listAiProviders.mockResolvedValue([
+      {
+        id: 3,
+        name: "Claude",
+        apiBaseUrl: "https://api.anthropic.com",
+        models: ["claude-opus-4-8"],
+        keyStored: true,
+      },
+    ]);
   });
 
   it("restricts sub-item types to levels deeper than the parent (plus bug/test)", async () => {
@@ -110,24 +130,58 @@ describe("PlanningBoard", () => {
       "5",
     );
     await waitFor(() =>
-      expect(mocked.updateWorkItem).toHaveBeenCalledWith({
-        id: 1,
-        assigneeId: 5,
-        sprintId: null,
-        startDate: null,
-        endDate: null,
-      }),
+      expect(mocked.updateWorkItem).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 1, assigneeId: 5, sprintId: null }),
+      ),
     );
 
     await user.selectOptions(screen.getByLabelText("Sprint of Checkout"), "9");
     await waitFor(() =>
-      expect(mocked.updateWorkItem).toHaveBeenLastCalledWith({
-        id: 1,
-        assigneeId: null,
-        sprintId: 9,
-        startDate: null,
-        endDate: null,
-      }),
+      expect(mocked.updateWorkItem).toHaveBeenLastCalledWith(
+        expect.objectContaining({ id: 1, sprintId: 9 }),
+      ),
+    );
+  });
+
+  it("shows cost/profit/chargeable fields and saves an edit (full-access default)", async () => {
+    const user = userEvent.setup();
+    mocked.updateWorkItem.mockResolvedValue();
+    render(<PlanningBoard productId={7} />);
+
+    // No permission provider in this test → full access → fields visible.
+    const cost = await screen.findByLabelText("Expected cost of Checkout");
+    await user.type(cost, "1200");
+    await user.tab(); // commit on blur
+    await waitFor(() =>
+      expect(mocked.updateWorkItem).toHaveBeenLastCalledWith(
+        expect.objectContaining({ id: 1, expectedCost: 1200 }),
+      ),
+    );
+
+    await user.click(screen.getByLabelText("Chargeable: Checkout"));
+    await waitFor(() =>
+      expect(mocked.updateWorkItem).toHaveBeenLastCalledWith(
+        expect.objectContaining({ id: 1, chargeable: true }),
+      ),
+    );
+  });
+
+  it("assigning a work item to a deliverable saves it", async () => {
+    const user = userEvent.setup();
+    mocked.updateWorkItem.mockResolvedValue();
+    mocked.listDeliverables.mockResolvedValue([
+      { id: 4, productId: 7, name: "MVP", description: "" },
+    ]);
+    render(<PlanningBoard productId={7} />);
+
+    await user.selectOptions(
+      await screen.findByLabelText("Deliverable of Checkout"),
+      "4",
+    );
+    await waitFor(() =>
+      expect(mocked.updateWorkItem).toHaveBeenLastCalledWith(
+        expect.objectContaining({ id: 1, deliverableId: 4 }),
+      ),
     );
   });
 
@@ -162,5 +216,55 @@ describe("PlanningBoard", () => {
       }),
     );
     expect(await screen.findByRole("status")).toHaveTextContent("deny-by-default");
+  });
+
+  it("reports how many stories the AI created and refreshes the board", async () => {
+    const user = userEvent.setup();
+    mocked.generateUserStories.mockResolvedValue([
+      "As a shopper, I want one-step pay",
+      "As a shopper, I want saved cards",
+    ]);
+    render(<PlanningBoard productId={7} />);
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "AI: create user stories for Checkout",
+      }),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      'AI created 2 user stories under "Checkout"',
+    );
+    expect(mocked.listWorkItems.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it("opens the AI policy editor and saves changes (deny-by-default start)", async () => {
+    const user = userEvent.setup();
+    mocked.setWorkItemPolicy.mockResolvedValue();
+    render(<PlanningBoard productId={7} />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "AI policy for Checkout" }),
+    );
+    const readToggle = await screen.findByLabelText("AI may read this item");
+    expect(readToggle).not.toBeChecked(); // deny-by-default
+
+    await user.click(readToggle);
+    await waitFor(() =>
+      expect(mocked.setWorkItemPolicy).toHaveBeenCalledWith({
+        workItemId: 1,
+        allowRead: true,
+        allowEdit: false,
+        allowGenerateTests: false,
+        providerId: null,
+        effortTier: "low",
+      }),
+    );
+
+    await user.selectOptions(screen.getByLabelText("Provider for Checkout"), "3");
+    await waitFor(() =>
+      expect(mocked.setWorkItemPolicy).toHaveBeenLastCalledWith(
+        expect.objectContaining({ providerId: 3 }),
+      ),
+    );
   });
 });

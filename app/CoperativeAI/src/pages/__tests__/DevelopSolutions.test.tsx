@@ -2,19 +2,21 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DevelopSolutions from "../DevelopSolutions";
-import type { Product, Solution, TeamMember } from "../../lib/backend";
+import type { Product, Solution } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../lib/backend")>();
   return {
     ...original,
-    listTeamMembers: vi.fn(),
-    addTeamMember: vi.fn(),
-    removeTeamMember: vi.fn(),
     listProducts: vi.fn(),
     listSolutions: vi.fn(),
     createSolution: vi.fn(),
     deleteSolution: vi.fn(),
+    listAiProviders: vi.fn(),
+    getStrategy: vi.fn(),
+    listWorkItems: vi.fn(),
+    listSprints: vi.fn(),
+    listTeamMembers: vi.fn(),
   };
 });
 
@@ -23,7 +25,6 @@ import * as backend from "../../lib/backend";
 const mocked = vi.mocked(backend);
 
 const product: Product = { id: 1, name: "Shop App", answers: "{}" };
-const member: TeamMember = { id: 5, name: "Ada", role: "Developer" };
 const solution: Solution = {
   id: 3,
   name: "Shop API",
@@ -32,37 +33,37 @@ const solution: Solution = {
   answers: "{}",
 };
 
-describe("DevelopSolutions (Developer Area + Solution creation)", () => {
+describe("DevelopSolutions (Solution creation + AI settings)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocked.listTeamMembers.mockResolvedValue([member]);
     mocked.listProducts.mockResolvedValue([product]);
     mocked.listSolutions.mockResolvedValue([solution]);
+    mocked.listAiProviders.mockResolvedValue([]);
+    mocked.getStrategy.mockResolvedValue("{}");
+    mocked.listWorkItems.mockResolvedValue([]);
+    mocked.listSprints.mockResolvedValue([]);
+    mocked.listTeamMembers.mockResolvedValue([]);
   });
 
-  it("lists team members and adds a new one with a role", async () => {
-    const user = userEvent.setup();
-    mocked.addTeamMember.mockResolvedValue(6);
+  it("shows the AI Settings section", async () => {
     render(<DevelopSolutions />);
-
-    expect(await screen.findByText(/Ada — Developer/)).toBeInTheDocument();
-
-    await user.type(screen.getByLabelText("Member name"), "Grace");
-    await user.selectOptions(screen.getByLabelText("Member role"), "QA");
-    await user.click(screen.getByRole("button", { name: "Add member" }));
-
-    await waitFor(() =>
-      expect(mocked.addTeamMember).toHaveBeenCalledWith("Grace", "QA"),
-    );
+    expect(await screen.findByRole("region", { name: "AI Settings" })).toBeInTheDocument();
   });
 
-  it("removing a member calls the backend (items become unassigned there)", async () => {
-    const user = userEvent.setup();
-    mocked.removeTeamMember.mockResolvedValue();
+  it("shows the Technical Strategy and work views for the selected product", async () => {
     render(<DevelopSolutions />);
+    expect(await screen.findByRole("region", { name: "Technical Strategy" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Required infrastructure")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Work views" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Board" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Sprint" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "List" })).toBeInTheDocument();
+  });
 
-    await user.click(await screen.findByRole("button", { name: "Remove Ada" }));
-    await waitFor(() => expect(mocked.removeTeamMember).toHaveBeenCalledWith(5));
+  it("no longer manages team members here (moved to Admin)", async () => {
+    render(<DevelopSolutions />);
+    await screen.findByRole("region", { name: "Create a Solution" });
+    expect(screen.queryByLabelText("Member name")).not.toBeInTheDocument();
   });
 
   it("creates a Solution linked to a Product with the spec questions", async () => {

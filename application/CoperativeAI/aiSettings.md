@@ -3,7 +3,7 @@ form: page-brief
 page: "AI Settings"
 solution: "CoperativeAI"
 depends-on: ["workspaceShell.md", "CoperativeAIdb/AIProvider-model.json"]
-status: filled            # blank | filled | approved | built
+status: built            # blank | filled | approved | built
 ---
 
 # Page Brief — AI Settings

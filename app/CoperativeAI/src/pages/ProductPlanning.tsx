@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import ProductWorkspace from "../components/ProductWorkspace";
 import PlanningMethodSetting from "../components/PlanningMethodSetting";
+import FolderField from "../components/FolderField";
 import {
   createProduct,
   deleteProduct,
@@ -19,6 +20,7 @@ export default function ProductPlanning() {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [scaffoldDir, setScaffoldDir] = useState("");
 
   const refresh = useCallback(async () => {
     try {
@@ -37,13 +39,16 @@ export default function ProductPlanning() {
     e.preventDefault();
     if (!name.trim()) return;
     try {
-      const id = await createProduct(name, JSON.stringify(answers));
+      const id = await createProduct(name, JSON.stringify(answers), scaffoldDir);
+      const created = { id, name, answers: JSON.stringify(answers) };
       setName("");
       setAnswers({});
+      setScaffoldDir("");
       setCreating(false);
       await refresh();
-      // Creating a Product opens straight into its workspace.
-      setOpenProduct({ id, name, answers: JSON.stringify(answers) });
+      // Creating a Product scaffolds its files behind the scenes and opens
+      // straight into its three-panel workspace.
+      setOpenProduct(created);
     } catch (err) {
       setError(String(err));
     }
@@ -115,6 +120,11 @@ export default function ProductPlanning() {
                 />
               </label>
             ))}
+            <FolderField
+              label="Folder for the Product's files (scaffolded on create)"
+              value={scaffoldDir}
+              onChange={setScaffoldDir}
+            />
             <button type="submit">Create Product</button>
             <button type="button" onClick={() => setCreating(false)}>
               Cancel

@@ -51,6 +51,8 @@
   },
   "changesOverTime": {
     "guidance": "Each time you come back to change this model, add an entry describing what should change.",
-    "rounds": []
+    "rounds": [
+      { "round": 2, "change": "A member now carries an assigned Role (roleId FK → Role) instead of a free role-name string; the role gates what the member sees when they are the active user. Managed in the Admin area." }
+    ]
   }
 }

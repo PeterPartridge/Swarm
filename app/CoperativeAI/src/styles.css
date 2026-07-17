@@ -248,6 +248,290 @@ body {
   margin: 0.25rem 0;
 }
 
+.shell-topbar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.active-user {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.admin-area {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.admin-card {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-left: 4px solid var(--env-color, #475569);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+}
+
+.roles-table {
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  width: 100%;
+}
+
+.roles-table th,
+.roles-table td {
+  border: 1px solid #e5e7eb;
+  padding: 0.3rem 0.5rem;
+  text-align: center;
+}
+
+.roles-table td:first-child,
+.roles-table th:first-child {
+  text-align: left;
+}
+
+.card-commercial {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  border-top: 1px dashed #e5e7eb;
+  padding-top: 0.35rem;
+  font-size: 0.75rem;
+}
+
+.card-commercial label {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.card-commercial input[type="number"] {
+  width: 5rem;
+}
+
+.planning-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.product-strategy {
+  background: #fafafa;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  padding: 0.6rem;
+}
+
+.strategy-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.5rem;
+}
+
+.strategy-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.8rem;
+}
+
+.deliverable-group {
+  border-left: 3px solid var(--env-color, #7c3aed);
+  padding: 0.25rem 0.5rem;
+  margin-top: 0.4rem;
+}
+
+.deliverable-group .empty {
+  color: #9ca3af;
+  font-size: 0.8rem;
+}
+
+.develop-product-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+}
+
+.strategy-editor {
+  background: #fafafa;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  padding: 0.6rem;
+}
+
+.work-views {
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  padding: 0.6rem;
+}
+
+.view-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.view-controls [role="tablist"] {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.view-controls button {
+  border: 1px solid #d1d5db;
+  background: #fff;
+  border-radius: 0.375rem;
+  padding: 0.25rem 0.75rem;
+  cursor: pointer;
+}
+
+.view-controls .view-active {
+  background: var(--env-color, #2563eb);
+  color: #fff;
+  border-color: var(--env-color, #2563eb);
+}
+
+.card-meta {
+  font-size: 0.75rem;
+  color: #6b7280;
+}
+
+.sprint-lane {
+  border-left: 3px solid var(--env-color, #2563eb);
+  padding: 0.25rem 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.list-view {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.85rem;
+}
+
+.list-view th,
+.list-view td {
+  border: 1px solid #e5e7eb;
+  padding: 0.3rem 0.5rem;
+  text-align: left;
+}
+
+.panel-drag {
+  cursor: grab;
+  user-select: none;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  border: 1px dashed #cbd5e1;
+  border-radius: 0.375rem;
+  color: #6b7280;
+  touch-action: none;
+}
+
+.panel-drag-active {
+  cursor: grabbing;
+  background: var(--env-color, #7c3aed);
+  color: #fff;
+}
+
+.workspace-panels {
+  display: grid;
+  grid-template-columns: minmax(340px, 2fr) minmax(280px, 1.4fr) minmax(240px, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .workspace-panels {
+    grid-template-columns: 1fr;
+  }
+}
+
+.workspace-panel {
+  background: #fbfbfc;
+  border: 1px solid #e5e7eb;
+  border-top: 3px solid var(--env-color, #7c3aed);
+  border-radius: 0.5rem;
+  padding: 0.6rem;
+  overflow: auto;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.panel-header h3 {
+  margin: 0;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7280;
+}
+
+.workspace-panel .board {
+  grid-template-columns: repeat(5, minmax(110px, 1fr));
+}
+
+.product-overview dl div {
+  margin-bottom: 0.5rem;
+}
+
+.product-overview dt {
+  font-weight: 600;
+  font-size: 0.8rem;
+}
+
+.product-overview dd {
+  margin: 0 0 0.25rem;
+  font-size: 0.85rem;
+  color: #4b5563;
+}
+
+.folder-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.8rem;
+}
+
+.folder-field-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.folder-field-value {
+  color: #6b7280;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.policy-editor {
+  border-top: 1px dashed #d1d5db;
+  margin-top: 0.35rem;
+  padding-top: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+}
+
+.policy-editor label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 .colour-settings {
   display: flex;
   gap: 1.5rem;

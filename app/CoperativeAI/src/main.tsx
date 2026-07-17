@@ -12,7 +12,7 @@ const productId = params.get("productId");
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    {screen === "planning" || screen === "roadmap" ? (
+    {screen === "planning" || screen === "roadmap" || screen === "overview" ? (
       <StandaloneScreen screen={screen} productId={Number(productId)} />
     ) : (
       <App />

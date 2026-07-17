@@ -13,6 +13,9 @@ pub struct SolutionDto {
     pub product_id: i64,
     pub solution_type: String,
     pub answers: String,
+    pub origin: String,
+    pub github_url: Option<String>,
+    pub github_visibility: Option<String>,
 }
 
 impl From<Solution> for SolutionDto {
@@ -23,6 +26,9 @@ impl From<Solution> for SolutionDto {
             product_id: s.product_id,
             solution_type: s.solution_type,
             answers: s.answers,
+            origin: s.origin,
+            github_url: s.github_url,
+            github_visibility: s.github_visibility,
         }
     }
 }

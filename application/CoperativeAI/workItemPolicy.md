@@ -3,7 +3,7 @@ form: page-brief
 page: "Work Item AI Policy"
 solution: "CoperativeAI"
 depends-on: ["productPlanning.md", "aiSettings.md", "CoperativeAIdb/WorkItemPolicy-model.json"]
-status: filled            # blank | filled | approved | built
+status: built            # blank | filled | approved | built
 ---
 
 # Page Brief — Work Item AI Policy

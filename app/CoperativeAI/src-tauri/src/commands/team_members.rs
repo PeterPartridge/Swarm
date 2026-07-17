@@ -1,4 +1,4 @@
-//! Commands behind the Developer Area's team list — see db::team_member.
+//! Developer/Admin team commands — members with an assigned Role.
 
 use super::{to_message, AppDb};
 use crate::db::team_member::{self, TeamMember};
@@ -10,7 +10,7 @@ use tauri::State;
 pub struct TeamMemberDto {
     pub id: i64,
     pub name: String,
-    pub role: String,
+    pub role_id: Option<i64>,
 }
 
 impl From<TeamMember> for TeamMemberDto {
@@ -18,7 +18,7 @@ impl From<TeamMember> for TeamMemberDto {
         TeamMemberDto {
             id: m.id,
             name: m.name,
-            role: m.role,
+            role_id: m.role_id,
         }
     }
 }
@@ -34,10 +34,20 @@ pub async fn list_team_members(db: State<'_, AppDb>) -> Result<Vec<TeamMemberDto
 pub async fn add_team_member(
     db: State<'_, AppDb>,
     name: String,
-    role: String,
+    role_id: Option<i64>,
 ) -> Result<i64, String> {
     let conn = db.0.lock().await;
-    team_member::add(&conn, &name, &role).await.map_err(to_message)
+    team_member::add(&conn, &name, role_id).await.map_err(to_message)
+}
+
+#[tauri::command]
+pub async fn set_member_role(
+    db: State<'_, AppDb>,
+    id: i64,
+    role_id: Option<i64>,
+) -> Result<(), String> {
+    let conn = db.0.lock().await;
+    team_member::set_role(&conn, id, role_id).await.map_err(to_message)
 }
 
 #[tauri::command]

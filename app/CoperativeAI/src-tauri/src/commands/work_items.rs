@@ -21,6 +21,11 @@ pub struct WorkItemDto {
     pub sprint_id: Option<i64>,
     pub start_date: Option<i64>,
     pub end_date: Option<i64>,
+    pub deliverable_id: Option<i64>,
+    pub expected_cost: Option<f64>,
+    pub estimated_profit: Option<f64>,
+    pub chargeable: bool,
+    pub customer_cover_pct: Option<f64>,
 }
 
 impl From<WorkItem> for WorkItemDto {
@@ -37,6 +42,11 @@ impl From<WorkItem> for WorkItemDto {
             sprint_id: w.sprint_id,
             start_date: w.start_date,
             end_date: w.end_date,
+            deliverable_id: w.deliverable_id,
+            expected_cost: w.expected_cost,
+            estimated_profit: w.estimated_profit,
+            chargeable: w.chargeable,
+            customer_cover_pct: w.customer_cover_pct,
         }
     }
 }
@@ -88,6 +98,7 @@ pub async fn update_work_item_status(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn update_work_item(
     db: State<'_, AppDb>,
     id: i64,
@@ -95,11 +106,30 @@ pub async fn update_work_item(
     sprint_id: Option<i64>,
     start_date: Option<i64>,
     end_date: Option<i64>,
+    deliverable_id: Option<i64>,
+    expected_cost: Option<f64>,
+    estimated_profit: Option<f64>,
+    chargeable: bool,
+    customer_cover_pct: Option<f64>,
 ) -> Result<(), String> {
     let conn = db.0.lock().await;
-    work_item::update_item(&conn, id, assignee_id, sprint_id, start_date, end_date)
-        .await
-        .map_err(to_message)
+    work_item::update_item(
+        &conn,
+        id,
+        work_item::WorkItemFields {
+            assignee_id,
+            sprint_id,
+            start_date,
+            end_date,
+            deliverable_id,
+            expected_cost,
+            estimated_profit,
+            chargeable,
+            customer_cover_pct,
+        },
+    )
+    .await
+    .map_err(to_message)
 }
 
 #[tauri::command]
@@ -108,20 +138,93 @@ pub async fn delete_work_item(db: State<'_, AppDb>, id: i64) -> Result<(), Strin
     work_item::delete(&conn, id).await.map_err(to_message)
 }
 
-/// The AI-story hook. Runs every gate — feature type, hierarchy includes
-/// user stories, per-item policy (deny-by-default), provider configured —
-/// before any AI work would happen. Real generation ships with the AI
-/// integration build; until then the gates themselves are the feature.
-#[tauri::command]
-pub async fn generate_user_stories(db: State<'_, AppDb>, feature_id: i64) -> Result<(), String> {
-    let conn = db.0.lock().await;
-    generate_user_stories_inner(&conn, feature_id).await
+/// Everything the gates resolve before any content moves: the feature, the
+/// provider it may use, and the effort tier its policy allows.
+pub(crate) struct StoryGenerationContext {
+    pub feature: WorkItem,
+    pub provider: crate::db::ai_provider::AiProvider,
+    pub effort_tier: String,
 }
 
-pub(crate) async fn generate_user_stories_inner(
+/// The AI-story command. Gates first (feature type, hierarchy includes user
+/// stories, per-item deny-by-default policy, provider configured), then the
+/// real work: key from the OS credential store → Claude Messages API with
+/// structured outputs → new userStory items under the feature.
+#[tauri::command]
+pub async fn generate_user_stories(
+    db: State<'_, AppDb>,
+    feature_id: i64,
+) -> Result<Vec<String>, String> {
+    use crate::ai::{client, keys};
+    use crate::db::{product, solution};
+
+    // Resolve gates + prompt inputs under the lock, then release it for the
+    // network call so the rest of the app stays responsive.
+    let (context, prompt) = {
+        let conn = db.0.lock().await;
+        let context = resolve_story_generation(&conn, feature_id).await?;
+        let Some(product_row) = product::find_by_id(&conn, context.feature.product_id)
+            .await
+            .map_err(to_message)?
+        else {
+            return Err("this feature's Product no longer exists".into());
+        };
+        let solutions = solution::list_by_product(&conn, product_row.id)
+            .await
+            .map_err(to_message)?
+            .into_iter()
+            .map(|s| (s.name, s.solution_type, s.answers))
+            .collect::<Vec<_>>();
+        let prompt = client::build_story_prompt(
+            &product_row.name,
+            &product_row.answers,
+            &context.feature.title,
+            context.feature.description.as_deref(),
+            &solutions,
+        );
+        (context, prompt)
+    };
+
+    let api_key = keys::get_key(&context.provider.key_alias)?;
+    let model = context
+        .provider
+        .models
+        .first()
+        .cloned()
+        .ok_or_else(|| "the allowed AI provider has no models configured".to_string())?;
+    let drafts = client::generate_stories(
+        &context.provider.api_base_url,
+        &api_key,
+        &model,
+        &context.effort_tier,
+        &prompt,
+    )
+    .await?;
+
+    let conn = db.0.lock().await;
+    let mut created = Vec::new();
+    for draft in drafts {
+        work_item::create(
+            &conn,
+            &draft.title,
+            "userStory",
+            context.feature.product_id,
+            Some(feature_id),
+            Some(&draft.description),
+        )
+        .await
+        .map_err(to_message)?;
+        created.push(draft.title);
+    }
+    Ok(created)
+}
+
+/// The gate half, kept separate so the deny-by-default behaviour is unit
+/// testable without a credential store or network.
+pub(crate) async fn resolve_story_generation(
     conn: &turso::Connection,
     feature_id: i64,
-) -> Result<(), String> {
+) -> Result<StoryGenerationContext, String> {
     let Some(item) = work_item::find_by_id(conn, feature_id)
         .await
         .map_err(to_message)?
@@ -153,18 +256,31 @@ pub(crate) async fn generate_user_stories_inner(
             item.title
         ));
     };
-    if !policy.allow_read || policy.provider_id.is_none() {
-        return Err(format!(
-            "'{}''s AI policy blocks this: it must allow reading and name an AI provider. Configure a provider in AI Settings and update the item's policy.",
-            item.title
-        ));
-    }
-    Err("AI story generation arrives with the AI-integration build — this feature's policy gates all passed.".into())
+    let provider_id = match (policy.allow_read, policy.provider_id) {
+        (true, Some(provider_id)) => provider_id,
+        _ => {
+            return Err(format!(
+                "'{}''s AI policy blocks this: it must allow reading and name an AI provider. Configure a provider in AI Settings and update the item's policy.",
+                item.title
+            ));
+        }
+    };
+    let Some(provider) = crate::db::ai_provider::find_by_id(conn, provider_id)
+        .await
+        .map_err(to_message)?
+    else {
+        return Err("the policy's AI provider no longer exists — update the item's policy".into());
+    };
+    Ok(StoryGenerationContext {
+        feature: item,
+        provider,
+        effort_tier: policy.effort_tier,
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::generate_user_stories_inner;
+    use super::resolve_story_generation;
     use crate::db::product::tests::db_with_product;
     use crate::db::{ai_provider, system_setting, work_item, work_item_policy};
 
@@ -174,9 +290,10 @@ mod tests {
         let feature = work_item::create(&conn, "Checkout", "feature", product_id, None, None)
             .await
             .expect("feature");
-        let err = generate_user_stories_inner(&conn, feature)
+        let err = resolve_story_generation(&conn, feature)
             .await
-            .expect_err("must be blocked");
+            .err()
+            .expect("must be blocked");
         assert!(err.contains("deny-by-default"), "got: {err}");
     }
 
@@ -190,9 +307,10 @@ mod tests {
         let feature = work_item::create(&conn, "Checkout", "feature", product_id, None, None)
             .await
             .expect("feature");
-        let err = generate_user_stories_inner(&conn, feature)
+        let err = resolve_story_generation(&conn, feature)
             .await
-            .expect_err("must be blocked");
+            .err()
+            .expect("must be blocked");
         assert!(err.contains("planning method"), "got: {err}");
     }
 
@@ -202,14 +320,15 @@ mod tests {
         let epic = work_item::create(&conn, "Big thing", "epic", product_id, None, None)
             .await
             .expect("epic");
-        let err = generate_user_stories_inner(&conn, epic)
+        let err = resolve_story_generation(&conn, epic)
             .await
-            .expect_err("must be blocked");
+            .err()
+            .expect("must be blocked");
         assert!(err.contains("features"), "got: {err}");
     }
 
     #[tokio::test]
-    async fn with_all_gates_passed_the_pending_integration_is_reported() {
+    async fn with_all_gates_passed_the_provider_and_effort_are_resolved() {
         let (conn, product_id) = db_with_product().await;
         let feature = work_item::create(&conn, "Checkout", "feature", product_id, None, None)
             .await
@@ -218,7 +337,7 @@ mod tests {
             &conn,
             "Claude",
             "https://api.anthropic.com",
-            &["claude-sonnet-5"],
+            &["claude-opus-4-8"],
             "alias",
         )
         .await
@@ -226,9 +345,31 @@ mod tests {
         work_item_policy::set_policy(&conn, feature, true, false, false, Some(provider), "medium")
             .await
             .expect("policy");
-        let err = generate_user_stories_inner(&conn, feature)
+        let context = resolve_story_generation(&conn, feature)
             .await
-            .expect_err("integration not built yet");
-        assert!(err.contains("gates all passed"), "got: {err}");
+            .expect("gates pass");
+        assert_eq!(context.provider.id, provider);
+        assert_eq!(context.effort_tier, "medium");
+        assert_eq!(context.feature.title, "Checkout");
+    }
+
+    #[tokio::test]
+    async fn a_deleted_provider_blocks_generation() {
+        let (conn, product_id) = db_with_product().await;
+        let feature = work_item::create(&conn, "Checkout", "feature", product_id, None, None)
+            .await
+            .expect("feature");
+        let provider = ai_provider::add(&conn, "Claude", "https://a.example", &["m"], "alias")
+            .await
+            .expect("provider");
+        work_item_policy::set_policy(&conn, feature, true, false, false, Some(provider), "low")
+            .await
+            .expect("policy");
+        ai_provider::remove(&conn, provider).await.expect("remove");
+        let err = resolve_story_generation(&conn, feature)
+            .await
+            .err()
+            .expect("must be blocked");
+        assert!(err.contains("policy"), "got: {err}");
     }
 }
