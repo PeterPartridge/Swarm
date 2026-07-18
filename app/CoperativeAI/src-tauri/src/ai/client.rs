@@ -246,13 +246,6 @@ pub fn parse_generation(text: &str) -> Result<Generated, String> {
     Ok(Generated::Items(drafts))
 }
 
-/// Back-compat helper for callers that only want items.
-pub fn parse_stories(text: &str) -> Result<Vec<StoryDraft>, String> {
-    match parse_generation(text)? {
-        Generated::Items(items) => Ok(items),
-        Generated::Blocked { reason, .. } => Err(reason),
-    }
-}
 
 /// Calls the provider's Messages API and returns story drafts with what the
 /// call consumed.
@@ -509,16 +502,20 @@ mod tests {
             {"title": "As a shopper, I want to pay in one step so that checkout is fast", "description": "Single page."},
             {"title": "As a shopper, I want saved cards so that I don't retype", "description": "Stored via the API."}
         ]}"#;
-        let stories = parse_stories(text).expect("parse");
-        assert_eq!(stories.len(), 2);
-        assert!(stories[0].title.starts_with("As a shopper"));
+        match parse_generation(text).expect("parse") {
+            Generated::Items(stories) => {
+                assert_eq!(stories.len(), 2);
+                assert!(stories[0].title.starts_with("As a shopper"));
+            }
+            other => panic!("expected items, got {other:?}"),
+        }
     }
 
     #[test]
     fn rejects_non_json_and_empty_story_lists() {
-        assert!(parse_stories("not json").is_err());
-        assert!(parse_stories("{\"stories\": []}").is_err());
-        assert!(parse_stories("{\"other\": 1}").is_err());
+        assert!(parse_generation("not json").is_err());
+        assert!(parse_generation("{\"stories\": []}").is_err());
+        assert!(parse_generation("{\"other\": 1}").is_err());
     }
 
     #[test]

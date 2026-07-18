@@ -49,7 +49,7 @@ fn client() -> Result<reqwest::Client, String> {
 }
 
 /// The JSON schema Ollama is asked to conform to — the same shape the Claude
-/// path requests, so `parse_stories` handles both responses unchanged.
+/// path requests, so `parse_generation` handles both responses unchanged.
 pub fn story_schema() -> serde_json::Value {
     json!({
         "type": "object",

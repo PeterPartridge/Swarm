@@ -74,6 +74,31 @@ Applied as:
 - **The provider chain is order-of-selection**, taken from checkbox order — there is no drag to reorder, and unchecking then rechecking moves a provider to the end.
 - Ledger rows are written per call, so a call failing mid-flight may under-report; and `ai_usage` has no index on `(productId, createdAt)` yet.
 
+## Round 7 — The "I can't implement this" channel
+
+### My Feedback
+The README names this as the framework's answer to AI *"burning tokens creating, then recreating, the same work"*: rather than guessing at a vague item, the model should be able to decline and say what it needs. Only a safety-refusal error string existed.
+
+Applied as an **escape hatch in the structured output**. Every generation schema gained an optional `blocked: {reason, whatIsNeeded}`, and every prompt now ends by telling the model: *if this is too vague, do not guess — leave `stories` empty and fill in `blocked` with the single most useful question a person could answer.* Declining is stated to be the better outcome.
+
+- `db/ai_feedback.rs` stores the question against the work item, open until answered.
+- Answering it is not optional prose: `resolve` **refuses an empty note**, because a resolved question with nothing to say leaves the next prompt exactly as uninformed as the last.
+- Answers become **clarifications carried into the next prompt** for that item (`clarifications_for_item`), so the same question is not asked, and paid for, twice. They go in the per-call half, not the cached context.
+- The board shows open questions on the card with an answer box; the Deliverable path returns the question but has no work item to store it against, so it is reported rather than persisted — inventing a work item to hold it would be worse.
+
+### Your Feedback
+- **A decline is not an error, and the UI must not say it is.** Both call sites report it as a question with the AI's wording, and the deliverable test asserts no error alert appears. If declining looked like failure, users would stop trusting the hatch and go back to vague prompts.
+- **A hedged response counts as blocked.** If a model fills in both `stories` and `blocked`, the refusal wins: taking the question costs a question, taking the guesses costs work built on a misunderstanding.
+- **An empty `blocked.reason` falls through to the items** — a model emitting `blocked: {}` must not silently discard good work.
+- A new ledger outcome, **`declined`**, separate from `blocked`. The router blocking a call costs nothing; a model declining *ran and was paid for*. Reusing `blocked` would have excluded declines from spend and let a run of them understate the bill.
+
+### Technical Debt
+- **Not verified against a live model.** The whole feature rests on a model actually taking the hatch when it should. The Ollama live check now accepts either outcome and prints which, but **no run has happened** — if models guess anyway, the prompt wording is wrong and only a real call will show it. This is the round's central risk.
+- **Deliverable-level questions are not persisted**, so they vanish on refresh.
+- **Clarifications accumulate forever** — every answer ever given is sent with every later prompt for that item, which will grow the per-call half and eventually cost more than it saves.
+- Nothing detects the model asking the *same* question twice; a user could answer it repeatedly.
+- `AiQuestions` fetches per card, so a board of 30 items makes 30 calls on render.
+
 ## Round 6b — Who may manage the budget
 
 ### My Feedback

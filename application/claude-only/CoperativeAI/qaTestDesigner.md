@@ -79,6 +79,8 @@ Deleting a Deliverable or a Work Item now **unlinks** its test cases rather than
 
 **Tests:** cargo 93/93 (test-case defaults to `designed` with no path; title and Product required; association with a deliverable *or* a work item; associations must reference rows that exist; deleting an association target unlinks the case without deleting it; marking implemented records the path; update rejects a bad state, empty title, or unknown id; delete removes only that case). Vitest 57/57 (strategy fields present, cases listed with their association, add-with-deliverable, re-associate an existing case, marking implemented reveals the test-file field, no-Products hint). `npm run build` and a full `cargo build` clean.
 
+**Update (round 3 of the governance plan):** the **"I can't implement this" channel** this brief's AI action would need now exists — `db/ai_feedback.rs` plus the `blocked` branch in every generation schema. When the implement-a-scenario action is built it should decline through that channel rather than guessing at a thin scenario.
+
 **Technical debt:**
 - **The AI "implement this scenario" action is not built.** This round delivers the design surface and the association model; the policy-gated call that writes a real test file is still open, so `state` and `testPath` are set by hand today. The original page-skill and the policy-denied test remain outstanding.
 - **A case can be associated with only one thing at a time** in the UI (one picker over both kinds). The table technically allows both `deliverableId` and `workItemId` to be set at once — nothing enforces exclusivity at the DB level.
