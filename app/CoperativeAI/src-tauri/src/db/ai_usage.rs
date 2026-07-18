@@ -172,6 +172,32 @@ pub async fn spend_for_product(
     }
 }
 
+/// Token totals of past successful calls of one kind, newest first.
+///
+/// Only `ok` calls count: a declined call is cheap and a failed one is
+/// incomplete, so including either would drag the estimate below what real
+/// work actually costs.
+pub async fn recent_token_totals(
+    conn: &Connection,
+    purpose: &str,
+    model: &str,
+    limit: i64,
+) -> Result<Vec<i64>> {
+    let mut rows = conn
+        .query(
+            "SELECT inputTokens + outputTokens FROM ai_usage
+             WHERE purpose = ?1 AND model = ?2 AND outcome = 'ok'
+             ORDER BY id DESC LIMIT ?3",
+            (purpose, model, limit),
+        )
+        .await?;
+    let mut totals = Vec::new();
+    while let Some(row) = rows.next().await? {
+        totals.push(row.get(0)?);
+    }
+    Ok(totals)
+}
+
 pub async fn list_for_product(conn: &Connection, product_id: i64, limit: i64) -> Result<Vec<AiUsage>> {
     let mut rows = conn
         .query(

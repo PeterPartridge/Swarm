@@ -9,6 +9,7 @@ pub mod feedback;
 pub mod github;
 pub mod policies;
 pub mod products;
+pub mod recommendations;
 pub mod repositories;
 pub mod roles;
 pub mod strategies;

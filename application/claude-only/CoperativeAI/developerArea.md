@@ -34,6 +34,30 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 6 — The cost-based recommendation engine
+
+### My Feedback
+The requirement: for every scoped work item, two recommendations — **fastest** (most capable model, higher cost, shortest time) and **most cost-efficient** (cheaper model, longer) — each showing estimated tokens, cost and completion time, and respecting the AI budget, token limits and the handover chain.
+
+- **`ai/estimator.rs`** — pure. A per-purpose baseline (story generation is not the same size of job as designing a solution) scaled by how much the item actually says, priced from the editable table. Once there are **20 or more recorded calls** of that kind on that model, the **median of real usage** replaces the baseline.
+- **`commands/recommendations.rs`** — candidates come from the budget's provider chain where there is one, so the options offered are the ones the router would actually allow. Fastest is the high tier; cost-efficient prefers an unmetered provider outright.
+- **`CostRecommendation.tsx`** — both options with tokens, money and minutes, each labelled with where the number came from.
+
+### Your Feedback
+- **Every figure says its source.** "estimate: price table, no history yet" against "estimate: median of your recorded calls". A guess shown with the same confidence as a measurement is a dishonest number, and this is the one place in the app where being wrong about money is cheap to prevent.
+- **Twenty samples before history counts.** A median of three calls is noise wearing the costume of data; below the threshold the baseline is used and labelled.
+- **Only successful calls feed the median.** A declined call is cheap and a failed one is incomplete — including either would drag the estimate below what real work costs.
+- **The median, not the mean**, so one runaway call cannot distort the figure. There is a test for exactly that.
+- **The fastest option is withheld, not greyed out, past the hard stop** — offering something the router will refuse is worse than explaining why it is missing.
+- **Deviation from the plan, deliberate:** the approved plan had an `ai_recommendation` table. I did not build it. Prices, budget and history all move independently of the work item, so a stored recommendation starts going stale the moment it is written, and recomputing costs nothing but a ledger read. A cached answer about money is the wrong trade.
+
+### Technical Debt
+- **The baselines are invented.** 4k/6k/9k tokens per purpose are stated guesses with no measurement behind them, and until 20 real calls accumulate that is what every estimate rests on. The labelling is what makes this honest rather than misleading.
+- **The 3:1 input/output split is a guess too**, and it drives the cost since output is priced several times higher than input.
+- **Time comes from a hand-entered `tokensPerSecond`.** The one real measurement available — 91 seconds for ~350 tokens on `ornith:9b` — suggests local throughput is far lower than any default would assume; nothing feeds observed latency back into the table, though `latencyMs` is being recorded and could.
+- **Size is judged by text length**, which is a crude proxy: a short precise item may be far more work than a long rambling one.
+- Only two options are offered even when the chain has more providers, and the estimate ignores prompt caching, so a repeat call about the same Product will cost less than quoted.
+
 ## Round 5 — Developer Rules + AI Solution Strategy
 
 ### My Feedback

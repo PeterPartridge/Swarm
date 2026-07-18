@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import CostRecommendation from "./CostRecommendation";
 import {
   chooseArchitectureOption,
   generateSolutionStrategy,
@@ -83,6 +84,9 @@ export default function SolutionStrategyPanel({
 
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
+
+      {/* What it would cost to have the AI do this, before you ask it to. */}
+      <CostRecommendation workItemId={workItemId} itemTitle={itemTitle} />
 
       {strategy && strategy.ruleViolations.length > 0 && (
         <p className="rule-violation" role="alert">

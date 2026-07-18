@@ -535,6 +535,33 @@ export const DEVELOPER_RULE_FIELDS: { id: DeveloperRuleField; label: string }[] 
   { id: "aiConstraints", label: "Constraints on AI behaviour" },
 ];
 
+/** One way of doing a piece of work, with what it is expected to cost. */
+export interface Recommendation {
+  kind: string; // "fastest" | "costEfficient"
+  provider: string;
+  model: string;
+  estTokens: number;
+  estCostMicropence: number;
+  estMinutes: number;
+  /** "priceTable" — a stated guess; "history" — median of real calls. */
+  source: string;
+  affordable: boolean;
+}
+
+export interface Recommendations {
+  options: Recommendation[];
+  /** Set when an option was withheld rather than shown. */
+  note: string | null;
+}
+
+/** Estimates the fastest and cheapest ways to do a piece of work. Computed on
+ *  demand rather than stored — prices, budget and history all move. */
+export const recommendForWorkItem = (
+  workItemId: number,
+  purpose: string,
+): Promise<Recommendations> =>
+  invoke("recommend_for_work_item", { workItemId, purpose });
+
 export const getDeveloperRules = (
   productId: number,
 ): Promise<DeveloperRules | null> => invoke("get_developer_rules", { productId });

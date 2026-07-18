@@ -75,6 +75,7 @@ fn main() {
             commands::deliverables::list_deliverables,
             commands::deliverables::create_deliverable,
             commands::deliverables::delete_deliverable,
+            commands::recommendations::recommend_for_work_item,
             commands::strategies::get_developer_rules,
             commands::strategies::set_developer_rules,
             commands::strategies::get_solution_strategy,

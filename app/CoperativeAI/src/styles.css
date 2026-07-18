@@ -550,6 +550,54 @@ body {
   color: var(--env-color, #7c3aed);
 }
 
+/* Cost recommendations: what the AI would cost, before you ask it */
+.cost-recommendation {
+  margin: 0.4rem 0;
+}
+
+.cost-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+
+.cost-option {
+  flex: 1 1 14rem;
+  border: 1px solid #e5e7eb;
+  border-left: 3px solid #6366f1;
+  border-radius: 0.25rem;
+  padding: 0.4rem 0.5rem;
+  background: #fff;
+}
+
+.cost-option.unaffordable {
+  border-left-color: #dc2626;
+  background: #fef2f2;
+}
+
+.cost-option p {
+  margin: 0.15rem 0;
+}
+
+.option-source {
+  font-size: 0.7rem;
+  color: #6b7280;
+  font-style: italic;
+}
+
+.option-warning {
+  color: #991b1b;
+  font-size: 0.72rem;
+}
+
+.option-note {
+  flex-basis: 100%;
+  margin: 0.2rem 0 0;
+  font-size: 0.72rem;
+  color: #6b7280;
+}
+
 /* Solution strategy: how the AI proposes to build a work item */
 .solution-strategy {
   background: #fafafa;

@@ -14,6 +14,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     getSolutionStrategy: vi.fn(),
     generateSolutionStrategy: vi.fn(),
     chooseArchitectureOption: vi.fn(),
+    recommendForWorkItem: vi.fn(),
   };
 });
 
@@ -102,6 +103,75 @@ describe("WorkItemViews", () => {
     const warning = await screen.findByRole("alert");
     expect(warning).toHaveTextContent(/technology your rules forbid/);
     expect(warning).toHaveTextContent("java");
+  });
+
+  /// Every figure must say where it came from. A price-table guess shown with
+  /// the same confidence as a measured median would be dishonest.
+  it("shows both cost options and labels the estimate's source", async () => {
+    const user = userEvent.setup();
+    mocked.recommendForWorkItem.mockResolvedValue({
+      options: [
+        {
+          kind: "fastest",
+          provider: "Claude",
+          model: "claude-opus-4-8",
+          estTokens: 18_000,
+          estCostMicropence: 94_000_000,
+          estMinutes: 2,
+          source: "priceTable",
+          affordable: true,
+        },
+        {
+          kind: "costEfficient",
+          provider: "Ollama (local)",
+          model: "ornith:9b",
+          estTokens: 22_000,
+          estCostMicropence: 0,
+          estMinutes: 6,
+          source: "history",
+          affordable: true,
+        },
+      ],
+      note: null,
+    });
+    render(<WorkItemViews productId={7} />);
+
+    await user.click(await screen.findByRole("tab", { name: "List" }));
+    await user.click(screen.getByRole("button", { name: "Solution strategy for Checkout" }));
+    await user.click(await screen.findByRole("button", { name: "Estimate AI cost for Checkout" }));
+
+    expect(await screen.findByText(/£0\.94/)).toBeInTheDocument();
+    expect(screen.getByText(/£0\.00/)).toBeInTheDocument();
+    expect(screen.getByText(/price table, no history yet/)).toBeInTheDocument();
+    expect(screen.getByText(/median of your recorded calls/)).toBeInTheDocument();
+  });
+
+  it("marks an option that would exceed the remaining budget", async () => {
+    const user = userEvent.setup();
+    mocked.recommendForWorkItem.mockResolvedValue({
+      options: [
+        {
+          kind: "fastest",
+          provider: "Claude",
+          model: "claude-opus-4-8",
+          estTokens: 18_000,
+          estCostMicropence: 94_000_000,
+          estMinutes: 2,
+          source: "priceTable",
+          affordable: false,
+        },
+      ],
+      note: null,
+    });
+    render(<WorkItemViews productId={7} />);
+
+    await user.click(await screen.findByRole("tab", { name: "List" }));
+    await user.click(screen.getByRole("button", { name: "Solution strategy for Checkout" }));
+    await user.click(await screen.findByRole("button", { name: "Estimate AI cost for Checkout" }));
+
+    expect(
+      await screen.findByText(/exceed what is left of the AI budget/),
+    ).toBeInTheDocument();
   });
 
   it("offers architecture options to choose between", async () => {
