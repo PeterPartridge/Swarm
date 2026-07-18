@@ -12,6 +12,7 @@ pub mod settings;
 pub mod solutions;
 pub mod sprints;
 pub mod team_members;
+pub mod test_cases;
 pub mod windows;
 pub mod work_items;
 

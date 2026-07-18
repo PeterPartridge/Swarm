@@ -54,6 +54,17 @@ export interface Deliverable {
   description: string;
 }
 
+export interface TestCase {
+  id: number;
+  productId: number;
+  title: string;
+  scenario: string;
+  state: string; // "designed" | "implemented"
+  testPath: string | null;
+  deliverableId: number | null;
+  workItemId: number | null;
+}
+
 /** The active user's effective permissions (full access when no active user). */
 export interface ActivePermissions {
   memberId: number | null;
@@ -118,13 +129,26 @@ export interface WorkItemPolicy {
   effortTier: string;
 }
 
+/** Product-level AI policy — gates Deliverable planning. Coarser than a
+ *  work-item policy: allowing it covers every Deliverable of the Product. */
+export interface ProductPolicy {
+  productId: number;
+  allowRead: boolean;
+  allowGenerate: boolean;
+  providerId: number | null;
+  effortTier: string;
+}
+
 export const EFFORT_TIERS = ["low", "medium", "high"] as const;
 
-/** Suggested defaults for the AI Settings form (Claude first, pluggable). */
+/** Suggested defaults for the AI Settings form (Claude first, pluggable).
+ *  Models are listed **cheapest first** — the effort tier indexes into this
+ *  order, so reversing it would make every low-effort task use the dearest
+ *  model. See ai/tiering.rs. */
 export const DEFAULT_PROVIDER = {
   name: "Claude",
   apiBaseUrl: "https://api.anthropic.com",
-  models: "claude-opus-4-8, claude-sonnet-5",
+  models: "claude-haiku-4-5-20251001, claude-sonnet-5, claude-opus-4-8",
 };
 
 export const STATUSES = [
@@ -293,6 +317,30 @@ export const saveStrategy = (
   content: string,
 ): Promise<void> => invoke("save_strategy", { productId, area, content });
 
+// Test cases (Test area) — associated with a Deliverable or a Work Item
+export const TEST_STATES = ["designed", "implemented"] as const;
+
+export const listTestCases = (productId: number): Promise<TestCase[]> =>
+  invoke("list_test_cases", { productId });
+export const createTestCase = (args: {
+  productId: number;
+  title: string;
+  scenario: string;
+  deliverableId: number | null;
+  workItemId: number | null;
+}): Promise<number> => invoke("create_test_case", args);
+export const updateTestCase = (args: {
+  id: number;
+  title: string;
+  scenario: string;
+  state: string;
+  testPath: string | null;
+  deliverableId: number | null;
+  workItemId: number | null;
+}): Promise<void> => invoke("update_test_case", args);
+export const deleteTestCase = (id: number): Promise<void> =>
+  invoke("delete_test_case", { id });
+
 // Sprints
 export const listSprints = (productId: number): Promise<Sprint[]> =>
   invoke("list_sprints", { productId });
@@ -342,6 +390,11 @@ export const deleteWorkItem = (id: number): Promise<void> =>
   invoke("delete_work_item", { id });
 export const generateUserStories = (featureId: number): Promise<string[]> =>
   invoke("generate_user_stories", { featureId });
+/** Generates the work that achieves a Deliverable, at the planning level above
+ *  user stories. Returns the titles created. */
+export const generateDeliverableWork = (
+  deliverableId: number,
+): Promise<string[]> => invoke("generate_deliverable_work", { deliverableId });
 
 // AI providers (keys live in the OS credential store — never returned)
 export const listAiProviders = (): Promise<AiProvider[]> =>
@@ -370,6 +423,18 @@ export const setWorkItemPolicy = (policy: {
   providerId: number | null;
   effortTier: string;
 }): Promise<void> => invoke("set_work_item_policy", policy);
+
+// Product AI policy (gates Deliverable planning — deny-by-default)
+export const getProductPolicy = (
+  productId: number,
+): Promise<ProductPolicy | null> => invoke("get_product_policy", { productId });
+export const setProductPolicy = (policy: {
+  productId: number;
+  allowRead: boolean;
+  allowGenerate: boolean;
+  providerId: number | null;
+  effortTier: string;
+}): Promise<void> => invoke("set_product_policy", policy);
 
 // Pull-out windows
 export const openScreenWindow = (

@@ -52,7 +52,8 @@ describe("AiSettings", () => {
       expect(mocked.addAiProvider).toHaveBeenCalledWith({
         name: "Claude",
         apiBaseUrl: "https://api.anthropic.com",
-        models: ["claude-opus-4-8", "claude-sonnet-5"],
+        // cheapest first — the effort tier indexes into this order
+        models: ["claude-haiku-4-5-20251001", "claude-sonnet-5", "claude-opus-4-8"],
         apiKey: "sk-test-key",
       }),
     );

@@ -1,0 +1,62 @@
+{
+  "form": "database-model",
+  "modelName": "ProductPolicy",
+  "status": "built",
+  "dependsOn": {
+    "guidance": "Briefs that must be built before this one — usually the tables this model's relationships point at.",
+    "example": ["ClothingDatabase/Customer.json"],
+    "entries": ["CoperativeAIdb/Product-model.json", "CoperativeAIdb/AIProvider-model.json"]
+  },
+  "instructions": {
+    "whoFillsThisIn": "Developers (Product can sanity-check the information being stored).",
+    "when": "Whenever a page needs to store data. One of these per model/table.",
+    "how": "Answer in plain English where you can.",
+    "note": "Security-enforcing table. The Product-level counterpart of WorkItemPolicy: it gates AI work anchored on a Product rather than on one work item — today, generating the work that achieves a Deliverable."
+  },
+  "whatThisModelIs": {
+    "question": "What does this model represent, in one line?",
+    "example": "A customer's order.",
+    "answer": "What the AI is allowed to do with a whole Product — read its brief and strategy, and create work items — and through which provider."
+  },
+  "fields": {
+    "guidance": "One entry per piece of data.",
+    "entries": [
+      { "fieldName": "id", "type": "id / key", "nullable": false, "default": "auto", "rules": "unique", "description": "The unique identifier" },
+      { "fieldName": "productId", "type": "id / key", "nullable": false, "default": "", "rules": "must reference a Product row; one policy per Product", "description": "The Product this policy governs" },
+      { "fieldName": "allowRead", "type": "yes/no", "nullable": false, "default": "no", "rules": "", "description": "May the AI read this Product's brief, strategy, and deliverables?" },
+      { "fieldName": "allowGenerate", "type": "yes/no", "nullable": false, "default": "no", "rules": "", "description": "May the AI create planning work items against this Product?" },
+      { "fieldName": "providerId", "type": "id / key", "nullable": true, "default": "", "rules": "must reference an AIProvider row when set; no provider means blocked", "description": "The only AI provider this Product's work may go to" },
+      { "fieldName": "effortTier", "type": "list", "nullable": false, "default": "low", "rules": "one of: low / medium / high", "description": "How much effort the AI may spend on this Product's requests" },
+      { "fieldName": "updatedAt", "type": "date", "nullable": false, "default": "now", "rules": "updated on every change", "description": "When the policy last changed" }
+    ]
+  },
+  "relationships": {
+    "guidance": "How this model connects to others.",
+    "entries": [
+      { "field": "productId", "relationship": "one-to-one", "relatedTable": "Product", "relatedField": "id", "constraintName": "FK_ProductPolicy_Product" },
+      { "field": "providerId", "relationship": "many-to-one", "relatedTable": "AIProvider", "relatedField": "id", "constraintName": "FK_ProductPolicy_AIProvider" }
+    ]
+  },
+  "lookupsAndPerformance": {
+    "question": "Which fields do we search or filter on a lot?",
+    "answer": ["productId"]
+  },
+  "lifecycleAndRules": {
+    "retention": {
+      "question": "How long do we keep this data / when is it deleted?",
+      "answer": "Kept with its Product. Setting a policy again replaces the previous row, so there is only ever one per Product."
+    },
+    "sensitiveFields": {
+      "question": "Any sensitive fields that need extra protection?",
+      "answer": "This table is itself a protection: it decides whether a Product's brief and strategy may be sent to an AI provider. No secret values are stored here — the provider's API key lives in the OS credential store."
+    },
+    "invariants": {
+      "question": "Anything that must always be true?",
+      "answer": "Deny-by-default: a Product with no row here is closed to AI. Generation requires allowRead AND allowGenerate AND a providerId that still exists. One policy per Product; effortTier stays in its list. This policy is deliberately coarser than a work-item policy — allowing generation covers every Deliverable of the Product."
+    }
+  },
+  "changesOverTime": {
+    "guidance": "Each time you come back to change this model, add an entry describing what should change.",
+    "rounds": []
+  }
+}

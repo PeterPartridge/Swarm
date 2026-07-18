@@ -92,10 +92,15 @@ export default function AiSettings() {
         />
         <input
           aria-label="Models (comma separated)"
-          placeholder="claude-opus-4-8, claude-sonnet-5"
+          placeholder="claude-haiku-4-5, claude-sonnet-5, claude-opus-4-8"
           value={models}
           onChange={(e) => setModels(e.target.value)}
         />
+        <p className="hint">
+          List models <strong>cheapest first</strong>. A work item's effort tier
+          picks from this order — low uses the first, high the last — so the
+          ordering decides what each task costs.
+        </p>
         <input
           aria-label="API key"
           type="password"

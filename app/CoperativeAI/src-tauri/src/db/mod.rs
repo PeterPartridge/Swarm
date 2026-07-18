@@ -7,6 +7,7 @@ pub mod ai_provider;
 pub mod deliverable;
 pub mod feature_design;
 pub mod product;
+pub mod product_policy;
 pub mod repository;
 pub mod role;
 pub mod solution;
@@ -15,6 +16,7 @@ pub mod sprint;
 pub mod strategy;
 pub mod system_setting;
 pub mod team_member;
+pub mod test_case;
 pub mod work_item;
 pub mod work_item_policy;
 
@@ -70,8 +72,11 @@ pub async fn create_all_tables(conn: &Connection) -> Result<()> {
     work_item::create_table(conn).await?;
     ai_provider::create_table(conn).await?;
     work_item_policy::create_table(conn).await?;
+    product_policy::create_table(conn).await?;
     feature_design::create_table(conn).await?;
     strategy::create_table(conn).await?;
+    // after deliverable + work_item: a test case may point at either
+    test_case::create_table(conn).await?;
     Ok(())
 }
 

@@ -78,3 +78,31 @@ Implements the project's key-handling security rule directly. The key value exis
 - `src/components/AiSettings.tsx` in the Develop tab — form defaults suggest Claude at https://api.anthropic.com with claude-opus-4-8; the key field is password-type and cleared the moment the key leaves for the credential store.
 
 **Technical debt:** Linux encrypted-file fallback still deferred; test-connection uses the provider's first model only; per-model 400s from providers whose models don't support `effort`/structured outputs are surfaced verbatim rather than adapted.
+
+---
+
+## Round 2 — Prompt caching + model tiering
+
+### My Feedback
+The review against the README's aims found the app failing the token-saving one: no prompt caching anywhere, and `models.first()` hardcoded at both AI call sites so the Project Brief's Part 4 model rules never took effect. The requirement was to fix both — small, mechanical, directly on-aim — before any further feature work.
+
+Applied as:
+- **Caching.** Both prompt builders now return a `Prompt { context, task }` instead of one string. `context` is the Product half that repeats across every call about that Product (brief answers, strategy, connected solutions) and is sent **first** as a content block marked `cache_control: {type: "ephemeral"}`; `task` is the per-call half (the feature or deliverable) and comes after. The split is what makes caching possible at all — caching matches a *prefix*, so anything varying had to move behind the stable part. A shared `product_context()` builds that half once for both prompts, so they produce a byte-identical prefix and share one cache entry.
+- **Usage capture.** `ApiResponse` now reads the `usage` block (`input_tokens`, `output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`) and `generate_stories` returns it alongside the drafts. Needed here to prove caching works; it is also the hook the R1 ledger plugs into.
+- **Tiering.** New `ai/tiering.rs` — `model_for_effort(models, effort)` treats the provider's list as ordered cheapest→most capable: low → first, medium → middle, high → last. It replaces `models.first()` at `commands/work_items.rs:191` and `:420`, so a work item's effort tier finally chooses the model. An unrecognised tier falls back to the **cheapest**, because the cheap model is the one that cannot cause a surprise bill.
+- Because that ordering now carries meaning, `DEFAULT_PROVIDER` was reversed to cheapest-first (it suggested Opus first) and AI Settings states the rule beside the field.
+
+**Tests:** cargo 111/111 (6 tiering cases incl. empty list, 1/2/3/5 models and an unknown tier; 5 client cases incl. *the cacheable context is identical across two different calls about one Product* and *the task half carries no Product context* — the two properties caching depends on; usage parsed and defaulted). Vitest 62/62. Both builds clean.
+
+### Your Feedback
+- **Caching has a minimum prefix length.** Below roughly a thousand tokens the API declines to cache and reports zero cache reads. A Product with a short brief and no linked solutions will see no benefit — not a bug, and worth knowing before reading the first live result as a failure. It is commented at the call site.
+- **The bigger token win is still ahead.** Caching trims a repeated prefix; the ledger and router in R1 are what actually stop spend. This round makes spend *visible to the code*, which is the precondition.
+- **Ordering as configuration is a sharp edge.** The model list's order now silently decides cost. A named tier per model would be sturdier than positional meaning — worth doing if a third caller appears.
+- Consider surfacing cache hits in the UI once the ledger lands; a user who can see "context reused" learns to keep Product context stable rather than editing it between generations.
+
+### Technical Debt
+- **The live check has not been run.** Prompt caching cannot be proven by a unit test — it needs two real calls. `caching_is_live_on_a_repeated_context` is written and `#[ignore]`d, reading `ANTHROPIC_API_KEY` from the environment; it asserts the first call writes the cache and the second reads it. Until someone runs it, caching is *implemented and plausible, not verified*.
+- **Usage is captured and then dropped** (`let (drafts, _usage)`) until R1's ledger exists to receive it.
+- **Positional model tiers** as above — order is meaning, and a user reordering the list changes what every task costs with no warning.
+- `test_connection` still probes the provider's first model only, so a broken dearest model passes the test.
+- Medium tier on a two-model list resolves to the dearer one (`len()/2 == 1`); acceptable, but it means a two-model provider has no true middle.

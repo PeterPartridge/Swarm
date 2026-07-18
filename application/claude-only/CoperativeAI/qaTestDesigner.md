@@ -59,4 +59,28 @@ No login (project security model). AI implementation goes through the single pol
 
 **Expected technical debt:** if scenarios outgrow the WorkItem shape (steps, expected results), promote to a dedicated model in a later round.
 
-**Status:** translated — waiting for approval
+**Status:** built (2026-07-18) — round 2
+
+---
+
+## Round 2 — Testing Strategy + tests associated with Deliverables or Work Items
+
+**Behaviour:** the Test tab is now a real environment. Pick a Product and you get a **Testing Strategy** section (test plans, test environments, required tooling, links to test cases / automated suites) and a **Test Cases** list. Each test case is a plain-English scenario that can be **associated with a Deliverable or a Work Item** — or with neither, so a test can be written before the work that satisfies it exists.
+
+**Storage decision (the brief's open question, now closed):** scenarios get their **own `TestCase` model**, not work items of type `test`. The brief left this to build time; a dedicated model won because a scenario now needs to point at *either* a Deliverable *or* a Work Item, and `parentItemId` can only express the second. See [`../CoperativeAIdb/TestCase-model.md`](../CoperativeAIdb/TestCase-model.md).
+
+**Implemented:**
+- `db/test_case.rs` — id, productId, title, scenario, state (`designed` | `implemented`), testPath, deliverableId, workItemId. Association targets are validated when supplied, so a case never points at a row that does not exist.
+- `commands/test_cases.rs` — list / create / update / delete with `TestCaseDto`.
+- `pages/TestArea.tsx` — Product picker → `StrategyEditor` (area `test`, `TEST_STRATEGY_FIELDS`) + `TestCases`; wired into `WorkspaceShell` so the Test tab renders it instead of the placeholder.
+- `components/TestCases.tsx` — add form and per-case controls: one association picker spanning both kinds (`d:<id>` / `w:<id>`), a state picker, and a test-file field that appears once a case is marked implemented. Adding a case updates the list immediately (optimistic insert, rolled back on error), the same pattern as the Planning board.
+
+Deleting a Deliverable or a Work Item now **unlinks** its test cases rather than leaving a dangling id — `deliverable::delete` already did this for work items, so test cases were made to match, and `work_item::delete` gained the same for its own cases. The test keeps existing; only the association goes.
+
+**Tests:** cargo 93/93 (test-case defaults to `designed` with no path; title and Product required; association with a deliverable *or* a work item; associations must reference rows that exist; deleting an association target unlinks the case without deleting it; marking implemented records the path; update rejects a bad state, empty title, or unknown id; delete removes only that case). Vitest 57/57 (strategy fields present, cases listed with their association, add-with-deliverable, re-associate an existing case, marking implemented reveals the test-file field, no-Products hint). `npm run build` and a full `cargo build` clean.
+
+**Technical debt:**
+- **The AI "implement this scenario" action is not built.** This round delivers the design surface and the association model; the policy-gated call that writes a real test file is still open, so `state` and `testPath` are set by hand today. The original page-skill and the policy-denied test remain outstanding.
+- **A case can be associated with only one thing at a time** in the UI (one picker over both kinds). The table technically allows both `deliverableId` and `workItemId` to be set at once — nothing enforces exclusivity at the DB level.
+- **`testPath` is a free-text string** — not checked against the filesystem or the linked repository.
+- Test cases are **not scoped by role** yet; the Admin field-visibility gate covers the cost/profit fields only.

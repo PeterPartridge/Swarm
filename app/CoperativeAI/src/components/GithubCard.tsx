@@ -14,7 +14,6 @@ export default function GithubCard({ onChange }: { onChange?: () => void }) {
   const [login, setLogin] = useState<string | null>(null);
   const [token, setToken] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -37,7 +36,6 @@ export default function GithubCard({ onChange }: { onChange?: () => void }) {
       setToken(""); // the token leaves the form for the credential store
       setLogin(who);
       setConnected(true);
-      setNotice(`Connected as ${who}`);
       setError(null);
       onChange?.();
     } catch (err) {
@@ -50,7 +48,6 @@ export default function GithubCard({ onChange }: { onChange?: () => void }) {
       await removeGithubToken();
       setConnected(false);
       setLogin(null);
-      setNotice(null);
       onChange?.();
     } catch (err) {
       setError(String(err));
@@ -61,13 +58,12 @@ export default function GithubCard({ onChange }: { onChange?: () => void }) {
     <section className="develop-card" aria-label="GitHub">
       <h2>GitHub</h2>
       {error && <p role="alert">{error}</p>}
-      {notice && <p role="status">{notice}</p>}
 
       {connected ? (
         <div className="github-connected">
-          <p>
-            Connected{login ? ` as ${login}` : ""}. You can create or link
-            repositories on any Solution below.
+          <p role="status">
+            {login ? `Connected as ${login}.` : "Connected."} You can create or
+            link repositories on any Solution.
           </p>
           <button aria-label="Disconnect GitHub" onClick={onDisconnect}>
             Disconnect

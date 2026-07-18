@@ -7,7 +7,7 @@
   "core": {
     "purpose": {
       "question": "What is the purpose of this solution?",
-      "answer": "A Product / Development / QA workspace: the Rust desktop application teams use to run the CooperativeAICoding loop. The main window has a top menu with three tabs — Product, Develop, Test — each with its own colour; clicking a tab enters that environment. Product plans products (work items, drag-and-drop feature design, specs that generate endpoints/front-end/database designs); Develop builds them (code editor, real embedded terminal, multi-repository support, AI via API keys with per-work-item policies); Test designs QA tests around work items that AI can implement."
+      "answer": "A Product / Development / QA workspace: the Rust desktop application teams use to run the CooperativeAICoding loop. The main window has a top menu with four tabs — Product, Develop, Test, Admin — each with its own colour; clicking a tab enters that environment. Product plans products (Strategy with Deliverables, a work-item hierarchy with commercial fields, drag-and-drop feature design, an AI button that generates the work achieving a Deliverable, specs that generate endpoints/front-end/database designs); Develop builds them (Technical Strategy, Board/Sprint/List views filtered by user, Solutions linked to Products and to GitHub repositories, code editor, real embedded terminal, multi-repository support, AI via API keys with per-work-item and per-Product policies); Test designs QA tests (Testing Strategy plus test cases associated with Deliverables or work items) that AI can implement; Admin names team members, assigns roles, and decides which areas and commercial fields each role sees. There are still no logins — roles organise the workspace, they do not secure it."
     },
     "hosting": {
       "question": "Where will it be hosted, deployed, or distributed?",
@@ -29,11 +29,11 @@
     },
     "rolesOrClaims": {
       "question": "Does it authorise by Claims or Roles?",
-      "answer": "None — no roles or claims; everyone using the app sees all three workspace tabs."
+      "answer": "Roles, but not as an authorisation boundary. There is still no login, so nothing is authenticated and anyone can switch who they are working as — roles decide which of the four tabs are shown and whether a work item's cost/profit/chargeable fields are visible, and that is all. Seeded roles (Admin, Product, Developer, QA) are editable in the Admin area; Admin cannot be deleted or weakened, and with no active member selected everything is visible so the user cannot lock themselves out."
     },
     "lookAndFeel": {
       "question": "What is the overall look and feel?",
-      "answer": "Minimal and easy to use. A top menu with three tabs — Product, Develop, Test — each with its own colour identifying its environment; clicking a tab enters that environment."
+      "answer": "Minimal and easy to use. A top menu with four tabs — Product, Develop, Test, Admin — each with its own colour identifying its environment; clicking a tab enters that environment. A \"Working as…\" picker sits beside the tabs and sets the active team member, which decides the tabs and commercial fields on show."
     },
     "stylingOrToolkit": {
       "question": "What styling approach, component library, or UI toolkit?",

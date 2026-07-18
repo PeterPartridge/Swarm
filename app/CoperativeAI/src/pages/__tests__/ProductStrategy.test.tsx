@@ -1,0 +1,141 @@
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import ProductStrategy from "../../components/ProductStrategy";
+import type { Deliverable, ProductPolicy, WorkItem } from "../../lib/backend";
+
+vi.mock("../../lib/backend", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../../lib/backend")>();
+  return {
+    ...original,
+    getStrategy: vi.fn(),
+    saveStrategy: vi.fn(),
+    listDeliverables: vi.fn(),
+    createDeliverable: vi.fn(),
+    deleteDeliverable: vi.fn(),
+    listWorkItems: vi.fn(),
+    generateDeliverableWork: vi.fn(),
+    getProductPolicy: vi.fn(),
+    setProductPolicy: vi.fn(),
+    listAiProviders: vi.fn(),
+  };
+});
+
+import * as backend from "../../lib/backend";
+
+const mocked = vi.mocked(backend);
+
+const deliverable: Deliverable = {
+  id: 7,
+  productId: 1,
+  name: "MVP",
+  description: "the first release",
+};
+
+const generatedItem: WorkItem = {
+  id: 30,
+  title: "Checkout flow",
+  itemType: "feature",
+  status: "planned",
+  description: "Users can pay",
+  productId: 1,
+  parentItemId: null,
+  assigneeId: null,
+  sprintId: null,
+  startDate: null,
+  endDate: null,
+  deliverableId: 7,
+  expectedCost: null,
+  estimatedProfit: null,
+  chargeable: false,
+  customerCoverPct: null,
+};
+
+const openPolicy: ProductPolicy = {
+  productId: 1,
+  allowRead: true,
+  allowGenerate: true,
+  providerId: 2,
+  effortTier: "medium",
+};
+
+describe("ProductStrategy — generating the work for a Deliverable", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocked.getStrategy.mockResolvedValue("{}");
+    mocked.listDeliverables.mockResolvedValue([deliverable]);
+    mocked.listWorkItems.mockResolvedValue([]);
+    mocked.getProductPolicy.mockResolvedValue(openPolicy);
+    mocked.listAiProviders.mockResolvedValue([]);
+  });
+
+  it("offers a Generate button on each deliverable", async () => {
+    render(<ProductStrategy productId={1} />);
+    expect(
+      await screen.findByRole("button", { name: "Generate work for MVP" }),
+    ).toBeInTheDocument();
+  });
+
+  it("generates work and shows the new items under the deliverable", async () => {
+    const user = userEvent.setup();
+    mocked.generateDeliverableWork.mockImplementation(async () => {
+      mocked.listWorkItems.mockResolvedValue([generatedItem]);
+      return ["Checkout flow"];
+    });
+    render(<ProductStrategy productId={1} />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Generate work for MVP" }),
+    );
+
+    await waitFor(() =>
+      expect(mocked.generateDeliverableWork).toHaveBeenCalledWith(7),
+    );
+    expect(await screen.findByText(/Added 1 item to MVP/)).toBeInTheDocument();
+    expect(screen.getByText("Feature: Checkout flow")).toBeInTheDocument();
+  });
+
+  it("surfaces a policy denial instead of failing silently", async () => {
+    const user = userEvent.setup();
+    mocked.generateDeliverableWork.mockRejectedValue(
+      "'MVP''s Product has no AI policy, so AI can't plan it (deny-by-default).",
+    );
+    render(<ProductStrategy productId={1} />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Generate work for MVP" }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/deny-by-default/);
+  });
+
+  it("shows the Product AI policy, off by default", async () => {
+    mocked.getProductPolicy.mockResolvedValue(null);
+    render(<ProductStrategy productId={1} />);
+
+    expect(
+      await screen.findByRole("region", { name: "Product AI policy" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Allow AI to read this Product")).not.toBeChecked();
+    expect(screen.getByLabelText("Allow AI to generate work items")).not.toBeChecked();
+  });
+
+  it("saves the Product AI policy when a switch is turned on", async () => {
+    const user = userEvent.setup();
+    mocked.getProductPolicy.mockResolvedValue(null);
+    mocked.setProductPolicy.mockResolvedValue(undefined);
+    render(<ProductStrategy productId={1} />);
+
+    await user.click(await screen.findByLabelText("Allow AI to generate work items"));
+
+    await waitFor(() =>
+      expect(mocked.setProductPolicy).toHaveBeenCalledWith({
+        productId: 1,
+        allowRead: false,
+        allowGenerate: true,
+        providerId: null,
+        effortTier: "low",
+      }),
+    );
+  });
+});

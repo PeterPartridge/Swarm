@@ -7,7 +7,7 @@
   "core": {
     "purpose": {
       "question": "What is the purpose of this solution?",
-      "answer": "The embedded turso database for the CoperativeAI workspace app. It stores the app's own working data — solutions, repositories, work items, AI provider settings (key aliases only, never key values), per-work-item AI policies, and feature designs. It stores no user accounts or credentials — the app has no logins."
+      "answer": "The embedded turso database for the CoperativeAI workspace app. It stores the app's own working data — products and their strategies and deliverables, solutions (including their linked GitHub repository), repositories, work items with their commercial fields, sprints, team members and roles, test cases, feature designs, system settings, AI provider settings (key aliases only, never key values), and the AI policies that gate every AI call (per work item and per Product). It stores no user accounts and no secret values: API keys and the GitHub token live in the OS credential store, and the app has no logins."
     },
     "hosting": {
       "question": "Where will it be hosted, deployed, or distributed?",

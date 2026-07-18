@@ -26,6 +26,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     pickFolder: vi.fn(),
     listDeliverables: vi.fn(),
     getStrategy: vi.fn(),
+    getProductPolicy: vi.fn(),
   };
 });
 
@@ -54,6 +55,7 @@ describe("ProductPlanning (Product home)", () => {
     mocked.listAiProviders.mockResolvedValue([]);
     mocked.listDeliverables.mockResolvedValue([]);
     mocked.getStrategy.mockResolvedValue("{}");
+    mocked.getProductPolicy.mockResolvedValue(null);
   });
 
   it("shows Products as cards plus the Add a Product card", async () => {

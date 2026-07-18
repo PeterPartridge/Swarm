@@ -26,6 +26,9 @@
       { "fieldName": "productId", "type": "id / key", "nullable": false, "default": "", "rules": "must reference a Product row", "description": "The Product this Solution belongs to" },
       { "fieldName": "solutionType", "type": "list", "nullable": false, "default": "application", "rules": "one of: website / api / database / application", "description": "What kind of solution it is (same list as the framework's solution spec)" },
       { "fieldName": "answers", "type": "text", "nullable": false, "default": "{}", "rules": "valid JSON keyed by solution-spec question ids (purpose, hosting, language, frameworks)", "description": "The developer's plain-English solution-spec answers" },
+      { "fieldName": "origin", "type": "list", "nullable": false, "default": "created", "rules": "one of: created / imported", "description": "Whether we created this Solution's repository or imported (linked) an existing one" },
+      { "fieldName": "githubUrl", "type": "text", "nullable": true, "default": "", "rules": "the repository's web URL when one is linked", "description": "The GitHub repository linked to this Solution" },
+      { "fieldName": "githubVisibility", "type": "list", "nullable": true, "default": "", "rules": "one of: private / public; unknown (null) for imported repos", "description": "Whether the linked repository is private or public" },
       { "fieldName": "createdAt", "type": "date", "nullable": false, "default": "now", "rules": "", "description": "When the Solution was created" },
       { "fieldName": "updatedAt", "type": "date", "nullable": false, "default": "now", "rules": "updated on every change", "description": "When the Solution last changed" }
     ]
@@ -47,15 +50,17 @@
     },
     "sensitiveFields": {
       "question": "Any sensitive fields that need extra protection?",
-      "answer": "No."
+      "answer": "No. The GitHub repository URL is not sensitive; the GitHub token that creates repositories is never stored in this table — it lives in the OS credential store, like the AI provider keys."
     },
     "invariants": {
       "question": "Anything that must always be true?",
-      "answer": "A Solution always belongs to an existing Product; solutionType stays in its list; answers always parses as JSON."
+      "answer": "A Solution always belongs to an existing Product; solutionType stays in its list; answers always parses as JSON; origin is 'created' or 'imported', and githubVisibility (when set) is 'private' or 'public'."
     }
   },
   "changesOverTime": {
     "guidance": "Each time you come back to change this model, add an entry describing what should change.",
-    "rounds": []
+    "rounds": [
+      { "round": 2, "change": "Add origin (created / imported), githubUrl, and githubVisibility so a Solution can link an existing GitHub repository or record one created through the GitHub API as private or public." }
+    ]
   }
 }

@@ -44,6 +44,30 @@ The Product environment: Products as cards (created from the Project_brief's Pro
 
 **Root cause of the "item doesn't appear" report:** the create path already refreshed, but with no optimistic step the new card only appeared after the round-trip resolved; the optimistic insert makes it instant and also rolls back on error.
 
+## Round 5 — "Generate work" on a Deliverable
+
+**Behaviour:** each Deliverable in the Strategy section gets a **Generate work** button. It sends the Product brief, the Product strategy, the deliverable, the connected solutions, and the titles already planned under that deliverable to the AI, and creates the work items that achieve it — linked to the deliverable.
+
+**Two decisions, both taken with the user:**
+1. **What it creates:** the planning level **directly above user stories** — Feature under the default Epic→Feature→Story→Task method — so the existing per-Feature "create user stories" button chains straight off it. With no user-story level configured it falls back to the hierarchy's top level; with user stories at the top it creates those. `level_for_deliverable` is a pure function with a table-driven unit test. *(The chosen option's text said "top level" while its preview showed Features for the default hierarchy; the preview's behaviour was implemented, and the user was told, since generating Epics from a Deliverable adds little and the stated goal was to reach stories.)*
+2. **What gates it:** a new **Product-level AI policy** (`db/product_policy.rs`) — deny-by-default like work-item policies, but deliberately coarser: allowing it covers *every* Deliverable of that Product, which the panel states in plain words.
+
+**Implemented:**
+- `db/product_policy.rs` — one policy per Product: allowRead, allowGenerate, providerId, effortTier; validates the Product, the effort tier, and the provider.
+- `commands/policies.rs` — `get_product_policy` / `set_product_policy` + `ProductPolicyDto`, alongside the work-item ones.
+- `commands/work_items.rs` — `resolve_deliverable_generation` (the testable gate half: deliverable exists → hierarchy has a level → Product policy allows read **and** generate **and** names a provider) and `generate_deliverable_work` (gates → key from the credential store → Claude → work items created and linked to the deliverable).
+- `ai/client.rs` — `build_deliverable_prompt`, a pure prompt builder that includes the strategy and the already-planned titles so a second press extends the plan instead of repeating it. `generate_stories` is reused unchanged — it is prompt-driven.
+- `components/ProductAiPolicy.tsx` (the policy panel) and the per-deliverable Generate button in `ProductStrategy.tsx`, which reports what it added and surfaces a denial as a plain alert.
+
+**Tests:** cargo 100/100 (product-policy round-trip/replace/validation, a Product with no policy is closed, `level_for_deliverable` across five hierarchies, generation denied without a policy, denied when read-or-generate-or-provider is missing, allowed when fully open, unknown deliverable rejected) + Vitest 62/62 (Generate button present, generation adds items and reports them, a denial reaches the alert, the policy panel is off by default and saves on toggle). `npm run build` and a full `cargo build` clean.
+
+**Technical debt:**
+- **Not verified against the live API.** Every gate, prompt, and persistence step is tested, but no real Claude call was made in this round — the prompt's output quality is unproven.
+- **Generation is all-or-nothing:** the items are created as returned, with no review/accept step, so a bad batch has to be deleted by hand.
+- **The Product policy is coarse by design** — no per-Deliverable override, and it grants generation across the whole Product.
+- **`generate_stories` is now doing double duty** (stories and deliverable work) and its JSON schema key is still `stories`; worth renaming to something level-neutral if a third caller appears.
+- The Generate button has no cancel, and a slow call only shows "Generating…".
+
 **Technical debt:** work_item migration stays drop-and-recreate (pre-release — loses existing rows on schema change); cost fields commit on blur (no debounce/undo); the drag gesture uses HTML5 drag (jsdom can't drive pointer coords) — the real tear-off is a same-window gesture triggering `open_screen_window`, not native window drag.
 
 ## Report back

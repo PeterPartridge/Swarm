@@ -33,12 +33,14 @@ export default function DevelopSolutions() {
 
   const refresh = useCallback(async () => {
     try {
-      const [loadedProducts, loadedSolutions] = await Promise.all([
+      const [loadedProducts, loadedSolutions, github] = await Promise.all([
         listProducts(),
         listSolutions(),
+        githubStatus(),
       ]);
       setProducts(loadedProducts);
       setSolutions(loadedSolutions);
+      setGithubConnected(github.connected);
       const firstId = loadedProducts.length > 0 ? loadedProducts[0].id : "";
       setActiveProduct((cur) => (cur === "" ? firstId : cur));
       setSolutionProduct((cur) => (cur === "" ? firstId : cur));
@@ -162,7 +164,7 @@ export default function DevelopSolutions() {
             <button type="submit">Create Solution</button>
           </form>
         )}
-        <ul>
+        <ul className="solution-list">
           {solutions.map((s) => (
             <li key={s.id}>
               <strong>{s.name}</strong> ({s.solutionType}) — {productName(s.productId)}{" "}
@@ -172,11 +174,17 @@ export default function DevelopSolutions() {
               >
                 Delete
               </button>
+              <SolutionRepo
+                solution={s}
+                githubConnected={githubConnected}
+                onChange={refresh}
+              />
             </li>
           ))}
         </ul>
       </section>
 
+      <GithubCard onChange={refresh} />
       <AiSettings />
     </div>
   );

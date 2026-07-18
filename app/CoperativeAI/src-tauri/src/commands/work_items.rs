@@ -186,13 +186,12 @@ pub async fn generate_user_stories(
     };
 
     let api_key = keys::get_key(&context.provider.key_alias)?;
-    let model = context
-        .provider
-        .models
-        .first()
-        .cloned()
-        .ok_or_else(|| "the allowed AI provider has no models configured".to_string())?;
-    let drafts = client::generate_stories(
+    // The policy's effort tier picks the model from the provider's
+    // cheapest-first list (Project_brief Part 4), instead of always the first.
+    let model = crate::ai::tiering::model_for_effort(&context.provider.models, &context.effort_tier)
+        .ok_or_else(|| "the allowed AI provider has no models configured".to_string())?
+        .to_string();
+    let (drafts, _usage) = client::generate_stories(
         &context.provider.api_base_url,
         &api_key,
         &model,
@@ -278,11 +277,285 @@ pub(crate) async fn resolve_story_generation(
     })
 }
 
+/// Everything the Deliverable gate resolves before any content moves.
+pub(crate) struct DeliverableGenerationContext {
+    pub deliverable: crate::db::deliverable::Deliverable,
+    pub provider: crate::db::ai_provider::AiProvider,
+    pub effort_tier: String,
+    /// The hierarchy level to create — see `level_for_deliverable`.
+    pub item_type: String,
+}
+
+/// Which level a Deliverable breaks down into: the one directly above user
+/// stories, so the existing per-feature button can expand them further. With no
+/// user-story level configured, the hierarchy's top level is used instead.
+pub(crate) fn level_for_deliverable(hierarchy: &[String]) -> Option<String> {
+    match hierarchy.iter().position(|t| t == "userStory") {
+        // user stories at the very top: generate those
+        Some(0) => Some("userStory".to_string()),
+        Some(i) => Some(hierarchy[i - 1].clone()),
+        None => hierarchy.first().cloned(),
+    }
+}
+
+/// The gate half of Deliverable generation, kept separate so the
+/// deny-by-default behaviour is unit testable without a credential store or
+/// network. Gated by the **Product's** policy — deliberately coarser than a
+/// work-item policy, so allowing it for one Deliverable allows it for all of
+/// that Product's Deliverables.
+pub(crate) async fn resolve_deliverable_generation(
+    conn: &turso::Connection,
+    deliverable_id: i64,
+) -> Result<DeliverableGenerationContext, String> {
+    use crate::db::{deliverable, product_policy};
+
+    let Some(deliverable) = deliverable::find_by_id(conn, deliverable_id)
+        .await
+        .map_err(to_message)?
+    else {
+        return Err(format!("no deliverable with id {deliverable_id}"));
+    };
+    let hierarchy = system_setting::get_planning_hierarchy(conn)
+        .await
+        .map_err(to_message)?;
+    let Some(item_type) = level_for_deliverable(&hierarchy) else {
+        return Err(
+            "The current planning method has no work item levels — set 'How Products are planned' in settings."
+                .into(),
+        );
+    };
+    // Deny-by-default: no Product policy, or one that doesn't allow reading and
+    // generating via a named provider, blocks the call before any content moves.
+    let Some(policy) = product_policy::get_for_product(conn, deliverable.product_id)
+        .await
+        .map_err(to_message)?
+    else {
+        return Err(format!(
+            "'{}''s Product has no AI policy, so AI can't plan it (deny-by-default). Set the Product's AI policy to allow reading and generating, and configure an AI provider in AI Settings.",
+            deliverable.name
+        ));
+    };
+    let provider_id = match (policy.allow_read, policy.allow_generate, policy.provider_id) {
+        (true, true, Some(provider_id)) => provider_id,
+        _ => {
+            return Err(format!(
+                "The Product's AI policy blocks this: it must allow reading and generating, and name an AI provider. Update it in the Product area (deliverable '{}').",
+                deliverable.name
+            ));
+        }
+    };
+    let Some(provider) = crate::db::ai_provider::find_by_id(conn, provider_id)
+        .await
+        .map_err(to_message)?
+    else {
+        return Err("the policy's AI provider no longer exists — update the Product's policy".into());
+    };
+    Ok(DeliverableGenerationContext {
+        deliverable,
+        provider,
+        effort_tier: policy.effort_tier,
+        item_type,
+    })
+}
+
+/// Generates the work that achieves a Deliverable. Gates first (Product policy,
+/// planning hierarchy), then: key from the OS credential store → Claude Messages
+/// API with structured outputs → new work items linked to the Deliverable.
+#[tauri::command]
+pub async fn generate_deliverable_work(
+    db: State<'_, AppDb>,
+    deliverable_id: i64,
+) -> Result<Vec<String>, String> {
+    use crate::ai::{client, keys};
+    use crate::db::{product, solution, strategy};
+
+    // Resolve gates + prompt inputs under the lock, then release it for the
+    // network call so the rest of the app stays responsive.
+    let (context, prompt) = {
+        let conn = db.0.lock().await;
+        let context = resolve_deliverable_generation(&conn, deliverable_id).await?;
+        let product_id = context.deliverable.product_id;
+        let Some(product_row) = product::find_by_id(&conn, product_id)
+            .await
+            .map_err(to_message)?
+        else {
+            return Err("this deliverable's Product no longer exists".into());
+        };
+        let solutions = solution::list_by_product(&conn, product_id)
+            .await
+            .map_err(to_message)?
+            .into_iter()
+            .map(|s| (s.name, s.solution_type, s.answers))
+            .collect::<Vec<_>>();
+        let strategy_json = strategy::get(&conn, product_id, "product")
+            .await
+            .map_err(to_message)?;
+        // Existing titles under this deliverable, so a second press adds to the
+        // plan rather than repeating it.
+        let existing = work_item::list_by_product(&conn, product_id)
+            .await
+            .map_err(to_message)?
+            .into_iter()
+            .filter(|i| i.deliverable_id == Some(deliverable_id))
+            .map(|i| i.title)
+            .collect::<Vec<_>>();
+        let label = human_level(&context.item_type);
+        let prompt = client::build_deliverable_prompt(
+            &product_row.name,
+            &product_row.answers,
+            &strategy_json,
+            &context.deliverable.name,
+            &context.deliverable.description,
+            label,
+            &existing,
+            &solutions,
+        );
+        (context, prompt)
+    };
+
+    let api_key = keys::get_key(&context.provider.key_alias)?;
+    // The policy's effort tier picks the model from the provider's
+    // cheapest-first list (Project_brief Part 4), instead of always the first.
+    let model = crate::ai::tiering::model_for_effort(&context.provider.models, &context.effort_tier)
+        .ok_or_else(|| "the allowed AI provider has no models configured".to_string())?
+        .to_string();
+    let (drafts, _usage) = client::generate_stories(
+        &context.provider.api_base_url,
+        &api_key,
+        &model,
+        &context.effort_tier,
+        &prompt,
+    )
+    .await?;
+
+    let conn = db.0.lock().await;
+    let mut created = Vec::new();
+    for draft in drafts {
+        let id = work_item::create(
+            &conn,
+            &draft.title,
+            &context.item_type,
+            context.deliverable.product_id,
+            None,
+            Some(&draft.description),
+        )
+        .await
+        .map_err(to_message)?;
+        // Link it to the deliverable it was generated to achieve.
+        work_item::update_item(
+            &conn,
+            id,
+            work_item::WorkItemFields {
+                deliverable_id: Some(deliverable_id),
+                ..Default::default()
+            },
+        )
+        .await
+        .map_err(to_message)?;
+        created.push(draft.title);
+    }
+    Ok(created)
+}
+
+/// Plain wording for a hierarchy level, for the prompt.
+fn human_level(item_type: &str) -> &'static str {
+    match item_type {
+        "epic" => "epic",
+        "userStory" => "user story",
+        "task" => "task",
+        _ => "feature",
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::resolve_story_generation;
+    use super::{level_for_deliverable, resolve_deliverable_generation, resolve_story_generation};
     use crate::db::product::tests::db_with_product;
-    use crate::db::{ai_provider, system_setting, work_item, work_item_policy};
+    use crate::db::{
+        ai_provider, deliverable, product_policy, system_setting, work_item, work_item_policy,
+    };
+
+    fn hierarchy(levels: &[&str]) -> Vec<String> {
+        levels.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn a_deliverable_breaks_down_into_the_level_above_user_stories() {
+        // the default method: Feature sits above User Story
+        assert_eq!(
+            level_for_deliverable(&hierarchy(&["epic", "feature", "userStory", "task"])),
+            Some("feature".to_string())
+        );
+        assert_eq!(
+            level_for_deliverable(&hierarchy(&["feature", "userStory", "task"])),
+            Some("feature".to_string())
+        );
+        // no user stories configured — fall back to the top level
+        assert_eq!(
+            level_for_deliverable(&hierarchy(&["feature", "task"])),
+            Some("feature".to_string())
+        );
+        assert_eq!(
+            level_for_deliverable(&hierarchy(&["epic", "task"])),
+            Some("epic".to_string())
+        );
+        // user stories at the top: generate those
+        assert_eq!(
+            level_for_deliverable(&hierarchy(&["userStory", "task"])),
+            Some("userStory".to_string())
+        );
+        assert_eq!(level_for_deliverable(&[]), None);
+    }
+
+    #[tokio::test]
+    async fn deliverable_generation_is_denied_without_a_product_policy() {
+        let (conn, product_id) = db_with_product().await;
+        let d = deliverable::create(&conn, product_id, "MVP", "the first release")
+            .await
+            .expect("deliverable");
+        let err = resolve_deliverable_generation(&conn, d)
+            .await
+            .err()
+            .expect("must be blocked");
+        assert!(err.contains("deny-by-default"), "got: {err}");
+    }
+
+    #[tokio::test]
+    async fn deliverable_generation_needs_read_generate_and_a_provider() {
+        let (conn, product_id) = db_with_product().await;
+        let d = deliverable::create(&conn, product_id, "MVP", "")
+            .await
+            .expect("deliverable");
+        let provider = ai_provider::add(&conn, "Claude", "https://api.anthropic.com", &["m".into()], "alias")
+            .await
+            .expect("provider");
+
+        // reading allowed but generating denied
+        product_policy::set_policy(&conn, product_id, true, false, Some(provider), "low")
+            .await
+            .expect("policy");
+        assert!(resolve_deliverable_generation(&conn, d).await.is_err());
+
+        // both allowed but no provider named
+        product_policy::set_policy(&conn, product_id, true, true, None, "low")
+            .await
+            .expect("policy");
+        assert!(resolve_deliverable_generation(&conn, d).await.is_err());
+
+        // fully allowed
+        product_policy::set_policy(&conn, product_id, true, true, Some(provider), "medium")
+            .await
+            .expect("policy");
+        let context = resolve_deliverable_generation(&conn, d).await.expect("allowed");
+        assert_eq!(context.item_type, "feature");
+        assert_eq!(context.effort_tier, "medium");
+    }
+
+    #[tokio::test]
+    async fn deliverable_generation_rejects_an_unknown_deliverable() {
+        let (conn, _product_id) = db_with_product().await;
+        assert!(resolve_deliverable_generation(&conn, 999).await.is_err());
+    }
 
     #[tokio::test]
     async fn story_generation_is_denied_without_a_policy() {
