@@ -491,6 +491,68 @@ export interface AiFeedback {
   resolvedNote: string;
 }
 
+/** Constraints developers put on the AI. `disallowedTech` is enforced: it is
+ *  stated as a prohibition in the prompt and the answer is checked against it. */
+export interface DeveloperRules {
+  productId: number;
+  codingStandards: string;
+  architecturePrinciples: string;
+  maintainability: string;
+  preferredFrameworks: string;
+  allowedTech: string;
+  disallowedTech: string;
+  aiConstraints: string;
+}
+
+export interface SolutionStrategy {
+  workItemId: number;
+  strategy: string;
+  /** JSON array of {name, kind, rationale, tradeoffs}. */
+  architectureOptions: string;
+  chosenOptionIndex: number | null;
+  techStack: string;
+  /** Forbidden technologies found in the AI's own output. */
+  ruleViolations: string[];
+}
+
+export interface ArchitectureOption {
+  name: string;
+  kind: string;
+  rationale: string;
+  tradeoffs: string;
+}
+
+/** The editable rule fields — every key except the product it belongs to. */
+export type DeveloperRuleField = Exclude<keyof DeveloperRules, "productId">;
+
+export const DEVELOPER_RULE_FIELDS: { id: DeveloperRuleField; label: string }[] = [
+  { id: "codingStandards", label: "Coding standards" },
+  { id: "architecturePrinciples", label: "Architecture principles" },
+  { id: "maintainability", label: "Maintainability rules" },
+  { id: "preferredFrameworks", label: "Preferred frameworks" },
+  { id: "allowedTech", label: "Allowed technologies" },
+  { id: "disallowedTech", label: "Disallowed technologies (enforced)" },
+  { id: "aiConstraints", label: "Constraints on AI behaviour" },
+];
+
+export const getDeveloperRules = (
+  productId: number,
+): Promise<DeveloperRules | null> => invoke("get_developer_rules", { productId });
+export const setDeveloperRules = (rules: DeveloperRules): Promise<void> =>
+  invoke("set_developer_rules", { ...rules });
+export const getSolutionStrategy = (
+  workItemId: number,
+): Promise<SolutionStrategy | null> =>
+  invoke("get_solution_strategy", { workItemId });
+export const generateSolutionStrategy = (
+  workItemId: number,
+): Promise<GenerationResult> =>
+  invoke("generate_solution_strategy", { workItemId });
+export const chooseArchitectureOption = (
+  workItemId: number,
+  index: number | null,
+): Promise<void> => invoke("choose_architecture_option", { workItemId, index });
+
 export const listAiFeedback = (workItemId: number): Promise<AiFeedback[]> =>
   invoke("list_ai_feedback", { workItemId });
 /** Answers the AI's question. The note travels with the next prompt for this

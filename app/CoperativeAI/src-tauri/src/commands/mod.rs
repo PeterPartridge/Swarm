@@ -11,6 +11,7 @@ pub mod policies;
 pub mod products;
 pub mod repositories;
 pub mod roles;
+pub mod strategies;
 pub mod strategy;
 pub mod settings;
 pub mod solutions;

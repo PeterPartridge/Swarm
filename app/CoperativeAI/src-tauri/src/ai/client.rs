@@ -264,6 +264,60 @@ pub async fn generate_stories(
     effort: &str,
     prompt: &Prompt,
 ) -> Result<(Generated, Usage), String> {
+    let (json_text, usage) =
+        post_structured(api_base_url, api_key, model, effort, prompt, story_schema()).await?;
+    Ok((parse_generation(&json_text)?, usage))
+}
+
+/// The schema for planning work — a list of items, or the escape hatch.
+fn story_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "stories": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "description": {"type": "string"}
+                    },
+                    "required": ["title", "description"],
+                    "additionalProperties": false
+                }
+            },
+            "blocked": blocked_schema()
+        },
+        "required": ["stories"],
+        "additionalProperties": false
+    })
+}
+
+/// The escape hatch, shared by every schema. Leave null to produce work; fill
+/// it in to decline and say what is missing.
+fn blocked_schema() -> Value {
+    json!({
+        "type": ["object", "null"],
+        "properties": {
+            "reason": {"type": "string"},
+            "whatIsNeeded": {"type": "string"}
+        },
+        "required": ["reason", "whatIsNeeded"],
+        "additionalProperties": false
+    })
+}
+
+/// One structured-output call: the cacheable context first, the task second,
+/// the given schema enforced. Returns the raw JSON text and what it consumed,
+/// leaving each caller to parse its own shape.
+async fn post_structured(
+    api_base_url: &str,
+    api_key: &str,
+    model: &str,
+    effort: &str,
+    prompt: &Prompt,
+    schema: Value,
+) -> Result<(String, Usage), String> {
     let url = format!("{}/v1/messages", api_base_url.trim_end_matches('/'));
     let body = json!({
         "model": model,
@@ -272,36 +326,7 @@ pub async fn generate_stories(
             "effort": effort,
             "format": {
                 "type": "json_schema",
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "stories": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "title": {"type": "string"},
-                                    "description": {"type": "string"}
-                                },
-                                "required": ["title", "description"],
-                                "additionalProperties": false
-                            }
-                        },
-                        // The escape hatch. Leave null to produce work; fill it
-                        // in to decline and say what is missing.
-                        "blocked": {
-                            "type": ["object", "null"],
-                            "properties": {
-                                "reason": {"type": "string"},
-                                "whatIsNeeded": {"type": "string"}
-                            },
-                            "required": ["reason", "whatIsNeeded"],
-                            "additionalProperties": false
-                        }
-                    },
-                    "required": ["stories"],
-                    "additionalProperties": false
-                }
+                "schema": schema
             }
         },
         "messages": [{
@@ -348,9 +373,204 @@ pub async fn generate_stories(
         .content
         .iter()
         .find(|b| b.block_type == "text")
-        .map(|b| b.text.as_str())
+        .map(|b| b.text.clone())
         .ok_or_else(|| "the AI response contained no text".to_string())?;
-    Ok((parse_generation(json_text)?, parsed.usage))
+    Ok((json_text, parsed.usage))
+}
+
+/// One proposed way to build a work item.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct ArchitectureOption {
+    pub name: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub rationale: String,
+    #[serde(default)]
+    pub tradeoffs: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StrategyDraft {
+    pub strategy: String,
+    pub options: Vec<ArchitectureOption>,
+    pub tech_stack: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum GeneratedStrategy {
+    Strategy(StrategyDraft),
+    Blocked {
+        reason: String,
+        what_is_needed: String,
+    },
+}
+
+/// Builds the prompt for "how should we build this?".
+///
+/// The developer rules are stated as constraints rather than suggestions, and
+/// disallowed technologies are called out explicitly — the result is then
+/// re-checked against that list by the caller, because a stated constraint is
+/// not the same as an obeyed one.
+#[allow(clippy::too_many_arguments)]
+pub fn build_solution_strategy_prompt(
+    product_name: &str,
+    product_answers: &str,
+    solutions: &[(String, String, String)],
+    item_title: &str,
+    item_description: Option<&str>,
+    rules: &DeveloperRulesPrompt<'_>,
+    clarifications: &[String],
+) -> Prompt {
+    let mut context = product_context(product_name, product_answers, None, solutions);
+    context.push_str("\nDeveloper rules — these are constraints, not preferences:\n");
+    for (label, value) in [
+        ("Coding standards", rules.coding_standards),
+        ("Architecture principles", rules.architecture_principles),
+        ("Maintainability", rules.maintainability),
+        ("Preferred frameworks", rules.preferred_frameworks),
+        ("Allowed technologies", rules.allowed_tech),
+        ("Constraints on AI", rules.ai_constraints),
+    ] {
+        if !value.trim().is_empty() {
+            context.push_str(&format!("- {label}: {value}\n"));
+        }
+    }
+    if !rules.disallowed_tech.trim().is_empty() {
+        context.push_str(&format!(
+            "- MUST NOT use, under any circumstances: {}\n",
+            rules.disallowed_tech
+        ));
+    }
+
+    let mut task = format!("Work item: {item_title}\n");
+    if let Some(description) = item_description {
+        if !description.trim().is_empty() {
+            task.push_str(&format!("Description: {description}\n"));
+        }
+    }
+    append_clarifications(&mut task, clarifications);
+    task.push_str(
+        "\nPropose how to build this. Give: a short written strategy; 2-4 architecture \
+         options, each with a name, a kind (windowsService, azureWebApp, azureFunction, \
+         api, backgroundWorker, or other), why it fits, and its trade-offs; and the tech \
+         stack that follows from the developer rules above. Do not propose anything the \
+         rules forbid.",
+    );
+    task.push_str(ESCAPE_HATCH_STRATEGY);
+    Prompt { context, task }
+}
+
+/// The developer rules, borrowed for prompt building.
+pub struct DeveloperRulesPrompt<'a> {
+    pub coding_standards: &'a str,
+    pub architecture_principles: &'a str,
+    pub maintainability: &'a str,
+    pub preferred_frameworks: &'a str,
+    pub allowed_tech: &'a str,
+    pub disallowed_tech: &'a str,
+    pub ai_constraints: &'a str,
+}
+
+const ESCAPE_HATCH_STRATEGY: &str = "\n\nIf the item is too vague to design against, do NOT guess. \
+     Leave \"strategy\" empty and fill in \"blocked\" with the reason and the single \
+     most useful question a person could answer.";
+
+fn strategy_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "strategy": {"type": "string"},
+            "techStack": {"type": "string"},
+            "options": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "kind": {"type": "string"},
+                        "rationale": {"type": "string"},
+                        "tradeoffs": {"type": "string"}
+                    },
+                    "required": ["name", "kind", "rationale", "tradeoffs"],
+                    "additionalProperties": false
+                }
+            },
+            "blocked": blocked_schema()
+        },
+        "required": ["strategy", "techStack", "options"],
+        "additionalProperties": false
+    })
+}
+
+/// Parses a solution-strategy response (pure — unit tested).
+pub fn parse_solution_strategy(text: &str) -> Result<GeneratedStrategy, String> {
+    let value: Value = serde_json::from_str(text)
+        .map_err(|e| format!("the AI response was not valid JSON: {e}"))?;
+
+    if let Some(blocked) = value.get("blocked").filter(|b| !b.is_null()) {
+        let reason = blocked
+            .get("reason")
+            .and_then(|r| r.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if !reason.is_empty() {
+            return Ok(GeneratedStrategy::Blocked {
+                reason,
+                what_is_needed: blocked
+                    .get("whatIsNeeded")
+                    .and_then(|w| w.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string(),
+            });
+        }
+    }
+
+    let strategy = value
+        .get("strategy")
+        .and_then(|s| s.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if strategy.is_empty() {
+        return Err("the AI response contained no strategy".into());
+    }
+    let options: Vec<ArchitectureOption> = value
+        .get("options")
+        .and_then(|o| o.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|o| serde_json::from_value(o.clone()).ok())
+                .filter(|o: &ArchitectureOption| !o.name.trim().is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(GeneratedStrategy::Strategy(StrategyDraft {
+        strategy,
+        options,
+        tech_stack: value
+            .get("techStack")
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string(),
+    }))
+}
+
+/// Calls the provider for a solution strategy.
+pub async fn generate_solution_strategy(
+    api_base_url: &str,
+    api_key: &str,
+    model: &str,
+    effort: &str,
+    prompt: &Prompt,
+) -> Result<(GeneratedStrategy, Usage), String> {
+    let (json_text, usage) =
+        post_structured(api_base_url, api_key, model, effort, prompt, strategy_schema()).await?;
+    Ok((parse_solution_strategy(&json_text)?, usage))
 }
 
 /// Minimal connectivity check: one tiny Messages call.
@@ -562,6 +782,98 @@ mod tests {
             Generated::Items(items) => assert_eq!(items.len(), 1),
             other => panic!("expected items, got {other:?}"),
         }
+    }
+
+    fn rules<'a>(disallowed: &'a str) -> DeveloperRulesPrompt<'a> {
+        DeveloperRulesPrompt {
+            coding_standards: "DRY",
+            architecture_principles: "",
+            maintainability: "",
+            preferred_frameworks: "",
+            allowed_tech: "Rust",
+            disallowed_tech: disallowed,
+            ai_constraints: "",
+        }
+    }
+
+    #[test]
+    fn a_strategy_response_parses_into_options() {
+        let text = r#"{"strategy":"Run it as a queue consumer.","techStack":"Rust, Azure",
+            "options":[
+                {"name":"Azure Function","kind":"azureFunction","rationale":"cheap","tradeoffs":"cold starts"},
+                {"name":"Worker","kind":"backgroundWorker","rationale":"steady","tradeoffs":"always on"}
+            ]}"#;
+        match parse_solution_strategy(text).expect("parse") {
+            GeneratedStrategy::Strategy(draft) => {
+                assert!(draft.strategy.starts_with("Run it"));
+                assert_eq!(draft.tech_stack, "Rust, Azure");
+                assert_eq!(draft.options.len(), 2);
+                assert_eq!(draft.options[0].kind, "azureFunction");
+            }
+            other => panic!("expected a strategy, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_strategy_can_also_decline() {
+        let text = r#"{"strategy":"","techStack":"","options":[],
+            "blocked":{"reason":"No throughput given","whatIsNeeded":"How many messages per hour?"}}"#;
+        match parse_solution_strategy(text).expect("parse") {
+            GeneratedStrategy::Blocked { what_is_needed, .. } => {
+                assert!(what_is_needed.contains("messages per hour"))
+            }
+            other => panic!("expected blocked, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_empty_strategy_without_a_reason_is_an_error_not_a_silent_pass() {
+        let text = r#"{"strategy":"   ","techStack":"","options":[]}"#;
+        assert!(parse_solution_strategy(text).is_err());
+    }
+
+    #[test]
+    fn unnamed_options_are_dropped_rather_than_shown_blank() {
+        let text = r#"{"strategy":"s","techStack":"","options":[
+            {"name":"","kind":"api","rationale":"","tradeoffs":""},
+            {"name":"Real one","kind":"api","rationale":"","tradeoffs":""}
+        ]}"#;
+        match parse_solution_strategy(text).expect("parse") {
+            GeneratedStrategy::Strategy(draft) => {
+                assert_eq!(draft.options.len(), 1);
+                assert_eq!(draft.options[0].name, "Real one");
+            }
+            other => panic!("expected a strategy, got {other:?}"),
+        }
+    }
+
+    /// Forbidden technology must be stated as a hard constraint, not left for
+    /// the model to infer from the allowed list.
+    #[test]
+    fn disallowed_technology_is_stated_as_a_prohibition() {
+        let prompt = build_solution_strategy_prompt(
+            "Shop App", "{}", &[], "Checkout", None, &rules("Java, PHP"), &[],
+        );
+        assert!(prompt.context.contains("MUST NOT use"), "got: {}", prompt.context);
+        assert!(prompt.context.contains("Java, PHP"));
+    }
+
+    #[test]
+    fn with_nothing_forbidden_no_prohibition_is_invented() {
+        let prompt = build_solution_strategy_prompt(
+            "Shop App", "{}", &[], "Checkout", None, &rules(""), &[],
+        );
+        assert!(!prompt.context.contains("MUST NOT use"));
+        assert!(prompt.context.contains("Coding standards: DRY"));
+    }
+
+    #[test]
+    fn the_strategy_prompt_also_offers_the_escape_hatch() {
+        let prompt = build_solution_strategy_prompt(
+            "Shop App", "{}", &[], "Checkout", None, &rules(""), &[],
+        );
+        assert!(prompt.task.contains("do NOT guess"));
+        assert!(prompt.task.contains("architecture options"));
     }
 
     #[test]

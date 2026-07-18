@@ -7,6 +7,7 @@ pub mod ai_feedback;
 pub mod ai_provider;
 pub mod ai_usage;
 pub mod deliverable;
+pub mod developer_rules;
 pub mod emitted_file;
 pub mod model_price;
 pub mod feature_design;
@@ -17,6 +18,7 @@ pub mod repository;
 pub mod role;
 pub mod solution;
 pub mod solution_management;
+pub mod solution_strategy;
 pub mod sprint;
 pub mod strategy;
 pub mod system_setting;
@@ -85,6 +87,8 @@ pub async fn create_all_tables(conn: &Connection) -> Result<()> {
     emitted_file::create_table(conn).await?;
     // after work_item: feedback hangs off an item
     ai_feedback::create_table(conn).await?;
+    developer_rules::create_table(conn).await?;
+    solution_strategy::create_table(conn).await?;
     feature_design::create_table(conn).await?;
     strategy::create_table(conn).await?;
     // after deliverable + work_item: a test case may point at either

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import AiSettings from "../components/AiSettings";
+import DeveloperRulesEditor from "../components/DeveloperRulesEditor";
 import FrameworkFiles from "../components/FrameworkFiles";
 import GithubCard from "../components/GithubCard";
 import SolutionRepo from "../components/SolutionRepo";
@@ -113,6 +114,7 @@ export default function DevelopSolutions() {
                 title="Technical Strategy"
                 fields={DEVELOP_STRATEGY_FIELDS}
               />
+              <DeveloperRulesEditor productId={Number(activeProduct)} />
               <WorkItemViews productId={Number(activeProduct)} />
               <FrameworkFiles productId={Number(activeProduct)} />
             </>
