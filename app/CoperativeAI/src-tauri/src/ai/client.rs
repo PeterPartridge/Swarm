@@ -394,7 +394,16 @@ pub struct ArchitectureOption {
 pub struct StrategyDraft {
     pub strategy: String,
     pub options: Vec<ArchitectureOption>,
+    /// Prose, for a person to read.
     pub tech_stack: String,
+    /// The technologies the AI intends to **use**, as data.
+    ///
+    /// This exists because checking the prose does not work. The first live run
+    /// produced a tech stack ending "No Java or PHP anywhere" — the model had
+    /// obeyed the prohibition perfectly and was flagged for saying so. A rule
+    /// check that fires on correct behaviour trains people to ignore it, so the
+    /// check runs against this list and never against the writing.
+    pub technologies: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -453,9 +462,11 @@ pub fn build_solution_strategy_prompt(
     task.push_str(
         "\nPropose how to build this. Give: a short written strategy; 2-4 architecture \
          options, each with a name, a kind (windowsService, azureWebApp, azureFunction, \
-         api, backgroundWorker, or other), why it fits, and its trade-offs; and the tech \
-         stack that follows from the developer rules above. Do not propose anything the \
-         rules forbid.",
+         api, backgroundWorker, or other), why it fits, and its trade-offs; the tech \
+         stack that follows from the developer rules above; and \"technologies\", a plain \
+         list of every technology you are actually proposing to USE. List only what you \
+         are using — do not list anything you are avoiding or rejecting. Do not propose \
+         anything the rules forbid.",
     );
     task.push_str(ESCAPE_HATCH_STRATEGY);
     Prompt { context, task }
@@ -482,6 +493,8 @@ fn strategy_schema() -> Value {
         "properties": {
             "strategy": {"type": "string"},
             "techStack": {"type": "string"},
+            // Checked against the forbidden list — see StrategyDraft.
+            "technologies": {"type": "array", "items": {"type": "string"}},
             "options": {
                 "type": "array",
                 "items": {
@@ -498,7 +511,7 @@ fn strategy_schema() -> Value {
             },
             "blocked": blocked_schema()
         },
-        "required": ["strategy", "techStack", "options"],
+        "required": ["strategy", "techStack", "technologies", "options"],
         "additionalProperties": false
     })
 }
@@ -557,6 +570,18 @@ pub fn parse_solution_strategy(text: &str) -> Result<GeneratedStrategy, String> 
             .unwrap_or("")
             .trim()
             .to_string(),
+        technologies: value
+            .get("technologies")
+            .and_then(|t| t.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|t| t.as_str())
+                    .map(|t| t.trim().to_string())
+                    .filter(|t| !t.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default(),
     }))
 }
 

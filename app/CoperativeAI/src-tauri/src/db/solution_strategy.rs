@@ -28,15 +28,36 @@ pub struct SolutionStrategy {
     /// JSON array of {name, kind, rationale, tradeoffs}.
     pub architecture_options: String,
     pub chosen_option_index: Option<i64>,
+    /// Prose, for a person to read.
     pub tech_stack: String,
+    /// JSON array of the technologies the AI proposes to **use**. The rule
+    /// check runs against this and never against the prose — the first live run
+    /// flagged a strategy whose tech stack ended "No Java or PHP anywhere",
+    /// i.e. it obeyed the rule and was reported for saying so.
+    pub technologies: String,
     /// Ledger row that paid for this, so cost is traceable to what it bought.
     pub ai_usage_id: Option<i64>,
     pub generated_at: i64,
 }
 
-const SELECT: &str = "SELECT id, workItemId, strategy, architectureOptions, chosenOptionIndex, techStack, aiUsageId, generatedAt FROM solution_strategies";
+const SELECT: &str = "SELECT id, workItemId, strategy, architectureOptions, chosenOptionIndex, techStack, technologies, aiUsageId, generatedAt FROM solution_strategies";
 
 pub async fn create_table(conn: &Connection) -> Result<()> {
+    // Adds `technologies`. Pre-release → drop & recreate; strategies are
+    // regenerated from the AI anyway, so nothing irreplaceable is lost.
+    let mut columns: Vec<String> = Vec::new();
+    {
+        let mut rows = conn
+            .query("SELECT name FROM pragma_table_info('solution_strategies')", ())
+            .await?;
+        while let Some(row) = rows.next().await? {
+            columns.push(row.get(0)?);
+        }
+    }
+    if !columns.is_empty() && !columns.iter().any(|c| c == "technologies") {
+        conn.execute("DROP TABLE solution_strategies", ()).await?;
+    }
+
     conn.execute(
         "CREATE TABLE IF NOT EXISTS solution_strategies (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,6 +66,7 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             architectureOptions TEXT NOT NULL DEFAULT '[]',
             chosenOptionIndex INTEGER,
             techStack TEXT NOT NULL DEFAULT '',
+            technologies TEXT NOT NULL DEFAULT '[]',
             aiUsageId INTEGER,
             generatedAt INTEGER NOT NULL
         )",
@@ -57,12 +79,14 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
 /// Stores a freshly generated strategy, replacing any previous one for the item.
 /// Regenerating deliberately clears the chosen option: the choice was made about
 /// options that no longer exist.
+#[allow(clippy::too_many_arguments)]
 pub async fn set_strategy(
     conn: &Connection,
     work_item_id: i64,
     strategy: &str,
     architecture_options_json: &str,
     tech_stack: &str,
+    technologies_json: &str,
     ai_usage_id: Option<i64>,
 ) -> Result<()> {
     if crate::db::work_item::find_by_id(conn, work_item_id).await?.is_none() {
@@ -79,13 +103,14 @@ pub async fn set_strategy(
     )
     .await?;
     conn.execute(
-        "INSERT INTO solution_strategies (workItemId, strategy, architectureOptions, chosenOptionIndex, techStack, aiUsageId, generatedAt)
-         VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6)",
+        "INSERT INTO solution_strategies (workItemId, strategy, architectureOptions, chosenOptionIndex, techStack, technologies, aiUsageId, generatedAt)
+         VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7)",
         (
             work_item_id,
             strategy,
             architecture_options_json,
             tech_stack,
+            technologies_json,
             ai_usage_id,
             now_millis(),
         ),
@@ -130,8 +155,9 @@ pub async fn get_for_item(conn: &Connection, work_item_id: i64) -> Result<Option
             architecture_options: row.get(3)?,
             chosen_option_index: row.get(4)?,
             tech_stack: row.get(5)?,
-            ai_usage_id: row.get(6)?,
-            generated_at: row.get(7)?,
+            technologies: row.get(6)?,
+            ai_usage_id: row.get(7)?,
+            generated_at: row.get(8)?,
         })),
         None => Ok(None),
     }
@@ -157,7 +183,7 @@ mod tests {
     async fn a_strategy_round_trips_with_its_options() {
         let (conn, product_id) = db_with_product().await;
         let item_id = item(&conn, product_id).await;
-        set_strategy(&conn, item_id, "Build it as a queue consumer.", OPTIONS, "Rust, Azure", Some(4))
+        set_strategy(&conn, item_id, "Build it as a queue consumer.", OPTIONS, "Rust, Azure", "[\"Rust\"]", Some(4))
             .await
             .expect("set");
 
@@ -172,15 +198,15 @@ mod tests {
     async fn a_strategy_needs_a_real_item_and_valid_option_json() {
         let (conn, product_id) = db_with_product().await;
         let item_id = item(&conn, product_id).await;
-        assert!(set_strategy(&conn, 999, "s", OPTIONS, "", None).await.is_err());
-        assert!(set_strategy(&conn, item_id, "s", "{not json", "", None).await.is_err());
+        assert!(set_strategy(&conn, 999, "s", OPTIONS, "", "[]", None).await.is_err());
+        assert!(set_strategy(&conn, item_id, "s", "{not json", "", "[]", None).await.is_err());
     }
 
     #[tokio::test]
     async fn choosing_an_option_is_recorded_and_bounds_checked() {
         let (conn, product_id) = db_with_product().await;
         let item_id = item(&conn, product_id).await;
-        set_strategy(&conn, item_id, "s", OPTIONS, "", None).await.expect("set");
+        set_strategy(&conn, item_id, "s", OPTIONS, "", "[]", None).await.expect("set");
 
         choose_option(&conn, item_id, Some(1)).await.expect("choose");
         assert_eq!(
@@ -205,10 +231,10 @@ mod tests {
     async fn regenerating_clears_a_previous_choice() {
         let (conn, product_id) = db_with_product().await;
         let item_id = item(&conn, product_id).await;
-        set_strategy(&conn, item_id, "first", OPTIONS, "", None).await.expect("set");
+        set_strategy(&conn, item_id, "first", OPTIONS, "", "[]", None).await.expect("set");
         choose_option(&conn, item_id, Some(1)).await.expect("choose");
 
-        set_strategy(&conn, item_id, "second", OPTIONS, "", None).await.expect("regenerate");
+        set_strategy(&conn, item_id, "second", OPTIONS, "", "[]", None).await.expect("regenerate");
         let stored = get_for_item(&conn, item_id).await.expect("get").unwrap();
         assert_eq!(stored.strategy, "second");
         assert_eq!(stored.chosen_option_index, None, "a stale choice must not survive");

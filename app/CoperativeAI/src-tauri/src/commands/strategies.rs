@@ -1,6 +1,7 @@
 //! Developer rules and the AI-generated solution strategy they constrain.
 
 use super::{to_message, AppDb};
+use crate::ai::backend;
 use crate::ai::client::{self, DeveloperRulesPrompt, GeneratedStrategy};
 use crate::commands::ai_run;
 use crate::db::{ai_feedback, developer_rules, product, solution, solution_strategy, work_item};
@@ -118,13 +119,27 @@ pub async fn get_solution_strategy(
     }))
 }
 
-/// Everything the AI wrote, checked in one pass against the forbidden list.
+/// Checks the technologies the AI said it would **use** against the forbidden
+/// list.
+///
+/// Deliberately not the prose. The first live run returned a tech stack ending
+/// "No Java or PHP anywhere" — the model had obeyed the prohibition exactly and
+/// the old text search reported it as a violation. A check that fires on
+/// correct behaviour teaches people to ignore it, which is worse than no check.
 fn rule_violations(disallowed: &str, stored: &solution_strategy::SolutionStrategy) -> Vec<String> {
-    let all = format!(
-        "{} {} {}",
-        stored.strategy, stored.tech_stack, stored.architecture_options
-    );
-    developer_rules::violations(disallowed, &all)
+    let declared: Vec<String> =
+        serde_json::from_str(&stored.technologies).unwrap_or_default();
+    violations_in_list(disallowed, &declared)
+}
+
+fn violations_in_list(disallowed: &str, technologies: &[String]) -> Vec<String> {
+    let mut found: Vec<String> = technologies
+        .iter()
+        .flat_map(|tech| developer_rules::violations(disallowed, tech))
+        .collect();
+    found.sort();
+    found.dedup();
+    found
 }
 
 #[tauri::command]
@@ -145,11 +160,9 @@ pub async fn generate_solution_strategy(
     db: State<'_, AppDb>,
     work_item_id: i64,
 ) -> Result<super::work_items::GenerationResult, String> {
-    use crate::ai::keys;
-
     const PURPOSE: &str = "solutionStrategy";
 
-    let (routed, prompt, product_id, disallowed) = {
+    let (routed, prompt, product_id, disallowed, effort_tier) = {
         let conn = db.0.lock().await;
         let Some(item) = work_item::find_by_id(&conn, work_item_id)
             .await
@@ -199,25 +212,17 @@ pub async fn generate_solution_strategy(
             },
             &clarifications,
         );
-        (routed, prompt, product_id, rules.disallowed_tech)
+        // The item's policy owns the effort tier here too, rather than this
+        // command deciding that architecture work is always worth "high".
+        (routed, prompt, product_id, rules.disallowed_tech, effort_tier)
     };
 
-    let api_key = if routed.provider.kind == "anthropic" {
-        keys::get_key(&routed.provider.key_alias)?
-    } else {
-        String::new()
-    };
     let started = std::time::Instant::now();
-    // Ollama has no strategy path yet, so a handover mid-design falls back to
-    // the metered provider's shape; the router still decides who runs.
-    let result = client::generate_solution_strategy(
-        &routed.provider.api_base_url,
-        &api_key,
-        &routed.model,
-        "high",
-        &prompt,
-    )
-    .await;
+    // Dispatched by provider kind, so a budget handover mid-design reaches the
+    // local model in its own request shape rather than failing.
+    let result =
+        backend::generate_solution_strategy(&routed.provider, &routed.model, &effort_tier, &prompt)
+            .await;
     let latency_ms = started.elapsed().as_millis() as i64;
 
     match result {
@@ -241,17 +246,18 @@ pub async fn generate_solution_strategy(
                     .collect::<Vec<_>>(),
             )
             .unwrap_or_else(|_| "[]".into());
+            let technologies_json =
+                serde_json::to_string(&draft.technologies).unwrap_or_else(|_| "[]".into());
             solution_strategy::set_strategy(
-                &conn, work_item_id, &draft.strategy, &options_json, &draft.tech_stack, None,
+                &conn, work_item_id, &draft.strategy, &options_json, &draft.tech_stack,
+                &technologies_json, None,
             )
             .await
             .map_err(to_message)?;
 
-            // A stated constraint is not an obeyed one: check the answer.
-            let violations = developer_rules::violations(
-                &disallowed,
-                &format!("{} {} {}", draft.strategy, draft.tech_stack, options_json),
-            );
+            // A stated constraint is not an obeyed one: check the answer — but
+            // against what it says it will use, not against its writing.
+            let violations = violations_in_list(&disallowed, &draft.technologies);
             if !violations.is_empty() {
                 ai_feedback::record(
                     &conn,

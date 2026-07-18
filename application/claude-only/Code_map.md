@@ -119,13 +119,16 @@
 | `product_policy::{create_table, set_policy, get_for_product}` | src-tauri/src/db/product_policy.rs | Per-**Product** AI policy (allowRead / allowGenerate / provider / effort), deny-by-default; gates Deliverable planning. Coarser than the item policy on purpose — one switch covers every Deliverable | `product::find_by_id`, `ai_provider::find_by_id` |
 | `feature_design::{create_table, save, get_for_item}` | src-tauri/src/db/feature_design.rs | One JSON canvas per work item; canvas validated (JSON + connections reference existing blocks) on save | `work_item::find_by_id`, serde_json |
 
-**Test suites:** 215 cargo tests (+3 ignored live checks) (db modules incl. role seeding, deliverable/strategy, work_item round-3 commercial fields + migration, solution round-2 GitHub fields + round-1→2 migration, test_case associations + unlink-on-delete, product_policy + deliverable-generation gates + `level_for_deliverable`, model tiering across list sizes, prompt context/task split invariants, usage parsing, github request bodies, AI gates, scaffold) + 62 Vitest tests (shell, Product home, PlanningBoard incl. cost/deliverable + optimistic create, ProductStrategy generate-work + AI policy panel, RoadMap, DevelopSolutions incl. technical strategy + views + GitHub connect/link/create, WorkItemViews board/sprint/list + user filter, TestArea testing strategy + test cases, AiSettings, AdminArea, permission gating, drag pop-out) — all green as of this build, with `npm run build` and a full `cargo build` clean.
+**Test suites:** 218 cargo tests (+4 ignored live checks) (db modules incl. role seeding, deliverable/strategy, work_item round-3 commercial fields + migration, solution round-2 GitHub fields + round-1→2 migration, test_case associations + unlink-on-delete, product_policy + deliverable-generation gates + `level_for_deliverable`, model tiering across list sizes, prompt context/task split invariants, usage parsing, github request bodies, AI gates, scaffold) + 62 Vitest tests (shell, Product home, PlanningBoard incl. cost/deliverable + optimistic create, ProductStrategy generate-work + AI policy panel, RoadMap, DevelopSolutions incl. technical strategy + views + GitHub connect/link/create, WorkItemViews board/sprint/list + user filter, TestArea testing strategy + test cases, AiSettings, AdminArea, permission gating, drag pop-out) — all green as of this build, with `npm run build` and a full `cargo build` clean.
 
-**Live verification.** The Ollama path is **proven** as of 2026-07-18 against a local `ornith:9b`: structured output via `format`, the shared parser, token capture (`in=227 out=126`), and — the important one — the **escape hatch, which the model took** when given a hopeless brief, declining in 91 output tokens against 126 to produce work. Re-run with:
+**Live verification.** The Ollama path is **proven** as of 2026-07-18 against a local `ornith:9b`: structured output via `format`, the shared parser, token capture, the **escape hatch** (the model declined a hopeless brief in 91 output tokens against 126 to produce work), and solution-strategy generation with the developer-rule check.
+
+Live testing found two things unit tests could not: strategy generation **did not dispatch on provider kind**, so a budget handover mid-design failed outright; and the rule check **fired on obedience**, flagging a tech stack that said "No Java or PHP anywhere". Both fixed — see `CoperativeAI/developerArea.md` round 7. Re-run with:
 
 ```text
-OLLAMA_MODEL=ornith:9b cargo test -- --ignored ollama_is_live --nocapture
-OLLAMA_MODEL=ornith:9b cargo test -- --ignored escape_hatch  --nocapture
+OLLAMA_MODEL=ornith:9b cargo test -- --ignored ollama_is_live    --nocapture
+OLLAMA_MODEL=ornith:9b cargo test -- --ignored escape_hatch      --nocapture
+OLLAMA_MODEL=ornith:9b cargo test -- --ignored strategy_is_live  --nocapture
 ```
 
 **Still unverified:** the **Claude path** — prompt caching, `usage` capture from the Messages API, and pricing against a real response — plus whether Claude and the *strategy* prompt behave as the story prompt did. Needs a key:

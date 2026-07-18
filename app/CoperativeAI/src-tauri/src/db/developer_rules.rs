@@ -210,6 +210,29 @@ mod tests {
         assert!(violations("Java", "A Rust service with a React front end.").is_empty());
     }
 
+    /// Found by the first live run: the model obeyed the rule and wrote "No
+    /// Java or PHP anywhere" in its tech stack, and the text search reported it
+    /// as a violation. Prose is not evidence of intent — this is why the caller
+    /// checks the declared technology list instead, and this test records why
+    /// `violations` must never be pointed at writing again.
+    #[test]
+    fn prose_that_obeys_the_rule_still_trips_a_text_search() {
+        let obedient = "TypeScript for the API, Rust for the engine. No Java or PHP anywhere.";
+        assert_eq!(
+            violations("Java, PHP", obedient),
+            vec!["java", "php"],
+            "a plain text search cannot tell using from refusing — check the declared list"
+        );
+
+        // The same answer as data: nothing forbidden is actually being used.
+        let declared = ["TypeScript".to_string(), "Rust".to_string()];
+        let from_list: Vec<String> = declared
+            .iter()
+            .flat_map(|t| violations("Java, PHP", t))
+            .collect();
+        assert!(from_list.is_empty(), "the declared list gets it right");
+    }
+
     #[test]
     fn several_violations_are_all_named() {
         let found = violations("Java, PHP, Perl", "A PHP front end calling a Java service.");

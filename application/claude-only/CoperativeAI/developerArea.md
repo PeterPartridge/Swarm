@@ -34,6 +34,44 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 7 — What live testing found
+
+Three things the unit tests could not have told us, from running rounds 4–6 against a real `ornith:9b`.
+
+### 1. A bug I had filed as debt
+`generate_solution_strategy` called the Claude client unconditionally. If a budget handed over to Ollama mid-design, the request went to `localhost:11434/v1/messages` — an endpoint that does not exist — so **a Product past its handover threshold could not design anything at all.** I recorded that as "technical debt" last round; it was broken behaviour, and calling it debt understated it.
+
+Fixed by giving Ollama a strategy path and dispatching on provider kind in `ai/backend.rs`, mirroring story generation. Two unit tests now pin it: both generations refuse an unknown kind, and a local provider is never asked for a key.
+
+### 2. The rule check fired on obedience
+The predicted false positive appeared on the **first real call**. Given "MUST NOT use: Java, PHP", the model produced a correct Rust/TypeScript design whose tech stack ended:
+
+> *"...No Java or PHP anywhere."*
+
+and the text search dutifully reported `["java", "php"]`. **The model obeyed perfectly and was flagged for saying so.** That is worse than no check: a warning that fires on correct behaviour teaches people to ignore warnings.
+
+The fix is to stop reading prose. The strategy schema gained a **`technologies` list — what the AI is actually proposing to use, as data** — and the check runs against that and nothing else. Re-run against the same model:
+
+| | tech stack | violations |
+|---|---|---|
+| before | "…No Java or PHP anywhere." | `["java", "php"]` |
+| after | "Rust for the order-store… TypeScript for the REST API…" | `[]` |
+
+with `declared technologies: ["Rust", "TypeScript"]`. A regression test in `developer_rules.rs` records *why* `violations` must never be pointed at writing again — it asserts the obedient sentence still trips a text search, so the reason survives the next person who thinks the indirection is unnecessary.
+
+### 3. Effort now comes from the policy
+Fixed in passing: strategy generation no longer hard-codes `high`.
+
+### Your Feedback
+- **The debt list earned its keep, and also misled me.** Writing down "the check is textual, a false positive that will annoy before it protects" is what made the live result legible in one glance. But I had also filed a broken path as debt, which let it sit a round longer than it should have. Debt and defects want different words.
+- **Structured output beats parsing prose, every time.** The general lesson: when the model's answer needs checking by code, ask for the checkable part as data rather than inferring it from writing.
+- Local strategy calls took **170–290 seconds** on a 9B model. Handover keeps work going, but the experience past the threshold is minutes per design, not seconds.
+
+### Technical Debt
+- The `technologies` list is **self-reported**. A model that uses Java in its prose while listing only "Rust" would pass — this checks stated intent, which is what the rules constrain, not the eventual code.
+- `solution_strategies` took another **drop-and-recreate** migration for the new column.
+- Claude's behaviour on all of this is still unproven; every live finding here comes from one local model.
+
 ## Round 6 — The cost-based recommendation engine
 
 ### My Feedback
@@ -79,10 +117,12 @@ Matching is **whole-word**, which took two attempts. The first version treated `
 - The violation check also runs **on read**, not just after generation, because the rules may tighten after a strategy was produced.
 - Recommendation: the architecture-option kinds are a fixed list with `other` as the escape. If `other` starts dominating in practice, that is the list telling you it is wrong.
 
+### Fixed in round 7 (below), after live testing
+- ~~Ollama has no strategy path~~ — this was **a bug, not debt**: a Product past its handover threshold could not design anything at all.
+- ~~Effort hard-coded to `high`~~ — the item's policy now owns it.
+- ~~The violation check is textual~~ — the predicted false positive appeared on the *first* real call.
+
 ### Technical Debt
-- **Ollama has no strategy path.** `generate_solution_strategy` calls the Claude client directly, so if the router hands over mid-design the request goes out in the metered provider's shape. The router still decides *who* runs, but the dispatch that `ai/backend.rs` provides for story generation was not extended here.
-- **Effort is hard-coded to `high`** for strategy generation rather than taken from the item's policy — defensible for architecture work, but it is a decision the policy should own.
-- **The violation check is textual.** It finds a forbidden name mentioned anywhere in the output, including inside a sentence explaining why that technology was *rejected* — a false positive that will annoy before it protects.
 - `ai_usage_id` is stored as `None` — the ledger row is written, but the strategy does not yet link to the row that paid for it, so cost is not traceable to the artefact.
 - **No live call has been made**, so the prompt's ability to produce usable options is unproven, as is whether models respect the prohibition.
 

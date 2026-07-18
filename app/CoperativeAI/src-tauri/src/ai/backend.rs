@@ -5,7 +5,7 @@
 //! process is this module's problem, not theirs. Keeping the dispatch here is
 //! what let the handover feature land without touching the call sites.
 
-use crate::ai::client::{Generated, Prompt, Usage};
+use crate::ai::client::{Generated, GeneratedStrategy, Prompt, Usage};
 use crate::ai::{client, keys, ollama};
 use crate::db::ai_provider::AiProvider;
 
@@ -25,11 +25,38 @@ pub async fn generate_stories(
             let api_key = keys::get_key(&provider.key_alias)?;
             client::generate_stories(&provider.api_base_url, &api_key, model, effort, prompt).await
         }
-        other => Err(format!(
-            "provider '{}' has an unknown kind '{other}' — remove and re-add it in AI Settings",
-            provider.name
-        )),
+        other => Err(unknown_kind(provider, other)),
     }
+}
+
+/// Generates a solution strategy, whichever provider the router chose.
+///
+/// This dispatch is why a budget handover mid-design works: without it the
+/// request went out in the metered provider's shape regardless of who was
+/// actually running it, so a Product past its handover threshold could not
+/// design anything.
+pub async fn generate_solution_strategy(
+    provider: &AiProvider,
+    model: &str,
+    effort: &str,
+    prompt: &Prompt,
+) -> Result<(GeneratedStrategy, Usage), String> {
+    match provider.kind.as_str() {
+        "ollama" => ollama::generate_solution_strategy(&provider.api_base_url, model, prompt).await,
+        "anthropic" => {
+            let api_key = keys::get_key(&provider.key_alias)?;
+            client::generate_solution_strategy(&provider.api_base_url, &api_key, model, effort, prompt)
+                .await
+        }
+        other => Err(unknown_kind(provider, other)),
+    }
+}
+
+fn unknown_kind(provider: &AiProvider, kind: &str) -> String {
+    format!(
+        "provider '{}' has an unknown kind '{kind}' — remove and re-add it in AI Settings",
+        provider.name
+    )
 }
 
 #[cfg(test)]
@@ -49,18 +76,54 @@ mod tests {
         }
     }
 
+    fn prompt() -> Prompt {
+        Prompt {
+            context: "c".into(),
+            task: "t".into(),
+        }
+    }
+
     /// An unknown kind must fail with an explanation rather than silently
     /// falling through to the metered path and spending money.
     #[tokio::test]
     async fn an_unknown_provider_kind_is_refused_by_name() {
-        let prompt = Prompt {
-            context: "c".into(),
-            task: "t".into(),
-        };
-        let err = generate_stories(&provider("telepathy"), "m", "low", &prompt)
+        let err = generate_stories(&provider("telepathy"), "m", "low", &prompt())
             .await
             .expect_err("must refuse");
         assert!(err.contains("unknown kind"), "got: {err}");
         assert!(err.contains("Mystery"), "the message should name the provider: {err}");
+    }
+
+    /// Both generations must dispatch on kind. Strategy generation originally
+    /// called the Claude client unconditionally, so a budget handover sent
+    /// Claude's body to Ollama's URL and a Product past its threshold could not
+    /// design anything. Refusing an unknown kind on *both* paths is the cheap
+    /// proof that neither is hard-wired to one provider.
+    #[tokio::test]
+    async fn strategy_generation_dispatches_on_kind_too() {
+        let err = generate_solution_strategy(&provider("telepathy"), "m", "low", &prompt())
+            .await
+            .expect_err("must refuse");
+        assert!(err.contains("unknown kind"), "got: {err}");
+    }
+
+    /// A local provider must not be asked for a key. `get_key` would fail for
+    /// an alias that was never stored, so reaching the network at all proves
+    /// the Ollama branch was taken.
+    #[tokio::test]
+    async fn a_local_provider_is_never_asked_for_a_key() {
+        let mut local = provider("ollama");
+        local.api_base_url = "http://127.0.0.1:1".into(); // nothing listening
+        local.key_alias = "never-stored".into();
+
+        for err in [
+            generate_stories(&local, "m", "low", &prompt()).await.expect_err("no server"),
+            generate_solution_strategy(&local, "m", "low", &prompt()).await.expect_err("no server"),
+        ] {
+            assert!(
+                err.contains("could not reach Ollama"),
+                "should have failed reaching the server, not fetching a key: {err}"
+            );
+        }
     }
 }
