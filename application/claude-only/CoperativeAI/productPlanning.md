@@ -70,9 +70,27 @@ Applied as:
 - **`used_pct` truncates** with integer division, so 89.9% reads as 89% and handover fires a hair late. Deliberate — exact integers over floating-point money — but it is a real off-by-fractions.
 - **Cache-price multipliers are hard-coded** (÷10 read, ×1.25 write) rather than per-model columns; if a vendor changes them, costs quietly drift.
 - **The period is a rolling window, not a calendar month.** A 30-day period started on the 1st drifts against monthly invoices.
-- **`canManageBudget` was not built** — the budget panel is visible to anyone with Product access. The Admin requirement to control *who* manages budgets is outstanding, and is the first thing to finish in this area.
+- ~~`canManageBudget` was not built~~ — **closed in round 6b** (below).
 - **The provider chain is order-of-selection**, taken from checkbox order — there is no drag to reorder, and unchecking then rechecking moves a provider to the end.
 - Ledger rows are written per call, so a call failing mid-flight may under-report; and `ai_usage` has no index on `(productId, createdAt)` yet.
+
+## Round 6b — Who may manage the budget
+
+### My Feedback
+The Admin requirement said Admin must control *"AI budget and strategy permissions"*. Round 6 shipped the budgets but left the panel open to anyone with Product access, so this closes it.
+
+`Role` gains **`canManageBudget`**, a fifth toggle beside the cost/profit/chargeable ones in the Admin area. Seeded: Admin and Product may manage budgets; Developer and QA may not. As with area access, the **Admin role cannot have it removed** — otherwise a spent budget could reach a state where nobody was able to raise it.
+
+The split that matters: **seeing spend and setting the budget are different powers.** A role without `canManageBudget` still sees the spend bar, the figures, and which provider is next — it simply gets no controls, and is told why. Reading what was spent is a reporting need; deciding what may be spent is an authority.
+
+### Your Feedback
+- The flag sits under "fields" in the Admin table although it is not a field. It belongs *beside* the cost flags, because that is where a user looks when deciding who sees money — but if a third non-field permission appears, that table wants a proper second group.
+- `getActivePermissions` still returns full access when no member is active, so a fresh install can always set a budget. That safe default is now load-bearing for one more thing; worth remembering it is a convenience, not a control.
+
+### Technical Debt
+- **Still visibility, not security** — same as every other role flag. Anyone can switch the active member from the header and get the controls back. This organises a team; it does not restrain one.
+- **The gate is frontend-only.** `set_product_budget` does not check the permission, so the command remains callable regardless. Consistent with how the cost fields already work, and acceptable only because there is no authentication to enforce anything against — but it means the flag must never be described as protection.
+- The `roles` table took another **drop-and-recreate** migration, so any hand-edited custom roles are lost on upgrade. Pre-release pattern, now applied twice to this table.
 
 ## Round 5 — "Generate work" on a Deliverable
 

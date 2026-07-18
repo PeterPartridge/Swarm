@@ -10,6 +10,7 @@ import {
   type AiProvider,
   type SpendSummary,
 } from "../lib/backend";
+import { usePermissions } from "../lib/permissions";
 
 const DEFAULTS = {
   totalBudget: "0.00",
@@ -32,6 +33,9 @@ export default function BudgetPanel({ productId }: { productId: number }) {
   const [form, setForm] = useState({ ...DEFAULTS });
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Spend is shown to anyone who can reach the Product area; only a role with
+  // canManageBudget gets the controls that decide what may be spent.
+  const { canManageBudget } = usePermissions();
 
   const refresh = useCallback(async () => {
     try {
@@ -132,6 +136,11 @@ export default function BudgetPanel({ productId }: { productId: number }) {
         </p>
       )}
 
+      {!canManageBudget() ? (
+        <p className="hint">
+          Your role can see AI spend but not change the budget.
+        </p>
+      ) : (
       <form onSubmit={onSave} aria-label="Budget settings">
         <label>
           Total Product budget (£)
@@ -231,6 +240,7 @@ export default function BudgetPanel({ productId }: { productId: number }) {
 
         <button type="submit">Save budget</button>
       </form>
+      )}
     </section>
   );
 }

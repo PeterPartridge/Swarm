@@ -2,6 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ProductStrategy from "../../components/ProductStrategy";
+import { PermissionProvider } from "../../lib/permissions";
 import type { Deliverable, ProductPolicy, WorkItem } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {
@@ -11,6 +12,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     getStrategy: vi.fn(),
     saveStrategy: vi.fn(),
     listDeliverables: vi.fn(),
+    getActivePermissions: vi.fn(),
     createDeliverable: vi.fn(),
     deleteDeliverable: vi.fn(),
     listWorkItems: vi.fn(),
@@ -211,6 +213,48 @@ describe("ProductStrategy — generating the work for a Deliverable", () => {
         }),
       ),
     );
+  });
+
+  /// Seeing spend and setting the budget are different powers: a role without
+  /// canManageBudget must still see what has been spent, but get no controls.
+  it("shows spend but hides the controls from a role that cannot manage budgets", async () => {
+    mocked.getActivePermissions.mockResolvedValue({
+      memberId: 5,
+      role: null,
+      canProduct: true,
+      canDevelop: true,
+      canTest: true,
+      canAdmin: false,
+      seeCost: true,
+      seeProfit: true,
+      seeChargeable: true,
+      canManageBudget: false,
+    });
+    mocked.getSpendSummary.mockResolvedValue({
+      spentMicropence: 1_000_000_000,
+      spentTokens: 500,
+      calls: 2,
+      aiBudgetMicropence: 5_000_000_000,
+      tokenLimit: 0,
+      usedPct: 20,
+      state: "ok",
+      activeProvider: "Claude",
+      reason: "within budget (20% used)",
+      periodStart: 0,
+    });
+
+    render(
+      <PermissionProvider>
+        <ProductStrategy productId={1} />
+      </PermissionProvider>,
+    );
+
+    expect(await screen.findByLabelText("AI spend")).toBeInTheDocument();
+    expect(screen.getByText(/£10\.00 of £50\.00/)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByLabelText("AI budget in pounds")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText(/can see AI spend but not change the budget/)).toBeInTheDocument();
   });
 
   it("saves the Product AI policy when a switch is turned on", async () => {

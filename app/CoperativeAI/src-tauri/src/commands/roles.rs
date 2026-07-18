@@ -21,6 +21,7 @@ pub struct RoleDto {
     pub see_cost: bool,
     pub see_profit: bool,
     pub see_chargeable: bool,
+    pub can_manage_budget: bool,
 }
 
 impl From<Role> for RoleDto {
@@ -35,6 +36,7 @@ impl From<Role> for RoleDto {
             see_cost: r.see_cost,
             see_profit: r.see_profit,
             see_chargeable: r.see_chargeable,
+            can_manage_budget: r.can_manage_budget,
         }
     }
 }
@@ -54,6 +56,7 @@ pub struct ActivePermissions {
     pub see_cost: bool,
     pub see_profit: bool,
     pub see_chargeable: bool,
+    pub can_manage_budget: bool,
 }
 
 #[tauri::command]
@@ -81,11 +84,12 @@ pub async fn update_role(
     see_cost: bool,
     see_profit: bool,
     see_chargeable: bool,
+    can_manage_budget: bool,
 ) -> Result<(), String> {
     let conn = db.0.lock().await;
     role::update(
         &conn, id, can_product, can_develop, can_test, can_admin, see_cost, see_profit,
-        see_chargeable,
+        see_chargeable, can_manage_budget,
     )
     .await
     .map_err(to_message)
@@ -137,6 +141,7 @@ pub async fn get_active_permissions(db: State<'_, AppDb>) -> Result<ActivePermis
             see_cost: r.see_cost,
             see_profit: r.see_profit,
             see_chargeable: r.see_chargeable,
+            can_manage_budget: r.can_manage_budget,
             role: Some(RoleDto::from(r)),
         },
         // No active user or an unassigned member → full access (safe default).
@@ -150,6 +155,7 @@ pub async fn get_active_permissions(db: State<'_, AppDb>) -> Result<ActivePermis
             see_cost: true,
             see_profit: true,
             see_chargeable: true,
+            can_manage_budget: true,
         },
     })
 }

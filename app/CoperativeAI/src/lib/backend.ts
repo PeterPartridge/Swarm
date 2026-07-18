@@ -45,6 +45,8 @@ export interface Role {
   seeCost: boolean;
   seeProfit: boolean;
   seeChargeable: boolean;
+  /** May set AI budgets and the provider chain — separate from seeing spend. */
+  canManageBudget: boolean;
 }
 
 export interface Deliverable {
@@ -76,6 +78,7 @@ export interface ActivePermissions {
   seeCost: boolean;
   seeProfit: boolean;
   seeChargeable: boolean;
+  canManageBudget: boolean;
 }
 
 export interface Sprint {
@@ -340,6 +343,7 @@ export const updateRole = (role: Role): Promise<void> =>
     seeCost: role.seeCost,
     seeProfit: role.seeProfit,
     seeChargeable: role.seeChargeable,
+    canManageBudget: role.canManageBudget,
   });
 export const deleteRole = (id: number): Promise<void> =>
   invoke("delete_role", { id });

@@ -51,6 +51,7 @@ function perms(overrides: Partial<ActivePermissions>): ActivePermissions {
     seeCost: true,
     seeProfit: true,
     seeChargeable: true,
+    canManageBudget: true,
     ...overrides,
   };
 }

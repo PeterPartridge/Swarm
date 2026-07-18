@@ -22,6 +22,7 @@ const FULL_ACCESS: ActivePermissions = {
   seeCost: true,
   seeProfit: true,
   seeChargeable: true,
+  canManageBudget: true,
 };
 
 interface PermissionValue {
@@ -29,6 +30,10 @@ interface PermissionValue {
   reload: () => Promise<void>;
   canAccess: (area: Area) => boolean;
   canSeeField: (field: GatedField) => boolean;
+  /** May change AI budgets, thresholds, and the provider chain. Deliberately
+   *  separate from seeing spend — reading what was spent and deciding what may
+   *  be spent are different powers. */
+  canManageBudget: () => boolean;
 }
 
 const PermissionContext = createContext<PermissionValue>({
@@ -36,6 +41,7 @@ const PermissionContext = createContext<PermissionValue>({
   reload: async () => {},
   canAccess: () => true,
   canSeeField: () => true,
+  canManageBudget: () => true,
 });
 
 export function PermissionProvider({ children }: { children: ReactNode }) {
@@ -70,8 +76,12 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
         ? perms.seeProfit
         : perms.seeChargeable;
 
+  const canManageBudget = () => perms.canManageBudget;
+
   return (
-    <PermissionContext.Provider value={{ perms, reload, canAccess, canSeeField }}>
+    <PermissionContext.Provider
+      value={{ perms, reload, canAccess, canSeeField, canManageBudget }}
+    >
       {children}
     </PermissionContext.Provider>
   );
