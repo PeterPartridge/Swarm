@@ -44,6 +44,36 @@ The Product environment: Products as cards (created from the Project_brief's Pro
 
 **Root cause of the "item doesn't appear" report:** the create path already refreshed, but with no optimistic step the new card only appeared after the round-trip resolved; the optimistic insert makes it instant and also rolls back on error.
 
+## Round 6 — AI budgets, spend ledger, and provider handover
+
+### My Feedback
+The requirement was budgets (total, AI, token limits, cost rules) and an AI usage strategy that hands over between providers at a threshold. The blocker found first: **the app measured nothing** — the API's `usage` block was parsed and discarded, so there was no spend to budget against. R1 therefore builds measurement, budgets, and routing together.
+
+Applied as:
+- **`db/ai_usage.rs` — the ledger.** One row per call, including calls that failed or were **blocked before they left**, so the history explains its own gaps. Money is stored in **micropence** (millionths of a penny), not pence and never a float: prices are quoted per million tokens, so `tokens × pence_per_million` lands on micropence exactly, with no division and no rounding. Whole pence would truncate a 1.3p call to 1p and compound the error across a period.
+- **`db/model_price.rs`** — editable per (provider, model): input/output pence per million tokens plus a throughput figure for time estimates. Cache reads are billed at a tenth of input and cache writes at input × 1.25, matching the published multipliers. An **unpriced model costs zero rather than blocking** — a configuration gap should not lose someone's work.
+- **`db/product_budget.rs`** — total and AI budgets, token limit, three ascending thresholds (warn / handover / hard stop), a rolling period, and the **ordered provider chain**. Thresholds must be in order, or "past handover but under warn" would be reachable. Editing amounts mid-period **keeps the period start**, so a budget edit cannot silently hand back a fresh allowance.
+- **`ai/router.rs` — the keystone.** Pure: budget + spend + providers → a decision. Under warn, run the chain head; past handover, move to the next provider; past the hard stop, run only an unmetered provider, else **block before any content moves**. Thirteen table-driven tests cover every branch, because this is the component that decides whether to spend money.
+- **`ai/ollama.rs` + `ai/backend.rs`** — a real local-model client (structured output via `format`, counts from `prompt_eval_count`/`eval_count`) behind an enum dispatch, so the two generation commands did not have to learn about providers.
+- **`commands/ai_run.rs`** — the shared plan → call → record beats, extracted rather than copied because R4 will need them too.
+- **`BudgetPanel.tsx`** — limits, thresholds, provider order, and a live spend bar.
+
+### Your Feedback
+- **The panel shows the router's own decision.** `get_spend_summary` calls `route()` and returns what would actually happen, rather than re-deriving the state in TypeScript — so what the user reads cannot drift from what is enforced. Worth keeping that property as more surfaces show budget state.
+- **Handover is now announced.** Generation commands return the provider, model, and routing reason, and both call sites display it. This was prompted by a compiler warning that `Routed.reason` was never read — the warning was correct, and the gap was real: without it, a budget handover would silently swap in a weaker model and the user would only notice that results got worse.
+- **Recommendation:** put the spend bar in the shell header as well. Cost should be ambient, not something you go looking for in a Strategy panel.
+- **Recommendation:** the hard stop should grow an explicit override ("spend anyway"), so a person always chooses. Today it simply refuses.
+- **Ollama had to reach AI Settings to be usable at all.** Adding a local provider needed a UI path — without it the whole handover feature was unreachable, which the unused-`list_models` warning exposed.
+
+### Technical Debt
+- **Neither live check has been run.** R0's caching check and R1's Ollama check are written and `#[ignore]`d; the Claude one needs a key, the Ollama one a local server. Until they run, **caching, real token capture, pricing against a real response, and the Ollama client are unverified**. This is the standing gap across every AI round so far.
+- **`used_pct` truncates** with integer division, so 89.9% reads as 89% and handover fires a hair late. Deliberate — exact integers over floating-point money — but it is a real off-by-fractions.
+- **Cache-price multipliers are hard-coded** (÷10 read, ×1.25 write) rather than per-model columns; if a vendor changes them, costs quietly drift.
+- **The period is a rolling window, not a calendar month.** A 30-day period started on the 1st drifts against monthly invoices.
+- **`canManageBudget` was not built** — the budget panel is visible to anyone with Product access. The Admin requirement to control *who* manages budgets is outstanding, and is the first thing to finish in this area.
+- **The provider chain is order-of-selection**, taken from checkbox order — there is no drag to reorder, and unchecking then rechecking moves a provider to the end.
+- Ledger rows are written per call, so a call failing mid-flight may under-report; and `ai_usage` has no index on `(productId, createdAt)` yet.
+
 ## Round 5 — "Generate work" on a Deliverable
 
 **Behaviour:** each Deliverable in the Strategy section gets a **Generate work** button. It sends the Product brief, the Product strategy, the deliverable, the connected solutions, and the titles already planned under that deliverable to the AI, and creates the work items that achieve it — linked to the deliverable.

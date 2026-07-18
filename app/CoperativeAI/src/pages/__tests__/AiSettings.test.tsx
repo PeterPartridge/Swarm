@@ -9,6 +9,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
   return {
     ...original,
     listAiProviders: vi.fn(),
+    addOllamaProvider: vi.fn(),
     addAiProvider: vi.fn(),
     removeAiProvider: vi.fn(),
     testAiProvider: vi.fn(),
@@ -25,6 +26,8 @@ const provider: AiProvider = {
   apiBaseUrl: "https://api.anthropic.com",
   models: ["claude-opus-4-8"],
   keyStored: true,
+  kind: "anthropic",
+  metered: true,
 };
 
 describe("AiSettings", () => {
@@ -58,6 +61,41 @@ describe("AiSettings", () => {
       }),
     );
     expect((keyInput as HTMLInputElement).value).toBe("");
+  });
+
+  it("adds a local Ollama provider without asking for a key", async () => {
+    const user = userEvent.setup();
+    mocked.addOllamaProvider.mockResolvedValue(2);
+    render(<AiSettings />);
+
+    await user.click(await screen.findByRole("button", { name: "Add Ollama" }));
+
+    await waitFor(() =>
+      expect(mocked.addOllamaProvider).toHaveBeenCalledWith(
+        "Ollama (local)",
+        "http://localhost:11434",
+      ),
+    );
+  });
+
+  it("shows whether a provider costs money, since that drives handover", async () => {
+    mocked.listAiProviders.mockResolvedValue([
+      provider,
+      {
+        id: 2,
+        name: "Ollama (local)",
+        apiBaseUrl: "http://localhost:11434",
+        models: ["llama3"],
+        keyStored: false,
+        kind: "ollama",
+        metered: false,
+      },
+    ]);
+    render(<AiSettings />);
+
+    expect(await screen.findByText(/\(metered\)/)).toBeInTheDocument();
+    expect(screen.getByText(/\(free\)/)).toBeInTheDocument();
+    expect(screen.getByText(/local, no key/)).toBeInTheDocument();
   });
 
   it("test connection surfaces the result", async () => {

@@ -1,6 +1,8 @@
 //! Tauri command handlers — one file per command group as pages are built.
 
+pub mod ai_run;
 pub mod ai_settings;
+pub mod budgets;
 pub mod deliverables;
 pub mod github;
 pub mod policies;

@@ -80,6 +80,8 @@ describe("PlanningBoard", () => {
         apiBaseUrl: "https://api.anthropic.com",
         models: ["claude-opus-4-8"],
         keyStored: true,
+        kind: "anthropic",
+        metered: true,
       },
     ]);
   });
@@ -220,10 +222,15 @@ describe("PlanningBoard", () => {
 
   it("reports how many stories the AI created and refreshes the board", async () => {
     const user = userEvent.setup();
-    mocked.generateUserStories.mockResolvedValue([
-      "As a shopper, I want one-step pay",
-      "As a shopper, I want saved cards",
-    ]);
+    mocked.generateUserStories.mockResolvedValue({
+      created: [
+        "As a shopper, I want one-step pay",
+        "As a shopper, I want saved cards",
+      ],
+      provider: "Claude",
+      model: "claude-haiku-4-5",
+      reason: "within budget (10% used)",
+    });
     render(<PlanningBoard productId={7} />);
 
     await user.click(

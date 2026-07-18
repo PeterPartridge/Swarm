@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   addAiProvider,
+  addOllamaProvider,
   listAiProviders,
   removeAiProvider,
   testAiProvider,
+  DEFAULT_OLLAMA_URL,
   DEFAULT_PROVIDER,
   type AiProvider,
 } from "../lib/backend";
@@ -18,6 +20,8 @@ export default function AiSettings() {
   const [apiBaseUrl, setApiBaseUrl] = useState(DEFAULT_PROVIDER.apiBaseUrl);
   const [models, setModels] = useState(DEFAULT_PROVIDER.models);
   const [apiKey, setApiKey] = useState("");
+  const [ollamaName, setOllamaName] = useState("Ollama (local)");
+  const [ollamaUrl, setOllamaUrl] = useState(DEFAULT_OLLAMA_URL);
 
   const refresh = useCallback(async () => {
     try {
@@ -47,6 +51,19 @@ export default function AiSettings() {
       });
       setApiKey(""); // the key leaves the form for the credential store
       setNotice(null);
+      await refresh();
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  async function onAddOllama(e: FormEvent) {
+    e.preventDefault();
+    if (!ollamaName.trim() || !ollamaUrl.trim()) return;
+    try {
+      await addOllamaProvider(ollamaName, ollamaUrl);
+      setNotice(null);
+      setError(null);
       await refresh();
     } catch (err) {
       setError(String(err));
@@ -111,12 +128,33 @@ export default function AiSettings() {
         <button type="submit">Add provider</button>
       </form>
 
+      <form onSubmit={onAddOllama} aria-label="Add local Ollama provider">
+        <p className="hint">
+          Or add a <strong>local Ollama</strong> server — no key, no cost. Put it
+          last in a Product's provider order and work carries on after the AI
+          budget runs out.
+        </p>
+        <input
+          aria-label="Ollama provider name"
+          placeholder="Ollama (local)"
+          value={ollamaName}
+          onChange={(e) => setOllamaName(e.target.value)}
+        />
+        <input
+          aria-label="Ollama base URL"
+          placeholder={DEFAULT_OLLAMA_URL}
+          value={ollamaUrl}
+          onChange={(e) => setOllamaUrl(e.target.value)}
+        />
+        <button type="submit">Add Ollama</button>
+      </form>
+
       <ul>
         {providers.map((p) => (
           <li key={p.id}>
-            <strong>{p.name}</strong> — {p.apiBaseUrl} — models:{" "}
-            {p.models.join(", ") || "none"} — key:{" "}
-            {p.keyStored ? "stored" : "not stored"}{" "}
+            <strong>{p.name}</strong> ({p.metered ? "metered" : "free"}) —{" "}
+            {p.apiBaseUrl} — models: {p.models.join(", ") || "none"} —{" "}
+            {p.kind === "ollama" ? "local, no key" : `key: ${p.keyStored ? "stored" : "not stored"}`}{" "}
             <button aria-label={`Test ${p.name}`} onClick={() => onTest(p)}>
               Test
             </button>{" "}

@@ -12,6 +12,7 @@ import {
   type WorkItem,
 } from "../lib/backend";
 import ProductAiPolicy from "./ProductAiPolicy";
+import BudgetPanel from "./BudgetPanel";
 
 const STRATEGY_FIELDS: { id: string; label: string }[] = [
   { id: "vision", label: "Vision — where is this Product going?" },
@@ -95,12 +96,14 @@ export default function ProductStrategy({ productId }: { productId: number }) {
     setError(null);
     setSavedNote(null);
     try {
-      const created = await generateDeliverableWork(d.id);
-      setSavedNote(
-        created.length === 0
+      const result = await generateDeliverableWork(d.id);
+      const added =
+        result.created.length === 0
           ? `The AI suggested nothing new for ${d.name}.`
-          : `Added ${created.length} item${created.length === 1 ? "" : "s"} to ${d.name}.`,
-      );
+          : `Added ${result.created.length} item${result.created.length === 1 ? "" : "s"} to ${d.name}.`;
+      // Name the provider that ran it: a budget handover swaps in a local model
+      // and the results change character, so this must not be silent.
+      setSavedNote(`${added} (${result.provider} · ${result.reason})`);
       await refresh();
     } catch (e) {
       setError(String(e));
@@ -131,6 +134,7 @@ export default function ProductStrategy({ productId }: { productId: number }) {
         ))}
       </div>
 
+      <BudgetPanel productId={productId} />
       <ProductAiPolicy productId={productId} />
 
       <div className="deliverables" aria-label="Deliverables">

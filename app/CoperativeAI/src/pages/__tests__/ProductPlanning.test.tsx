@@ -27,6 +27,8 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     listDeliverables: vi.fn(),
     getStrategy: vi.fn(),
     getProductPolicy: vi.fn(),
+    getProductBudget: vi.fn(),
+    getSpendSummary: vi.fn(),
   };
 });
 
@@ -56,6 +58,19 @@ describe("ProductPlanning (Product home)", () => {
     mocked.listDeliverables.mockResolvedValue([]);
     mocked.getStrategy.mockResolvedValue("{}");
     mocked.getProductPolicy.mockResolvedValue(null);
+    mocked.getProductBudget.mockResolvedValue(null);
+    mocked.getSpendSummary.mockResolvedValue({
+      spentMicropence: 0,
+      spentTokens: 0,
+      calls: 0,
+      aiBudgetMicropence: 0,
+      tokenLimit: 0,
+      usedPct: 0,
+      state: "none",
+      activeProvider: null,
+      reason: "No AI budget is set for this Product.",
+      periodStart: 0,
+    });
   });
 
   it("shows Products as cards plus the Add a Product card", async () => {

@@ -151,9 +151,11 @@ export default function PlanningBoard({ productId }: PlanningBoardProps) {
   async function onGenerateStories(item: WorkItem) {
     setNotice(`Asking the AI to write user stories for "${item.title}"…`);
     try {
-      const titles = await generateUserStories(item.id);
+      const result = await generateUserStories(item.id);
+      const n = result.created.length;
       setNotice(
-        `AI created ${titles.length} user ${titles.length === 1 ? "story" : "stories"} under "${item.title}".`,
+        `AI created ${n} user ${n === 1 ? "story" : "stories"} under "${item.title}" ` +
+          `(${result.provider} · ${result.reason}).`,
       );
       await refresh();
     } catch (e) {

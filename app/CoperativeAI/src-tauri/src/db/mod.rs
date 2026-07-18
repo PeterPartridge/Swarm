@@ -4,9 +4,12 @@
 #![allow(dead_code)]
 
 pub mod ai_provider;
+pub mod ai_usage;
 pub mod deliverable;
+pub mod model_price;
 pub mod feature_design;
 pub mod product;
+pub mod product_budget;
 pub mod product_policy;
 pub mod repository;
 pub mod role;
@@ -73,6 +76,10 @@ pub async fn create_all_tables(conn: &Connection) -> Result<()> {
     ai_provider::create_table(conn).await?;
     work_item_policy::create_table(conn).await?;
     product_policy::create_table(conn).await?;
+    // after ai_provider + product: budgets name providers, prices name models
+    ai_usage::create_table(conn).await?;
+    model_price::create_table(conn).await?;
+    product_budget::create_table(conn).await?;
     feature_design::create_table(conn).await?;
     strategy::create_table(conn).await?;
     // after deliverable + work_item: a test case may point at either

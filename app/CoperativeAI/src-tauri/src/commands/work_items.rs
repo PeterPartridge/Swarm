@@ -138,6 +138,19 @@ pub async fn delete_work_item(db: State<'_, AppDb>, id: i64) -> Result<(), Strin
     work_item::delete(&conn, id).await.map_err(to_message)
 }
 
+/// What a generation produced, plus which provider actually ran it and why.
+/// The routing reason travels back to the UI deliberately: when a budget hands
+/// work over to a local model the output quality changes, and the user must not
+/// discover that by wondering why the results got worse.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerationResult {
+    pub created: Vec<String>,
+    pub provider: String,
+    pub model: String,
+    pub reason: String,
+}
+
 /// Everything the gates resolve before any content moves: the feature, the
 /// provider it may use, and the effort tier its policy allows.
 pub(crate) struct StoryGenerationContext {
@@ -154,22 +167,36 @@ pub(crate) struct StoryGenerationContext {
 pub async fn generate_user_stories(
     db: State<'_, AppDb>,
     feature_id: i64,
-) -> Result<Vec<String>, String> {
-    use crate::ai::{client, keys};
+) -> Result<GenerationResult, String> {
+    use crate::ai::{backend, client};
+    use crate::commands::ai_run;
     use crate::db::{product, solution};
 
-    // Resolve gates + prompt inputs under the lock, then release it for the
-    // network call so the rest of the app stays responsive.
-    let (context, prompt) = {
+    const PURPOSE: &str = "storyGeneration";
+
+    // Resolve gates, budget routing, and prompt inputs under the lock, then
+    // release it for the network call so the rest of the app stays responsive.
+    let (context, routed, prompt, product_id) = {
         let conn = db.0.lock().await;
         let context = resolve_story_generation(&conn, feature_id).await?;
-        let Some(product_row) = product::find_by_id(&conn, context.feature.product_id)
+        let product_id = context.feature.product_id;
+        let Some(product_row) = product::find_by_id(&conn, product_id)
             .await
             .map_err(to_message)?
         else {
             return Err("this feature's Product no longer exists".into());
         };
-        let solutions = solution::list_by_product(&conn, product_row.id)
+        // The item's policy says which provider is *allowed*; the budget says
+        // which is *affordable*. Both must agree before anything is sent.
+        let routed = ai_run::plan(
+            &conn,
+            product_id,
+            context.provider.id,
+            &context.effort_tier,
+            PURPOSE,
+        )
+        .await?;
+        let solutions = solution::list_by_product(&conn, product_id)
             .await
             .map_err(to_message)?
             .into_iter()
@@ -182,23 +209,42 @@ pub async fn generate_user_stories(
             context.feature.description.as_deref(),
             &solutions,
         );
-        (context, prompt)
+        (context, routed, prompt, product_id)
     };
 
-    let api_key = keys::get_key(&context.provider.key_alias)?;
-    // The policy's effort tier picks the model from the provider's
-    // cheapest-first list (Project_brief Part 4), instead of always the first.
-    let model = crate::ai::tiering::model_for_effort(&context.provider.models, &context.effort_tier)
-        .ok_or_else(|| "the allowed AI provider has no models configured".to_string())?
-        .to_string();
-    let (drafts, _usage) = client::generate_stories(
-        &context.provider.api_base_url,
-        &api_key,
-        &model,
+    let started = std::time::Instant::now();
+    let result = backend::generate_stories(
+        &routed.provider,
+        &routed.model,
         &context.effort_tier,
         &prompt,
     )
-    .await?;
+    .await;
+    let latency_ms = started.elapsed().as_millis() as i64;
+
+    // A failed call still consumed something at the provider's end, and the
+    // attempt is worth recording either way.
+    let drafts = match result {
+        Ok((drafts, usage)) => {
+            let conn = db.0.lock().await;
+            ai_run::record(
+                &conn, product_id, Some(feature_id), &routed.provider, &routed.model,
+                PURPOSE, &usage, latency_ms, "ok",
+            )
+            .await;
+            drafts
+        }
+        Err(e) => {
+            let conn = db.0.lock().await;
+            let outcome = if e.contains("refusal") { "refusal" } else { "error" };
+            ai_run::record(
+                &conn, product_id, Some(feature_id), &routed.provider, &routed.model,
+                PURPOSE, &Default::default(), latency_ms, outcome,
+            )
+            .await;
+            return Err(e);
+        }
+    };
 
     let conn = db.0.lock().await;
     let mut created = Vec::new();
@@ -207,7 +253,7 @@ pub async fn generate_user_stories(
             &conn,
             &draft.title,
             "userStory",
-            context.feature.product_id,
+            product_id,
             Some(feature_id),
             Some(&draft.description),
         )
@@ -215,7 +261,12 @@ pub async fn generate_user_stories(
         .map_err(to_message)?;
         created.push(draft.title);
     }
-    Ok(created)
+    Ok(GenerationResult {
+        created,
+        provider: routed.provider.name.clone(),
+        model: routed.model.clone(),
+        reason: routed.reason.clone(),
+    })
 }
 
 /// The gate half, kept separate so the deny-by-default behaviour is unit
@@ -365,13 +416,16 @@ pub(crate) async fn resolve_deliverable_generation(
 pub async fn generate_deliverable_work(
     db: State<'_, AppDb>,
     deliverable_id: i64,
-) -> Result<Vec<String>, String> {
-    use crate::ai::{client, keys};
+) -> Result<GenerationResult, String> {
+    use crate::ai::{backend, client};
+    use crate::commands::ai_run;
     use crate::db::{product, solution, strategy};
 
-    // Resolve gates + prompt inputs under the lock, then release it for the
-    // network call so the rest of the app stays responsive.
-    let (context, prompt) = {
+    const PURPOSE: &str = "deliverablePlanning";
+
+    // Resolve gates, budget routing, and prompt inputs under the lock, then
+    // release it for the network call so the rest of the app stays responsive.
+    let (context, routed, prompt, product_id) = {
         let conn = db.0.lock().await;
         let context = resolve_deliverable_generation(&conn, deliverable_id).await?;
         let product_id = context.deliverable.product_id;
@@ -381,6 +435,14 @@ pub async fn generate_deliverable_work(
         else {
             return Err("this deliverable's Product no longer exists".into());
         };
+        let routed = ai_run::plan(
+            &conn,
+            product_id,
+            context.provider.id,
+            &context.effort_tier,
+            PURPOSE,
+        )
+        .await?;
         let solutions = solution::list_by_product(&conn, product_id)
             .await
             .map_err(to_message)?
@@ -410,23 +472,40 @@ pub async fn generate_deliverable_work(
             &existing,
             &solutions,
         );
-        (context, prompt)
+        (context, routed, prompt, product_id)
     };
 
-    let api_key = keys::get_key(&context.provider.key_alias)?;
-    // The policy's effort tier picks the model from the provider's
-    // cheapest-first list (Project_brief Part 4), instead of always the first.
-    let model = crate::ai::tiering::model_for_effort(&context.provider.models, &context.effort_tier)
-        .ok_or_else(|| "the allowed AI provider has no models configured".to_string())?
-        .to_string();
-    let (drafts, _usage) = client::generate_stories(
-        &context.provider.api_base_url,
-        &api_key,
-        &model,
+    let started = std::time::Instant::now();
+    let result = backend::generate_stories(
+        &routed.provider,
+        &routed.model,
         &context.effort_tier,
         &prompt,
     )
-    .await?;
+    .await;
+    let latency_ms = started.elapsed().as_millis() as i64;
+
+    let drafts = match result {
+        Ok((drafts, usage)) => {
+            let conn = db.0.lock().await;
+            ai_run::record(
+                &conn, product_id, None, &routed.provider, &routed.model,
+                PURPOSE, &usage, latency_ms, "ok",
+            )
+            .await;
+            drafts
+        }
+        Err(e) => {
+            let conn = db.0.lock().await;
+            let outcome = if e.contains("refusal") { "refusal" } else { "error" };
+            ai_run::record(
+                &conn, product_id, None, &routed.provider, &routed.model,
+                PURPOSE, &Default::default(), latency_ms, outcome,
+            )
+            .await;
+            return Err(e);
+        }
+    };
 
     let conn = db.0.lock().await;
     let mut created = Vec::new();
@@ -454,7 +533,12 @@ pub async fn generate_deliverable_work(
         .map_err(to_message)?;
         created.push(draft.title);
     }
-    Ok(created)
+    Ok(GenerationResult {
+        created,
+        provider: routed.provider.name.clone(),
+        model: routed.model.clone(),
+        reason: routed.reason.clone(),
+    })
 }
 
 /// Plain wording for a hierarchy level, for the prompt.

@@ -18,6 +18,9 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     getProductPolicy: vi.fn(),
     setProductPolicy: vi.fn(),
     listAiProviders: vi.fn(),
+    getProductBudget: vi.fn(),
+    setProductBudget: vi.fn(),
+    getSpendSummary: vi.fn(),
   };
 });
 
@@ -67,6 +70,19 @@ describe("ProductStrategy — generating the work for a Deliverable", () => {
     mocked.listWorkItems.mockResolvedValue([]);
     mocked.getProductPolicy.mockResolvedValue(openPolicy);
     mocked.listAiProviders.mockResolvedValue([]);
+    mocked.getProductBudget.mockResolvedValue(null);
+    mocked.getSpendSummary.mockResolvedValue({
+      spentMicropence: 0,
+      spentTokens: 0,
+      calls: 0,
+      aiBudgetMicropence: 0,
+      tokenLimit: 0,
+      usedPct: 0,
+      state: "none",
+      activeProvider: null,
+      reason: "No AI budget is set for this Product.",
+      periodStart: 0,
+    });
   });
 
   it("offers a Generate button on each deliverable", async () => {
@@ -80,7 +96,12 @@ describe("ProductStrategy — generating the work for a Deliverable", () => {
     const user = userEvent.setup();
     mocked.generateDeliverableWork.mockImplementation(async () => {
       mocked.listWorkItems.mockResolvedValue([generatedItem]);
-      return ["Checkout flow"];
+      return {
+        created: ["Checkout flow"],
+        provider: "Claude",
+        model: "claude-haiku-4-5",
+        reason: "within budget (10% used)",
+      };
     });
     render(<ProductStrategy productId={1} />);
 
@@ -93,6 +114,28 @@ describe("ProductStrategy — generating the work for a Deliverable", () => {
     );
     expect(await screen.findByText(/Added 1 item to MVP/)).toBeInTheDocument();
     expect(screen.getByText("Feature: Checkout flow")).toBeInTheDocument();
+  });
+
+  /// A budget handover swaps in a local model and the output changes character.
+  /// The user must be told which provider ran, not left to guess why the
+  /// results got worse.
+  it("names the provider that ran the generation, so a handover is not silent", async () => {
+    const user = userEvent.setup();
+    mocked.generateDeliverableWork.mockResolvedValue({
+      created: ["Checkout flow"],
+      provider: "Ollama (local)",
+      model: "llama3",
+      reason: "past 90% of the AI budget — handed over to Ollama (local)",
+    });
+    render(<ProductStrategy productId={1} />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Generate work for MVP" }),
+    );
+
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent("Ollama (local)");
+    expect(status).toHaveTextContent("handed over");
   });
 
   it("surfaces a policy denial instead of failing silently", async () => {
@@ -118,6 +161,56 @@ describe("ProductStrategy — generating the work for a Deliverable", () => {
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Allow AI to read this Product")).not.toBeChecked();
     expect(screen.getByLabelText("Allow AI to generate work items")).not.toBeChecked();
+  });
+
+  it("says no budget is set until one is, rather than showing a bar at zero", async () => {
+    render(<ProductStrategy productId={1} />);
+    expect(await screen.findByRole("region", { name: "AI budget" })).toBeInTheDocument();
+    expect(screen.getByText(/No budget set/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("AI spend")).not.toBeInTheDocument();
+  });
+
+  it("shows spend against the budget with the router's own decision", async () => {
+    mocked.getSpendSummary.mockResolvedValue({
+      spentMicropence: 4_490_000_000,
+      spentTokens: 1_234_567,
+      calls: 12,
+      aiBudgetMicropence: 5_000_000_000,
+      tokenLimit: 0,
+      usedPct: 90,
+      state: "handover",
+      activeProvider: "Ollama",
+      reason: "past 90% of the AI budget — handed over to Ollama",
+    periodStart: 0,
+    });
+    render(<ProductStrategy productId={1} />);
+
+    expect(await screen.findByLabelText("AI spend")).toBeInTheDocument();
+    expect(screen.getByText(/£44\.90 of £50\.00/)).toBeInTheDocument();
+    expect(screen.getByText(/1,234,567 tokens/)).toBeInTheDocument();
+    expect(screen.getByText(/Next call: Ollama/)).toBeInTheDocument();
+  });
+
+  it("saves a budget in pounds, converted to the exact internal unit", async () => {
+    const user = userEvent.setup();
+    mocked.setProductBudget.mockResolvedValue(undefined);
+    render(<ProductStrategy productId={1} />);
+
+    const aiBudget = await screen.findByLabelText("AI budget in pounds");
+    await user.clear(aiBudget);
+    await user.type(aiBudget, "50.00");
+    await user.click(screen.getByRole("button", { name: "Save budget" }));
+
+    await waitFor(() =>
+      expect(mocked.setProductBudget).toHaveBeenCalledWith(
+        expect.objectContaining({
+          productId: 1,
+          // £50 → 5,000,000,000 micropence, with no floating-point drift
+          aiBudgetMicropence: 5_000_000_000,
+          handoverPct: 90,
+        }),
+      ),
+    );
   });
 
   it("saves the Product AI policy when a switch is turned on", async () => {
