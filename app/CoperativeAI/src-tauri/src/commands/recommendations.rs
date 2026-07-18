@@ -170,12 +170,17 @@ async fn build(
     let history = ai_usage::recent_token_totals(conn, purpose, model, 50)
         .await
         .map_err(to_message)?;
+    // Measured speed for this model, so "how long" is not a hand-typed guess.
+    let throughput = ai_usage::recent_throughput(conn, model, 20)
+        .await
+        .map_err(to_message)?;
     let estimate: Estimate = estimator::estimate(
         model,
         purpose,
         size,
         price.as_ref(),
         &history,
+        &throughput,
         ai_budget,
         spent,
     );

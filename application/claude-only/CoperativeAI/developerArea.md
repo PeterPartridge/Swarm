@@ -62,6 +62,13 @@ with `declared technologies: ["Rust", "TypeScript"]`. A regression test in `deve
 ### 3. Effort now comes from the policy
 Fixed in passing: strategy generation no longer hard-codes `high`.
 
+### 4. Completion times were an order of magnitude out
+The estimator's "how long" came from a `tokensPerSecond` typed into the price table and never checked. The live runs measured **roughly 4 tokens/second** on the local 9B model; a sensible-looking default of 50 would have quoted **3 minutes for work that really takes 38**.
+
+The ledger had been recording `latencyMs` since the first call, so the real figure was already there — `ai_usage::recent_throughput` reads it back and the estimator prefers it. **Three readings are enough** to override the table, against twenty for token counts: how many tokens a task needs varies enormously with the task, but how fast a model runs is close to a property of the model and the machine.
+
+Sub-second and zero-token calls are excluded rather than dividing into an absurd rate.
+
 ### Your Feedback
 - **The debt list earned its keep, and also misled me.** Writing down "the check is textual, a false positive that will annoy before it protects" is what made the live result legible in one glance. But I had also filed a broken path as debt, which let it sit a round longer than it should have. Debt and defects want different words.
 - **Structured output beats parsing prose, every time.** The general lesson: when the model's answer needs checking by code, ask for the checkable part as data rather than inferring it from writing.
