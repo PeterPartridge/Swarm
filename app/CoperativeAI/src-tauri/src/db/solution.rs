@@ -238,6 +238,38 @@ mod tests {
         assert_eq!(sol.github_visibility, None);
     }
 
+    /// A round-1 `solutions` table (no `origin`) is dropped and recreated, so
+    /// an existing database opens cleanly on the new schema. Pre-release
+    /// behaviour: the old rows go with it — see the model brief's debt note.
+    #[tokio::test]
+    async fn round_one_table_is_migrated_to_the_github_schema() {
+        let (conn, product_id) = db_with_product().await;
+        conn.execute("DROP TABLE solutions", ()).await.expect("drop");
+        conn.execute(
+            "CREATE TABLE solutions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                productId INTEGER NOT NULL,
+                solutionType TEXT NOT NULL DEFAULT 'application',
+                answers TEXT NOT NULL DEFAULT '{}',
+                createdAt INTEGER NOT NULL,
+                updatedAt INTEGER NOT NULL,
+                UNIQUE(productId, name)
+            )",
+            (),
+        )
+        .await
+        .expect("round-1 table");
+
+        create_table(&conn).await.expect("migrate");
+
+        // The new columns exist and the table is usable again.
+        let id = create(&conn, "API", product_id, "api", "{}").await.expect("create");
+        let sol = find_by_id(&conn, id).await.expect("find").expect("exists");
+        assert_eq!(sol.origin, "created");
+        assert_eq!(sol.github_url, None);
+    }
+
     #[tokio::test]
     async fn set_github_links_a_repo_and_validates_origin() {
         let (conn, product_id) = db_with_product().await;

@@ -67,4 +67,4 @@ Most capable model, high effort (security-sensitive).
 ## Part 4 — changes-over-time
 
 > Each time you come back to improve the page, add a bullet describing what you want to change. Keep changes small.
-> - Round 2: …
+- Round 2 (my feedback): The app must stop burning tokens. Cache the Product context that every AI call repeats, and pick the model from the work item's **effort tier** instead of always using the first configured model — the cheapest/mid/most-capable rules in the Project Brief's Part 4 were being ignored. The provider's model list is therefore ordered **cheapest first**, and the page must say so.

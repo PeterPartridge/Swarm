@@ -17,7 +17,7 @@ A Product / Development / QA workspace: a desktop app where teams plan products,
 | Developers | Build in the **Develop** environment: code editor, real terminal, multi-repository support, AI via API keys — deciding per work item how the AI may use it. |
 | QA | Design tests in the **Test** environment around work items, for the AI to implement. |
 
-All of them use the app as a **single local user** — no logins or accounts. The main window is a top menu with three tabs — Product, Develop, Test — each with its own colour; clicking a tab enters that environment.
+All of them use the app as a **single local user** — no logins or accounts. The main window is a top menu with four tabs — Product, Develop, Test, Admin — each with its own colour; clicking a tab enters that environment.
 
 **Platforms & technology constraints**
 - Rust application, single repo, distributed as a native executable — Windows and Linux.
@@ -47,13 +47,14 @@ All of them use the app as a **single local user** — no logins or accounts. Th
 | TDD | Always write a failing test first, then just enough code to pass it. Tests start simple and grow more complex as functionality is added. |
 
 **Access & security**
-- **No authentication**: single-user local desktop app — no logins, accounts, roles, or claims. The app opens straight into the workspace.
-- AI provider **API keys** live in the OS credential store (Windows Credential Manager / Linux Secret Service) via a Tauri keyring plugin — never in plaintext in the database, config, code, or logs. The database stores only a key alias.
-- **Per-work-item AI policies, deny-by-default**: before any work-item content goes to an AI provider, the item's policy must explicitly allow that use and that provider.
+- **No authentication**: single-user local desktop app — no logins or accounts. The app opens straight into the workspace.
+- **Roles are organisation, not security.** Team members are named in Admin and given a role; a "Working as…" picker sets the active member, and their role decides which tabs and which commercial fields (cost / profit / chargeable) are shown. Because nothing is authenticated and anyone can switch member, this is **visibility, never a protection boundary** — never rely on it to keep data from someone at the keyboard, and never describe it as access control. With no active member selected, everything is visible, so the user cannot lock themselves out.
+- AI provider **API keys** and the **GitHub token** live in the OS credential store (Windows Credential Manager / Linux Secret Service) — never in plaintext in the database, config, code, or logs. The database stores only a key alias, and for GitHub only the repository URL.
+- **AI policies, deny-by-default**: before any content goes to an AI provider, a policy must explicitly allow that use and name that provider. Two levels exist — **per work item** (`work_item_policy`, for actions on one item) and **per Product** (`product_policy`, for planning work anchored on a Product, e.g. generating the work that achieves a Deliverable). The Product policy is deliberately coarser: allowing it covers every Deliverable of that Product.
 - The embedded terminal is a real shell with the OS user's own permissions, local only, and its output is never logged or persisted (per the solution spec's security rules).
 
 **Look & feel / design references**
-Minimal and easy to use. A top menu with three tabs — Product, Develop, Test — each with its own colour so you always know which environment you're in. A terminal to run commands and interact with files, plus a drag-and-drop system to move code blocks or UI designs around. Customisable colours.
+Minimal and easy to use. A top menu with four tabs — Product, Develop, Test, Admin — each with its own colour so you always know which environment you're in, with a "Working as…" picker beside them. A terminal to run commands and interact with files, plus a drag-and-drop system to move code blocks or UI designs around. Customisable colours.
 
 **Model & effort selection**
 
@@ -82,8 +83,8 @@ Minimal and easy to use. A top menu with three tabs — Product, Develop, Test �
 - **Solutions & repos:** CoperativeAI (application) → github.com/PeterPartridge/CooperativeAICoding, local path `app/CoperativeAI`; CoperativeAIdb (database, embedded in CoperativeAI) → same repo, `app/CoperativeAI/db`.
 - **Infra & environments:** No hosted infrastructure — release artifacts only, via GitHub Actions. dev = AI may build/deploy debug builds; production = people deploy after review, performance-focused.
 - **House rules:** DRY, SOLID (DI + interfaces), small production changes (or a new version file), keep it simple, TDD (failing test first).
-- **Security model:** No authentication (single-user local app). API keys in the OS credential store via keyring, aliases only in DB. Per-work-item AI policies, deny-by-default, checked before every AI call.
-- **Roles:** None — everyone sees all three workspace tabs (Product, Develop, Test).
+- **Security model:** No authentication (single-user local app). API keys and the GitHub token in the OS credential store via keyring, aliases/URLs only in DB. AI policies deny-by-default, checked before every AI call — per work item, and per Product for Deliverable planning.
+- **Roles:** Admin, Product, Developer, QA (editable in the Admin area) decide which of the four tabs and which commercial fields are visible for the active team member. **Visibility only — not authentication and not an access-control boundary**, since anyone can switch member. Everything is visible when no member is selected.
 - **Model & effort tiers:** Cheapest/mid = Claude Sonnet 5 (routine vs. everyday feature work); most capable = Claude Fable 5 (complex/architecture). Low/medium/high effort per task difficulty as defined above.
 
 ---

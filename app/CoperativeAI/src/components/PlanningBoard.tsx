@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import AiQuestions from "./AiQuestions";
 import PolicyEditor from "./PolicyEditor";
 import { usePermissions } from "../lib/permissions";
 import {
@@ -151,9 +152,21 @@ export default function PlanningBoard({ productId }: PlanningBoardProps) {
   async function onGenerateStories(item: WorkItem) {
     setNotice(`Asking the AI to write user stories for "${item.title}"…`);
     try {
-      const titles = await generateUserStories(item.id);
+      const result = await generateUserStories(item.id);
+      if (result.blocked) {
+        // Not a failure — the AI declining a vague item is the framework
+        // working. The question is now on the card, waiting for an answer.
+        setNotice(
+          `The AI stopped rather than guessing at "${item.title}": ` +
+            `${result.blocked.reason} Answer its question on the card to try again.`,
+        );
+        await refresh();
+        return;
+      }
+      const n = result.created.length;
       setNotice(
-        `AI created ${titles.length} user ${titles.length === 1 ? "story" : "stories"} under "${item.title}".`,
+        `AI created ${n} user ${n === 1 ? "story" : "stories"} under "${item.title}" ` +
+          `(${result.provider} · ${result.reason}).`,
       );
       await refresh();
     } catch (e) {
@@ -365,6 +378,8 @@ export default function PlanningBoard({ productId }: PlanningBoardProps) {
                       onClose={() => setPolicyItem(null)}
                     />
                   )}
+                  {/* Renders nothing unless the AI has asked something. */}
+                  <AiQuestions workItemId={item.id} />
                   {subItemParent === item.id && (
                     <form onSubmit={(e) => onCreateSubItem(e, item)} aria-label={`New sub-item of ${item.title}`}>
                       <input

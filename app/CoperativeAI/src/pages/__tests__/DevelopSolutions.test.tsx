@@ -17,6 +17,12 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     listWorkItems: vi.fn(),
     listSprints: vi.fn(),
     listTeamMembers: vi.fn(),
+    githubStatus: vi.fn(),
+    generateFrameworkFiles: vi.fn(),
+    setGithubToken: vi.fn(),
+    removeGithubToken: vi.fn(),
+    linkSolutionRepo: vi.fn(),
+    createSolutionRepo: vi.fn(),
   };
 });
 
@@ -31,6 +37,9 @@ const solution: Solution = {
   productId: 1,
   solutionType: "api",
   answers: "{}",
+  origin: "created",
+  githubUrl: null,
+  githubVisibility: null,
 };
 
 describe("DevelopSolutions (Solution creation + AI settings)", () => {
@@ -43,6 +52,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     mocked.listWorkItems.mockResolvedValue([]);
     mocked.listSprints.mockResolvedValue([]);
     mocked.listTeamMembers.mockResolvedValue([]);
+    mocked.githubStatus.mockResolvedValue({ connected: false });
   });
 
   it("shows the AI Settings section", async () => {
@@ -101,5 +111,129 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     expect(
       await screen.findByText(/create a Product first/i),
     ).toBeInTheDocument();
+  });
+
+  it("generates the framework files and reports what it wrote", async () => {
+    const user = userEvent.setup();
+    mocked.generateFrameworkFiles.mockResolvedValue({
+      written: ["shop-api/application-spec.json"],
+      unchanged: [],
+      conflicts: [],
+    });
+    render(<DevelopSolutions />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Generate framework files" }),
+    );
+
+    await waitFor(() => expect(mocked.generateFrameworkFiles).toHaveBeenCalledWith(1));
+    expect(await screen.findByText(/1 written/)).toBeInTheDocument();
+  });
+
+  /// The point of the conflict report: a hand-edited brief must be named, and
+  /// the user told their edit survived.
+  it("names files it left alone and says the edits are safe", async () => {
+    const user = userEvent.setup();
+    mocked.generateFrameworkFiles.mockResolvedValue({
+      written: [],
+      unchanged: [],
+      conflicts: [".CoperativeAI/pages/checkout.md"],
+    });
+    render(<DevelopSolutions />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Generate framework files" }),
+    );
+
+    expect(await screen.findByText(".CoperativeAI/pages/checkout.md")).toBeInTheDocument();
+    expect(screen.getByText(/Your edits are safe/)).toBeInTheDocument();
+  });
+
+  it("offers to connect GitHub when no token is stored", async () => {
+    render(<DevelopSolutions />);
+    expect(await screen.findByRole("region", { name: "GitHub" })).toBeInTheDocument();
+    expect(screen.getByLabelText("GitHub token")).toBeInTheDocument();
+  });
+
+  it("stores the token and shows the connected login", async () => {
+    const user = userEvent.setup();
+    mocked.setGithubToken.mockResolvedValue("octocat");
+    render(<DevelopSolutions />);
+
+    await user.type(await screen.findByLabelText("GitHub token"), "ghp_secret");
+    await user.click(screen.getByRole("button", { name: "Connect" }));
+
+    await waitFor(() =>
+      expect(mocked.setGithubToken).toHaveBeenCalledWith("ghp_secret"),
+    );
+    expect(await screen.findByText(/Connected as octocat/)).toBeInTheDocument();
+    // the token never stays in the form
+    expect(screen.queryByLabelText("GitHub token")).not.toBeInTheDocument();
+  });
+
+  it("links an existing repository to a Solution by URL", async () => {
+    const user = userEvent.setup();
+    mocked.linkSolutionRepo.mockResolvedValue(undefined);
+    render(<DevelopSolutions />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Link a repo to Shop API" }),
+    );
+    await user.type(
+      screen.getByLabelText("Repository URL"),
+      "https://github.com/me/shop-api",
+    );
+    await user.click(screen.getByRole("button", { name: "Link" }));
+
+    await waitFor(() =>
+      expect(mocked.linkSolutionRepo).toHaveBeenCalledWith(
+        3,
+        "https://github.com/me/shop-api",
+      ),
+    );
+  });
+
+  it("cannot create a repo until GitHub is connected", async () => {
+    render(<DevelopSolutions />);
+    expect(
+      await screen.findByRole("button", { name: "Create a repo for Shop API" }),
+    ).toBeDisabled();
+  });
+
+  it("creates a private repo for a Solution once connected", async () => {
+    const user = userEvent.setup();
+    mocked.githubStatus.mockResolvedValue({ connected: true });
+    mocked.createSolutionRepo.mockResolvedValue("https://github.com/me/shop-api");
+    render(<DevelopSolutions />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Create a repo for Shop API" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() =>
+      expect(mocked.createSolutionRepo).toHaveBeenCalledWith({
+        solutionId: 3,
+        repoName: "Shop API",
+        private: true,
+        description: "Repository for Shop API",
+      }),
+    );
+  });
+
+  it("shows the linked repository on a Solution", async () => {
+    mocked.listSolutions.mockResolvedValue([
+      {
+        ...solution,
+        origin: "imported",
+        githubUrl: "https://github.com/me/shop-api",
+        githubVisibility: "private",
+      },
+    ]);
+    render(<DevelopSolutions />);
+    expect(
+      await screen.findByRole("link", { name: "https://github.com/me/shop-api" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/imported/)).toBeInTheDocument();
   });
 });

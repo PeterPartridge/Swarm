@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   createDeliverable,
   deleteDeliverable,
+  generateDeliverableWork,
   getStrategy,
   listDeliverables,
   listWorkItems,
@@ -10,6 +11,8 @@ import {
   type Deliverable,
   type WorkItem,
 } from "../lib/backend";
+import ProductAiPolicy from "./ProductAiPolicy";
+import BudgetPanel from "./BudgetPanel";
 
 const STRATEGY_FIELDS: { id: string; label: string }[] = [
   { id: "vision", label: "Vision — where is this Product going?" },
@@ -27,6 +30,7 @@ export default function ProductStrategy({ productId }: { productId: number }) {
   const [savedNote, setSavedNote] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [generating, setGenerating] = useState<number | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -85,6 +89,38 @@ export default function ProductStrategy({ productId }: { productId: number }) {
     }
   }
 
+  /** Asks the AI for the work that achieves a deliverable. Gated by the
+   *  Product's AI policy — a denial comes back as a plain message. */
+  async function onGenerate(d: Deliverable) {
+    setGenerating(d.id);
+    setError(null);
+    setSavedNote(null);
+    try {
+      const result = await generateDeliverableWork(d.id);
+      if (result.blocked) {
+        setSavedNote(
+          `The AI stopped rather than guessing at ${d.name}: ${result.blocked.reason} ` +
+            (result.blocked.whatIsNeeded
+              ? `It needs to know: ${result.blocked.whatIsNeeded}`
+              : ""),
+        );
+        return;
+      }
+      const added =
+        result.created.length === 0
+          ? `The AI suggested nothing new for ${d.name}.`
+          : `Added ${result.created.length} item${result.created.length === 1 ? "" : "s"} to ${d.name}.`;
+      // Name the provider that ran it: a budget handover swaps in a local model
+      // and the results change character, so this must not be silent.
+      setSavedNote(`${added} (${result.provider} · ${result.reason})`);
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setGenerating(null);
+    }
+  }
+
   const itemsFor = (deliverableId: number | null) =>
     items.filter((i) => i.deliverableId === deliverableId);
 
@@ -106,6 +142,9 @@ export default function ProductStrategy({ productId }: { productId: number }) {
           </label>
         ))}
       </div>
+
+      <BudgetPanel productId={productId} />
+      <ProductAiPolicy productId={productId} />
 
       <div className="deliverables" aria-label="Deliverables">
         <h3>Deliverables</h3>
@@ -130,6 +169,13 @@ export default function ProductStrategy({ productId }: { productId: number }) {
             <header>
               <strong>{d.name}</strong>
               {d.description && <span className="deliverable-desc"> — {d.description}</span>}
+              <button
+                aria-label={`Generate work for ${d.name}`}
+                disabled={generating === d.id}
+                onClick={() => onGenerate(d)}
+              >
+                {generating === d.id ? "Generating…" : "Generate work"}
+              </button>
               <button
                 aria-label={`Delete deliverable ${d.name}`}
                 onClick={() => onDeleteDeliverable(d.id)}

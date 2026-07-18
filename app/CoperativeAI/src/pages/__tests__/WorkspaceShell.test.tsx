@@ -14,6 +14,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     getRoadmapMode: vi.fn().mockResolvedValue("sprints"),
     listTeamMembers: vi.fn().mockResolvedValue([]),
     listSolutions: vi.fn().mockResolvedValue([]),
+    githubStatus: vi.fn().mockResolvedValue({ connected: false }),
   };
 });
 import WorkspaceShell from "../WorkspaceShell";

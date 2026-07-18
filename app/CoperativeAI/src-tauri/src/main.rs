@@ -4,6 +4,7 @@
 mod ai;
 mod commands;
 mod db;
+mod emit;
 mod github;
 mod scaffold;
 mod terminal;
@@ -43,11 +44,15 @@ fn main() {
             commands::work_items::update_work_item,
             commands::work_items::delete_work_item,
             commands::work_items::generate_user_stories,
+            commands::work_items::generate_deliverable_work,
             commands::products::list_products,
             commands::products::create_product,
             commands::products::get_product,
             commands::products::get_product_scaffold,
             commands::products::delete_product,
+            commands::emit::generate_framework_files,
+            commands::feedback::list_ai_feedback,
+            commands::feedback::resolve_ai_feedback,
             commands::solutions::list_solutions,
             commands::solutions::create_solution,
             commands::solutions::delete_solution,
@@ -72,6 +77,10 @@ fn main() {
             commands::deliverables::delete_deliverable,
             commands::strategy::get_strategy,
             commands::strategy::save_strategy,
+            commands::test_cases::list_test_cases,
+            commands::test_cases::create_test_case,
+            commands::test_cases::update_test_case,
+            commands::test_cases::delete_test_case,
             commands::sprints::list_sprints,
             commands::sprints::create_sprint,
             commands::sprints::remove_sprint,
@@ -80,12 +89,21 @@ fn main() {
             commands::settings::get_roadmap_mode,
             commands::settings::set_roadmap_mode,
             commands::windows::open_screen_window,
+            commands::budgets::get_product_budget,
+            commands::budgets::set_product_budget,
+            commands::budgets::get_spend_summary,
+            commands::budgets::list_model_prices,
+            commands::budgets::set_model_price,
+            commands::budgets::delete_model_price,
             commands::ai_settings::list_ai_providers,
             commands::ai_settings::add_ai_provider,
+            commands::ai_settings::add_ollama_provider,
             commands::ai_settings::remove_ai_provider,
             commands::ai_settings::test_ai_provider,
             commands::policies::get_work_item_policy,
             commands::policies::set_work_item_policy,
+            commands::policies::get_product_policy,
+            commands::policies::set_product_policy,
             commands::repositories::list_repositories,
             commands::repositories::add_repository,
         ])

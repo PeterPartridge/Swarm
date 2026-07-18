@@ -16,6 +16,8 @@ pub struct AiProviderDto {
     pub api_base_url: String,
     pub models: Vec<String>,
     pub key_stored: bool,
+    pub kind: String,
+    pub metered: bool,
 }
 
 fn to_dto(p: AiProvider) -> AiProviderDto {
@@ -26,7 +28,40 @@ fn to_dto(p: AiProvider) -> AiProviderDto {
         api_base_url: p.api_base_url,
         models: p.models,
         key_stored,
+        kind: p.kind,
+        metered: p.metered,
     }
+}
+
+/// Adds a local Ollama provider. No API key — it is a local process — and not
+/// metered, which is what makes it a valid handover target when a budget runs
+/// out. Models are read from the server so the user picks what is installed.
+#[tauri::command]
+pub async fn add_ollama_provider(
+    db: State<'_, AppDb>,
+    name: String,
+    api_base_url: String,
+) -> Result<i64, String> {
+    let models = crate::ai::ollama::list_models(&api_base_url).await?;
+    if models.is_empty() {
+        return Err(format!(
+            "{api_base_url} is reachable but has no models pulled — run `ollama pull <model>` first"
+        ));
+    }
+    let alias = format!("coperativeai/{}", name.trim().to_lowercase().replace(' ', "-"));
+    let model_refs: Vec<&str> = models.iter().map(String::as_str).collect();
+    let conn = db.0.lock().await;
+    ai_provider::add_of_kind(
+        &conn,
+        &name,
+        &api_base_url,
+        &model_refs,
+        &alias,
+        "ollama",
+        false,
+    )
+    .await
+    .map_err(to_message)
 }
 
 #[tauri::command]

@@ -23,6 +23,9 @@ const FIELD_FLAGS = [
   ["seeCost", "Cost"],
   ["seeProfit", "Profit"],
   ["seeChargeable", "Chargeable"],
+  // Not a field, but it belongs beside them: seeing spend and setting the
+  // budget are different powers, and this is where that line is drawn.
+  ["canManageBudget", "Manage budget"],
 ] as const;
 
 /** Admin area: manage team members + their roles, and edit what each role can

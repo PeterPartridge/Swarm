@@ -63,4 +63,4 @@ Mid-range model, medium effort.
 ## Part 4 — changes-over-time
 
 > Each time you come back to improve the page, add a bullet describing what you want to change. Keep changes small.
-> - Round 2: …
+- Round 2 (my feedback): For Developers we can create a solution **or import a solution**, link it to a Product, and then **link it to a GitHub repository or create one in GitHub as private or public**.

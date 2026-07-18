@@ -20,7 +20,7 @@ status: built            # blank | filled | approved | built
 
 ### why-exists — Why does this page exist?
 > The one main job of this page. This shouldn't change much over time.
-It is the main window of the app: a top menu with three tabs — Product, Develop, Test — each with its own colour. Clicking a tab enters that environment. Everything else in the app lives inside one of these three environments.
+It is the main window of the app: a top menu of environment tabs — Product, Develop, Test, and (from round 2) Admin — each with its own colour. Clicking a tab enters that environment. Everything else in the app lives inside one of these environments.
 
 ---
 
@@ -34,7 +34,7 @@ It is the main window of the app: a top menu with three tabs — Product, Develo
 
 ### look — What should it look like?
 > Link a sketch, or describe it. "Like the rest of the app" is fine.
-Minimal and easy to use. A horizontal menu bar across the top of the window with three tabs: Product, Develop, Test. Each tab has its own distinct colour so you always know which environment you are in — the active tab's colour also accents the environment below it. The rest of the window is the current environment's content.
+Minimal and easy to use. A horizontal menu bar across the top of the window with four tabs: Product, Develop, Test, Admin. Each tab has its own distinct colour so you always know which environment you are in — the active tab's colour also accents the environment below it. A "Working as…" picker sits at the right-hand end of the bar. The rest of the window is the current environment's content.
 
 ### information — What information does this page show or collect?
 > List the bits of information, in everyday words, one bullet each.
@@ -61,8 +61,9 @@ Which tab is currently active.
 
 ### tests — How will we know it works? What should we test?
 > Plain checks are fine, one bullet each.
-- The app opens straight into the workspace with the three tabs visible — no login screen.
-- Clicking Product, Develop, or Test switches to that environment.
+- The app opens straight into the workspace with the tabs visible — no login screen.
+- Clicking Product, Develop, Test, or Admin switches to that environment.
+- The "Working as…" picker changes which tabs are shown; choosing nobody shows them all.
 - Each tab shows its own colour, and the active tab is clearly marked.
 - Changing a colour updates the UI and is remembered after restarting the app.
 
@@ -79,4 +80,4 @@ Mid-range model, medium effort.
 ## Part 4 — changes-over-time
 
 > You don't fill this in at the start. Each time you come back to improve the page, add a bullet describing **what you want to change** — a new action, a design tweak, a fix. Keep changes small.
-> - Round 2: …
+- Round 2 (my feedback): Add a fourth tab, **Admin**, with its own colour, for team members and roles. Beside the tabs add a **"Working as…"** picker choosing the active team member; their role decides which tabs are shown and which commercial fields are visible. Everything stays visible when no member is chosen — the app must never lock you out of your own machine, and this is a convenience, not a login.

@@ -3,7 +3,7 @@ form: page-brief
 page: "Creation Page"
 solution: "CoperativeAI"
 depends-on: ["SolutionManagement.md"]           # briefs that must be built first, e.g. [ClothingAPI/Login.json]
-status: filled            # blank | filled | approved | built
+status: built            # blank | filled | approved | built
 ---
 
 # Page Brief — <Page Name>

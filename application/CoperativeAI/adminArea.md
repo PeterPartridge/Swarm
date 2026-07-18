@@ -60,5 +60,7 @@ Mid-range model, medium effort.
 
 ## Part 4 — changes-over-time
 
+- Round 2 (my feedback): Admin must also control **who may manage the AI budget and strategy** — a role-level permission alongside the cost/profit/chargeability visibility flags.
+
 > Each time you come back to improve the page, add a bullet describing what you want to change. Keep changes small.
 > - Round 2: …

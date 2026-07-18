@@ -68,9 +68,11 @@ pub async fn find_by_id(conn: &Connection, id: i64) -> Result<Option<Deliverable
     }
 }
 
-/// Deleting a deliverable unlinks its work items (they are not deleted).
+/// Deleting a deliverable unlinks its work items and test cases (neither is
+/// deleted — the work and the tests outlive the grouping).
 pub async fn delete(conn: &Connection, id: i64) -> Result<()> {
     conn.execute("UPDATE work_items SET deliverableId = NULL WHERE deliverableId = ?1", (id,)).await?;
+    conn.execute("UPDATE test_cases SET deliverableId = NULL WHERE deliverableId = ?1", (id,)).await?;
     conn.execute("DELETE FROM deliverables WHERE id = ?1", (id,)).await?;
     Ok(())
 }

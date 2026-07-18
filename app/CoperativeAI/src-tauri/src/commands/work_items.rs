@@ -138,6 +138,30 @@ pub async fn delete_work_item(db: State<'_, AppDb>, id: i64) -> Result<(), Strin
     work_item::delete(&conn, id).await.map_err(to_message)
 }
 
+/// What a generation produced, plus which provider actually ran it and why.
+/// The routing reason travels back to the UI deliberately: when a budget hands
+/// work over to a local model the output quality changes, and the user must not
+/// discover that by wondering why the results got worse.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerationResult {
+    pub created: Vec<String>,
+    pub provider: String,
+    pub model: String,
+    pub reason: String,
+    /// Set when the AI declined rather than guessing. `created` is then empty
+    /// and a question is waiting against the work item.
+    pub blocked: Option<BlockedDto>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockedDto {
+    pub reason: String,
+    pub what_is_needed: String,
+    pub feedback_id: i64,
+}
+
 /// Everything the gates resolve before any content moves: the feature, the
 /// provider it may use, and the effort tier its policy allows.
 pub(crate) struct StoryGenerationContext {
@@ -154,52 +178,113 @@ pub(crate) struct StoryGenerationContext {
 pub async fn generate_user_stories(
     db: State<'_, AppDb>,
     feature_id: i64,
-) -> Result<Vec<String>, String> {
-    use crate::ai::{client, keys};
+) -> Result<GenerationResult, String> {
+    use crate::ai::{backend, client};
+    use crate::commands::ai_run;
     use crate::db::{product, solution};
 
-    // Resolve gates + prompt inputs under the lock, then release it for the
-    // network call so the rest of the app stays responsive.
-    let (context, prompt) = {
+    const PURPOSE: &str = "storyGeneration";
+
+    // Resolve gates, budget routing, and prompt inputs under the lock, then
+    // release it for the network call so the rest of the app stays responsive.
+    let (context, routed, prompt, product_id) = {
         let conn = db.0.lock().await;
         let context = resolve_story_generation(&conn, feature_id).await?;
-        let Some(product_row) = product::find_by_id(&conn, context.feature.product_id)
+        let product_id = context.feature.product_id;
+        let Some(product_row) = product::find_by_id(&conn, product_id)
             .await
             .map_err(to_message)?
         else {
             return Err("this feature's Product no longer exists".into());
         };
-        let solutions = solution::list_by_product(&conn, product_row.id)
+        // The item's policy says which provider is *allowed*; the budget says
+        // which is *affordable*. Both must agree before anything is sent.
+        let routed = ai_run::plan(
+            &conn,
+            product_id,
+            context.provider.id,
+            &context.effort_tier,
+            PURPOSE,
+        )
+        .await?;
+        let solutions = solution::list_by_product(&conn, product_id)
             .await
             .map_err(to_message)?
             .into_iter()
             .map(|s| (s.name, s.solution_type, s.answers))
             .collect::<Vec<_>>();
+        // Answers a person already gave for this item travel with the prompt,
+        // so the AI does not ask the same question twice.
+        let clarifications = crate::db::ai_feedback::clarifications_for_item(&conn, feature_id)
+            .await
+            .map_err(to_message)?;
         let prompt = client::build_story_prompt(
             &product_row.name,
             &product_row.answers,
             &context.feature.title,
             context.feature.description.as_deref(),
             &solutions,
+            &clarifications,
         );
-        (context, prompt)
+        (context, routed, prompt, product_id)
     };
 
-    let api_key = keys::get_key(&context.provider.key_alias)?;
-    let model = context
-        .provider
-        .models
-        .first()
-        .cloned()
-        .ok_or_else(|| "the allowed AI provider has no models configured".to_string())?;
-    let drafts = client::generate_stories(
-        &context.provider.api_base_url,
-        &api_key,
-        &model,
+    let started = std::time::Instant::now();
+    let result = backend::generate_stories(
+        &routed.provider,
+        &routed.model,
         &context.effort_tier,
         &prompt,
     )
-    .await?;
+    .await;
+    let latency_ms = started.elapsed().as_millis() as i64;
+
+    // A failed call still consumed something at the provider's end, and the
+    // attempt is worth recording either way.
+    let drafts = match result {
+        Ok((client::Generated::Items(drafts), usage)) => {
+            let conn = db.0.lock().await;
+            ai_run::record(
+                &conn, product_id, Some(feature_id), &routed.provider, &routed.model,
+                PURPOSE, &usage, latency_ms, "ok",
+            )
+            .await;
+            drafts
+        }
+        // The AI declined rather than guessing. That is a good outcome, not an
+        // error: the question is stored against the item and returned, and the
+        // call is ledgered as spend because the model ran and was paid for.
+        Ok((client::Generated::Blocked { reason, what_is_needed }, usage)) => {
+            let conn = db.0.lock().await;
+            ai_run::record(
+                &conn, product_id, Some(feature_id), &routed.provider, &routed.model,
+                PURPOSE, &usage, latency_ms, "declined",
+            )
+            .await;
+            let feedback_id = crate::db::ai_feedback::record(
+                &conn, feature_id, "needsInformation", &reason, &what_is_needed, None,
+            )
+            .await
+            .map_err(to_message)?;
+            return Ok(GenerationResult {
+                created: Vec::new(),
+                provider: routed.provider.name.clone(),
+                model: routed.model.clone(),
+                reason: routed.reason.clone(),
+                blocked: Some(BlockedDto { reason, what_is_needed, feedback_id }),
+            });
+        }
+        Err(e) => {
+            let conn = db.0.lock().await;
+            let outcome = if e.contains("refusal") { "refusal" } else { "error" };
+            ai_run::record(
+                &conn, product_id, Some(feature_id), &routed.provider, &routed.model,
+                PURPOSE, &Default::default(), latency_ms, outcome,
+            )
+            .await;
+            return Err(e);
+        }
+    };
 
     let conn = db.0.lock().await;
     let mut created = Vec::new();
@@ -208,7 +293,7 @@ pub async fn generate_user_stories(
             &conn,
             &draft.title,
             "userStory",
-            context.feature.product_id,
+            product_id,
             Some(feature_id),
             Some(&draft.description),
         )
@@ -216,7 +301,13 @@ pub async fn generate_user_stories(
         .map_err(to_message)?;
         created.push(draft.title);
     }
-    Ok(created)
+    Ok(GenerationResult {
+        created,
+        provider: routed.provider.name.clone(),
+        model: routed.model.clone(),
+        reason: routed.reason.clone(),
+        blocked: None,
+    })
 }
 
 /// The gate half, kept separate so the deny-by-default behaviour is unit
@@ -278,11 +369,337 @@ pub(crate) async fn resolve_story_generation(
     })
 }
 
+/// Everything the Deliverable gate resolves before any content moves.
+pub(crate) struct DeliverableGenerationContext {
+    pub deliverable: crate::db::deliverable::Deliverable,
+    pub provider: crate::db::ai_provider::AiProvider,
+    pub effort_tier: String,
+    /// The hierarchy level to create — see `level_for_deliverable`.
+    pub item_type: String,
+}
+
+/// Which level a Deliverable breaks down into: the one directly above user
+/// stories, so the existing per-feature button can expand them further. With no
+/// user-story level configured, the hierarchy's top level is used instead.
+pub(crate) fn level_for_deliverable(hierarchy: &[String]) -> Option<String> {
+    match hierarchy.iter().position(|t| t == "userStory") {
+        // user stories at the very top: generate those
+        Some(0) => Some("userStory".to_string()),
+        Some(i) => Some(hierarchy[i - 1].clone()),
+        None => hierarchy.first().cloned(),
+    }
+}
+
+/// The gate half of Deliverable generation, kept separate so the
+/// deny-by-default behaviour is unit testable without a credential store or
+/// network. Gated by the **Product's** policy — deliberately coarser than a
+/// work-item policy, so allowing it for one Deliverable allows it for all of
+/// that Product's Deliverables.
+pub(crate) async fn resolve_deliverable_generation(
+    conn: &turso::Connection,
+    deliverable_id: i64,
+) -> Result<DeliverableGenerationContext, String> {
+    use crate::db::{deliverable, product_policy};
+
+    let Some(deliverable) = deliverable::find_by_id(conn, deliverable_id)
+        .await
+        .map_err(to_message)?
+    else {
+        return Err(format!("no deliverable with id {deliverable_id}"));
+    };
+    let hierarchy = system_setting::get_planning_hierarchy(conn)
+        .await
+        .map_err(to_message)?;
+    let Some(item_type) = level_for_deliverable(&hierarchy) else {
+        return Err(
+            "The current planning method has no work item levels — set 'How Products are planned' in settings."
+                .into(),
+        );
+    };
+    // Deny-by-default: no Product policy, or one that doesn't allow reading and
+    // generating via a named provider, blocks the call before any content moves.
+    let Some(policy) = product_policy::get_for_product(conn, deliverable.product_id)
+        .await
+        .map_err(to_message)?
+    else {
+        return Err(format!(
+            "'{}''s Product has no AI policy, so AI can't plan it (deny-by-default). Set the Product's AI policy to allow reading and generating, and configure an AI provider in AI Settings.",
+            deliverable.name
+        ));
+    };
+    let provider_id = match (policy.allow_read, policy.allow_generate, policy.provider_id) {
+        (true, true, Some(provider_id)) => provider_id,
+        _ => {
+            return Err(format!(
+                "The Product's AI policy blocks this: it must allow reading and generating, and name an AI provider. Update it in the Product area (deliverable '{}').",
+                deliverable.name
+            ));
+        }
+    };
+    let Some(provider) = crate::db::ai_provider::find_by_id(conn, provider_id)
+        .await
+        .map_err(to_message)?
+    else {
+        return Err("the policy's AI provider no longer exists — update the Product's policy".into());
+    };
+    Ok(DeliverableGenerationContext {
+        deliverable,
+        provider,
+        effort_tier: policy.effort_tier,
+        item_type,
+    })
+}
+
+/// Generates the work that achieves a Deliverable. Gates first (Product policy,
+/// planning hierarchy), then: key from the OS credential store → Claude Messages
+/// API with structured outputs → new work items linked to the Deliverable.
+#[tauri::command]
+pub async fn generate_deliverable_work(
+    db: State<'_, AppDb>,
+    deliverable_id: i64,
+) -> Result<GenerationResult, String> {
+    use crate::ai::{backend, client};
+    use crate::commands::ai_run;
+    use crate::db::{product, solution, strategy};
+
+    const PURPOSE: &str = "deliverablePlanning";
+
+    // Resolve gates, budget routing, and prompt inputs under the lock, then
+    // release it for the network call so the rest of the app stays responsive.
+    let (context, routed, prompt, product_id) = {
+        let conn = db.0.lock().await;
+        let context = resolve_deliverable_generation(&conn, deliverable_id).await?;
+        let product_id = context.deliverable.product_id;
+        let Some(product_row) = product::find_by_id(&conn, product_id)
+            .await
+            .map_err(to_message)?
+        else {
+            return Err("this deliverable's Product no longer exists".into());
+        };
+        let routed = ai_run::plan(
+            &conn,
+            product_id,
+            context.provider.id,
+            &context.effort_tier,
+            PURPOSE,
+        )
+        .await?;
+        let solutions = solution::list_by_product(&conn, product_id)
+            .await
+            .map_err(to_message)?
+            .into_iter()
+            .map(|s| (s.name, s.solution_type, s.answers))
+            .collect::<Vec<_>>();
+        let strategy_json = strategy::get(&conn, product_id, "product")
+            .await
+            .map_err(to_message)?;
+        // Existing titles under this deliverable, so a second press adds to the
+        // plan rather than repeating it.
+        let existing = work_item::list_by_product(&conn, product_id)
+            .await
+            .map_err(to_message)?
+            .into_iter()
+            .filter(|i| i.deliverable_id == Some(deliverable_id))
+            .map(|i| i.title)
+            .collect::<Vec<_>>();
+        let label = human_level(&context.item_type);
+        let prompt = client::build_deliverable_prompt(
+            &product_row.name,
+            &product_row.answers,
+            &strategy_json,
+            &context.deliverable.name,
+            &context.deliverable.description,
+            label,
+            &existing,
+            &solutions,
+        );
+        (context, routed, prompt, product_id)
+    };
+
+    let started = std::time::Instant::now();
+    let result = backend::generate_stories(
+        &routed.provider,
+        &routed.model,
+        &context.effort_tier,
+        &prompt,
+    )
+    .await;
+    let latency_ms = started.elapsed().as_millis() as i64;
+
+    let drafts = match result {
+        Ok((client::Generated::Items(drafts), usage)) => {
+            let conn = db.0.lock().await;
+            ai_run::record(
+                &conn, product_id, None, &routed.provider, &routed.model,
+                PURPOSE, &usage, latency_ms, "ok",
+            )
+            .await;
+            drafts
+        }
+        // A Deliverable has no work item to hang feedback on, so the question
+        // is returned to the caller rather than stored. Storing it against an
+        // invented work item would be worse than not storing it.
+        Ok((client::Generated::Blocked { reason, what_is_needed }, usage)) => {
+            let conn = db.0.lock().await;
+            ai_run::record(
+                &conn, product_id, None, &routed.provider, &routed.model,
+                PURPOSE, &usage, latency_ms, "declined",
+            )
+            .await;
+            return Ok(GenerationResult {
+                created: Vec::new(),
+                provider: routed.provider.name.clone(),
+                model: routed.model.clone(),
+                reason: routed.reason.clone(),
+                blocked: Some(BlockedDto { reason, what_is_needed, feedback_id: 0 }),
+            });
+        }
+        Err(e) => {
+            let conn = db.0.lock().await;
+            let outcome = if e.contains("refusal") { "refusal" } else { "error" };
+            ai_run::record(
+                &conn, product_id, None, &routed.provider, &routed.model,
+                PURPOSE, &Default::default(), latency_ms, outcome,
+            )
+            .await;
+            return Err(e);
+        }
+    };
+
+    let conn = db.0.lock().await;
+    let mut created = Vec::new();
+    for draft in drafts {
+        let id = work_item::create(
+            &conn,
+            &draft.title,
+            &context.item_type,
+            context.deliverable.product_id,
+            None,
+            Some(&draft.description),
+        )
+        .await
+        .map_err(to_message)?;
+        // Link it to the deliverable it was generated to achieve.
+        work_item::update_item(
+            &conn,
+            id,
+            work_item::WorkItemFields {
+                deliverable_id: Some(deliverable_id),
+                ..Default::default()
+            },
+        )
+        .await
+        .map_err(to_message)?;
+        created.push(draft.title);
+    }
+    Ok(GenerationResult {
+        created,
+        provider: routed.provider.name.clone(),
+        model: routed.model.clone(),
+        reason: routed.reason.clone(),
+        blocked: None,
+    })
+}
+
+/// Plain wording for a hierarchy level, for the prompt.
+fn human_level(item_type: &str) -> &'static str {
+    match item_type {
+        "epic" => "epic",
+        "userStory" => "user story",
+        "task" => "task",
+        _ => "feature",
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::resolve_story_generation;
+    use super::{level_for_deliverable, resolve_deliverable_generation, resolve_story_generation};
     use crate::db::product::tests::db_with_product;
-    use crate::db::{ai_provider, system_setting, work_item, work_item_policy};
+    use crate::db::{
+        ai_provider, deliverable, product_policy, system_setting, work_item, work_item_policy,
+    };
+
+    fn hierarchy(levels: &[&str]) -> Vec<String> {
+        levels.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn a_deliverable_breaks_down_into_the_level_above_user_stories() {
+        // the default method: Feature sits above User Story
+        assert_eq!(
+            level_for_deliverable(&hierarchy(&["epic", "feature", "userStory", "task"])),
+            Some("feature".to_string())
+        );
+        assert_eq!(
+            level_for_deliverable(&hierarchy(&["feature", "userStory", "task"])),
+            Some("feature".to_string())
+        );
+        // no user stories configured — fall back to the top level
+        assert_eq!(
+            level_for_deliverable(&hierarchy(&["feature", "task"])),
+            Some("feature".to_string())
+        );
+        assert_eq!(
+            level_for_deliverable(&hierarchy(&["epic", "task"])),
+            Some("epic".to_string())
+        );
+        // user stories at the top: generate those
+        assert_eq!(
+            level_for_deliverable(&hierarchy(&["userStory", "task"])),
+            Some("userStory".to_string())
+        );
+        assert_eq!(level_for_deliverable(&[]), None);
+    }
+
+    #[tokio::test]
+    async fn deliverable_generation_is_denied_without_a_product_policy() {
+        let (conn, product_id) = db_with_product().await;
+        let d = deliverable::create(&conn, product_id, "MVP", "the first release")
+            .await
+            .expect("deliverable");
+        let err = resolve_deliverable_generation(&conn, d)
+            .await
+            .err()
+            .expect("must be blocked");
+        assert!(err.contains("deny-by-default"), "got: {err}");
+    }
+
+    #[tokio::test]
+    async fn deliverable_generation_needs_read_generate_and_a_provider() {
+        let (conn, product_id) = db_with_product().await;
+        let d = deliverable::create(&conn, product_id, "MVP", "")
+            .await
+            .expect("deliverable");
+        let provider = ai_provider::add(&conn, "Claude", "https://api.anthropic.com", &["m".into()], "alias")
+            .await
+            .expect("provider");
+
+        // reading allowed but generating denied
+        product_policy::set_policy(&conn, product_id, true, false, Some(provider), "low")
+            .await
+            .expect("policy");
+        assert!(resolve_deliverable_generation(&conn, d).await.is_err());
+
+        // both allowed but no provider named
+        product_policy::set_policy(&conn, product_id, true, true, None, "low")
+            .await
+            .expect("policy");
+        assert!(resolve_deliverable_generation(&conn, d).await.is_err());
+
+        // fully allowed
+        product_policy::set_policy(&conn, product_id, true, true, Some(provider), "medium")
+            .await
+            .expect("policy");
+        let context = resolve_deliverable_generation(&conn, d).await.expect("allowed");
+        assert_eq!(context.item_type, "feature");
+        assert_eq!(context.effort_tier, "medium");
+    }
+
+    #[tokio::test]
+    async fn deliverable_generation_rejects_an_unknown_deliverable() {
+        let (conn, _product_id) = db_with_product().await;
+        assert!(resolve_deliverable_generation(&conn, 999).await.is_err());
+    }
 
     #[tokio::test]
     async fn story_generation_is_denied_without_a_policy() {

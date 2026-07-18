@@ -260,6 +260,8 @@ pub async fn find_by_id(conn: &Connection, id: i64) -> Result<Option<WorkItem>> 
 pub async fn delete(conn: &Connection, id: i64) -> Result<()> {
     conn.execute("DELETE FROM work_item_policies WHERE workItemId = ?1", (id,)).await?;
     conn.execute("DELETE FROM feature_designs WHERE workItemId = ?1", (id,)).await?;
+    // QA's test cases survive the work item; they are only unlinked.
+    conn.execute("UPDATE test_cases SET workItemId = NULL WHERE workItemId = ?1", (id,)).await?;
     conn.execute("DELETE FROM work_items WHERE id = ?1", (id,)).await?;
     Ok(())
 }

@@ -14,6 +14,8 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     updateWorkItem: vi.fn(),
     deleteWorkItem: vi.fn(),
     generateUserStories: vi.fn(),
+    listAiFeedback: vi.fn(),
+    resolveAiFeedback: vi.fn(),
     getPlanningHierarchy: vi.fn(),
     listTeamMembers: vi.fn(),
     listSprints: vi.fn(),
@@ -73,6 +75,7 @@ describe("PlanningBoard", () => {
     mocked.listSprints.mockResolvedValue([sprint]);
     mocked.listDeliverables.mockResolvedValue([]);
     mocked.getWorkItemPolicy.mockResolvedValue(null);
+    mocked.listAiFeedback.mockResolvedValue([]);
     mocked.listAiProviders.mockResolvedValue([
       {
         id: 3,
@@ -80,6 +83,8 @@ describe("PlanningBoard", () => {
         apiBaseUrl: "https://api.anthropic.com",
         models: ["claude-opus-4-8"],
         keyStored: true,
+        kind: "anthropic",
+        metered: true,
       },
     ]);
   });
@@ -218,12 +223,74 @@ describe("PlanningBoard", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("deny-by-default");
   });
 
+  /// The README's answer to AI burning tokens on work it does not understand:
+  /// declining is a good outcome and must not read as an error.
+  it("treats an AI refusal as a question to answer, not a failure", async () => {
+    const user = userEvent.setup();
+    mocked.generateUserStories.mockResolvedValue({
+      created: [],
+      provider: "Claude",
+      model: "claude-haiku-4-5",
+      reason: "within budget (5% used)",
+      blocked: {
+        reason: "No payment provider is named.",
+        whatIsNeeded: "Which payment provider should checkout use?",
+        feedbackId: 9,
+      },
+    });
+    render(<PlanningBoard productId={7} />);
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "AI: create user stories for Checkout",
+      }),
+    );
+
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent("stopped rather than guessing");
+    expect(status).toHaveTextContent("No payment provider is named.");
+    expect(status).not.toHaveTextContent(/error|failed/i);
+  });
+
+  it("shows an open AI question on the card and sends the answer back", async () => {
+    const user = userEvent.setup();
+    mocked.listAiFeedback.mockResolvedValue([
+      {
+        id: 9,
+        workItemId: 1,
+        kind: "needsInformation",
+        message: "No payment provider is named.",
+        whatIsNeeded: "Which payment provider should checkout use?",
+        resolved: false,
+        resolvedNote: "",
+      },
+    ]);
+    mocked.resolveAiFeedback.mockResolvedValue(undefined);
+    render(<PlanningBoard productId={7} />);
+
+    await user.type(
+      await screen.findByLabelText("Answer AI question 9"),
+      "Use Stripe.",
+    );
+    await user.click(screen.getByRole("button", { name: "Save answer to AI question 9" }));
+
+    await waitFor(() =>
+      expect(mocked.resolveAiFeedback).toHaveBeenCalledWith(9, "Use Stripe."),
+    );
+  });
+
   it("reports how many stories the AI created and refreshes the board", async () => {
     const user = userEvent.setup();
-    mocked.generateUserStories.mockResolvedValue([
-      "As a shopper, I want one-step pay",
-      "As a shopper, I want saved cards",
-    ]);
+    mocked.generateUserStories.mockResolvedValue({
+      created: [
+        "As a shopper, I want one-step pay",
+        "As a shopper, I want saved cards",
+      ],
+      provider: "Claude",
+      model: "claude-haiku-4-5",
+      reason: "within budget (10% used)",
+      blocked: null,
+    });
     render(<PlanningBoard productId={7} />);
 
     await user.click(

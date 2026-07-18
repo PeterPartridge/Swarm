@@ -2,8 +2,8 @@
 form: page-brief
 page: "QA Test Designer"
 solution: "CoperativeAI"
-depends-on: ["workItemPolicy.md"]
-status: filled            # blank | filled | approved | built
+depends-on: ["workItemPolicy.md", "CoperativeAIdb/TestCase-model.json"]
+status: built            # blank | filled | approved | built
 ---
 
 # Page Brief — QA Test Designer
@@ -65,4 +65,4 @@ Mid-range model, medium effort.
 ## Part 4 — changes-over-time
 
 > Each time you come back to improve the page, add a bullet describing what you want to change. Keep changes small.
-> - Round 2: …
+- Round 2 (my feedback): The Testing area needs a **Testing Strategy** section — test plans, test environments, required tooling, and links to test cases / automated suites. Tests must also be able to be **associated with Deliverables or Work Items**, not only with a work item.

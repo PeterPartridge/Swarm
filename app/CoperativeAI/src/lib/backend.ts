@@ -45,6 +45,8 @@ export interface Role {
   seeCost: boolean;
   seeProfit: boolean;
   seeChargeable: boolean;
+  /** May set AI budgets and the provider chain — separate from seeing spend. */
+  canManageBudget: boolean;
 }
 
 export interface Deliverable {
@@ -52,6 +54,17 @@ export interface Deliverable {
   productId: number;
   name: string;
   description: string;
+}
+
+export interface TestCase {
+  id: number;
+  productId: number;
+  title: string;
+  scenario: string;
+  state: string; // "designed" | "implemented"
+  testPath: string | null;
+  deliverableId: number | null;
+  workItemId: number | null;
 }
 
 /** The active user's effective permissions (full access when no active user). */
@@ -65,6 +78,7 @@ export interface ActivePermissions {
   seeCost: boolean;
   seeProfit: boolean;
   seeChargeable: boolean;
+  canManageBudget: boolean;
 }
 
 export interface Sprint {
@@ -107,7 +121,60 @@ export interface AiProvider {
   apiBaseUrl: string;
   models: string[];
   keyStored: boolean;
+  /** "anthropic" (metered API) | "ollama" (local, free) */
+  kind: string;
+  metered: boolean;
 }
+
+export const DEFAULT_OLLAMA_URL = "http://localhost:11434";
+
+/** Money is carried in micropence (millionths of a penny) so token pricing is
+ *  exact — see db/ai_usage.rs. Use `formatMoney` for display. */
+export interface ProductBudget {
+  productId: number;
+  totalBudgetMicropence: number;
+  aiBudgetMicropence: number;
+  tokenLimit: number;
+  warnPct: number;
+  handoverPct: number;
+  hardStopPct: number;
+  periodDays: number;
+  providerChain: number[];
+}
+
+export interface SpendSummary {
+  spentMicropence: number;
+  spentTokens: number;
+  calls: number;
+  aiBudgetMicropence: number;
+  tokenLimit: number;
+  usedPct: number;
+  /** "none" | "ok" | "warn" | "handover" | "blocked" — decided by the router. */
+  state: string;
+  activeProvider: string | null;
+  reason: string;
+  periodStart: number;
+}
+
+export interface ModelPrice {
+  id: number;
+  providerId: number;
+  model: string;
+  inputPencePerMTok: number;
+  outputPencePerMTok: number;
+  tokensPerSecond: number;
+}
+
+/** £ from micropence. 100 pence = £1, and a penny is 1e6 micropence. */
+export const formatMoney = (micropence: number): string =>
+  `£${(micropence / 100_000_000).toFixed(2)}`;
+
+/** Micropence from a pounds string typed into a form. */
+export const poundsToMicropence = (pounds: string): number =>
+  Math.round((Number(pounds) || 0) * 100_000_000);
+
+export const micropenceToPounds = (micropence: number): string =>
+  (micropence / 100_000_000).toFixed(2);
 
 export interface WorkItemPolicy {
   workItemId: number;
@@ -118,13 +185,26 @@ export interface WorkItemPolicy {
   effortTier: string;
 }
 
+/** Product-level AI policy — gates Deliverable planning. Coarser than a
+ *  work-item policy: allowing it covers every Deliverable of the Product. */
+export interface ProductPolicy {
+  productId: number;
+  allowRead: boolean;
+  allowGenerate: boolean;
+  providerId: number | null;
+  effortTier: string;
+}
+
 export const EFFORT_TIERS = ["low", "medium", "high"] as const;
 
-/** Suggested defaults for the AI Settings form (Claude first, pluggable). */
+/** Suggested defaults for the AI Settings form (Claude first, pluggable).
+ *  Models are listed **cheapest first** — the effort tier indexes into this
+ *  order, so reversing it would make every low-effort task use the dearest
+ *  model. See ai/tiering.rs. */
 export const DEFAULT_PROVIDER = {
   name: "Claude",
   apiBaseUrl: "https://api.anthropic.com",
-  models: "claude-opus-4-8, claude-sonnet-5",
+  models: "claude-haiku-4-5-20251001, claude-sonnet-5, claude-opus-4-8",
 };
 
 export const STATUSES = [
@@ -205,6 +285,21 @@ export const createProduct = (
   invoke("create_product", { name, answers, scaffoldDir: scaffoldDir ?? null });
 export const getProduct = (id: number): Promise<Product> =>
   invoke("get_product", { id });
+/** What happened to each generated framework file. `conflicts` are files
+ *  changed on disk since the app wrote them (or never written by it) — they are
+ *  left exactly as they are, never overwritten. */
+export interface EmitReport {
+  written: string[];
+  unchanged: string[];
+  conflicts: string[];
+}
+
+/** Writes the Product's framework files (solution specs, page briefs) into its
+ *  scaffold folder, so the framework governs what the app holds. */
+export const generateFrameworkFiles = (
+  productId: number,
+): Promise<EmitReport> => invoke("generate_framework_files", { productId });
+
 export const getProductScaffold = (name: string): Promise<string | null> =>
   invoke("get_product_scaffold", { name });
 export const deleteProduct = (id: number): Promise<void> =>
@@ -263,6 +358,7 @@ export const updateRole = (role: Role): Promise<void> =>
     seeCost: role.seeCost,
     seeProfit: role.seeProfit,
     seeChargeable: role.seeChargeable,
+    canManageBudget: role.canManageBudget,
   });
 export const deleteRole = (id: number): Promise<void> =>
   invoke("delete_role", { id });
@@ -292,6 +388,30 @@ export const saveStrategy = (
   area: string,
   content: string,
 ): Promise<void> => invoke("save_strategy", { productId, area, content });
+
+// Test cases (Test area) — associated with a Deliverable or a Work Item
+export const TEST_STATES = ["designed", "implemented"] as const;
+
+export const listTestCases = (productId: number): Promise<TestCase[]> =>
+  invoke("list_test_cases", { productId });
+export const createTestCase = (args: {
+  productId: number;
+  title: string;
+  scenario: string;
+  deliverableId: number | null;
+  workItemId: number | null;
+}): Promise<number> => invoke("create_test_case", args);
+export const updateTestCase = (args: {
+  id: number;
+  title: string;
+  scenario: string;
+  state: string;
+  testPath: string | null;
+  deliverableId: number | null;
+  workItemId: number | null;
+}): Promise<void> => invoke("update_test_case", args);
+export const deleteTestCase = (id: number): Promise<void> =>
+  invoke("delete_test_case", { id });
 
 // Sprints
 export const listSprints = (productId: number): Promise<Sprint[]> =>
@@ -340,8 +460,53 @@ export const updateWorkItem = (args: {
 }): Promise<void> => invoke("update_work_item", args);
 export const deleteWorkItem = (id: number): Promise<void> =>
   invoke("delete_work_item", { id });
-export const generateUserStories = (featureId: number): Promise<string[]> =>
-  invoke("generate_user_stories", { featureId });
+/** What a generation produced, and which provider actually ran it. `reason`
+ *  explains the routing — it says so when a budget handed the work to a local
+ *  model, because that changes the quality of what comes back. */
+export interface GenerationResult {
+  created: string[];
+  provider: string;
+  model: string;
+  reason: string;
+  /** Set when the AI declined rather than guessing — `created` is then empty
+   *  and a question is waiting to be answered. */
+  blocked: Blocked | null;
+}
+
+export interface Blocked {
+  reason: string;
+  whatIsNeeded: string;
+  /** 0 when there was no work item to record it against (deliverables). */
+  feedbackId: number;
+}
+
+/** A question the AI raised against a work item rather than guessing. */
+export interface AiFeedback {
+  id: number;
+  workItemId: number;
+  kind: string;
+  message: string;
+  whatIsNeeded: string;
+  resolved: boolean;
+  resolvedNote: string;
+}
+
+export const listAiFeedback = (workItemId: number): Promise<AiFeedback[]> =>
+  invoke("list_ai_feedback", { workItemId });
+/** Answers the AI's question. The note travels with the next prompt for this
+ *  item, so the same question is not asked (and paid for) twice. */
+export const resolveAiFeedback = (id: number, note: string): Promise<void> =>
+  invoke("resolve_ai_feedback", { id, note });
+
+export const generateUserStories = (
+  featureId: number,
+): Promise<GenerationResult> => invoke("generate_user_stories", { featureId });
+/** Generates the work that achieves a Deliverable, at the planning level above
+ *  user stories. */
+export const generateDeliverableWork = (
+  deliverableId: number,
+): Promise<GenerationResult> =>
+  invoke("generate_deliverable_work", { deliverableId });
 
 // AI providers (keys live in the OS credential store — never returned)
 export const listAiProviders = (): Promise<AiProvider[]> =>
@@ -352,6 +517,12 @@ export const addAiProvider = (args: {
   models: string[];
   apiKey: string;
 }): Promise<number> => invoke("add_ai_provider", args);
+/** Adds a local Ollama provider — no key, not metered; models are read from
+ *  the running server so you pick from what is actually installed. */
+export const addOllamaProvider = (
+  name: string,
+  apiBaseUrl: string,
+): Promise<number> => invoke("add_ollama_provider", { name, apiBaseUrl });
 export const removeAiProvider = (id: number): Promise<void> =>
   invoke("remove_ai_provider", { id });
 export const testAiProvider = (id: number): Promise<string> =>
@@ -370,6 +541,47 @@ export const setWorkItemPolicy = (policy: {
   providerId: number | null;
   effortTier: string;
 }): Promise<void> => invoke("set_work_item_policy", policy);
+
+// Budgets, spend, and the model price table
+export const getProductBudget = (
+  productId: number,
+): Promise<ProductBudget | null> => invoke("get_product_budget", { productId });
+export const setProductBudget = (budget: {
+  productId: number;
+  totalBudgetMicropence: number;
+  aiBudgetMicropence: number;
+  tokenLimit: number;
+  warnPct: number;
+  handoverPct: number;
+  hardStopPct: number;
+  periodDays: number;
+  providerChain: number[];
+}): Promise<void> => invoke("set_product_budget", budget);
+export const getSpendSummary = (productId: number): Promise<SpendSummary> =>
+  invoke("get_spend_summary", { productId });
+export const listModelPrices = (): Promise<ModelPrice[]> =>
+  invoke("list_model_prices");
+export const setModelPrice = (price: {
+  providerId: number;
+  model: string;
+  inputPencePerMTok: number;
+  outputPencePerMTok: number;
+  tokensPerSecond: number;
+}): Promise<number> => invoke("set_model_price", price);
+export const deleteModelPrice = (id: number): Promise<void> =>
+  invoke("delete_model_price", { id });
+
+// Product AI policy (gates Deliverable planning — deny-by-default)
+export const getProductPolicy = (
+  productId: number,
+): Promise<ProductPolicy | null> => invoke("get_product_policy", { productId });
+export const setProductPolicy = (policy: {
+  productId: number;
+  allowRead: boolean;
+  allowGenerate: boolean;
+  providerId: number | null;
+  effortTier: string;
+}): Promise<void> => invoke("set_product_policy", policy);
 
 // Pull-out windows
 export const openScreenWindow = (

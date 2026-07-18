@@ -2,6 +2,7 @@ import { useEffect, useState, type CSSProperties } from "react";
 import TabBar, { ENVIRONMENTS } from "../components/TabBar";
 import ProductPlanning from "./ProductPlanning";
 import DevelopSolutions from "./DevelopSolutions";
+import TestArea from "./TestArea";
 import AdminArea from "./AdminArea";
 import ActiveUserPicker from "../components/ActiveUserPicker";
 import { usePermissions, type Area } from "../lib/permissions";
@@ -64,6 +65,8 @@ export default function WorkspaceShell() {
           <ProductPlanning />
         ) : active === "develop" ? (
           <DevelopSolutions />
+        ) : active === "test" ? (
+          <TestArea />
         ) : active === "admin" ? (
           <AdminArea />
         ) : (

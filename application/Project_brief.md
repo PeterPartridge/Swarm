@@ -29,7 +29,7 @@ A Product / Development / QA workspace: a desktop app where teams plan products,
 At the moment not many tools give developers and Product a unified platform to work. With AI there are tools for single repos, but not for multiple repos to work easily. This is to allow Product, Developers, and QA to work with AI to build end to end solutions using their expertise along with the power of AI. The workflow runs: Product plans products (work items, drag-and-drop feature design, specifications that generate API endpoints, front-end changes, and database designs) → Developers build them (code editor, real terminal, multi-repository support, AI via API keys, with per-work-item control of how AI may use each item) → QA designs tests around work items that AI can implement.
 
 ### users — Who will use this software?
-Developers, QA, Product Manager, Designers — as a single local user on their own machine; there are no logins or user accounts. The main window has a top menu with three tabs — **Product**, **Develop**, **Test** — each with its own colour; clicking a tab enters that environment.
+Developers, QA, Product Manager, Designers — as a single local user on their own machine; there are no logins or user accounts. The main window has a top menu with four tabs — **Product**, **Develop**, **Test**, **Admin** — each with its own colour; clicking a tab enters that environment. Team members are named in Admin and given a role; a "Working as…" picker in the header sets who you are currently acting as, which decides the tabs and the cost/profit fields you see.
 
 ### apps-you-like — Are there any apps or websites you like?
 VS Code, Claude Code, Cursor, Jira 
@@ -60,7 +60,9 @@ single
 - Always create a test that fails then write just enough code to get a passed test. The tests should start simple and get more complex as we add more functionality. 
 
 ### roles — List the roles or claims used across the application.
-None — the app is a single-user local desktop application with no logins, accounts, or role-based access. Everyone using it sees all three workspace tabs (Product, Develop, Test).
+Roles exist, but they are **not a security boundary** — the app still has no logins or accounts, and anyone can change who they are working as. They organise the workspace; they do not protect it.
+
+Seeded roles, editable in the Admin area: **Admin** (everything; cannot be deleted or weakened), **Product**, **Developer**, **QA**. Each role carries area flags (canProduct / canDevelop / canTest / canAdmin) deciding which tabs are shown, and field flags (seeCost / seeProfit / seeChargeable) deciding whether a work item's commercial fields are visible. With no active team member selected, everything is visible — you cannot lock yourself out of your own machine.
 
 
 ### hosting — What technology will host these solutions?
@@ -80,7 +82,7 @@ N/A
 ## Part 3 — Look & Feel *(Product answers this)*
 
 ### designs — Do you have any designs, sketches, screenshots, or examples?
-I want this to be minimal and easy to use with a terminal to run commands and interact with files, but we also want a drag-and-drop system to allow users to move code blocks or UI designs around. We should have customisable colours. The main window has a top menu with three tabs — Product, Develop, Test — each tab with its own colour so you always know which environment you are in; clicking a tab enters that environment.
+I want this to be minimal and easy to use with a terminal to run commands and interact with files, but we also want a drag-and-drop system to allow users to move code blocks or UI designs around. We should have customisable colours. The main window has a top menu with four tabs — Product, Develop, Test, Admin — each tab with its own colour so you always know which environment you are in; clicking a tab enters that environment.
 
 ---
 

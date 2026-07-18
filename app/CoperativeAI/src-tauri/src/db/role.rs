@@ -16,17 +16,36 @@ pub struct Role {
     pub see_cost: bool,
     pub see_profit: bool,
     pub see_chargeable: bool,
+    /// May set a Product's AI budget, thresholds, and provider chain. Separate
+    /// from `see_cost`: reading what was spent and deciding what may be spent
+    /// are different powers, and Product roles usually want only the first.
+    pub can_manage_budget: bool,
 }
 
-/// (name, product, develop, test, admin, cost, profit, chargeable)
-const DEFAULT_ROLES: &[(&str, bool, bool, bool, bool, bool, bool, bool)] = &[
-    ("Admin", true, true, true, true, true, true, true),
-    ("Product", true, false, false, false, true, true, true),
-    ("Developer", false, true, true, false, false, false, false),
-    ("QA", false, false, true, false, false, false, false),
+/// (name, product, develop, test, admin, cost, profit, chargeable, budget)
+const DEFAULT_ROLES: &[(&str, bool, bool, bool, bool, bool, bool, bool, bool)] = &[
+    ("Admin", true, true, true, true, true, true, true, true),
+    ("Product", true, false, false, false, true, true, true, true),
+    ("Developer", false, true, true, false, false, false, false, false),
+    ("QA", false, false, true, false, false, false, false, false),
 ];
 
 pub async fn create_table(conn: &Connection) -> Result<()> {
+    // Round-2 migration: add canManageBudget. Pre-release → drop & recreate,
+    // which also re-seeds the defaults with the new flag set sensibly.
+    let mut columns: Vec<String> = Vec::new();
+    {
+        let mut rows = conn
+            .query("SELECT name FROM pragma_table_info('roles')", ())
+            .await?;
+        while let Some(row) = rows.next().await? {
+            columns.push(row.get(0)?);
+        }
+    }
+    if !columns.is_empty() && !columns.iter().any(|c| c == "canManageBudget") {
+        conn.execute("DROP TABLE roles", ()).await?;
+    }
+
     conn.execute(
         "CREATE TABLE IF NOT EXISTS roles (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,6 +57,7 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             seeCost INTEGER NOT NULL DEFAULT 0,
             seeProfit INTEGER NOT NULL DEFAULT 0,
             seeChargeable INTEGER NOT NULL DEFAULT 0,
+            canManageBudget INTEGER NOT NULL DEFAULT 0,
             createdAt INTEGER NOT NULL
         )",
         (),
@@ -57,13 +77,13 @@ async fn seed_defaults(conn: &Connection) -> Result<()> {
     if count > 0 {
         return Ok(());
     }
-    for (name, p, d, t, a, cost, profit, charge) in DEFAULT_ROLES {
+    for (name, p, d, t, a, cost, profit, charge, budget) in DEFAULT_ROLES {
         conn.execute(
-            "INSERT INTO roles (name, canProduct, canDevelop, canTest, canAdmin, seeCost, seeProfit, seeChargeable, createdAt)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO roles (name, canProduct, canDevelop, canTest, canAdmin, seeCost, seeProfit, seeChargeable, canManageBudget, createdAt)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             (
                 *name, *p as i64, *d as i64, *t as i64, *a as i64,
-                *cost as i64, *profit as i64, *charge as i64, now_millis(),
+                *cost as i64, *profit as i64, *charge as i64, *budget as i64, now_millis(),
             ),
         )
         .await?;
@@ -73,7 +93,7 @@ async fn seed_defaults(conn: &Connection) -> Result<()> {
 
 pub async fn list_all(conn: &Connection) -> Result<Vec<Role>> {
     let mut rows = conn
-        .query("SELECT id, name, canProduct, canDevelop, canTest, canAdmin, seeCost, seeProfit, seeChargeable FROM roles ORDER BY id", ())
+        .query("SELECT id, name, canProduct, canDevelop, canTest, canAdmin, seeCost, seeProfit, seeChargeable, canManageBudget FROM roles ORDER BY id", ())
         .await?;
     let mut roles = Vec::new();
     while let Some(row) = rows.next().await? {
@@ -84,7 +104,7 @@ pub async fn list_all(conn: &Connection) -> Result<Vec<Role>> {
 
 pub async fn find_by_id(conn: &Connection, id: i64) -> Result<Option<Role>> {
     let mut rows = conn
-        .query("SELECT id, name, canProduct, canDevelop, canTest, canAdmin, seeCost, seeProfit, seeChargeable FROM roles WHERE id = ?1", (id,))
+        .query("SELECT id, name, canProduct, canDevelop, canTest, canAdmin, seeCost, seeProfit, seeChargeable, canManageBudget FROM roles WHERE id = ?1", (id,))
         .await?;
     match rows.next().await? {
         Some(row) => Ok(Some(row_to_role(row)?)),
@@ -94,7 +114,7 @@ pub async fn find_by_id(conn: &Connection, id: i64) -> Result<Option<Role>> {
 
 pub async fn find_by_name(conn: &Connection, name: &str) -> Result<Option<Role>> {
     let mut rows = conn
-        .query("SELECT id, name, canProduct, canDevelop, canTest, canAdmin, seeCost, seeProfit, seeChargeable FROM roles WHERE name = ?1", (name,))
+        .query("SELECT id, name, canProduct, canDevelop, canTest, canAdmin, seeCost, seeProfit, seeChargeable, canManageBudget FROM roles WHERE name = ?1", (name,))
         .await?;
     match rows.next().await? {
         Some(row) => Ok(Some(row_to_role(row)?)),
@@ -125,21 +145,25 @@ pub async fn update(
     see_cost: bool,
     see_profit: bool,
     see_chargeable: bool,
+    can_manage_budget: bool,
 ) -> Result<()> {
     let Some(role) = find_by_id(conn, id).await? else {
         return Err(DbError::Validation(format!("no role with id {id}")));
     };
-    // The Admin role must keep full access so you can never lock yourself out.
-    let (can_admin, can_product, can_develop, can_test) = if role.name == "Admin" {
-        (true, true, true, true)
-    } else {
-        (can_admin, can_product, can_develop, can_test)
-    };
+    // The Admin role must keep full access so you can never lock yourself out —
+    // including budget management, or nobody could raise a spent budget.
+    let (can_admin, can_product, can_develop, can_test, can_manage_budget) =
+        if role.name == "Admin" {
+            (true, true, true, true, true)
+        } else {
+            (can_admin, can_product, can_develop, can_test, can_manage_budget)
+        };
     conn.execute(
-        "UPDATE roles SET canProduct=?1, canDevelop=?2, canTest=?3, canAdmin=?4, seeCost=?5, seeProfit=?6, seeChargeable=?7 WHERE id=?8",
+        "UPDATE roles SET canProduct=?1, canDevelop=?2, canTest=?3, canAdmin=?4, seeCost=?5, seeProfit=?6, seeChargeable=?7, canManageBudget=?8 WHERE id=?9",
         (
             can_product as i64, can_develop as i64, can_test as i64, can_admin as i64,
-            see_cost as i64, see_profit as i64, see_chargeable as i64, id,
+            see_cost as i64, see_profit as i64, see_chargeable as i64,
+            can_manage_budget as i64, id,
         ),
     )
     .await?;
@@ -182,6 +206,7 @@ fn row_to_role(row: turso::Row) -> Result<Role> {
         see_cost: b(6)?,
         see_profit: b(7)?,
         see_chargeable: b(8)?,
+        can_manage_budget: b(9)?,
     })
 }
 
@@ -218,11 +243,14 @@ mod tests {
     async fn admin_role_stays_full_even_if_update_tries_to_weaken_it() {
         let conn = test_db().await;
         let admin = find_by_name(&conn, "Admin").await.expect("q").unwrap();
-        update(&conn, admin.id, false, false, false, false, false, false, false)
+        update(&conn, admin.id, false, false, false, false, false, false, false, false)
             .await
             .expect("update");
         let reloaded = find_by_id(&conn, admin.id).await.expect("q").unwrap();
         assert!(reloaded.can_admin && reloaded.can_product && reloaded.can_test);
+        // Admin must keep budget management too, or a spent budget could never
+        // be raised by anyone.
+        assert!(reloaded.can_manage_budget);
     }
 
     #[tokio::test]
@@ -236,10 +264,39 @@ mod tests {
     async fn custom_role_can_be_created_and_updated() {
         let conn = test_db().await;
         let id = create(&conn, "Designer").await.expect("create");
-        update(&conn, id, true, false, false, false, true, false, false)
+        update(&conn, id, true, false, false, false, true, false, false, false)
             .await
             .expect("update");
         let role = find_by_id(&conn, id).await.expect("q").unwrap();
         assert!(role.can_product && role.see_cost && !role.can_develop);
+        assert!(!role.can_manage_budget);
+    }
+
+    /// Seeing what was spent and deciding what may be spent are different
+    /// powers — a role can have the first without the second.
+    #[tokio::test]
+    async fn a_role_can_see_cost_without_being_able_to_change_the_budget() {
+        let conn = test_db().await;
+        let id = create(&conn, "Analyst").await.expect("create");
+        update(&conn, id, true, false, false, false, true, true, true, false)
+            .await
+            .expect("update");
+        let role = find_by_id(&conn, id).await.expect("q").unwrap();
+        assert!(role.see_cost && role.see_profit);
+        assert!(!role.can_manage_budget);
+    }
+
+    #[tokio::test]
+    async fn the_seeded_roles_split_budget_management_sensibly() {
+        let conn = test_db().await;
+        let budget_holders = ["Admin", "Product"];
+        for name in budget_holders {
+            let role = find_by_name(&conn, name).await.expect("q").unwrap();
+            assert!(role.can_manage_budget, "{name} should manage budgets");
+        }
+        for name in ["Developer", "QA"] {
+            let role = find_by_name(&conn, name).await.expect("q").unwrap();
+            assert!(!role.can_manage_budget, "{name} should not manage budgets");
+        }
     }
 }
