@@ -263,4 +263,59 @@ mod tests {
         }
         assert!(usage.output_tokens > 0, "the server should report eval_count");
     }
+
+    /// R3's central risk, tested against a real model: given a deliberately
+    /// under-specified item **and** an explicit instruction not to guess, does
+    /// the model actually take the escape hatch?
+    ///
+    /// This does not assert a decline — a model that produces sensible work
+    /// from a thin brief has not misbehaved. It reports which branch was taken
+    /// so the prompt wording can be judged against real behaviour rather than
+    /// assumed to work.
+    ///
+    /// ```text
+    /// OLLAMA_MODEL=ornith:9b cargo test -- --ignored escape_hatch --nocapture
+    /// ```
+    #[tokio::test]
+    #[ignore = "needs a local Ollama server with a model pulled"]
+    async fn escape_hatch_is_offered_to_a_real_model() {
+        let base = std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".into());
+        let model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "llama3".into());
+
+        // Deliberately hopeless: no product, no users, no scope.
+        let prompt = Prompt {
+            context: "You are helping a product team plan work.\n\nProduct: (none given)\n\
+                      Product brief answers (JSON): {}\n\nNo solutions are linked to this Product yet.\n"
+                .into(),
+            task: "Work item: \"Make it better\"\n\nWrite 3-6 user stories covering this feature.\
+                   \n\nIf this is too vague or contradictory to do well, do NOT guess. \
+                   Leave \"stories\" empty and fill in \"blocked\" instead: give the reason and, \
+                   in whatIsNeeded, the single most useful question a person could answer to \
+                   unblock it. Declining with a good question is a better outcome than \
+                   inventing work."
+                .into(),
+        };
+
+        let (generated, usage) = generate_stories(&base, &model, &prompt)
+            .await
+            .expect("generate");
+        println!("usage: in={} out={}", usage.input_tokens, usage.output_tokens);
+        match generated {
+            Generated::Blocked { reason, what_is_needed } => {
+                println!("DECLINED — the escape hatch works on this model");
+                println!("  reason: {reason}");
+                println!("  asks:   {what_is_needed}");
+            }
+            Generated::Items(drafts) => {
+                println!(
+                    "GUESSED — {} items from a hopeless brief. The hatch is offered but this \
+                     model did not take it; the prompt wording needs strengthening for it.",
+                    drafts.len()
+                );
+                for d in &drafts {
+                    println!("  - {}", d.title);
+                }
+            }
+        }
+    }
 }

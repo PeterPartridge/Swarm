@@ -92,8 +92,18 @@ Applied as an **escape hatch in the structured output**. Every generation schema
 - **An empty `blocked.reason` falls through to the items** — a model emitting `blocked: {}` must not silently discard good work.
 - A new ledger outcome, **`declined`**, separate from `blocked`. The router blocking a call costs nothing; a model declining *ran and was paid for*. Reusing `blocked` would have excluded declines from spend and let a run of them understate the bill.
 
+### Verified against a real model (2026-07-18)
+The round's central risk — *does a model actually take the hatch?* — was tested against a local `ornith:9b` via Ollama and **it declined**, unprompted by anything but the wording in `ESCAPE_HATCH`:
+
+> *"Make it better" provides no context — there is no product, user, system, or domain to ground the stories in. I cannot responsibly invent work without knowing what we're improving.*
+> **Asks:** What product or system are we working on, and what does 'better' mean for that specific user?
+
+The economics hold up as well: **91 output tokens to decline against 126 to produce work** on the same model. Declining really is cheaper than guessing, which is the premise the whole feature rests on. The same run proved structured output via Ollama's `format`, the shared parser, and token capture (`in=227 out=126` on the work case).
+
+`escape_hatch_is_offered_to_a_real_model` is kept as an ignored test that reports which branch was taken rather than asserting a decline — a model producing sensible work from a thin brief has not misbehaved, and the point is to judge the prompt against real behaviour.
+
 ### Technical Debt
-- **Not verified against a live model.** The whole feature rests on a model actually taking the hatch when it should. The Ollama live check now accepts either outcome and prints which, but **no run has happened** — if models guess anyway, the prompt wording is wrong and only a real call will show it. This is the round's central risk.
+- **One model, one prompt.** The hatch is proven on `ornith:9b` for story generation. Whether Claude behaves the same, and whether the strategy prompt's variant works, is still unproven.
 - **Deliverable-level questions are not persisted**, so they vanish on refresh.
 - **Clarifications accumulate forever** — every answer ever given is sent with every later prompt for that item, which will grow the per-call half and eventually cost more than it saves.
 - Nothing detects the model asking the *same* question twice; a user could answer it repeatedly.

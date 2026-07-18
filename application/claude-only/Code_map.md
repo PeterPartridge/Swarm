@@ -118,11 +118,17 @@
 
 **Test suites:** 205 cargo tests (+2 ignored live checks) (db modules incl. role seeding, deliverable/strategy, work_item round-3 commercial fields + migration, solution round-2 GitHub fields + round-1→2 migration, test_case associations + unlink-on-delete, product_policy + deliverable-generation gates + `level_for_deliverable`, model tiering across list sizes, prompt context/task split invariants, usage parsing, github request bodies, AI gates, scaffold) + 62 Vitest tests (shell, Product home, PlanningBoard incl. cost/deliverable + optimistic create, ProductStrategy generate-work + AI policy panel, RoadMap, DevelopSolutions incl. technical strategy + views + GitHub connect/link/create, WorkItemViews board/sprint/list + user filter, TestArea testing strategy + test cases, AiSettings, AdminArea, permission gating, drag pop-out) — all green as of this build, with `npm run build` and a full `cargo build` clean.
 
-**Not covered by tests — the standing gap:** no round has made a live API call. Gates, routing, prompts, parsing, pricing and persistence are all unit-tested, but **prompt caching, real token capture, pricing against a real response, and the Ollama client are unverified** until the two ignored live checks are run:
+**Live verification.** The Ollama path is **proven** as of 2026-07-18 against a local `ornith:9b`: structured output via `format`, the shared parser, token capture (`in=227 out=126`), and — the important one — the **escape hatch, which the model took** when given a hopeless brief, declining in 91 output tokens against 126 to produce work. Re-run with:
 
 ```text
-ANTHROPIC_API_KEY=sk-...  cargo test -- --ignored caching_is_live
-OLLAMA_MODEL=llama3       cargo test -- --ignored ollama_is_live   # needs `ollama serve`
+OLLAMA_MODEL=ornith:9b cargo test -- --ignored ollama_is_live --nocapture
+OLLAMA_MODEL=ornith:9b cargo test -- --ignored escape_hatch  --nocapture
+```
+
+**Still unverified:** the **Claude path** — prompt caching, `usage` capture from the Messages API, and pricing against a real response — plus whether Claude and the *strategy* prompt behave as the story prompt did. Needs a key:
+
+```text
+ANTHROPIC_API_KEY=sk-... cargo test -- --ignored caching_is_live
 ```
 
 **Pinned additions (2026-07-17):** tauri-plugin-dialog 2 (+ `@tauri-apps/plugin-dialog`), a `capabilities/default.json` granting `core:default` + `dialog:default`.
