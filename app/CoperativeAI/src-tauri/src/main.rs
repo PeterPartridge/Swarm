@@ -4,6 +4,7 @@
 mod ai;
 mod commands;
 mod db;
+mod emit;
 mod github;
 mod scaffold;
 mod terminal;
@@ -49,6 +50,7 @@ fn main() {
             commands::products::get_product,
             commands::products::get_product_scaffold,
             commands::products::delete_product,
+            commands::emit::generate_framework_files,
             commands::solutions::list_solutions,
             commands::solutions::create_solution,
             commands::solutions::delete_solution,

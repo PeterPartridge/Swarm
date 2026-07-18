@@ -6,6 +6,7 @@
 pub mod ai_provider;
 pub mod ai_usage;
 pub mod deliverable;
+pub mod emitted_file;
 pub mod model_price;
 pub mod feature_design;
 pub mod product;
@@ -80,6 +81,7 @@ pub async fn create_all_tables(conn: &Connection) -> Result<()> {
     ai_usage::create_table(conn).await?;
     model_price::create_table(conn).await?;
     product_budget::create_table(conn).await?;
+    emitted_file::create_table(conn).await?;
     feature_design::create_table(conn).await?;
     strategy::create_table(conn).await?;
     // after deliverable + work_item: a test case may point at either

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import AiSettings from "../components/AiSettings";
+import FrameworkFiles from "../components/FrameworkFiles";
 import GithubCard from "../components/GithubCard";
 import SolutionRepo from "../components/SolutionRepo";
 import StrategyEditor from "../components/StrategyEditor";
@@ -113,6 +114,7 @@ export default function DevelopSolutions() {
                 fields={DEVELOP_STRATEGY_FIELDS}
               />
               <WorkItemViews productId={Number(activeProduct)} />
+              <FrameworkFiles productId={Number(activeProduct)} />
             </>
           )}
         </>

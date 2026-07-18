@@ -18,6 +18,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     listSprints: vi.fn(),
     listTeamMembers: vi.fn(),
     githubStatus: vi.fn(),
+    generateFrameworkFiles: vi.fn(),
     setGithubToken: vi.fn(),
     removeGithubToken: vi.fn(),
     linkSolutionRepo: vi.fn(),
@@ -110,6 +111,42 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     expect(
       await screen.findByText(/create a Product first/i),
     ).toBeInTheDocument();
+  });
+
+  it("generates the framework files and reports what it wrote", async () => {
+    const user = userEvent.setup();
+    mocked.generateFrameworkFiles.mockResolvedValue({
+      written: ["shop-api/application-spec.json"],
+      unchanged: [],
+      conflicts: [],
+    });
+    render(<DevelopSolutions />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Generate framework files" }),
+    );
+
+    await waitFor(() => expect(mocked.generateFrameworkFiles).toHaveBeenCalledWith(1));
+    expect(await screen.findByText(/1 written/)).toBeInTheDocument();
+  });
+
+  /// The point of the conflict report: a hand-edited brief must be named, and
+  /// the user told their edit survived.
+  it("names files it left alone and says the edits are safe", async () => {
+    const user = userEvent.setup();
+    mocked.generateFrameworkFiles.mockResolvedValue({
+      written: [],
+      unchanged: [],
+      conflicts: [".CoperativeAI/pages/checkout.md"],
+    });
+    render(<DevelopSolutions />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Generate framework files" }),
+    );
+
+    expect(await screen.findByText(".CoperativeAI/pages/checkout.md")).toBeInTheDocument();
+    expect(screen.getByText(/Your edits are safe/)).toBeInTheDocument();
   });
 
   it("offers to connect GitHub when no token is stored", async () => {

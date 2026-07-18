@@ -285,6 +285,21 @@ export const createProduct = (
   invoke("create_product", { name, answers, scaffoldDir: scaffoldDir ?? null });
 export const getProduct = (id: number): Promise<Product> =>
   invoke("get_product", { id });
+/** What happened to each generated framework file. `conflicts` are files
+ *  changed on disk since the app wrote them (or never written by it) — they are
+ *  left exactly as they are, never overwritten. */
+export interface EmitReport {
+  written: string[];
+  unchanged: string[];
+  conflicts: string[];
+}
+
+/** Writes the Product's framework files (solution specs, page briefs) into its
+ *  scaffold folder, so the framework governs what the app holds. */
+export const generateFrameworkFiles = (
+  productId: number,
+): Promise<EmitReport> => invoke("generate_framework_files", { productId });
+
 export const getProductScaffold = (name: string): Promise<string | null> =>
   invoke("get_product_scaffold", { name });
 export const deleteProduct = (id: number): Promise<void> =>

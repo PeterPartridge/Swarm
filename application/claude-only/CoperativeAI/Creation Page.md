@@ -51,4 +51,42 @@ No login — single-user local desktop app (project security model).
 
 **Expected technical debt:** the test "a project with 3 AI endpoints and 1 database file is created" is **not satisfied** by this smallest slice — logged as debt, with the open question above as the reason, rather than guessing at a rule to satisfy it.
 
-**Status:** NOT approved for full build as specified — recommend a person answers the open questions (or approves the smaller slice above) before building.
+**Status:** the smaller slice is now **built** (2026-07-18) — see round 2. The "decide how many endpoints/models a project needs" question remains unanswered and unbuilt, as recommended.
+
+---
+
+## Round 2 — Emitting the framework's own files
+
+### My Feedback
+The requirement was that the app become self-hosting: *"until app data becomes .md/JSON, the guardrails don't apply to anything done in the app."* Before this round the app wrote exactly one file ever — `Project_brief.md` at Product creation — so everything else planned in the app was invisible to the framework.
+
+Applied as **`emit.rs`** plus a "Generate framework files" action in the Develop area. For the selected Product it writes:
+- `<solution>/application-spec.json` per Solution, from the Solution card's answers and its linked GitHub repo;
+- `.CoperativeAI/pages/<feature>.md` per planned feature, seeded with the work item's description and its deliverable.
+
+The content builders (`solution_spec`, `page_brief`, `safe_stem`) are pure and unit-tested; the filesystem half is separate. This is deliberately the **smaller slice** this brief's own plan recommended — it emits one file per thing that exists, and does not guess how many endpoints or models a project "needs".
+
+### The part that mattered: never destroying a hand edit
+`db/emitted_file.rs` records the hash of every file **as the app wrote it**. On re-emit:
+- on disk still matches what we wrote → safe to update;
+- identical to what we'd write → reported as already up to date, no write;
+- **changed since we wrote it → conflict: reported, and left byte-for-byte alone**;
+- **exists but we never wrote it → also a conflict.** Not being ours is reason enough not to touch it.
+
+It is its own table rather than a column on `solution_management` because that table already holds scaffold locations, and adding a column there meant a drop-and-recreate that would discard them.
+
+The hash is FNV-1a, not `DefaultHasher`: the standard hasher is explicitly not stable across Rust versions, so a toolchain upgrade would have made every file look hand-edited.
+
+### Your Feedback
+- **The conflict report is the feature.** The UI names each file it left alone and states the edits are safe — a silent skip would be worse than an overwrite, because the user would not know the file had stopped tracking the app.
+- **Emission is one-way.** A hand edit is preserved but never read back into the database, so the two drift apart deliberately. Reconciling them is a real design problem (which side wins?) and belongs in its own round rather than being smuggled into this one.
+- Recommendation: emit `claude-only/` translations next, so `/build` has its spec beside the brief. That is the honest next step toward the loop running from the app.
+
+### Technical Debt
+- **Model JSONs are not emitted** — only solution specs and page briefs. A Product's data models still exist only in the app.
+- **No `/translate` or `/build` invocation.** The app writes the inputs; running the loop over them is still a person's job in Claude Code. This round makes the framework *apply* to app data; it does not make the app drive the framework.
+- **Deleting a Solution or feature leaves its emitted file behind** — nothing prunes orphans; the file simply stops being regenerated.
+- **A renamed Solution or feature emits a new file** beside the old one, because the path derives from the title.
+- Emission needs the Product to have been created **with a folder**; there is no way to point a folder-less Product at a directory afterwards.
+- `Project_brief.md` is still written only at Product creation, so strategy and deliverables added later never reach it.
+- Tests cover the emitter against a real temp directory, but **no end-to-end run against a real scaffolded Product** has been done.
