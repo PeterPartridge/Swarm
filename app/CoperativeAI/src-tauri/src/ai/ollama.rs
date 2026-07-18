@@ -7,7 +7,7 @@
 //! back as `prompt_eval_count` / `eval_count`. Cost is always zero — nothing
 //! leaves the machine.
 
-use crate::ai::client::{parse_stories, Prompt, StoryDraft, Usage};
+use crate::ai::client::{parse_generation, Generated, Prompt, Usage};
 use serde::Deserialize;
 use serde_json::json;
 use std::time::Duration;
@@ -64,6 +64,16 @@ pub fn story_schema() -> serde_json::Value {
                     },
                     "required": ["title", "description"]
                 }
+            },
+            // Same escape hatch as the Claude path, so a local model can also
+            // decline rather than guess.
+            "blocked": {
+                "type": ["object", "null"],
+                "properties": {
+                    "reason": {"type": "string"},
+                    "whatIsNeeded": {"type": "string"}
+                },
+                "required": ["reason", "whatIsNeeded"]
             }
         },
         "required": ["stories"]
@@ -91,7 +101,7 @@ pub async fn generate_stories(
     api_base_url: &str,
     model: &str,
     prompt: &Prompt,
-) -> Result<(Vec<StoryDraft>, Usage), String> {
+) -> Result<(Generated, Usage), String> {
     let url = format!("{}/api/chat", api_base_url.trim_end_matches('/'));
     let response = client()?
         .post(&url)
@@ -113,9 +123,9 @@ pub async fn generate_stories(
 
     let parsed: ChatResponse = serde_json::from_str(&text)
         .map_err(|e| format!("unexpected response shape from Ollama: {e}"))?;
-    let drafts = parse_stories(&parsed.message.content)?;
+    let generated = parse_generation(&parsed.message.content)?;
     Ok((
-        drafts,
+        generated,
         Usage {
             input_tokens: parsed.prompt_eval_count,
             output_tokens: parsed.eval_count,
@@ -196,8 +206,23 @@ mod tests {
     #[test]
     fn the_shared_parser_reads_an_ollama_content_string() {
         let content = r#"{"stories":[{"title":"As a shopper...","description":"One page."}]}"#;
-        let drafts = parse_stories(content).expect("parse");
-        assert_eq!(drafts.len(), 1);
+        match parse_generation(content).expect("parse") {
+            Generated::Items(drafts) => assert_eq!(drafts.len(), 1),
+            other => panic!("expected items, got {other:?}"),
+        }
+    }
+
+    /// A local model must be able to decline too, not just the metered one.
+    #[test]
+    fn a_local_model_can_take_the_escape_hatch() {
+        let content = r#"{"stories":[],"blocked":{"reason":"Too vague","whatIsNeeded":"Which users?"}}"#;
+        match parse_generation(content).expect("parse") {
+            Generated::Blocked { reason, what_is_needed } => {
+                assert_eq!(reason, "Too vague");
+                assert_eq!(what_is_needed, "Which users?");
+            }
+            other => panic!("expected blocked, got {other:?}"),
+        }
     }
 
     /// Live check against a local server. Ignored by default because it needs
@@ -223,12 +248,19 @@ mod tests {
                    title and a one-sentence description of what done looks like."
                 .into(),
         };
-        let (drafts, usage) = generate_stories(&base, &model, &prompt)
+        let (generated, usage) = generate_stories(&base, &model, &prompt)
             .await
             .expect("generate");
-        println!("drafts: {drafts:?}");
+        println!("generated: {generated:?}");
         println!("usage: in={} out={}", usage.input_tokens, usage.output_tokens);
-        assert!(!drafts.is_empty());
+        // Either outcome is a pass: a local model declining a vague brief is
+        // the escape hatch working, not a failure.
+        match generated {
+            Generated::Items(drafts) => assert!(!drafts.is_empty()),
+            Generated::Blocked { reason, .. } => {
+                println!("the local model declined: {reason}")
+            }
+        }
         assert!(usage.output_tokens > 0, "the server should report eval_count");
     }
 }

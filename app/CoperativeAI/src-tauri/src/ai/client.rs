@@ -107,6 +107,7 @@ pub fn build_story_prompt(
     feature_title: &str,
     feature_description: Option<&str>,
     solutions: &[(String, String, String)], // (name, solutionType, answers JSON)
+    clarifications: &[String],
 ) -> Prompt {
     let context = product_context(product_name, product_answers, None, solutions);
     let mut task = format!("Feature: {feature_title}\n");
@@ -115,12 +116,35 @@ pub fn build_story_prompt(
             task.push_str(&format!("Feature description: {description}\n"));
         }
     }
+    append_clarifications(&mut task, clarifications);
     task.push_str(
         "\nWrite 3-6 user stories covering this feature across the connected solutions. \
          Each story: a title in classic user-story form (\"As a <user>, I want <goal> so that <benefit>\") \
          and a one-to-three sentence description of what done looks like.",
     );
+    task.push_str(ESCAPE_HATCH);
     Prompt { context, task }
+}
+
+/// Told to the model on every generation. Without this it will guess at a vague
+/// item and produce plausible work nobody asked for — the exact failure the
+/// framework exists to prevent.
+const ESCAPE_HATCH: &str = "\n\nIf this is too vague or contradictory to do well, do NOT guess. \
+     Leave \"stories\" empty and fill in \"blocked\" instead: give the reason and, \
+     in whatIsNeeded, the single most useful question a person could answer to \
+     unblock it. Declining with a good question is a better outcome than \
+     inventing work.";
+
+/// Appends any answers a person has already given for this item, so the model
+/// does not ask the same question twice.
+fn append_clarifications(task: &mut String, clarifications: &[String]) {
+    if clarifications.is_empty() {
+        return;
+    }
+    task.push_str("\n\nAnswers already given about this item — treat these as settled:\n");
+    for note in clarifications {
+        task.push_str(&format!("- {note}\n"));
+    }
 }
 
 /// Builds the prompt that turns a Deliverable into the work that achieves it.
@@ -160,13 +184,53 @@ pub fn build_deliverable_prompt(
          deliverable across the connected solutions, and keep each one \
          independently deliverable."
     ));
+    task.push_str(ESCAPE_HATCH);
     Prompt { context, task }
 }
 
-/// Parses the structured-output JSON into story drafts (pure — unit tested).
-pub fn parse_stories(text: &str) -> Result<Vec<StoryDraft>, String> {
+/// What a generation call produced: work, or a refusal with a reason.
+///
+/// The refusal branch is the framework's answer to AI burning tokens on work it
+/// does not understand — the model may decline and say what it needs, instead
+/// of guessing and producing something nobody asked for.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Generated {
+    Items(Vec<StoryDraft>),
+    Blocked {
+        reason: String,
+        what_is_needed: String,
+    },
+}
+
+/// Parses the structured-output JSON (pure — unit tested).
+///
+/// `blocked` wins over `stories`: a model that filled in both has hedged, and
+/// taking the refusal is the safe reading — it costs a question, where taking
+/// the guesses costs work built on a misunderstanding.
+pub fn parse_generation(text: &str) -> Result<Generated, String> {
     let value: Value = serde_json::from_str(text)
         .map_err(|e| format!("the AI response was not valid JSON: {e}"))?;
+
+    if let Some(blocked) = value.get("blocked").filter(|b| !b.is_null()) {
+        let reason = blocked
+            .get("reason")
+            .and_then(|r| r.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if !reason.is_empty() {
+            return Ok(Generated::Blocked {
+                reason,
+                what_is_needed: blocked
+                    .get("whatIsNeeded")
+                    .and_then(|w| w.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string(),
+            });
+        }
+    }
+
     let stories = value
         .get("stories")
         .and_then(|s| s.as_array())
@@ -179,7 +243,15 @@ pub fn parse_stories(text: &str) -> Result<Vec<StoryDraft>, String> {
     if drafts.is_empty() {
         return Err("the AI response contained no usable stories".to_string());
     }
-    Ok(drafts)
+    Ok(Generated::Items(drafts))
+}
+
+/// Back-compat helper for callers that only want items.
+pub fn parse_stories(text: &str) -> Result<Vec<StoryDraft>, String> {
+    match parse_generation(text)? {
+        Generated::Items(items) => Ok(items),
+        Generated::Blocked { reason, .. } => Err(reason),
+    }
 }
 
 /// Calls the provider's Messages API and returns story drafts with what the
@@ -198,7 +270,7 @@ pub async fn generate_stories(
     model: &str,
     effort: &str,
     prompt: &Prompt,
-) -> Result<(Vec<StoryDraft>, Usage), String> {
+) -> Result<(Generated, Usage), String> {
     let url = format!("{}/v1/messages", api_base_url.trim_end_matches('/'));
     let body = json!({
         "model": model,
@@ -221,6 +293,17 @@ pub async fn generate_stories(
                                 "required": ["title", "description"],
                                 "additionalProperties": false
                             }
+                        },
+                        // The escape hatch. Leave null to produce work; fill it
+                        // in to decline and say what is missing.
+                        "blocked": {
+                            "type": ["object", "null"],
+                            "properties": {
+                                "reason": {"type": "string"},
+                                "whatIsNeeded": {"type": "string"}
+                            },
+                            "required": ["reason", "whatIsNeeded"],
+                            "additionalProperties": false
                         }
                     },
                     "required": ["stories"],
@@ -274,7 +357,7 @@ pub async fn generate_stories(
         .find(|b| b.block_type == "text")
         .map(|b| b.text.as_str())
         .ok_or_else(|| "the AI response contained no text".to_string())?;
-    Ok((parse_stories(json_text)?, parsed.usage))
+    Ok((parse_generation(json_text)?, parsed.usage))
 }
 
 /// Minimal connectivity check: one tiny Messages call.
@@ -324,6 +407,7 @@ mod tests {
             "Checkout",
             Some("One-page checkout"),
             &[("Shop API".into(), "api".into(), "{\"language\":\"Go\"}".into())],
+            &[],
         );
         assert!(prompt.context.contains("Shop App"));
         assert!(prompt.context.contains("Shop API (api)"));
@@ -334,7 +418,7 @@ mod tests {
 
     #[test]
     fn prompt_handles_no_solutions_and_no_description() {
-        let prompt = build_story_prompt("Shop App", "{}", "Checkout", None, &[]);
+        let prompt = build_story_prompt("Shop App", "{}", "Checkout", None, &[], &[]);
         assert!(prompt.context.contains("No solutions are linked"));
         assert!(!prompt.task.contains("Feature description"));
     }
@@ -346,8 +430,9 @@ mod tests {
     fn the_cacheable_context_is_identical_across_calls_about_one_product() {
         let solutions = [("Shop API".into(), "api".into(), "{}".into())];
         let answers = "{\"purpose\":\"sell things\"}";
-        let first = build_story_prompt("Shop App", answers, "Checkout", None, &solutions);
-        let second = build_story_prompt("Shop App", answers, "Search", Some("Filters"), &solutions);
+        let first = build_story_prompt("Shop App", answers, "Checkout", None, &solutions, &[]);
+        let second =
+            build_story_prompt("Shop App", answers, "Search", Some("Filters"), &solutions, &[]);
         assert_eq!(first.context, second.context, "context must not vary per call");
         assert_ne!(first.task, second.task);
 
@@ -373,6 +458,7 @@ mod tests {
             "Checkout",
             None,
             &[("Shop API".into(), "api".into(), "{}".into())],
+            &[],
         );
         assert!(!prompt.task.contains("Shop App"));
         assert!(!prompt.task.contains("Shop API"));
@@ -435,6 +521,82 @@ mod tests {
         assert!(parse_stories("{\"other\": 1}").is_err());
     }
 
+    #[test]
+    fn a_normal_response_parses_as_items() {
+        let text = r#"{"stories":[{"title":"A","description":"d"}],"blocked":null}"#;
+        match parse_generation(text).expect("parse") {
+            Generated::Items(items) => assert_eq!(items.len(), 1),
+            other => panic!("expected items, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_escape_hatch_is_parsed_with_its_question() {
+        let text = r#"{"stories":[],"blocked":{"reason":"No payment provider is named.",
+            "whatIsNeeded":"Which payment provider should checkout use?"}}"#;
+        match parse_generation(text).expect("parse") {
+            Generated::Blocked { reason, what_is_needed } => {
+                assert!(reason.contains("payment provider"));
+                assert!(what_is_needed.starts_with("Which"));
+            }
+            other => panic!("expected blocked, got {other:?}"),
+        }
+    }
+
+    /// A model that filled in both has hedged. Taking the refusal costs a
+    /// question; taking the guesses costs work built on a misunderstanding.
+    #[test]
+    fn a_hedged_response_is_read_as_blocked() {
+        let text = r#"{"stories":[{"title":"A guess","description":"d"}],
+            "blocked":{"reason":"Not sure what is wanted","whatIsNeeded":"Clarify scope"}}"#;
+        assert!(matches!(
+            parse_generation(text).expect("parse"),
+            Generated::Blocked { .. }
+        ));
+    }
+
+    /// An empty or absent reason is not a refusal — otherwise a model that
+    /// emitted `blocked: {}` would silently discard perfectly good work.
+    #[test]
+    fn an_empty_block_falls_through_to_the_items() {
+        let text = r#"{"stories":[{"title":"A","description":"d"}],
+            "blocked":{"reason":"  ","whatIsNeeded":""}}"#;
+        match parse_generation(text).expect("parse") {
+            Generated::Items(items) => assert_eq!(items.len(), 1),
+            other => panic!("expected items, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn every_prompt_offers_the_escape_hatch() {
+        let story = build_story_prompt("P", "{}", "F", None, &[], &[]);
+        let deliverable =
+            build_deliverable_prompt("P", "{}", "{}", "D", "", "feature", &[], &[]);
+        for prompt in [story, deliverable] {
+            assert!(prompt.task.contains("do NOT guess"), "got: {}", prompt.task);
+            assert!(prompt.task.contains("blocked"));
+        }
+    }
+
+    /// Answers already given must reach the model, or it asks the same
+    /// question and the same tokens are spent again.
+    #[test]
+    fn clarifications_are_carried_into_the_prompt() {
+        let prompt = build_story_prompt(
+            "P",
+            "{}",
+            "Checkout",
+            None,
+            &[],
+            &["Use Stripe.".to_string(), "Guest checkout is allowed.".to_string()],
+        );
+        assert!(prompt.task.contains("treat these as settled"));
+        assert!(prompt.task.contains("Use Stripe."));
+        assert!(prompt.task.contains("Guest checkout is allowed."));
+        // and they belong to the per-call half, not the cached context
+        assert!(!prompt.context.contains("Use Stripe."));
+    }
+
     /// Live check for prompt caching — the one thing a unit test cannot prove.
     ///
     /// Ignored by default because it spends real money and needs a real key.
@@ -457,7 +619,7 @@ mod tests {
         // A context long enough to clear the minimum cacheable prefix.
         let answers = format!("{{\"purpose\":\"{}\"}}", "sell things online. ".repeat(400));
         let solutions = [("Shop API".to_string(), "api".to_string(), answers.clone())];
-        let prompt = build_story_prompt("Shop App", &answers, "Checkout", None, &solutions);
+        let prompt = build_story_prompt("Shop App", &answers, "Checkout", None, &solutions, &[]);
 
         let (_, first) = generate_stories(
             "https://api.anthropic.com",

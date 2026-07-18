@@ -149,6 +149,17 @@ pub struct GenerationResult {
     pub provider: String,
     pub model: String,
     pub reason: String,
+    /// Set when the AI declined rather than guessing. `created` is then empty
+    /// and a question is waiting against the work item.
+    pub blocked: Option<BlockedDto>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockedDto {
+    pub reason: String,
+    pub what_is_needed: String,
+    pub feedback_id: i64,
 }
 
 /// Everything the gates resolve before any content moves: the feature, the
@@ -202,12 +213,18 @@ pub async fn generate_user_stories(
             .into_iter()
             .map(|s| (s.name, s.solution_type, s.answers))
             .collect::<Vec<_>>();
+        // Answers a person already gave for this item travel with the prompt,
+        // so the AI does not ask the same question twice.
+        let clarifications = crate::db::ai_feedback::clarifications_for_item(&conn, feature_id)
+            .await
+            .map_err(to_message)?;
         let prompt = client::build_story_prompt(
             &product_row.name,
             &product_row.answers,
             &context.feature.title,
             context.feature.description.as_deref(),
             &solutions,
+            &clarifications,
         );
         (context, routed, prompt, product_id)
     };
@@ -225,7 +242,7 @@ pub async fn generate_user_stories(
     // A failed call still consumed something at the provider's end, and the
     // attempt is worth recording either way.
     let drafts = match result {
-        Ok((drafts, usage)) => {
+        Ok((client::Generated::Items(drafts), usage)) => {
             let conn = db.0.lock().await;
             ai_run::record(
                 &conn, product_id, Some(feature_id), &routed.provider, &routed.model,
@@ -233,6 +250,29 @@ pub async fn generate_user_stories(
             )
             .await;
             drafts
+        }
+        // The AI declined rather than guessing. That is a good outcome, not an
+        // error: the question is stored against the item and returned, and the
+        // call is ledgered as spend because the model ran and was paid for.
+        Ok((client::Generated::Blocked { reason, what_is_needed }, usage)) => {
+            let conn = db.0.lock().await;
+            ai_run::record(
+                &conn, product_id, Some(feature_id), &routed.provider, &routed.model,
+                PURPOSE, &usage, latency_ms, "declined",
+            )
+            .await;
+            let feedback_id = crate::db::ai_feedback::record(
+                &conn, feature_id, "needsInformation", &reason, &what_is_needed, None,
+            )
+            .await
+            .map_err(to_message)?;
+            return Ok(GenerationResult {
+                created: Vec::new(),
+                provider: routed.provider.name.clone(),
+                model: routed.model.clone(),
+                reason: routed.reason.clone(),
+                blocked: Some(BlockedDto { reason, what_is_needed, feedback_id }),
+            });
         }
         Err(e) => {
             let conn = db.0.lock().await;
@@ -266,6 +306,7 @@ pub async fn generate_user_stories(
         provider: routed.provider.name.clone(),
         model: routed.model.clone(),
         reason: routed.reason.clone(),
+        blocked: None,
     })
 }
 
@@ -486,7 +527,7 @@ pub async fn generate_deliverable_work(
     let latency_ms = started.elapsed().as_millis() as i64;
 
     let drafts = match result {
-        Ok((drafts, usage)) => {
+        Ok((client::Generated::Items(drafts), usage)) => {
             let conn = db.0.lock().await;
             ai_run::record(
                 &conn, product_id, None, &routed.provider, &routed.model,
@@ -494,6 +535,24 @@ pub async fn generate_deliverable_work(
             )
             .await;
             drafts
+        }
+        // A Deliverable has no work item to hang feedback on, so the question
+        // is returned to the caller rather than stored. Storing it against an
+        // invented work item would be worse than not storing it.
+        Ok((client::Generated::Blocked { reason, what_is_needed }, usage)) => {
+            let conn = db.0.lock().await;
+            ai_run::record(
+                &conn, product_id, None, &routed.provider, &routed.model,
+                PURPOSE, &usage, latency_ms, "declined",
+            )
+            .await;
+            return Ok(GenerationResult {
+                created: Vec::new(),
+                provider: routed.provider.name.clone(),
+                model: routed.model.clone(),
+                reason: routed.reason.clone(),
+                blocked: Some(BlockedDto { reason, what_is_needed, feedback_id: 0 }),
+            });
         }
         Err(e) => {
             let conn = db.0.lock().await;
@@ -538,6 +597,7 @@ pub async fn generate_deliverable_work(
         provider: routed.provider.name.clone(),
         model: routed.model.clone(),
         reason: routed.reason.clone(),
+        blocked: None,
     })
 }
 

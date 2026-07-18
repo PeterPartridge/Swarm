@@ -5,7 +5,7 @@
 //! process is this module's problem, not theirs. Keeping the dispatch here is
 //! what let the handover feature land without touching the call sites.
 
-use crate::ai::client::{Prompt, StoryDraft, Usage};
+use crate::ai::client::{Generated, Prompt, Usage};
 use crate::ai::{client, keys, ollama};
 use crate::db::ai_provider::AiProvider;
 
@@ -18,7 +18,7 @@ pub async fn generate_stories(
     model: &str,
     effort: &str,
     prompt: &Prompt,
-) -> Result<(Vec<StoryDraft>, Usage), String> {
+) -> Result<(Generated, Usage), String> {
     match provider.kind.as_str() {
         "ollama" => ollama::generate_stories(&provider.api_base_url, model, prompt).await,
         "anthropic" => {

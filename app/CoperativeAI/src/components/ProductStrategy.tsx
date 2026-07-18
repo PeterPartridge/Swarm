@@ -97,6 +97,15 @@ export default function ProductStrategy({ productId }: { productId: number }) {
     setSavedNote(null);
     try {
       const result = await generateDeliverableWork(d.id);
+      if (result.blocked) {
+        setSavedNote(
+          `The AI stopped rather than guessing at ${d.name}: ${result.blocked.reason} ` +
+            (result.blocked.whatIsNeeded
+              ? `It needs to know: ${result.blocked.whatIsNeeded}`
+              : ""),
+        );
+        return;
+      }
       const added =
         result.created.length === 0
           ? `The AI suggested nothing new for ${d.name}.`

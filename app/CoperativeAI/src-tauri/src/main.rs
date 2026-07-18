@@ -51,6 +51,8 @@ fn main() {
             commands::products::get_product_scaffold,
             commands::products::delete_product,
             commands::emit::generate_framework_files,
+            commands::feedback::list_ai_feedback,
+            commands::feedback::resolve_ai_feedback,
             commands::solutions::list_solutions,
             commands::solutions::create_solution,
             commands::solutions::delete_solution,

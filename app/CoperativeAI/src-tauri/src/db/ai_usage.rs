@@ -21,10 +21,16 @@ pub const PURPOSES: &[&str] = &[
     "connectionTest",
 ];
 
-/// How the call ended. `blocked` means the router or a policy stopped it before
-/// any content moved — it costs nothing but is recorded, because "no spend"
-/// and "no attempt" are different facts.
-pub const OUTCOMES: &[&str] = &["ok", "error", "refusal", "blocked"];
+/// How the call ended.
+///
+/// `blocked` means the router or a policy stopped it **before any content
+/// moved** — it costs nothing but is recorded, because "no spend" and "no
+/// attempt" are different facts.
+///
+/// `declined` is not the same thing: the model ran, was paid for, and chose to
+/// return a question instead of work. It counts as spend, and conflating the
+/// two would let a run of declines quietly understate the bill.
+pub const OUTCOMES: &[&str] = &["ok", "error", "refusal", "blocked", "declined"];
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AiUsage {

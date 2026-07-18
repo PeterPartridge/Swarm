@@ -550,6 +550,48 @@ body {
   color: var(--env-color, #7c3aed);
 }
 
+/* AI questions raised against a work item instead of guessing */
+.ai-questions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+}
+
+.ai-question.open {
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 0.375rem;
+  padding: 0.4rem 0.5rem;
+}
+
+.question-message,
+.question-needed {
+  margin: 0 0 0.3rem;
+}
+
+.question-needed {
+  color: #92400e;
+  font-style: italic;
+}
+
+.question-answer {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.question-answer input {
+  flex: 1;
+  border: 1px solid #d1d5db;
+  border-radius: 0.25rem;
+  padding: 0.25rem;
+}
+
+.answered-questions {
+  color: #6b7280;
+}
+
 /* AI budget: spend bar + limits (Product Strategy) */
 .budget-panel {
   background: #fff;

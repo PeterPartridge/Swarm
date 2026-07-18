@@ -5,6 +5,7 @@ pub mod ai_settings;
 pub mod budgets;
 pub mod deliverables;
 pub mod emit;
+pub mod feedback;
 pub mod github;
 pub mod policies;
 pub mod products;

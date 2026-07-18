@@ -468,7 +468,35 @@ export interface GenerationResult {
   provider: string;
   model: string;
   reason: string;
+  /** Set when the AI declined rather than guessing — `created` is then empty
+   *  and a question is waiting to be answered. */
+  blocked: Blocked | null;
 }
+
+export interface Blocked {
+  reason: string;
+  whatIsNeeded: string;
+  /** 0 when there was no work item to record it against (deliverables). */
+  feedbackId: number;
+}
+
+/** A question the AI raised against a work item rather than guessing. */
+export interface AiFeedback {
+  id: number;
+  workItemId: number;
+  kind: string;
+  message: string;
+  whatIsNeeded: string;
+  resolved: boolean;
+  resolvedNote: string;
+}
+
+export const listAiFeedback = (workItemId: number): Promise<AiFeedback[]> =>
+  invoke("list_ai_feedback", { workItemId });
+/** Answers the AI's question. The note travels with the next prompt for this
+ *  item, so the same question is not asked (and paid for) twice. */
+export const resolveAiFeedback = (id: number, note: string): Promise<void> =>
+  invoke("resolve_ai_feedback", { id, note });
 
 export const generateUserStories = (
   featureId: number,

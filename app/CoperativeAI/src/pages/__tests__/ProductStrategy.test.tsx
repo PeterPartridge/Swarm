@@ -103,6 +103,7 @@ describe("ProductStrategy — generating the work for a Deliverable", () => {
         provider: "Claude",
         model: "claude-haiku-4-5",
         reason: "within budget (10% used)",
+        blocked: null,
       };
     });
     render(<ProductStrategy productId={1} />);
@@ -128,6 +129,7 @@ describe("ProductStrategy — generating the work for a Deliverable", () => {
       provider: "Ollama (local)",
       model: "llama3",
       reason: "past 90% of the AI budget — handed over to Ollama (local)",
+      blocked: null,
     });
     render(<ProductStrategy productId={1} />);
 
@@ -138,6 +140,32 @@ describe("ProductStrategy — generating the work for a Deliverable", () => {
     const status = await screen.findByRole("status");
     expect(status).toHaveTextContent("Ollama (local)");
     expect(status).toHaveTextContent("handed over");
+  });
+
+  it("reports an AI refusal as a question, not an error", async () => {
+    const user = userEvent.setup();
+    mocked.generateDeliverableWork.mockResolvedValue({
+      created: [],
+      provider: "Claude",
+      model: "claude-haiku-4-5",
+      reason: "within budget (5% used)",
+      blocked: {
+        reason: "MVP does not say what it includes.",
+        whatIsNeeded: "Which features must ship in the MVP?",
+        feedbackId: 0,
+      },
+    });
+    render(<ProductStrategy productId={1} />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Generate work for MVP" }),
+    );
+
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent("stopped rather than guessing");
+    expect(status).toHaveTextContent("Which features must ship in the MVP?");
+    // it must not surface as an error alert
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("surfaces a policy denial instead of failing silently", async () => {
