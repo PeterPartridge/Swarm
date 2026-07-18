@@ -3,6 +3,7 @@ import AiSettings from "../components/AiSettings";
 import DeveloperRulesEditor from "../components/DeveloperRulesEditor";
 import FrameworkFiles from "../components/FrameworkFiles";
 import GithubCard from "../components/GithubCard";
+import ModelInstalls from "../components/ModelInstalls";
 import SolutionRepo from "../components/SolutionRepo";
 import StrategyEditor from "../components/StrategyEditor";
 import WorkItemViews from "../components/WorkItemViews";
@@ -189,6 +190,7 @@ export default function DevelopSolutions() {
       </section>
 
       <GithubCard onChange={refresh} />
+      <ModelInstalls productId={activeProduct === "" ? null : Number(activeProduct)} />
       <AiSettings />
     </div>
   );

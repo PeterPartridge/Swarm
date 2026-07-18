@@ -19,6 +19,9 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     listTeamMembers: vi.fn(),
     githubStatus: vi.fn(),
     generateFrameworkFiles: vi.fn(),
+    listModelStatus: vi.fn(),
+    installModel: vi.fn(),
+    refreshProviderModels: vi.fn(),
     setGithubToken: vi.fn(),
     removeGithubToken: vi.fn(),
     linkSolutionRepo: vi.fn(),
@@ -53,6 +56,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     mocked.listSprints.mockResolvedValue([]);
     mocked.listTeamMembers.mockResolvedValue([]);
     mocked.githubStatus.mockResolvedValue({ connected: false });
+    mocked.listModelStatus.mockResolvedValue([]);
   });
 
   it("shows the AI Settings section", async () => {
@@ -147,6 +151,85 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
 
     expect(await screen.findByText(".CoperativeAI/pages/checkout.md")).toBeInTheDocument();
     expect(screen.getByText(/Your edits are safe/)).toBeInTheDocument();
+  });
+
+  /// A model appearing on a provider does not make it usable — the whole point
+  /// of the install gate.
+  it("shows a newly detected model as not yet installed", async () => {
+    mocked.listModelStatus.mockResolvedValue([
+      {
+        providerId: 2,
+        provider: "Ollama (local)",
+        model: "ornith:9b",
+        state: "detected",
+        packPath: "",
+        validationReport: "{}",
+      },
+    ]);
+    render(<DevelopSolutions />);
+
+    expect(await screen.findByText("ornith:9b")).toBeInTheDocument();
+    expect(screen.getByText(/New — not yet installed/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Install ornith:9b" })).toBeInTheDocument();
+  });
+
+  it("installs a model and reports that it passed", async () => {
+    const user = userEvent.setup();
+    mocked.listModelStatus.mockResolvedValue([
+      {
+        providerId: 2,
+        provider: "Ollama (local)",
+        model: "ornith:9b",
+        state: "detected",
+        packPath: "",
+        validationReport: "{}",
+      },
+    ]);
+    mocked.installModel.mockResolvedValue({
+      model: "ornith:9b",
+      passed: true,
+      probes: [
+        { probe: "workItemInterpretation", passed: true, detail: "returned 3 work items" },
+        { probe: "declinesVagueWork", passed: true, detail: "declined and asked a question" },
+      ],
+      suggestedFixes: [],
+    });
+    render(<DevelopSolutions />);
+
+    await user.click(await screen.findByRole("button", { name: "Install ornith:9b" }));
+
+    await waitFor(() => expect(mocked.installModel).toHaveBeenCalledWith(2, "ornith:9b", 1));
+    expect(await screen.findByText(/passed every check/)).toBeInTheDocument();
+  });
+
+  /// All-or-nothing: a failed probe leaves the model blocked, and the user is
+  /// told which check failed and what to do about it.
+  it("names the failed check and keeps a failing model blocked", async () => {
+    mocked.listModelStatus.mockResolvedValue([
+      {
+        providerId: 2,
+        provider: "Ollama (local)",
+        model: "tiny:1b",
+        state: "failed",
+        packPath: "packs/tiny_1b",
+        validationReport: JSON.stringify({
+          model: "tiny:1b",
+          passed: false,
+          probes: [
+            { probe: "workItemInterpretation", passed: true, detail: "returned 3 work items" },
+            { probe: "architectureKinds", passed: false, detail: "invented kinds: microservice" },
+          ],
+          suggestedFixes: ["The model invented architecture kinds. The platform can only file these: api…"],
+        }),
+      },
+    ]);
+    render(<DevelopSolutions />);
+
+    expect(await screen.findByText(/Failed validation/)).toBeInTheDocument();
+    expect(screen.getByText(/invented kinds: microservice/)).toBeInTheDocument();
+    expect(screen.getByText(/can only file these/)).toBeInTheDocument();
+    // still offered for installation, never for use
+    expect(screen.getByRole("button", { name: "Install tiny:1b" })).toBeInTheDocument();
   });
 
   it("offers to connect GitHub when no token is stored", async () => {

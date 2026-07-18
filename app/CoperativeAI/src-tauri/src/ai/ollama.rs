@@ -387,6 +387,79 @@ mod tests {
         }
     }
 
+    /// The install probes, run against a real model. This is the one that says
+    /// whether the validation bar is calibrated: probes that no real model can
+    /// pass are a broken gate, not a high standard.
+    ///
+    /// ```text
+    /// OLLAMA_MODEL=ornith:9b cargo test -- --ignored install_probes --nocapture
+    /// ```
+    #[tokio::test]
+    #[ignore = "needs a local Ollama server with a model pulled"]
+    async fn install_probes_run_against_a_real_model() {
+        use crate::ai::validation::{self, ValidationReport};
+
+        let base = std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".into());
+        let model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "llama3".into());
+        let disallowed = "Java, PHP";
+        let mut probes = Vec::new();
+
+        // 1 — a deliberately complete brief; declining it would be wrong.
+        let clear = Prompt {
+            context: "You are helping a product team plan work.\n\nProduct: Shop App\n\
+                      Product brief answers (JSON): {\"purpose\":\"sell coffee online\"}\n".into(),
+            task: "Feature: Checkout\nFeature description: Customers pay for a basket with a \
+                   card and receive an emailed receipt.\n\nWrite 3-6 user stories covering this \
+                   feature.".into(),
+        };
+        probes.push(validation::check_work_items(
+            &generate_stories(&base, &model, &clear).await.map(|(g, _)| g),
+        ));
+
+        // 2-4 — strategy, architecture vocabulary, rule obedience.
+        let strategy = Prompt {
+            context: format!(
+                "You are helping a product team plan work.\n\nProduct: Shop App\n\
+                 Developer rules — these are constraints, not preferences:\n\
+                 - MUST NOT use, under any circumstances: {disallowed}\n"
+            ),
+            task: "Work item: Order processing\nDescription: Take paid orders and hand them to \
+                   fulfilment, retrying on failure.\n\nPropose how to build this: a short \
+                   strategy; 2-4 architecture options each with a name, a kind (windowsService, \
+                   azureWebApp, azureFunction, api, backgroundWorker, or other), why it fits and \
+                   its trade-offs; the tech stack; and \"technologies\", a plain list of every \
+                   technology you are actually proposing to USE.".into(),
+        };
+        probes.extend(validation::check_strategy(
+            &generate_solution_strategy(&base, &model, &strategy).await.map(|(g, _)| g),
+            disallowed,
+        ));
+
+        // 5 — the hopeless brief.
+        let hopeless = Prompt {
+            context: "You are helping a product team plan work.\n\nProduct: (none given)\n".into(),
+            task: "Work item: \"Make it better\"\n\nWrite 3-6 user stories.\n\nIf this is too \
+                   vague to do well, do NOT guess. Leave \"stories\" empty and fill in \
+                   \"blocked\" with the reason and the single most useful question a person \
+                   could answer.".into(),
+        };
+        probes.push(validation::check_declines_vague(
+            &generate_stories(&base, &model, &hopeless).await.map(|(g, _)| g),
+        ));
+
+        let report = ValidationReport::finish(&model, probes);
+        println!("\n=== validating {model} ===");
+        for probe in &report.probes {
+            println!("{} {:<24} {}", if probe.passed { "PASS" } else { "FAIL" }, probe.probe, probe.detail);
+        }
+        println!("\nresult: {}", if report.passed { "INSTALLED" } else { "REFUSED" });
+        for fix in &report.suggested_fixes {
+            println!("  fix: {fix}");
+        }
+        // Not asserted: a real model failing is a finding about the model, not
+        // a broken test. The output is the point.
+    }
+
     /// R3's central risk, tested against a real model: given a deliberately
     /// under-specified item **and** an explicit instruction not to guess, does
     /// the model actually take the escape hatch?

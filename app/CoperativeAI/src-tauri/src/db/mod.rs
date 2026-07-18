@@ -9,6 +9,7 @@ pub mod ai_usage;
 pub mod deliverable;
 pub mod developer_rules;
 pub mod emitted_file;
+pub mod model_install;
 pub mod model_price;
 pub mod feature_design;
 pub mod product;
@@ -83,6 +84,7 @@ pub async fn create_all_tables(conn: &Connection) -> Result<()> {
     // after ai_provider + product: budgets name providers, prices name models
     ai_usage::create_table(conn).await?;
     model_price::create_table(conn).await?;
+    model_install::create_table(conn).await?;
     product_budget::create_table(conn).await?;
     emitted_file::create_table(conn).await?;
     // after work_item: feedback hangs off an item

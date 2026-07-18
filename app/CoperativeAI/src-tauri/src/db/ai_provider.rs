@@ -129,6 +129,21 @@ pub async fn add_of_kind(
     last_insert_id(conn).await
 }
 
+/// Replaces a provider's model list — used when re-reading a local server, so a
+/// newly pulled model is picked up without re-adding the provider.
+pub async fn set_models(conn: &Connection, id: i64, models: &[String]) -> Result<()> {
+    if find_by_id(conn, id).await?.is_none() {
+        return Err(DbError::Validation(format!("no AI provider with id {id}")));
+    }
+    let models_json = serde_json::to_string(models).expect("models serialize");
+    conn.execute(
+        "UPDATE ai_providers SET models = ?1 WHERE id = ?2",
+        (models_json, id),
+    )
+    .await?;
+    Ok(())
+}
+
 pub async fn list_all(conn: &Connection) -> Result<Vec<AiProvider>> {
     let mut rows = conn.query(&format!("{SELECT} ORDER BY id"), ()).await?;
     let mut providers = Vec::new();

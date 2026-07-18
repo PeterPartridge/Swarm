@@ -6,6 +6,7 @@ mod commands;
 mod db;
 mod emit;
 mod github;
+mod pack;
 mod scaffold;
 mod terminal;
 
@@ -101,6 +102,9 @@ fn main() {
             commands::budgets::list_model_prices,
             commands::budgets::set_model_price,
             commands::budgets::delete_model_price,
+            commands::models::list_model_status,
+            commands::models::refresh_provider_models,
+            commands::models::install_model,
             commands::ai_settings::list_ai_providers,
             commands::ai_settings::add_ai_provider,
             commands::ai_settings::add_ollama_provider,

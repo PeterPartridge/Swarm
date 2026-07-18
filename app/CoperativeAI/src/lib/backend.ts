@@ -535,6 +535,54 @@ export const DEVELOPER_RULE_FIELDS: { id: DeveloperRuleField; label: string }[] 
   { id: "aiConstraints", label: "Constraints on AI behaviour" },
 ];
 
+/** A model the platform has seen, and whether it may be used.
+ *  `detected` — seen on a provider, refused until installed.
+ *  `installed` — passed every probe. `failed` — ran, but did not pass. */
+export interface ModelStatus {
+  providerId: number;
+  provider: string;
+  model: string;
+  state: string;
+  packPath: string;
+  /** The last ValidationReport, as JSON. */
+  validationReport: string;
+}
+
+export interface ProbeResult {
+  probe: string;
+  passed: boolean;
+  detail: string;
+}
+
+export interface ValidationReport {
+  model: string;
+  passed: boolean;
+  probes: ProbeResult[];
+  suggestedFixes: string[];
+}
+
+export const PROBE_LABELS: Record<string, string> = {
+  workItemInterpretation: "Work item interpretation",
+  solutionStrategy: "Solution strategy",
+  architectureKinds: "Architecture planning",
+  respectsDisallowed: "Respects developer rules",
+  declinesVagueWork: "Declines vague work",
+};
+
+export const listModelStatus = (): Promise<ModelStatus[]> =>
+  invoke("list_model_status");
+/** Re-reads a local server's models so a newly pulled one is noticed. */
+export const refreshProviderModels = (providerId: number): Promise<string[]> =>
+  invoke("refresh_provider_models", { providerId });
+/** Builds the capability pack, writes it, and validates the model against it.
+ *  All-or-nothing: any failed probe leaves the model refused. */
+export const installModel = (
+  providerId: number,
+  model: string,
+  productId: number,
+): Promise<ValidationReport> =>
+  invoke("install_model", { providerId, model, productId });
+
 /** One way of doing a piece of work, with what it is expected to cost. */
 export interface Recommendation {
   kind: string; // "fastest" | "costEfficient"
