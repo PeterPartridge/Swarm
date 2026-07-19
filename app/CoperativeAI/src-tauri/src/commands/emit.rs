@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use tauri::State;
 
 /// Finds where a Product was scaffolded. Emission has nowhere to go without it.
-async fn scaffold_root(
+pub(crate) async fn scaffold_root(
     conn: &turso::Connection,
     product_name: &str,
 ) -> Result<String, String> {

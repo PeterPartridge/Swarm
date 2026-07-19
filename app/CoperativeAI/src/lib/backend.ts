@@ -426,6 +426,99 @@ export const createDeliverable = (args: {
 export const deleteDeliverable = (id: number): Promise<void> =>
   invoke("delete_deliverable", { id });
 
+// Marketing & Design
+export interface DesignAsset {
+  id: number;
+  productId: number;
+  kind: DesignAssetKind;
+  name: string;
+  content: string;
+  /** Decided by the kind, not the caller — tokens are JSON, flows are Mermaid. */
+  format: "json" | "mermaid" | "markdown";
+  figmaFileKey: string | null;
+  figmaNodeId: string | null;
+}
+
+export type DesignAssetKind =
+  | "tokens"
+  | "uiFlow"
+  | "componentDiagram"
+  | "wireframe"
+  | "brandGuidelines";
+
+export const DESIGN_ASSET_LABELS: Record<DesignAssetKind, string> = {
+  tokens: "Design tokens",
+  uiFlow: "User flow",
+  componentDiagram: "Component diagram",
+  wireframe: "Wireframe",
+  brandGuidelines: "Brand guidelines",
+};
+
+/** A Figma file reduced to what a designer would describe out loud. The raw
+ *  document runs to megabytes; this is what makes it affordable to show an AI. */
+export interface FigmaFile {
+  fileKey: string;
+  name: string;
+  pages: FigmaPage[];
+  components: string[];
+  styles: string[];
+  /** Exactly what would be sent to a model, so the cost is visible up front. */
+  promptPreview: string;
+}
+
+export interface FigmaPage {
+  name: string;
+  frames: string[];
+  textCount: number;
+  /** True when copy was left out to stay within the cap. */
+  textTruncated: boolean;
+}
+
+export const listDesignAssets = (productId: number): Promise<DesignAsset[]> =>
+  invoke("list_design_assets", { productId });
+export const saveDesignAsset = (
+  productId: number,
+  kind: DesignAssetKind,
+  name: string,
+  content: string,
+): Promise<number> =>
+  invoke("save_design_asset", { productId, kind, name, content });
+export const deleteDesignAsset = (id: number): Promise<void> =>
+  invoke("delete_design_asset", { id });
+/** Writes the design assets to files under `design/`. On any Figma plan below
+ *  Enterprise this is the only route design tokens have into Figma, so it is a
+ *  first-class action rather than a fallback. Returns the paths written. */
+export const emitDesignFiles = (productId: number): Promise<string[]> =>
+  invoke("emit_design_files", { productId });
+
+// Figma (token lives in the OS credential store — never returned)
+export const figmaStatus = (): Promise<{ connected: boolean }> =>
+  invoke("figma_status");
+export const setFigmaToken = (token: string): Promise<string> =>
+  invoke("set_figma_token", { token });
+export const clearFigmaToken = (): Promise<void> => invoke("clear_figma_token");
+export const readFigmaFile = (fileRef: string): Promise<FigmaFile> =>
+  invoke("read_figma_file", { fileRef });
+/** Enterprise-only at Figma's end — fails with an explanation naming the plan
+ *  on any lesser one. */
+export const pushDesignTokens = (
+  assetId: number,
+  fileRef: string,
+  collectionName: string,
+): Promise<void> =>
+  invoke("push_design_tokens", { assetId, fileRef, collectionName });
+export const postFigmaComment = (
+  fileRef: string,
+  message: string,
+): Promise<void> => invoke("post_figma_comment", { fileRef, message });
+
+export const generateDesignStrategy = (args: {
+  productId: number;
+  area: "marketing" | "design";
+  brief: string;
+  figmaFileRef: string | null;
+}): Promise<GenerationResult> => invoke("generate_design_strategy", args);
+
 // Strategy (structured document per product + area)
 export const getStrategy = (productId: number, area: string): Promise<string> =>
   invoke("get_strategy", { productId, area });

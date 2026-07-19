@@ -77,6 +77,7 @@ fn main() {
             commands::design::push_design_tokens,
             commands::design::post_figma_comment,
             commands::design::generate_design_strategy,
+            commands::design::emit_design_files,
             commands::team_members::list_team_members,
             commands::team_members::add_team_member,
             commands::team_members::set_member_role,

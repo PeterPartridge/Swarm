@@ -193,6 +193,43 @@ pub async fn post_figma_comment(file_ref: String, message: String) -> Result<(),
     figma::post_comment(&token, &key, &message).await
 }
 
+/// Writes the Product's design assets to files under `design/`.
+///
+/// On any plan below Enterprise this is **the** way design tokens reach Figma,
+/// since the Variables API is Enterprise-only — so it is a first-class action,
+/// not a fallback hidden behind a failure.
+#[tauri::command]
+pub async fn emit_design_files(
+    db: State<'_, AppDb>,
+    product_id: i64,
+) -> Result<Vec<String>, String> {
+    use crate::db::product;
+
+    let (assets, root) = {
+        let conn = db.0.lock().await;
+        let Some(product_row) = product::find_by_id(&conn, product_id)
+            .await
+            .map_err(to_message)?
+        else {
+            return Err("that Product no longer exists".into());
+        };
+        let assets = design_asset::list_by_product(&conn, product_id)
+            .await
+            .map_err(to_message)?
+            .into_iter()
+            .map(|a| (a.kind, a.name, a.content))
+            .collect::<Vec<_>>();
+        // The same helper the framework-file emission uses — one definition of
+        // "where does this Product's generated output go".
+        let root = super::emit::scaffold_root(&conn, &product_row.name).await?;
+        (assets, root)
+    };
+    if assets.is_empty() {
+        return Err("there are no design assets to write yet".into());
+    }
+    crate::emit::write_generated(&root, &crate::emit::design_files(&assets))
+}
+
 // ------------------------------------------------------------- AI generation
 
 /// Generates the marketing or design strategy, and for design the artefacts

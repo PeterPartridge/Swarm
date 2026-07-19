@@ -2,11 +2,14 @@ import { useState } from "react";
 import PlanningScreen from "./PlanningScreen";
 import RoadMap from "./RoadMap";
 import ProductOverview from "./ProductOverview";
+import MarketingDesign from "./MarketingDesign";
 import { openScreenWindow, type Product } from "../lib/backend";
 
 export const WORKSPACE_SCREENS = [
   { id: "planning", label: "Planning" },
   { id: "roadmap", label: "RoadMap" },
+  { id: "marketing", label: "Marketing" },
+  { id: "design", label: "Design" },
   { id: "overview", label: "Overview" },
 ] as const;
 
@@ -28,6 +31,8 @@ export function WorkspaceScreen({
 }) {
   if (screen === "planning") return <PlanningScreen productId={productId} />;
   if (screen === "roadmap") return <RoadMap productId={productId} />;
+  if (screen === "marketing" || screen === "design")
+    return <MarketingDesign productId={productId} area={screen} />;
   return product ? <ProductOverview product={product} /> : null;
 }
 

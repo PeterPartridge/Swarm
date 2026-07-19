@@ -315,6 +315,108 @@ body {
   width: 5rem;
 }
 
+.marketing-design {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.marketing-design .field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.8rem;
+}
+
+.marketing-design .field span {
+  color: #6b7280;
+}
+
+.figma-link {
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 0.6rem;
+  font-size: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.figma-link h3 {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.figma-link .field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.figma-link .field span {
+  color: #6b7280;
+}
+
+/* Stating the plan limits plainly is cheaper than a 403 nobody can act on. */
+.figma-limits {
+  border-left: 2px solid #f59e0b;
+  padding-left: 0.4rem;
+}
+
+.figma-digest ul {
+  list-style: none;
+  margin: 0.2rem 0;
+  padding: 0;
+}
+
+.design-assets ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.design-assets li {
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 0.5rem;
+}
+
+.asset-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+}
+
+.asset-kind,
+.asset-pushed {
+  font-size: 0.7rem;
+  color: #6b7280;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  padding: 0 0.4rem;
+}
+
+.asset-content {
+  max-height: 12rem;
+  overflow: auto;
+  background: #f9fafb;
+  border-radius: 4px;
+  padding: 0.4rem;
+  font-size: 0.72rem;
+  margin: 0.3rem 0;
+  white-space: pre-wrap;
+}
+
+.asset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
 .card-risk {
   display: flex;
   flex-direction: column;

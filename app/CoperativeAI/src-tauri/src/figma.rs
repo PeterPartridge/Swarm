@@ -452,6 +452,14 @@ fn explain(status: u16, action: &str) -> String {
     }
 }
 
+/// Lets `emit`'s tests check that the path this message promises is the path
+/// that is actually written. The two live in different modules and would
+/// otherwise drift apart silently.
+#[cfg(test)]
+pub fn explain_for_test(status: u16, action: &str) -> String {
+    explain(status, action)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
