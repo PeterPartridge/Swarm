@@ -41,5 +41,5 @@ Three checks earned their place:
 **Technical debt:**
 - **`design_asset` and `architecture_doc` are now near-identical shapes** — product-scoped, kind-decides-format, name-replaces-in-place, both validating diagrams. They stayed separate because their kinds and lifecycles differ, but a third table like this would be the moment to extract a shared one.
 - **No history.** Regenerating replaces, so there is no way to see what changed between two drafts of the same map — which is exactly what a reviewer wants.
-- **Nothing renders the diagrams.** They are shown as source in a `<pre>`. Mermaid rendering is available in the stack and not wired up, so a non-technical reader gets text.
+- ~~**Nothing renders the diagrams.**~~ Closed — see [`../CoperativeAI/developerArea.md`](../CoperativeAI/developerArea.md) round 8. Mermaid and `jsonGraph` are drawn; PlantUML deliberately is not, because drawing it in a browser means sending it to a third-party server.
 - **The "agree with existing documents" instruction is unenforced.** The prompt asks for it; nothing checks the answer, unlike the developer-rules path which re-checks what the model declared.

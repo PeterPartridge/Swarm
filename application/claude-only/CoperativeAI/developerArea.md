@@ -58,7 +58,7 @@ That is now a rule this codebase applies three times, and it is worth naming: **
 
 ### Technical Debt
 
-- **Nothing renders the diagrams.** They are shown as source in a `<pre>`. Mermaid rendering is available in this stack and is not wired up, so a non-technical reader gets text where a picture was the point.
+- ~~**Nothing renders the diagrams.**~~ **Closed the same day.** Mermaid draws Mermaid; `jsonGraph` is converted to a flowchart and drawn the same way. **PlantUML is deliberately still not drawn** — rendering it in a browser means posting the diagram to plantuml.com, and sending a private architecture to a third party to get a picture is not a trade worth making, so the source is shown with that reason. Mermaid is loaded on demand: the startup bundle moved 286.6 → 289.9 kB.
 - **The "agree with existing documents" instruction is unenforced.** The prompt asks; nothing checks the answer — unlike the developer-rules path, which re-checks what the model declared. A contradictory second diagram would be stored without complaint.
 - **No history on architecture documents.** Regenerating replaces, so there is no way to see what changed between drafts — which is exactly what a reviewer wants.
 - **Cross-Product integration cannot be recorded.** Refusing it keeps the map coherent, but a real dependency on another Product's API now has nowhere to live.
