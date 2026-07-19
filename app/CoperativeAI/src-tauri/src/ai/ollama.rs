@@ -8,7 +8,8 @@
 //! leaves the machine.
 
 use crate::ai::client::{
-    parse_generation, parse_solution_strategy, Generated, GeneratedStrategy, Prompt, Usage,
+    parse_design, parse_generation, parse_solution_strategy, Generated, GeneratedDesign,
+    GeneratedStrategy, Prompt, Usage,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -161,6 +162,47 @@ pub async fn generate_solution_strategy(
 ) -> Result<(GeneratedStrategy, Usage), String> {
     let (content, usage) = chat(api_base_url, model, prompt, strategy_schema()).await?;
     Ok((parse_solution_strategy(&content)?, usage))
+}
+
+/// Generates design or marketing work from a local model.
+pub async fn generate_design(
+    api_base_url: &str,
+    model: &str,
+    prompt: &Prompt,
+) -> Result<(GeneratedDesign, Usage), String> {
+    let (content, usage) = chat(api_base_url, model, prompt, design_schema()).await?;
+    Ok((parse_design(&content)?, usage))
+}
+
+/// The design shape, mirroring the Claude schema so one parser serves both.
+fn design_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "strategy": {"type": "string"},
+            "tokens": {"type": "string"},
+            "flows": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "diagram": {"type": "string"}
+                    },
+                    "required": ["name", "diagram"]
+                }
+            },
+            "components": {"type": "string"},
+            "blocked": {
+                "type": ["object", "null"],
+                "properties": {
+                    "reason": {"type": "string"},
+                    "whatIsNeeded": {"type": "string"}
+                }
+            }
+        },
+        "required": ["strategy", "tokens", "flows", "components"]
+    })
 }
 
 /// The strategy shape, mirroring the Claude schema so one parser serves both.

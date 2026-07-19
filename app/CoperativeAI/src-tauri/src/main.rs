@@ -5,6 +5,7 @@ mod ai;
 mod commands;
 mod db;
 mod emit;
+mod figma;
 mod github;
 mod pack;
 mod scaffold;
@@ -66,6 +67,16 @@ fn main() {
             commands::github::remove_github_token,
             commands::github::link_solution_repo,
             commands::github::create_solution_repo,
+            commands::design::list_design_assets,
+            commands::design::save_design_asset,
+            commands::design::delete_design_asset,
+            commands::design::figma_status,
+            commands::design::set_figma_token,
+            commands::design::clear_figma_token,
+            commands::design::read_figma_file,
+            commands::design::push_design_tokens,
+            commands::design::post_figma_comment,
+            commands::design::generate_design_strategy,
             commands::team_members::list_team_members,
             commands::team_members::add_team_member,
             commands::team_members::set_member_role,

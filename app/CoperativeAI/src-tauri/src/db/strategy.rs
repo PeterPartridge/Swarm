@@ -1,11 +1,11 @@
 //! The `Strategy` model — one structured strategy document per (Product, area).
-//! `area` is product / develop / test; `content` is JSON of that section's
-//! named fields (the shape is app-defined, validated as JSON here).
+//! `area` is product / develop / test / marketing / design; `content` is JSON of
+//! that section's named fields (the shape is app-defined, validated as JSON here).
 
 use crate::db::{now_millis, DbError, Result};
 use turso::Connection;
 
-pub const AREAS: &[&str] = &["product", "develop", "test"];
+pub const AREAS: &[&str] = &["product", "develop", "test", "marketing", "design"];
 
 pub async fn create_table(conn: &Connection) -> Result<()> {
     conn.execute(
@@ -87,8 +87,21 @@ mod tests {
     #[tokio::test]
     async fn rejects_bad_area_and_non_json() {
         let (conn, product_id) = db_with_product().await;
-        assert!(get(&conn, product_id, "marketing").await.is_err());
+        assert!(get(&conn, product_id, "sales").await.is_err());
         assert!(save(&conn, product_id, "product", "{bad").await.is_err());
+    }
+
+    /// Marketing and design are strategy areas like any other — the section
+    /// pattern was already right, they were simply missing from it.
+    #[tokio::test]
+    async fn marketing_and_design_are_areas_of_their_own() {
+        let (conn, product_id) = db_with_product().await;
+        save(&conn, product_id, "marketing", r#"{"positioning":"for small teams"}"#).await.expect("m");
+        save(&conn, product_id, "design", r#"{"branding":"warm, plain"}"#).await.expect("d");
+        assert!(get(&conn, product_id, "marketing").await.expect("g").contains("small teams"));
+        assert!(get(&conn, product_id, "design").await.expect("g").contains("warm"));
+        // and they do not bleed into one another
+        assert!(!get(&conn, product_id, "design").await.expect("g").contains("small teams"));
     }
 
     #[tokio::test]

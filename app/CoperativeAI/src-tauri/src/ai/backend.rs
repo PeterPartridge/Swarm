@@ -5,7 +5,7 @@
 //! process is this module's problem, not theirs. Keeping the dispatch here is
 //! what let the handover feature land without touching the call sites.
 
-use crate::ai::client::{Generated, GeneratedStrategy, Prompt, Usage};
+use crate::ai::client::{Generated, GeneratedDesign, GeneratedStrategy, Prompt, Usage};
 use crate::ai::{client, keys, ollama};
 use crate::db::ai_provider::AiProvider;
 
@@ -47,6 +47,25 @@ pub async fn generate_solution_strategy(
             let api_key = keys::get_key(&provider.key_alias)?;
             client::generate_solution_strategy(&provider.api_base_url, &api_key, model, effort, prompt)
                 .await
+        }
+        other => Err(unknown_kind(provider, other)),
+    }
+}
+
+/// Generates design or marketing work, whichever provider the router chose.
+/// Dispatched by kind for the same reason as strategy: a Product past its
+/// handover threshold must still be able to do design work.
+pub async fn generate_design(
+    provider: &AiProvider,
+    model: &str,
+    effort: &str,
+    prompt: &Prompt,
+) -> Result<(GeneratedDesign, Usage), String> {
+    match provider.kind.as_str() {
+        "ollama" => ollama::generate_design(&provider.api_base_url, model, prompt).await,
+        "anthropic" => {
+            let api_key = keys::get_key(&provider.key_alias)?;
+            client::generate_design(&provider.api_base_url, &api_key, model, effort, prompt).await
         }
         other => Err(unknown_kind(provider, other)),
     }

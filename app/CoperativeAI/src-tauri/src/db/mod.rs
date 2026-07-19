@@ -7,6 +7,7 @@ pub mod ai_feedback;
 pub mod ai_provider;
 pub mod ai_usage;
 pub mod deliverable;
+pub mod design_asset;
 pub mod developer_rules;
 pub mod emitted_file;
 pub mod model_install;
@@ -99,6 +100,8 @@ pub async fn create_all_tables(conn: &Connection) -> Result<()> {
     solution_strategy::create_table(conn).await?;
     feature_design::create_table(conn).await?;
     strategy::create_table(conn).await?;
+    // after product: design assets belong to one
+    design_asset::create_table(conn).await?;
     // after deliverable + work_item: a test case may point at either
     test_case::create_table(conn).await?;
     Ok(())

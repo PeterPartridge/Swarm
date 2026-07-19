@@ -598,6 +598,204 @@ pub async fn generate_solution_strategy(
     Ok((parse_solution_strategy(&json_text)?, usage))
 }
 
+/// What a design generation produced: the strategy prose plus the artefacts
+/// that follow from it — a token set, flows, a component list.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DesignDraft {
+    pub strategy: String,
+    /// Token document as JSON text. Empty when the round didn't produce one.
+    pub tokens: String,
+    pub flows: Vec<NamedArtefact>,
+    pub components: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct NamedArtefact {
+    pub name: String,
+    /// Mermaid source.
+    pub diagram: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum GeneratedDesign {
+    Design(Box<DesignDraft>),
+    Blocked {
+        reason: String,
+        what_is_needed: String,
+    },
+}
+
+/// Builds the prompt for design or marketing work.
+///
+/// `figma` is the digest of an existing design file, when one is linked — the
+/// reduced form, never the raw document. It is placed in the **context** half
+/// rather than the task half so prompt caching covers it: a design file is the
+/// most expensive thing in this prompt and the least likely to change between
+/// two questions about it.
+pub fn build_design_prompt(
+    product_name: &str,
+    product_answers: &str,
+    strategy: &str,
+    area: &str,
+    brief: &str,
+    figma: Option<&str>,
+    solutions: &[(String, String, String)],
+) -> Prompt {
+    let mut context = product_context(product_name, product_answers, Some(strategy), solutions);
+    if let Some(digest) = figma.filter(|d| !d.trim().is_empty()) {
+        context.push_str("\nAn existing design file is linked to this Product:\n");
+        context.push_str(digest);
+    }
+
+    let task = match area {
+        "marketing" => format!(
+            "{brief}\n\nWork out how this Product is taken to market. Give a written \
+             strategy covering the target audience, the messaging and positioning, the \
+             pricing approach, and a launch plan. Ground every claim in what the Product \
+             actually is — do not invent features it does not have."
+        ),
+        _ => format!(
+            "{brief}\n\nWork out the design direction. Give: a written strategy covering \
+             branding and visual direction; \"tokens\", a JSON object of design tokens \
+             (colours as hex strings, plus type and spacing scales) nested by group; \
+             \"flows\", 1-4 user flows each with a name and a Mermaid diagram starting \
+             with \"flowchart TD\"; and \"components\", the component inventory as \
+             Markdown. Mermaid must be raw source with no code fences."
+        ),
+    };
+    let mut task = task;
+    task.push_str(ESCAPE_HATCH_DESIGN);
+    Prompt { context, task }
+}
+
+const ESCAPE_HATCH_DESIGN: &str = "\n\nIf the Product is described too vaguely to design or \
+     market honestly, do NOT invent a direction. Leave \"strategy\" empty and fill in \
+     \"blocked\" with the reason and the single most useful question a person could answer.";
+
+fn design_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "strategy": {"type": "string"},
+            // A JSON *string*, not an object: the shape of a token set is the
+            // designer's to decide, and pinning it in the schema would force
+            // every Product into one vocabulary.
+            "tokens": {"type": "string"},
+            "flows": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "diagram": {"type": "string"}
+                    },
+                    "required": ["name", "diagram"],
+                    "additionalProperties": false
+                }
+            },
+            "components": {"type": "string"},
+            "blocked": blocked_schema()
+        },
+        "required": ["strategy", "tokens", "flows", "components"],
+        "additionalProperties": false
+    })
+}
+
+/// Parses a design response (pure — unit tested).
+///
+/// Mermaid and JSON both arrive fenced often enough that stripping fences here
+/// is worth more than being strict: the alternative is a valid diagram rejected
+/// by `design_asset::save` for wearing a ```mermaid jacket.
+pub fn parse_design(text: &str) -> Result<GeneratedDesign, String> {
+    let value: Value = serde_json::from_str(text)
+        .map_err(|e| format!("the AI response was not valid JSON: {e}"))?;
+
+    if let Some(blocked) = value.get("blocked").filter(|b| !b.is_null()) {
+        let reason = blocked
+            .get("reason")
+            .and_then(|r| r.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if !reason.is_empty() {
+            return Ok(GeneratedDesign::Blocked {
+                reason,
+                what_is_needed: blocked
+                    .get("whatIsNeeded")
+                    .and_then(|w| w.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string(),
+            });
+        }
+    }
+
+    let strategy = value
+        .get("strategy")
+        .and_then(|s| s.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if strategy.is_empty() {
+        return Err("the AI response contained no strategy".into());
+    }
+    let flows: Vec<NamedArtefact> = value
+        .get("flows")
+        .and_then(|f| f.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|f| serde_json::from_value::<NamedArtefact>(f.clone()).ok())
+                .map(|f| NamedArtefact {
+                    name: f.name.trim().to_string(),
+                    diagram: strip_fence(&f.diagram),
+                })
+                .filter(|f| !f.name.is_empty() && !f.diagram.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(GeneratedDesign::Design(Box::new(DesignDraft {
+        strategy,
+        tokens: strip_fence(value.get("tokens").and_then(|t| t.as_str()).unwrap_or("")),
+        flows,
+        components: value
+            .get("components")
+            .and_then(|c| c.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string(),
+    })))
+}
+
+/// Removes a surrounding ```lang fence if there is one.
+fn strip_fence(text: &str) -> String {
+    let trimmed = text.trim();
+    let Some(rest) = trimmed.strip_prefix("```") else {
+        return trimmed.to_string();
+    };
+    // drop the language tag on the opening line, and the closing fence
+    let body = rest.split_once('\n').map(|(_, b)| b).unwrap_or("");
+    body.trim_end()
+        .strip_suffix("```")
+        .unwrap_or(body)
+        .trim()
+        .to_string()
+}
+
+/// Calls the provider for design or marketing work.
+pub async fn generate_design(
+    api_base_url: &str,
+    api_key: &str,
+    model: &str,
+    effort: &str,
+    prompt: &Prompt,
+) -> Result<(GeneratedDesign, Usage), String> {
+    let (json_text, usage) =
+        post_structured(api_base_url, api_key, model, effort, prompt, design_schema()).await?;
+    Ok((parse_design(&json_text)?, usage))
+}
+
 /// Minimal connectivity check: one tiny Messages call.
 pub async fn test_connection(api_base_url: &str, api_key: &str, model: &str) -> Result<(), String> {
     let url = format!("{}/v1/messages", api_base_url.trim_end_matches('/'));
@@ -636,6 +834,118 @@ fn http_client() -> Result<reqwest::Client, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Mermaid and JSON arrive fenced often enough that stripping is worth more
+    /// than strictness — a fenced diagram is a valid diagram wearing a jacket,
+    /// and `design_asset::save` would reject it for that alone.
+    #[test]
+    fn fenced_diagrams_and_tokens_are_unwrapped() {
+        let response = json!({
+            "strategy": "Warm and plain.",
+            "tokens": "```json\n{\"colour\":{\"primary\":\"#1f6feb\"}}\n```",
+            "flows": [
+                { "name": "Sign-up", "diagram": "```mermaid\nflowchart TD\n  A --> B\n```" },
+                { "name": "Checkout", "diagram": "flowchart TD\n  C --> D" }
+            ],
+            "components": "- Button\n- Field"
+        })
+        .to_string();
+
+        let GeneratedDesign::Design(draft) = parse_design(&response).expect("parse") else {
+            panic!("expected a design");
+        };
+        // r##"…"## because the hex colour contains `"#`
+        assert_eq!(draft.tokens, r##"{"colour":{"primary":"#1f6feb"}}"##);
+        assert_eq!(draft.flows[0].diagram, "flowchart TD\n  A --> B");
+        assert_eq!(
+            draft.flows[1].diagram, "flowchart TD\n  C --> D",
+            "an unfenced diagram must pass through untouched"
+        );
+    }
+
+    #[test]
+    fn a_design_response_without_a_strategy_is_an_error_not_an_empty_design() {
+        let response = json!({ "strategy": "  ", "tokens": "", "flows": [], "components": "" });
+        assert!(parse_design(&response.to_string()).is_err());
+    }
+
+    /// Same rule as everywhere else: a refusal beats a guess.
+    #[test]
+    fn a_blocked_design_is_a_question_not_a_failure() {
+        let response = json!({
+            "strategy": "",
+            "tokens": "",
+            "flows": [],
+            "components": "",
+            "blocked": { "reason": "No idea who this is for.", "whatIsNeeded": "Who are the users?" }
+        })
+        .to_string();
+
+        match parse_design(&response).expect("parse") {
+            GeneratedDesign::Blocked { reason, what_is_needed } => {
+                assert!(reason.contains("No idea"));
+                assert!(what_is_needed.contains("users"));
+            }
+            other => panic!("expected Blocked, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn nameless_or_empty_flows_are_dropped_rather_than_stored() {
+        let response = json!({
+            "strategy": "S",
+            "tokens": "{}",
+            "flows": [
+                { "name": "  ", "diagram": "flowchart TD\n A-->B" },
+                { "name": "Real", "diagram": "   " },
+                { "name": "Kept", "diagram": "flowchart TD\n A-->B" }
+            ],
+            "components": ""
+        })
+        .to_string();
+
+        let GeneratedDesign::Design(draft) = parse_design(&response).expect("parse") else {
+            panic!("expected a design");
+        };
+        assert_eq!(draft.flows.len(), 1);
+        assert_eq!(draft.flows[0].name, "Kept");
+    }
+
+    /// A design file is the most expensive thing in this prompt and the least
+    /// likely to change between two questions about it, so it belongs in the
+    /// cacheable half. Putting it in the task would re-bill it every time.
+    #[test]
+    fn a_linked_design_file_goes_in_the_cacheable_context_not_the_task() {
+        let prompt = build_design_prompt(
+            "Shop App",
+            "{}",
+            "{}",
+            "design",
+            "Refresh the look",
+            Some("Figma file: Checkout\nPage \"Flows\"\n  Screens: Basket"),
+            &[],
+        );
+        assert!(prompt.context.contains("Figma file: Checkout"));
+        assert!(!prompt.task.contains("Figma file"));
+        assert!(prompt.task.contains("Refresh the look"));
+    }
+
+    /// Marketing and design ask for different things; sharing a builder must
+    /// not mean sharing a task.
+    #[test]
+    fn marketing_and_design_ask_for_different_work() {
+        let marketing =
+            build_design_prompt("S", "{}", "{}", "marketing", "Launch it", None, &[]);
+        let design = build_design_prompt("S", "{}", "{}", "design", "Launch it", None, &[]);
+
+        assert!(marketing.task.contains("pricing"));
+        assert!(!marketing.task.contains("Mermaid"));
+        assert!(design.task.contains("Mermaid"));
+        assert!(!design.task.contains("pricing"));
+        // both keep the escape hatch
+        assert!(marketing.task.contains("do NOT invent"));
+        assert!(design.task.contains("do NOT invent"));
+    }
 
     #[test]
     fn prompt_includes_feature_product_and_solutions() {
