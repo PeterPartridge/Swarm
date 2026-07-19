@@ -55,15 +55,23 @@ describe("Marketing & Design", () => {
     mocked.figmaStatus.mockResolvedValue({ connected: true });
   });
 
-  it("marketing asks for a strategy and has no assets — prose is not an artefact", async () => {
-    render(<MarketingDesign productId={7} area="marketing" />);
+  /// One Product's assets serve both screens, but each shows only its own
+  /// kinds — a campaign never sits between two user flows.
+  it("marketing and design each show only their own assets", async () => {
+    mocked.listDesignAssets.mockResolvedValue([
+      asset({ id: 1, kind: "tokens", name: "Core" }),
+      asset({ id: 2, kind: "campaign", name: "Forum launch", format: "markdown", content: "Post it." }),
+    ]);
 
-    expect(
-      await screen.findByRole("region", { name: "Marketing for this Product" }),
-    ).toBeInTheDocument();
-    expect(screen.getByLabelText("Marketing brief")).toBeInTheDocument();
-    expect(mocked.listDesignAssets).not.toHaveBeenCalled();
-    expect(screen.queryByRole("region", { name: "Design assets" })).not.toBeInTheDocument();
+    render(<MarketingDesign productId={7} area="marketing" />);
+    const marketing = await screen.findByRole("region", { name: "Marketing assets" });
+    expect(within(marketing).getByText("Forum launch")).toBeInTheDocument();
+    expect(within(marketing).queryByText("Core")).not.toBeInTheDocument();
+
+    render(<MarketingDesign productId={7} area="design" />);
+    const design = await screen.findByRole("region", { name: "Design assets" });
+    expect(within(design).getByText("Core")).toBeInTheDocument();
+    expect(within(design).queryByText("Forum launch")).not.toBeInTheDocument();
   });
 
   it("sends the brief and the linked file, and reports what was created", async () => {

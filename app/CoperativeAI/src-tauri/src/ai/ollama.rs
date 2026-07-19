@@ -193,6 +193,18 @@ fn design_schema() -> serde_json::Value {
                 }
             },
             "components": {"type": "string"},
+            "assets": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "kind": {"type": "string"},
+                        "content": {"type": "string"}
+                    },
+                    "required": ["name", "kind", "content"]
+                }
+            },
             "blocked": {
                 "type": ["object", "null"],
                 "properties": {
@@ -201,7 +213,7 @@ fn design_schema() -> serde_json::Value {
                 }
             }
         },
-        "required": ["strategy", "tokens", "flows", "components"]
+        "required": ["strategy", "tokens", "flows", "components", "assets"]
     })
 }
 

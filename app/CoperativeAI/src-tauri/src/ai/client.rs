@@ -607,6 +607,16 @@ pub struct DesignDraft {
     pub tokens: String,
     pub flows: Vec<NamedArtefact>,
     pub components: String,
+    /// Named prose artefacts — marketing's campaigns, launch plan, messaging.
+    pub assets: Vec<NamedAsset>,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct NamedAsset {
+    pub name: String,
+    /// Validated against the asset kinds on save, not here.
+    pub kind: String,
+    pub content: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -650,9 +660,13 @@ pub fn build_design_prompt(
     let task = match area {
         "marketing" => format!(
             "{brief}\n\nWork out how this Product is taken to market. Give a written \
-             strategy covering the target audience, the messaging and positioning, the \
-             pricing approach, and a launch plan. Ground every claim in what the Product \
-             actually is — do not invent features it does not have."
+             strategy covering the target audience, positioning and pricing approach. \
+             Then fill \"assets\" with the artefacts a person could pick up and use: \
+             1-3 campaign ideas (kind \"campaign\", one entry each), a launch plan \
+             (kind \"launchPlan\"), and the core messaging (kind \"messaging\") — each \
+             with a short name and Markdown content. Leave \"tokens\", \"flows\" and \
+             \"components\" empty. Ground every claim in what the Product actually is — \
+             do not invent features it does not have."
         ),
         _ => format!(
             "{brief}\n\nWork out the design direction. Give: a written strategy covering \
@@ -660,7 +674,8 @@ pub fn build_design_prompt(
              (colours as hex strings, plus type and spacing scales) nested by group; \
              \"flows\", 1-4 user flows each with a name and a Mermaid diagram starting \
              with \"flowchart TD\"; and \"components\", the component inventory as \
-             Markdown. Mermaid must be raw source with no code fences."
+             Markdown. Mermaid must be raw source with no code fences. Leave \
+             \"assets\" empty."
         ),
     };
     let mut task = task;
@@ -694,9 +709,22 @@ fn design_schema() -> Value {
                 }
             },
             "components": {"type": "string"},
+            "assets": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "kind": {"type": "string"},
+                        "content": {"type": "string"}
+                    },
+                    "required": ["name", "kind", "content"],
+                    "additionalProperties": false
+                }
+            },
             "blocked": blocked_schema()
         },
-        "required": ["strategy", "tokens", "flows", "components"],
+        "required": ["strategy", "tokens", "flows", "components", "assets"],
         "additionalProperties": false
     })
 }
@@ -755,6 +783,23 @@ pub fn parse_design(text: &str) -> Result<GeneratedDesign, String> {
         })
         .unwrap_or_default();
 
+    let assets: Vec<NamedAsset> = value
+        .get("assets")
+        .and_then(|a| a.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|a| serde_json::from_value::<NamedAsset>(a.clone()).ok())
+                .map(|a| NamedAsset {
+                    name: a.name.trim().to_string(),
+                    kind: a.kind.trim().to_string(),
+                    content: a.content.trim().to_string(),
+                })
+                .filter(|a| !a.name.is_empty() && !a.content.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+
     Ok(GeneratedDesign::Design(Box::new(DesignDraft {
         strategy,
         tokens: strip_fence(value.get("tokens").and_then(|t| t.as_str()).unwrap_or("")),
@@ -765,6 +810,7 @@ pub fn parse_design(text: &str) -> Result<GeneratedDesign, String> {
             .unwrap_or("")
             .trim()
             .to_string(),
+        assets,
     })))
 }
 
@@ -1118,6 +1164,42 @@ mod tests {
             draft.flows[1].diagram, "flowchart TD\n  C --> D",
             "an unfenced diagram must pass through untouched"
         );
+    }
+
+    /// Marketing's artefacts arrive in the same response as the strategy;
+    /// incomplete ones are dropped rather than stored half-made.
+    #[test]
+    fn marketing_assets_are_collected_and_incomplete_ones_dropped() {
+        let response = json!({
+            "strategy": "Sell to small teams.",
+            "tokens": "",
+            "flows": [],
+            "components": "",
+            "assets": [
+                { "name": "Launch on the forum", "kind": "campaign", "content": "Post where the users already are." },
+                { "name": "  ", "kind": "campaign", "content": "nameless" },
+                { "name": "Empty", "kind": "messaging", "content": "  " }
+            ]
+        })
+        .to_string();
+
+        let GeneratedDesign::Design(draft) = parse_design(&response).expect("parse") else {
+            panic!("expected a design");
+        };
+        assert_eq!(draft.assets.len(), 1);
+        assert_eq!(draft.assets[0].kind, "campaign");
+        assert_eq!(draft.assets[0].name, "Launch on the forum");
+    }
+
+    /// Marketing asks for artefacts; design is told to leave them empty.
+    #[test]
+    fn only_the_marketing_task_asks_for_assets() {
+        let marketing = build_design_prompt("S", "{}", "{}", "marketing", "Go", None, &[]);
+        let design = build_design_prompt("S", "{}", "{}", "design", "Go", None, &[]);
+
+        assert!(marketing.task.contains("\"campaign\""));
+        assert!(marketing.task.contains("launchPlan"));
+        assert!(design.task.contains("Leave \"assets\" empty"));
     }
 
     #[test]

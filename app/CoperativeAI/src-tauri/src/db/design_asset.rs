@@ -12,12 +12,18 @@ use turso::Connection;
 /// `uiFlow` / `componentDiagram` — Mermaid.
 /// `wireframe` — a described layout, not a picture.
 /// `brandGuidelines` — prose.
+/// `campaign` / `launchPlan` / `messaging` — marketing's artefacts, prose. In
+/// this table rather than one of their own because they are the same shape:
+/// product-scoped, named, regenerated in place, emitted as files.
 pub const ASSET_KINDS: &[&str] = &[
     "tokens",
     "uiFlow",
     "componentDiagram",
     "wireframe",
     "brandGuidelines",
+    "campaign",
+    "launchPlan",
+    "messaging",
 ];
 
 pub const FORMATS: &[&str] = &["json", "mermaid", "markdown"];
@@ -260,6 +266,21 @@ mod tests {
         assert_eq!(first, second, "same name, same asset");
         assert_eq!(list_by_product(&conn, product_id).await.expect("list").len(), 1);
         assert!(find_by_id(&conn, first).await.expect("q").unwrap().content.contains("Done"));
+    }
+
+    /// Marketing's artefacts live here too — same shape, same rules, prose
+    /// format decided by the kind.
+    #[tokio::test]
+    async fn marketing_kinds_store_as_markdown() {
+        let (conn, product_id) = db_with_product().await;
+        for kind in ["campaign", "launchPlan", "messaging"] {
+            let id = save(&conn, product_id, kind, "One", "Post where the users are.")
+                .await
+                .expect(kind);
+            assert_eq!(find_by_id(&conn, id).await.expect("q").unwrap().format, "markdown");
+        }
+        // an invented kind from a model is rejected by name
+        assert!(save(&conn, product_id, "viralStunt", "X", "hi").await.is_err());
     }
 
     #[tokio::test]

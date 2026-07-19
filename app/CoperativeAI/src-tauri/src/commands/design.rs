@@ -374,6 +374,19 @@ pub async fn generate_design_strategy(
                     }
                 }
             }
+            // Marketing's artefacts — campaigns, launch plan, messaging — are
+            // things a person can pick up and use, so they are stored like
+            // design's rather than left inside a strategy document. The kind
+            // comes from the model and `save` validates it, so an invented
+            // kind is rejected by name rather than stored.
+            for asset in &draft.assets {
+                match design_asset::save(&conn, product_id, &asset.kind, &asset.name, &asset.content)
+                    .await
+                {
+                    Ok(_) => created.push(asset.name.clone()),
+                    Err(e) => rejected.push(format!("{} ({e})", asset.name)),
+                }
+            }
 
             let mut reason = routed.reason.clone();
             if !rejected.is_empty() {

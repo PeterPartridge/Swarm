@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   DESIGN_ASSET_LABELS,
+  MARKETING_ASSET_KINDS,
   deleteDesignAsset,
   emitDesignFiles,
   generateDesignStrategy,
@@ -38,9 +39,15 @@ export default function MarketingDesign({
   const title = area === "marketing" ? "Marketing" : "Design";
 
   const refresh = useCallback(async () => {
-    if (area !== "design") return;
     try {
-      setAssets(await listDesignAssets(productId));
+      const loaded = await listDesignAssets(productId);
+      // One Product's assets serve both screens; each shows only its own
+      // kinds, so a campaign never sits between two user flows.
+      setAssets(
+        area === "marketing"
+          ? loaded.filter((a) => MARKETING_ASSET_KINDS.includes(a.kind))
+          : loaded.filter((a) => !MARKETING_ASSET_KINDS.includes(a.kind)),
+      );
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -168,17 +175,19 @@ export default function MarketingDesign({
         {busy ? "Working…" : `AI: draft the ${title.toLowerCase()} strategy`}
       </button>
 
-      {area === "design" && assets.length > 0 && (
-        <section className="design-assets" aria-label="Design assets">
+      {assets.length > 0 && (
+        <section className="design-assets" aria-label={`${title} assets`}>
           <h3>Assets</h3>
           <div className="asset-actions">
             <button aria-label="Write design files" onClick={onEmit}>
-              Write to design/ files
+              Write to {area === "marketing" ? "marketing/" : "design/"} files
             </button>
-            <span className="hint">
-              Below Enterprise, exporting <code>design/tokens.json</code> and
-              importing it in Figma is the only route tokens have in.
-            </span>
+            {area === "design" && (
+              <span className="hint">
+                Below Enterprise, exporting <code>design/tokens.json</code> and
+                importing it in Figma is the only route tokens have in.
+              </span>
+            )}
           </div>
           <ul>
             {assets.map((asset) => (

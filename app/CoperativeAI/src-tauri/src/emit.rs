@@ -222,8 +222,26 @@ pub fn design_files(assets: &[(String, String, String)]) -> Vec<EmitFile> {
     let mut flows = String::new();
     let mut components = String::new();
     let mut brand = String::new();
+    let mut campaigns = String::new();
+    let mut launch = String::new();
+    let mut messaging = String::new();
 
     for (kind, name, content) in assets {
+        match kind.as_str() {
+            "campaign" => {
+                campaigns.push_str(&format!("## {name}\n\n{content}\n\n"));
+                continue;
+            }
+            "launchPlan" => {
+                launch.push_str(&format!("## {name}\n\n{content}\n\n"));
+                continue;
+            }
+            "messaging" => {
+                messaging.push_str(&format!("## {name}\n\n{content}\n\n"));
+                continue;
+            }
+            _ => {}
+        }
         match kind.as_str() {
             // Each token set becomes its own file: "Core" is the common case
             // and lands at design/tokens.json, which is the name the Figma
@@ -256,6 +274,9 @@ pub fn design_files(assets: &[(String, String, String)]) -> Vec<EmitFile> {
         ("design/ui-flows.md", "# User flows", flows),
         ("design/components.md", "# Components", components),
         ("design/brand.md", "# Brand", brand),
+        ("marketing/campaigns.md", "# Campaign ideas", campaigns),
+        ("marketing/launch-plan.md", "# Launch plan", launch),
+        ("marketing/messaging.md", "# Messaging", messaging),
     ] {
         if !body.trim().is_empty() {
             files.push(EmitFile {
@@ -342,6 +363,27 @@ mod tests {
         assert!(flows.contains("```mermaid\nflowchart TD"));
         assert!(by_path("design/components.md").contains("graph LR"));
         assert!(by_path("design/brand.md").contains("Warm and plain."));
+    }
+
+    #[test]
+    fn marketing_artefacts_land_under_their_own_folder() {
+        let assets = vec![
+            ("campaign".into(), "Forum launch".into(), "Post where the users are.".into()),
+            ("campaign".into(), "Newsletter".into(), "Monthly.".into()),
+            ("launchPlan".into(), "Q3".into(), "Soft launch first.".into()),
+            ("messaging".into(), "Core".into(), "Plain words.".into()),
+        ];
+        let files = design_files(&assets);
+        let by_path = |p: &str| {
+            files.iter().find(|f| f.rel_path == p).unwrap_or_else(|| panic!("missing {p}")).contents.clone()
+        };
+
+        let campaigns = by_path("marketing/campaigns.md");
+        assert!(campaigns.contains("## Forum launch") && campaigns.contains("## Newsletter"));
+        assert!(by_path("marketing/launch-plan.md").contains("Soft launch"));
+        assert!(by_path("marketing/messaging.md").contains("Plain words."));
+        // and nothing marketing leaks into the design files
+        assert!(!files.iter().any(|f| f.rel_path.starts_with("design/")));
     }
 
     /// An empty section must not produce an empty file — a `brand.md` that says

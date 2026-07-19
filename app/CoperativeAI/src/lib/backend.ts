@@ -531,7 +531,10 @@ export type DesignAssetKind =
   | "uiFlow"
   | "componentDiagram"
   | "wireframe"
-  | "brandGuidelines";
+  | "brandGuidelines"
+  | "campaign"
+  | "launchPlan"
+  | "messaging";
 
 export const DESIGN_ASSET_LABELS: Record<DesignAssetKind, string> = {
   tokens: "Design tokens",
@@ -539,7 +542,17 @@ export const DESIGN_ASSET_LABELS: Record<DesignAssetKind, string> = {
   componentDiagram: "Component diagram",
   wireframe: "Wireframe",
   brandGuidelines: "Brand guidelines",
+  campaign: "Campaign idea",
+  launchPlan: "Launch plan",
+  messaging: "Messaging",
 };
+
+/** Which kinds belong on which screen — one Product's assets serve both. */
+export const MARKETING_ASSET_KINDS: DesignAssetKind[] = [
+  "campaign",
+  "launchPlan",
+  "messaging",
+];
 
 /** A Figma file reduced to what a designer would describe out loud. The raw
  *  document runs to megabytes; this is what makes it affordable to show an AI. */
