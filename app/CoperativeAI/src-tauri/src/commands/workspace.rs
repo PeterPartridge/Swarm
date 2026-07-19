@@ -232,6 +232,13 @@ pub struct ChangeReviewDto {
     /// nothing. Silence because there is nothing to check reads exactly like
     /// silence because everything passed.
     pub no_rules: bool,
+    /// The unsettled handover this review is evidence about, when one exists.
+    /// The review is recorded against it, and the keep/discard decision is
+    /// offered on it — always offered, whatever the findings say, because the
+    /// user chose an accept that is never gated. The findings still travel
+    /// with the run, so accepting over a violation is recorded as exactly that.
+    pub run_id: Option<i64>,
+    pub run_state: Option<String>,
 }
 
 #[tauri::command]
@@ -257,5 +264,23 @@ pub async fn review_solution_changes(
     let rules = rules.unwrap_or_default();
     let changes = workspace::read_changes(&root)?;
     let report = review::review(&changes, &rules);
-    Ok(ChangeReviewDto { changes, report, no_rules })
+
+    // Attach the review to the newest unsettled handover, so the run's record
+    // shows what the rules made of what came back.
+    let conn = db.0.lock().await;
+    let run = crate::db::change_run::latest_open_for_solution(&conn, solution_id)
+        .await
+        .map_err(to_message)?;
+    let (run_id, run_state) = match run {
+        Some(run) => {
+            let findings =
+                serde_json::to_string(&report).unwrap_or_else(|_| "{}".into());
+            crate::db::change_run::record_review(&conn, run.id, &findings, report.files_changed)
+                .await
+                .map_err(to_message)?;
+            (Some(run.id), Some("reviewed".to_string()))
+        }
+        None => (None, None),
+    };
+    Ok(ChangeReviewDto { changes, report, no_rules, run_id, run_state })
 }

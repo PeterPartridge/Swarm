@@ -4,6 +4,7 @@ import {
   readSolutionTree,
   reviewSolutionChanges,
   setSolutionPath,
+  settleChangeRun,
   type ChangeReview,
   type FileTree,
   type Solution,
@@ -29,6 +30,7 @@ export default function SolutionBox({
   const [openPath, setOpenPath] = useState<string | null>(null);
   const [contents, setContents] = useState<string>("");
   const [review, setReview] = useState<ChangeReview | null>(null);
+  const [settled, setSettled] = useState<"kept" | "discarded" | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,12 +68,24 @@ export default function SolutionBox({
     setBusy(true);
     try {
       setReview(await reviewSolutionChanges(solution.id));
+      setSettled(null);
       setError(null);
     } catch (e) {
       setReview(null);
       setError(String(e));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function onSettle(state: "kept" | "discarded") {
+    if (!review?.runId) return;
+    try {
+      await settleChangeRun(review.runId, state);
+      setSettled(state);
+      setError(null);
+    } catch (e) {
+      setError(String(e));
     }
   }
 
@@ -183,6 +197,43 @@ export default function SolutionBox({
                     <li key={`notice-${i}`}>{f.detail}</li>
                   ))}
                 </ul>
+              )}
+
+              {/* Accept is never gated — the user chose that — but the
+                  findings were recorded on the run before this button existed,
+                  so keeping a change over a violation is on the record as
+                  exactly that, not laundered into a clean pass. */}
+              {review.runId !== null && review.report.filesChanged > 0 && (
+                <div className="settle-run">
+                  {settled === null ? (
+                    <>
+                      <button
+                        aria-label={`Keep the changes in ${solution.name}`}
+                        onClick={() => onSettle("kept")}
+                      >
+                        Keep
+                      </button>
+                      <button
+                        aria-label={`Discard the changes in ${solution.name}`}
+                        onClick={() => onSettle("discarded")}
+                      >
+                        Discard
+                      </button>
+                      <span className="hint">
+                        Records your decision against the handover. Files stay
+                        as they are — use git to actually revert.
+                      </span>
+                    </>
+                  ) : (
+                    <p role="status">
+                      Recorded as {settled}
+                      {settled === "kept" && review.report.violations.length > 0
+                        ? " — with the broken rules above on the record"
+                        : ""}
+                      .
+                    </p>
+                  )}
+                </div>
               )}
 
               {review.changes.length > 0 && (

@@ -78,6 +78,12 @@ export interface ChangeReview {
   /** True when the Product has no developer rules, so nothing was checked —
    *  silence for want of rules reads exactly like silence for want of problems. */
   noRules: boolean;
+  /** The unsettled handover this review was recorded against, when one exists.
+   *  Keep/discard is offered on it — always, whatever the findings, but the
+   *  findings travel with the run so accepting over a violation is recorded as
+   *  exactly that. */
+  runId: number | null;
+  runState: string | null;
 }
 
 /** A work item assembled into one brief and written into its working copy.

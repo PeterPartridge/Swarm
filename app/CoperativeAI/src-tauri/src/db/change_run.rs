@@ -148,6 +148,28 @@ pub async fn list_for_item(conn: &Connection, work_item_id: i64) -> Result<Vec<C
     Ok(runs)
 }
 
+/// The newest unsettled run in this Solution — the one a review of the
+/// working copy is evidence about. Settled runs are done; a review after
+/// settling is a new look at the tree, not new evidence about an old decision.
+pub async fn latest_open_for_solution(
+    conn: &Connection,
+    solution_id: i64,
+) -> Result<Option<ChangeRun>> {
+    let mut rows = conn
+        .query(
+            &format!(
+                "{SELECT} WHERE solutionId = ?1 AND state IN ('prepared', 'reviewed')
+                 ORDER BY id DESC LIMIT 1"
+            ),
+            (solution_id,),
+        )
+        .await?;
+    match rows.next().await? {
+        Some(row) => Ok(Some(row_to_run(row)?)),
+        None => Ok(None),
+    }
+}
+
 /// Removes the runs of a deleted work item.
 pub async fn remove_for_item(conn: &Connection, work_item_id: i64) -> Result<()> {
     conn.execute("DELETE FROM change_runs WHERE workItemId = ?1", (work_item_id,))
@@ -253,6 +275,33 @@ mod tests {
         assert_eq!(runs.len(), 2);
         assert_eq!(runs[0].id, second, "the most recent attempt comes first");
         assert_eq!(runs[1].id, first);
+    }
+
+    /// A settled run is done — a later review is a new look at the tree, not
+    /// new evidence about an old decision.
+    #[tokio::test]
+    async fn a_review_attaches_to_the_newest_unsettled_run_only() {
+        let (conn, product_id) = db_with_product().await;
+        let (item, sol) = setup(&conn, product_id).await;
+
+        assert!(latest_open_for_solution(&conn, sol).await.expect("q").is_none());
+
+        let first = prepare(&conn, item, sol, "one.md").await.expect("a");
+        let second = prepare(&conn, item, sol, "two.md").await.expect("b");
+        assert_eq!(
+            latest_open_for_solution(&conn, sol).await.expect("q").unwrap().id,
+            second
+        );
+
+        settle(&conn, second, "discarded").await.expect("settle");
+        assert_eq!(
+            latest_open_for_solution(&conn, sol).await.expect("q").unwrap().id,
+            first,
+            "the settled run stops attracting reviews; the older open one remains"
+        );
+
+        settle(&conn, first, "kept").await.expect("settle");
+        assert!(latest_open_for_solution(&conn, sol).await.expect("q").is_none());
     }
 
     #[tokio::test]

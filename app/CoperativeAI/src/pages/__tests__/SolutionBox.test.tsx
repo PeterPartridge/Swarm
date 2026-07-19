@@ -12,6 +12,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     readSolutionFile: vi.fn(),
     reviewSolutionChanges: vi.fn(),
     setSolutionPath: vi.fn(),
+    settleChangeRun: vi.fn(),
     pickFolder: vi.fn(),
   };
 });
@@ -55,6 +56,8 @@ function review(overrides: Partial<ChangeReview> = {}): ChangeReview {
       removedLines: 0,
     },
     noRules: false,
+    runId: null,
+    runState: null,
     ...overrides,
   };
 }
@@ -200,6 +203,98 @@ describe("SolutionBox", () => {
     expect(await screen.findByText(/Nothing has changed in this working copy/)).toBeInTheDocument();
     // and with no changes there is nothing to say about missing rules
     expect(screen.queryByText(/nothing was checked/)).not.toBeInTheDocument();
+  });
+
+  /// The user chose an accept that is never gated: Keep is offered even when
+  /// rules are broken. The counterweight is the record — findings were stored
+  /// on the run before the button was pressed, and the confirmation says the
+  /// decision was made over them rather than laundering it into a clean pass.
+  it("offers Keep even over a broken rule, and records that it was over one", async () => {
+    const user = userEvent.setup();
+    mocked.settleChangeRun.mockResolvedValue();
+    mocked.reviewSolutionChanges.mockResolvedValue(
+      review({
+        runId: 9,
+        runState: "reviewed",
+        changes: [
+          { path: "src/a.js", status: "modified", addedLines: 1, removedLines: 0, diff: "+x" },
+        ],
+        report: {
+          violations: [
+            { kind: "disallowedTech", path: "src/a.js", detail: "introduces jQuery" },
+          ],
+          notices: [],
+          filesChanged: 1,
+          addedLines: 1,
+          removedLines: 0,
+        },
+      }),
+    );
+    render(<SolutionBox solution={solution()} onPathChanged={vi.fn()} />);
+
+    await user.click(await screen.findByLabelText("Review changes in Shop API"));
+    const keep = await screen.findByLabelText("Keep the changes in Shop API");
+    expect(keep).toBeEnabled();
+
+    await user.click(keep);
+
+    await waitFor(() => expect(mocked.settleChangeRun).toHaveBeenCalledWith(9, "kept"));
+    expect(await screen.findByText(/with the broken rules above on the record/)).toBeInTheDocument();
+  });
+
+  it("records a discard, and says files are untouched", async () => {
+    const user = userEvent.setup();
+    mocked.settleChangeRun.mockResolvedValue();
+    mocked.reviewSolutionChanges.mockResolvedValue(
+      review({
+        runId: 9,
+        runState: "reviewed",
+        changes: [
+          { path: "src/a.rs", status: "modified", addedLines: 1, removedLines: 0, diff: "+x" },
+        ],
+        report: {
+          violations: [],
+          notices: [],
+          filesChanged: 1,
+          addedLines: 1,
+          removedLines: 0,
+        },
+      }),
+    );
+    render(<SolutionBox solution={solution()} onPathChanged={vi.fn()} />);
+
+    await user.click(await screen.findByLabelText("Review changes in Shop API"));
+    expect(await screen.findByText(/use git to actually revert/)).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("Discard the changes in Shop API"));
+
+    await waitFor(() => expect(mocked.settleChangeRun).toHaveBeenCalledWith(9, "discarded"));
+    expect(await screen.findByText(/Recorded as discarded/)).toBeInTheDocument();
+  });
+
+  /// No handover, nothing to settle — the buttons would record onto nothing.
+  it("offers no decision when there is no open handover", async () => {
+    const user = userEvent.setup();
+    mocked.reviewSolutionChanges.mockResolvedValue(
+      review({
+        changes: [
+          { path: "src/a.rs", status: "modified", addedLines: 1, removedLines: 0, diff: "+x" },
+        ],
+        report: {
+          violations: [],
+          notices: [],
+          filesChanged: 1,
+          addedLines: 1,
+          removedLines: 0,
+        },
+      }),
+    );
+    render(<SolutionBox solution={solution()} onPathChanged={vi.fn()} />);
+
+    await user.click(await screen.findByLabelText("Review changes in Shop API"));
+
+    await screen.findByText(/1 file changed/);
+    expect(screen.queryByLabelText(/^Keep the changes/)).not.toBeInTheDocument();
   });
 
   /// A folder that is not a repository has nothing to compare against, and the

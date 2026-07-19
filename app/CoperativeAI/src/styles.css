@@ -511,6 +511,14 @@ body {
   background: #fffbeb;
 }
 
+.settle-run {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.4rem 0;
+}
+
 .change-list {
   list-style: none;
   margin: 0.4rem 0 0;
