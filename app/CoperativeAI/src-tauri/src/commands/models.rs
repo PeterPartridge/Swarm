@@ -7,10 +7,14 @@
 //! the probes check conformance rather than similarity to Claude.
 
 use super::{to_message, AppDb};
-use crate::ai::client::Prompt;
-use crate::ai::validation::{self, ValidationReport};
 use crate::ai::backend;
-use crate::db::{ai_provider, developer_rules, model_install, product, solution_management, strategy};
+use crate::ai::client::{Prompt, Usage};
+use crate::ai::validation::{self, ValidationReport};
+use crate::commands::ai_run;
+use crate::db::{
+    ai_provider, ai_usage, developer_rules, model_install, product, product_budget,
+    solution_management, strategy,
+};
 use crate::{emit, pack};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -153,17 +157,67 @@ pub async fn install_model(
     // the path that overwrites rather than the one that protects hand edits.
     emit::write_generated(&root, &pack_files)?;
 
-    // 2 — run the probes. Failures are recorded, not raised: a model that
-    // cannot do the job is a result, not an error.
+    // 2 — check the budget before spending it. Installing runs five real calls,
+    // which a platform built to control AI spend cannot do unmetered.
+    //
+    // A free provider stays installable past the hard stop on purpose: running
+    // out of budget is exactly when someone needs to install the local model
+    // they intend to fall back to.
     let disallowed = {
         let conn = db.0.lock().await;
+        if provider.metered {
+            let budget = product_budget::get_for_product(&conn, product_id)
+                .await
+                .map_err(to_message)?;
+            if let Some(budget) = budget {
+                let since = product_budget::current_period_start(&budget, crate::db::now_millis());
+                let spend = ai_usage::spend_for_product(&conn, product_id, since)
+                    .await
+                    .map_err(to_message)?;
+                let used_pct = if budget.ai_budget_micropence > 0 {
+                    spend.micropence.saturating_mul(100) / budget.ai_budget_micropence
+                } else {
+                    0
+                };
+                if used_pct >= budget.hard_stop_pct {
+                    return Err(format!(
+                        "Installing '{model}' would run {PROBE_COUNT} paid calls, and this \
+                         Product's AI budget is spent ({used_pct}%). Raise the budget, or \
+                         install a local provider instead — those stay installable."
+                    ));
+                }
+            }
+        }
         developer_rules::get_for_product(&conn, product_id)
             .await
             .map_err(to_message)?
             .map(|r| r.disallowed_tech)
             .unwrap_or_default()
     };
-    let report = run_probes(&provider, &model, &disallowed).await;
+
+    // 3 — run the probes. Failures are recorded, not raised: a model that
+    // cannot do the job is a result, not an error.
+    let started = std::time::Instant::now();
+    let (report, usage) = run_probes(&provider, &model, &disallowed).await;
+    let latency_ms = started.elapsed().as_millis() as i64;
+
+    // Ledger what installation cost. It is spend like any other, and leaving it
+    // out would understate the bill by five calls per model tried.
+    {
+        let conn = db.0.lock().await;
+        ai_run::record(
+            &conn,
+            product_id,
+            None,
+            &provider,
+            &model,
+            "modelValidation",
+            &usage,
+            latency_ms,
+            if report.passed { "ok" } else { "declined" },
+        )
+        .await;
+    }
 
     // 3 — record the outcome. Only a clean sweep unlocks the model.
     let state = if report.passed { "installed" } else { "failed" };
@@ -177,13 +231,26 @@ pub async fn install_model(
     Ok(report)
 }
 
-/// The probes, run against the real model.
+/// How many real calls an installation makes. Stated as a constant because it
+/// is the figure quoted to the user when a budget refuses the install.
+const PROBE_COUNT: usize = 3;
+
+/// The probes, run against the real model, with everything they consumed.
 async fn run_probes(
     provider: &crate::db::ai_provider::AiProvider,
     model: &str,
     disallowed: &str,
-) -> ValidationReport {
+) -> (ValidationReport, Usage) {
     let mut probes = Vec::new();
+    let mut total = Usage::default();
+    // Sums what each probe cost, so the ledger records the whole installation
+    // rather than the last call of it.
+    let mut add = |usage: Usage| {
+        total.input_tokens += usage.input_tokens;
+        total.output_tokens += usage.output_tokens;
+        total.cache_read_input_tokens += usage.cache_read_input_tokens;
+        total.cache_creation_input_tokens += usage.cache_creation_input_tokens;
+    };
 
     // A deliberately complete brief — declining this one is a failure.
     let clear = Prompt {
@@ -196,11 +263,11 @@ async fn run_probes(
                one-to-three sentence description of what done looks like."
             .into(),
     };
-    probes.push(validation::check_work_items(
-        &backend::generate_stories(provider, model, "low", &clear)
-            .await
-            .map(|(g, _)| g),
-    ));
+    let clear_result = backend::generate_stories(provider, model, "low", &clear).await;
+    if let Ok((_, usage)) = &clear_result {
+        add(*usage);
+    }
+    probes.push(validation::check_work_items(&clear_result.map(|(g, _)| g)));
 
     // Strategy, architecture vocabulary, and rule obedience in one call.
     let mut strategy_context = String::from(
@@ -224,10 +291,13 @@ async fn run_probes(
                are using — do not list anything you are avoiding."
             .into(),
     };
+    let strategy_result =
+        backend::generate_solution_strategy(provider, model, "high", &strategy_prompt).await;
+    if let Ok((_, usage)) = &strategy_result {
+        add(*usage);
+    }
     probes.extend(validation::check_strategy(
-        &backend::generate_solution_strategy(provider, model, "high", &strategy_prompt)
-            .await
-            .map(|(g, _)| g),
+        &strategy_result.map(|(g, _)| g),
         disallowed,
     ));
 
@@ -243,11 +313,13 @@ async fn run_probes(
                it. Declining with a good question is a better outcome than inventing work."
             .into(),
     };
+    let hopeless_result = backend::generate_stories(provider, model, "low", &hopeless).await;
+    if let Ok((_, usage)) = &hopeless_result {
+        add(*usage);
+    }
     probes.push(validation::check_declines_vague(
-        &backend::generate_stories(provider, model, "low", &hopeless)
-            .await
-            .map(|(g, _)| g),
+        &hopeless_result.map(|(g, _)| g),
     ));
 
-    ValidationReport::finish(model, probes)
+    (ValidationReport::finish(model, probes), total)
 }

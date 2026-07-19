@@ -728,6 +728,15 @@ body {
   color: #991b1b;
 }
 
+/* Quieter than a violation on purpose — a notice, not a breach. */
+.rule-unlisted {
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 0.25rem;
+  padding: 0.4rem 0.5rem;
+  color: #92400e;
+}
+
 .architecture-options {
   list-style: none;
   margin: 0.4rem 0 0;

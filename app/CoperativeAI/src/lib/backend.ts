@@ -511,8 +511,12 @@ export interface SolutionStrategy {
   architectureOptions: string;
   chosenOptionIndex: number | null;
   techStack: string;
-  /** Forbidden technologies found in the AI's own output. */
+  /** Forbidden technologies found in the AI's own output — a rule is broken. */
   ruleViolations: string[];
+  /** Technologies not on the allow list. Not a rule break: an allow list of
+   *  languages does not forbid a queue or a cloud service, so this is a
+   *  question for a person rather than a violation. */
+  unlistedTech: string[];
 }
 
 export interface ArchitectureOption {

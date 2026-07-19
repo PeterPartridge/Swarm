@@ -94,6 +94,7 @@ describe("WorkItemViews", () => {
       chosenOptionIndex: null,
       techStack: "Java, Spring",
       ruleViolations: ["java"],
+      unlistedTech: [],
     });
     render(<WorkItemViews productId={7} />);
 
@@ -174,6 +175,31 @@ describe("WorkItemViews", () => {
     ).toBeInTheDocument();
   });
 
+  /// The distinction the live run forced: a technology that is merely unlisted
+  /// is a question, not a breach. Showing it as an error would train people to
+  /// ignore the errors that matter.
+  it("reports unlisted technology as a notice, not a violation", async () => {
+    const user = userEvent.setup();
+    mocked.getSolutionStrategy.mockResolvedValue({
+      workItemId: 1,
+      strategy: "Run it on Azure Functions.",
+      architectureOptions: "[]",
+      chosenOptionIndex: null,
+      techStack: "Rust, Azure Functions",
+      ruleViolations: [],
+      unlistedTech: [".NET 8", "Azure Functions"],
+    });
+    render(<WorkItemViews productId={7} />);
+
+    await user.click(await screen.findByRole("tab", { name: "List" }));
+    await user.click(screen.getByRole("button", { name: "Solution strategy for Checkout" }));
+
+    const notice = await screen.findByText(/Not on your allowed list/);
+    expect(notice).toHaveTextContent("Azure Functions");
+    // a notice, never an alert — that separation is the whole point
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("offers architecture options to choose between", async () => {
     const user = userEvent.setup();
     mocked.getSolutionStrategy.mockResolvedValue({
@@ -185,6 +211,7 @@ describe("WorkItemViews", () => {
       chosenOptionIndex: null,
       techStack: "Rust",
       ruleViolations: [],
+      unlistedTech: [],
     });
     mocked.chooseArchitectureOption.mockResolvedValue(undefined);
     render(<WorkItemViews productId={7} />);

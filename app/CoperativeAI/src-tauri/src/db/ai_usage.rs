@@ -19,6 +19,10 @@ pub const PURPOSES: &[&str] = &[
     "solutionStrategy",
     "recommendation",
     "connectionTest",
+    // Installing a model runs several real calls; they are spend like any other
+    // and are ledgered under their own purpose, so the cost of trying models out
+    // is visible rather than buried in feature work.
+    "modelValidation",
 ];
 
 /// How the call ended.

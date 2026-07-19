@@ -96,6 +96,18 @@ export default function SolutionStrategyPanel({
         </p>
       )}
 
+      {/* Deliberately quieter than a violation, and not an alert: an allow list
+          of languages does not forbid a queue, so this is a question rather
+          than a breach. Styling it as an error would train people to ignore
+          the real ones. */}
+      {strategy && strategy.unlistedTech.length > 0 && (
+        <p className="rule-unlisted" role="status">
+          Not on your allowed list:{" "}
+          <strong>{strategy.unlistedTech.join(", ")}</strong>. Add them if they
+          are fine, or say why they are not.
+        </p>
+      )}
+
       {strategy && (
         <>
           <p className="strategy-text">{strategy.strategy}</p>

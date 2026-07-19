@@ -30,8 +30,12 @@ pub struct SolutionStrategyDto {
     pub architecture_options: String,
     pub chosen_option_index: Option<i64>,
     pub tech_stack: String,
-    /// Disallowed technologies found in the AI's own output, if any.
+    /// Disallowed technologies found in the AI's own output, if any. A rule
+    /// has been broken.
     pub rule_violations: Vec<String>,
+    /// Technologies not on the allow list. Not a rule break — a question for a
+    /// person, kept separate so a notice never reads as a violation.
+    pub unlisted_tech: Vec<String>,
 }
 
 #[tauri::command]
@@ -99,16 +103,21 @@ pub async fn get_solution_strategy(
     // Re-check on read as well as on write: the rules may have tightened since
     // the strategy was generated, and a violation that appears later is still a
     // violation the developer should see.
-    let violations = match work_item::find_by_id(&conn, work_item_id).await.map_err(to_message)? {
-        Some(item) => match developer_rules::get_for_product(&conn, item.product_id)
-            .await
-            .map_err(to_message)?
-        {
-            Some(rules) => rule_violations(&rules.disallowed_tech, &stored),
-            None => Vec::new(),
-        },
-        None => Vec::new(),
-    };
+    let declared: Vec<String> = serde_json::from_str(&stored.technologies).unwrap_or_default();
+    let (violations, unlisted) =
+        match work_item::find_by_id(&conn, work_item_id).await.map_err(to_message)? {
+            Some(item) => match developer_rules::get_for_product(&conn, item.product_id)
+                .await
+                .map_err(to_message)?
+            {
+                Some(rules) => (
+                    violations_in_list(&rules.disallowed_tech, &declared),
+                    developer_rules::unlisted(&rules.allowed_tech, &declared),
+                ),
+                None => (Vec::new(), Vec::new()),
+            },
+            None => (Vec::new(), Vec::new()),
+        };
     Ok(Some(SolutionStrategyDto {
         work_item_id: stored.work_item_id,
         strategy: stored.strategy,
@@ -116,6 +125,7 @@ pub async fn get_solution_strategy(
         chosen_option_index: stored.chosen_option_index,
         tech_stack: stored.tech_stack,
         rule_violations: violations,
+        unlisted_tech: unlisted,
     }))
 }
 
@@ -126,12 +136,6 @@ pub async fn get_solution_strategy(
 /// "No Java or PHP anywhere" — the model had obeyed the prohibition exactly and
 /// the old text search reported it as a violation. A check that fires on
 /// correct behaviour teaches people to ignore it, which is worse than no check.
-fn rule_violations(disallowed: &str, stored: &solution_strategy::SolutionStrategy) -> Vec<String> {
-    let declared: Vec<String> =
-        serde_json::from_str(&stored.technologies).unwrap_or_default();
-    violations_in_list(disallowed, &declared)
-}
-
 fn violations_in_list(disallowed: &str, technologies: &[String]) -> Vec<String> {
     let mut found: Vec<String> = technologies
         .iter()
@@ -162,7 +166,7 @@ pub async fn generate_solution_strategy(
 ) -> Result<super::work_items::GenerationResult, String> {
     const PURPOSE: &str = "solutionStrategy";
 
-    let (routed, prompt, product_id, disallowed, effort_tier) = {
+    let (routed, prompt, product_id, disallowed, allowed, effort_tier) = {
         let conn = db.0.lock().await;
         let Some(item) = work_item::find_by_id(&conn, work_item_id)
             .await
@@ -214,7 +218,14 @@ pub async fn generate_solution_strategy(
         );
         // The item's policy owns the effort tier here too, rather than this
         // command deciding that architecture work is always worth "high".
-        (routed, prompt, product_id, rules.disallowed_tech, effort_tier)
+        (
+            routed,
+            prompt,
+            product_id,
+            rules.disallowed_tech,
+            rules.allowed_tech,
+            effort_tier,
+        )
     };
 
     let started = std::time::Instant::now();
@@ -268,6 +279,28 @@ pub async fn generate_solution_strategy(
                         violations.join(", ")
                     ),
                     "Regenerate, or relax the rule if it no longer applies.",
+                    None,
+                )
+                .await
+                .map_err(to_message)?;
+            }
+
+            // Unlisted technology is a question, not a breach. Recorded in
+            // different words on purpose — an allow list of languages does not
+            // mean a queue or a cloud service was forbidden, and calling this a
+            // violation would be the fastest way to make people stop reading
+            // violations.
+            let unlisted = developer_rules::unlisted(&allowed, &draft.technologies);
+            if !unlisted.is_empty() {
+                ai_feedback::record(
+                    &conn,
+                    work_item_id,
+                    "suggestion",
+                    &format!(
+                        "The strategy proposes technology that is not on this Product's allowed list: {}.",
+                        unlisted.join(", ")
+                    ),
+                    "Add them to the allowed technologies if they are fine, or say why they are not.",
                     None,
                 )
                 .await

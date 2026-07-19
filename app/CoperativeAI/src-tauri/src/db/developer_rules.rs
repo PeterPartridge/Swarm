@@ -128,6 +128,41 @@ pub fn violations(disallowed: &str, text: &str) -> Vec<String> {
         .collect()
 }
 
+/// Technologies the AI proposed that are not on the allow list.
+///
+/// Deliberately **softer than `violations`**, and the distinction matters.
+/// People write languages in an allow list — "Rust, TypeScript" — and mean
+/// languages, not "no database, no queue, no cloud". A live run proved the
+/// point: given that list, a model proposed Azure Functions and Service Bus,
+/// which are not violations of anything anyone intended. Treating unlisted as
+/// forbidden would fire on reasonable work and teach people to ignore the
+/// warnings, exactly how the earlier prose check failed.
+///
+/// So this reports *unlisted*, for a person to judge; `violations` reports
+/// *forbidden*, which is a rule. An empty allow list yields nothing — a blank
+/// field means "not constrained", never "nothing is permitted".
+pub fn unlisted(allowed: &str, technologies: &[String]) -> Vec<String> {
+    let permitted = split_terms(allowed);
+    if permitted.is_empty() {
+        return Vec::new();
+    }
+    let mut found: Vec<String> = technologies
+        .iter()
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .filter(|proposed| {
+            let lowered = proposed.to_lowercase();
+            // An allowed term covers anything it appears in, so "Rust" permits
+            // "Rust 1.89" and "Azure" permits "Azure Functions" — the list
+            // reads as families, not exact strings.
+            !permitted.iter().any(|p| contains_word(&lowered, p))
+        })
+        .collect();
+    found.sort();
+    found.dedup();
+    found
+}
+
 fn contains_word(haystack: &str, needle: &str) -> bool {
     if needle.is_empty() {
         return false;
@@ -231,6 +266,56 @@ mod tests {
             .flat_map(|t| violations("Java, PHP", t))
             .collect();
         assert!(from_list.is_empty(), "the declared list gets it right");
+    }
+
+    /// The exact case from the live run: allowed "Rust, TypeScript", model
+    /// proposed .NET and Azure. Those are unlisted, not forbidden — reporting
+    /// them as violations would be wrong.
+    #[test]
+    fn unlisted_technology_is_reported_without_being_called_a_violation() {
+        let proposed = [
+            "Rust".to_string(),
+            "TypeScript".to_string(),
+            ".NET 8".to_string(),
+            "Azure Functions".to_string(),
+        ];
+        assert_eq!(
+            unlisted("Rust, TypeScript", &proposed),
+            vec![".NET 8", "Azure Functions"]
+        );
+        // and none of it breaks a rule, because none of it is forbidden
+        let forbidden: Vec<String> = proposed
+            .iter()
+            .flat_map(|t| violations("Java, PHP", t))
+            .collect();
+        assert!(forbidden.is_empty());
+    }
+
+    /// An allowed term covers what it appears in, so a version or a service
+    /// family does not read as a new technology.
+    #[test]
+    fn an_allowed_term_covers_the_family_it_names() {
+        let proposed = [
+            "Rust 1.89".to_string(),
+            "Azure Functions".to_string(),
+            "Azure Service Bus".to_string(),
+        ];
+        assert!(unlisted("Rust, Azure", &proposed).is_empty());
+    }
+
+    /// A blank allow list means "not constrained", never "nothing permitted" —
+    /// otherwise leaving the field empty would flag every proposal.
+    #[test]
+    fn an_empty_allow_list_permits_everything() {
+        let proposed = ["Anything".to_string(), "At all".to_string()];
+        assert!(unlisted("", &proposed).is_empty());
+        assert!(unlisted("   ", &proposed).is_empty());
+    }
+
+    #[test]
+    fn unlisted_results_are_deduplicated_and_ordered() {
+        let proposed = ["Redis".to_string(), "Redis".to_string(), "Kafka".to_string()];
+        assert_eq!(unlisted("Rust", &proposed), vec!["Kafka", "Redis"]);
     }
 
     #[test]
