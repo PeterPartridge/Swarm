@@ -19,8 +19,18 @@ const EMPTY: Omit<DeveloperRules, "productId"> = {
 
 /** The constraints the AI must work within when proposing how to build
  *  something. These are not notes: disallowed technologies are stated as a
- *  prohibition in the prompt and the AI's answer is checked against them. */
-export default function DeveloperRulesEditor({ productId }: { productId: number }) {
+ *  prohibition in the prompt and the AI's answer is checked against them.
+ *
+ *  Editable in Admin, where policy lives. Rendered `readOnly` in the Develop
+ *  area so developers can see the rules they are working under without two
+ *  places claiming to own them — a copy that drifts is worse than a pointer. */
+export default function DeveloperRulesEditor({
+  productId,
+  readOnly = false,
+}: {
+  productId: number;
+  readOnly?: boolean;
+}) {
   const [rules, setRules] = useState({ ...EMPTY });
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -58,6 +68,7 @@ export default function DeveloperRulesEditor({ productId }: { productId: number 
         What the AI must follow when it proposes code, architecture or plans.
         Anything listed as <strong>disallowed</strong> is stated as a hard
         prohibition and the AI's answer is checked against it.
+        {readOnly && " These are set in the Admin area."}
       </p>
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
@@ -69,7 +80,8 @@ export default function DeveloperRulesEditor({ productId }: { productId: number 
             <textarea
               aria-label={field.label}
               defaultValue={rules[field.id] ?? ""}
-              onBlur={(e) => saveField(field.id, e.target.value)}
+              readOnly={readOnly}
+              onBlur={readOnly ? undefined : (e) => saveField(field.id, e.target.value)}
             />
           </label>
         ))}

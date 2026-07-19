@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import DeveloperRulesEditor from "../components/DeveloperRulesEditor";
 import {
   addTeamMember,
   createRole,
   deleteRole,
+  listProducts,
   listRoles,
   listTeamMembers,
   removeTeamMember,
   setMemberRole,
   updateRole,
+  type Product,
   type Role,
   type TeamMember,
 } from "../lib/backend";
@@ -36,16 +39,24 @@ export default function AdminArea() {
   const [error, setError] = useState<string | null>(null);
   const [memberName, setMemberName] = useState("");
   const [newRoleName, setNewRoleName] = useState("");
+  // Development policies are per-Product, so Admin has to say which one.
+  const [products, setProducts] = useState<Product[]>([]);
+  const [policyProduct, setPolicyProduct] = useState<number | "">("");
   const { reload: reloadPermissions } = usePermissions();
 
   const refresh = useCallback(async () => {
     try {
-      const [loadedMembers, loadedRoles] = await Promise.all([
+      const [loadedMembers, loadedRoles, loadedProducts] = await Promise.all([
         listTeamMembers(),
         listRoles(),
+        listProducts(),
       ]);
       setMembers(loadedMembers);
       setRoles(loadedRoles);
+      setProducts(loadedProducts);
+      setPolicyProduct((cur) =>
+        cur === "" && loadedProducts.length > 0 ? loadedProducts[0].id : cur,
+      );
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -86,6 +97,36 @@ export default function AdminArea() {
   return (
     <div className="admin-area">
       {error && <p role="alert">{error}</p>}
+
+      {/* Development policies live here rather than in Develop: they govern
+          what developers and the AI may do, so the people who set them are
+          not the same people they constrain. Develop shows them read-only. */}
+      <section className="admin-card" aria-label="Development policies">
+        <h2>Development policies</h2>
+        {products.length === 0 ? (
+          <p>No Products yet — policies are set per Product.</p>
+        ) : (
+          <>
+            <label className="develop-product-picker">
+              Product
+              <select
+                aria-label="Policy product"
+                value={policyProduct}
+                onChange={(e) => setPolicyProduct(Number(e.target.value))}
+              >
+                {products.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {policyProduct !== "" && (
+              <DeveloperRulesEditor productId={Number(policyProduct)} />
+            )}
+          </>
+        )}
+      </section>
 
       <section className="admin-card" aria-label="Team members">
         <h2>Team members</h2>

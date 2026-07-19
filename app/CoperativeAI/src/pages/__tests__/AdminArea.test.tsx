@@ -18,6 +18,9 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     updateRole: vi.fn(),
     deleteRole: vi.fn(),
     getActivePermissions: vi.fn(),
+    listProducts: vi.fn(),
+    getDeveloperRules: vi.fn(),
+    setDeveloperRules: vi.fn(),
   };
 });
 
@@ -64,6 +67,10 @@ describe("AdminArea", () => {
     vi.clearAllMocks();
     mocked.listTeamMembers.mockResolvedValue([member]);
     mocked.listRoles.mockResolvedValue([adminRole, devRole]);
+    mocked.listProducts.mockResolvedValue([
+      { id: 1, name: "Shop App", answers: "{}" },
+    ]);
+    mocked.getDeveloperRules.mockResolvedValue(null);
     mocked.getActivePermissions.mockResolvedValue({
       memberId: null,
       role: null,
@@ -123,5 +130,28 @@ describe("AdminArea", () => {
     expect(
       screen.getByRole("button", { name: "Delete role Developer" }),
     ).toBeInTheDocument();
+  });
+
+  /// Development policies moved here from Develop: they govern what developers
+  /// and the AI may do, so the people who set them are not the people they
+  /// constrain.
+  it("owns the development policies, editable, per Product", async () => {
+    renderAdmin();
+
+    expect(
+      await screen.findByRole("region", { name: "Development policies" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Policy product")).toBeInTheDocument();
+
+    const disallowed = await screen.findByLabelText("Disallowed technologies (enforced)");
+    expect(disallowed).not.toHaveAttribute("readonly");
+  });
+
+  it("says so rather than showing an empty picker when there are no Products", async () => {
+    mocked.listProducts.mockResolvedValue([]);
+    renderAdmin();
+
+    expect(await screen.findByText(/policies are set per Product/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Policy product")).not.toBeInTheDocument();
   });
 });

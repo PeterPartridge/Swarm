@@ -115,7 +115,10 @@ export default function DevelopSolutions() {
                 title="Technical Strategy"
                 fields={DEVELOP_STRATEGY_FIELDS}
               />
-              <DeveloperRulesEditor productId={Number(activeProduct)} />
+              {/* Read-only here — these are set in Admin. Two editors for one
+                  set of rules would drift, and the drift would be invisible
+                  until the AI obeyed the wrong copy. */}
+              <DeveloperRulesEditor productId={Number(activeProduct)} readOnly />
               <WorkItemViews productId={Number(activeProduct)} />
               <FrameworkFiles productId={Number(activeProduct)} />
             </>

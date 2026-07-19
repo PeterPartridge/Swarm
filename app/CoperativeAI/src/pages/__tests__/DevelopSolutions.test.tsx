@@ -232,6 +232,18 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     expect(screen.getByRole("button", { name: "Install tiny:1b" })).toBeInTheDocument();
   });
 
+  /// The other half of the move: Develop shows the rules developers work
+  /// under, but cannot edit them. Two editors for one set of rules would
+  /// drift, and the drift would be invisible until the AI obeyed the wrong
+  /// copy.
+  it("shows the developer rules read-only, pointing at Admin", async () => {
+    render(<DevelopSolutions />);
+
+    const disallowed = await screen.findByLabelText("Disallowed technologies (enforced)");
+    expect(disallowed).toHaveAttribute("readonly");
+    expect(screen.getByText(/set in the Admin area/)).toBeInTheDocument();
+  });
+
   it("offers to connect GitHub when no token is stored", async () => {
     render(<DevelopSolutions />);
     expect(await screen.findByRole("region", { name: "GitHub" })).toBeInTheDocument();
