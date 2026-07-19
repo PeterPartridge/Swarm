@@ -49,7 +49,7 @@ The plan staged this a–e: read-only Solution box, Monaco editor, Claude Code o
 
 ### Technical Debt
 
-- **No orchestration.** Launching a work item into its repo via Claude Code is not built, for the billing reason above. The brief and capability pack that would feed it already exist.
+- ~~**No orchestration.**~~ **Built, in the shape the constraint allows** — see the round below. The app assembles and hands over; it does not spawn the agent and shows no cost for the run.
 - **Review is read-only — there is no accept/reject.** The plan wanted per-file accept or reject; this shows the diff and the findings and leaves the acting to git. Accepting or rejecting a hunk means writing to a working copy, which this round deliberately does not do.
 - **`unlistedTech` is declared in the finding types and never produced.** The rules check needs a declared technology list, which a diff does not carry — inferring it from source would be guesswork. The variant is there because the type is shared with the strategy path; nothing emits it here.
 - **The diff is shown as plain text.** No syntax highlighting, no side-by-side, no per-hunk collapse. A large change is a wall.
@@ -57,3 +57,37 @@ The plan staged this a–e: read-only Solution box, Monaco editor, Claude Code o
 - **The file tree caps at depth 6 and 2000 entries.** It says when it truncated, but a large monorepo will hit both and there is no way to navigate past the cap.
 - **Not run in the real app.** Tauri UI cannot be exercised in a Vite preview. `workspace.rs` is covered by tests against real temporary directories; the panel is covered by mocked tests only.
 - **Standing: the Claude path is unproven live**, four rounds running.
+
+## Round 8c — The handover, designed around what cannot be measured
+
+### My Feedback
+
+The plan said change review would show *"the spend for that run from the ledger"*. It cannot, and that shaped the whole design.
+
+Claude Code bills against its own subscription or key. This app's ledger meters the API calls **it** makes. A figure presented here as the cost of a run would be a number the app cannot see — and a fabricated cost, in a tool whose entire purpose is honest cost control, would be the worst possible thing to ship. So the app builds the half it genuinely owns and says plainly what it does not.
+
+**What it owns is assembly**, and that turns out to be the valuable half. The brief gathers everything already known about a piece of work — description, the answers a person already gave to the AI's questions, the developer rules, the build strategy and the chosen architecture option, the Solution's diagrams, the planner's risk, and what other work is waiting on it — into one document written into the working copy.
+
+That is where tokens are actually saved, and the reason is worth stating precisely: **the expensive failure in agent coding is not the token count.** It is an agent told too little, which builds the wrong thing and has to be paid for twice. Saying everything once, in order, is the fix.
+
+Ordering is by what an agent needs first — the job, then the constraints, then the context. A brief opening with three pages of architecture buries the request underneath it.
+
+Two details came from thinking about failure rather than the happy path:
+- **A missing description is stated, not left as an empty heading.** An agent given only a title should know that is all there was, and a person reading the brief back should see the gap.
+- **A chosen architecture option is marked settled** — "build that one; do not re-open the decision" — because re-litigating a decided design is exactly how an agent burns a budget.
+
+**The command is shown, not executed.** Spawning it would make the app responsible for supervising a long-running interactive process it cannot control, and would *still* not tell it what the run cost.
+
+### Your Feedback
+
+- **The plan was wrong on a load-bearing point, and finding that changed the design rather than delaying it.** "Show the spend from the ledger" was one clause in R4c, and it turned out to be the clause that decided whether orchestration could be built at all. Working around it produced something better scoped than the original — the app does the part it can do well and is honest about the rest.
+- **`ChangeRun` has no cost column, deliberately.** A `cost` field would be filled with a guess or a zero, and both would be read as fact. Leaving a column out is a design decision worth recording, because the next person to look will wonder where it went.
+- **Whether a change was kept is recorded from what the developer says**, not inferred. The app cannot see whether anything was committed, and guessing would put a wrong answer in the history.
+
+### Technical Debt
+
+- **Nothing verifies the agent ever ran.** A prepared run sits at `prepared` until someone reviews or settles it, and a brief written and forgotten looks identical to one in progress.
+- **The brief is regenerated wholesale each time**, overwriting the previous one at the same path. There is no history of what an agent was told on an earlier attempt, which is the first thing you would want when a second attempt goes wrong.
+- **`settle_change_run` is built and not yet wired to any button.** The command exists; the review panel does not offer kept/discarded.
+- **Architecture selection is coarse** — the brief carries this Solution's documents *and* every Product-wide one. For a Product with many diagrams that is a large brief.
+- **No estimate is offered either.** The estimator could price what the work *would* cost at API rates, clearly labelled — that would be honest and useful, and it is not built.
