@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import SprintCapacity from "./SprintCapacity";
 import {
   createSprint,
   getPlanningHierarchy,
@@ -84,7 +85,15 @@ export default function RoadMap({ productId }: RoadMapProps) {
   // The roadmap shows the planning hierarchy's items (bugs/tests stay on the board).
   const roadmapItems = items.filter((i) => hierarchy.includes(i.itemType));
 
-  const lanes: { key: string; heading: string; subtitle: string; items: WorkItem[] }[] =
+  const lanes: {
+    key: string;
+    heading: string;
+    subtitle: string;
+    items: WorkItem[];
+    /** Set on real sprints only — capacity is a sprint idea, so the
+     *  Unscheduled lane and kanban status lanes have none. */
+    sprintId?: number;
+  }[] =
     mode === "sprints"
       ? [
           ...sprints.map((sprint) => ({
@@ -92,6 +101,7 @@ export default function RoadMap({ productId }: RoadMapProps) {
             heading: sprint.name,
             subtitle: dateRange(sprint.startDate, sprint.endDate),
             items: roadmapItems.filter((i) => i.sprintId === sprint.id),
+            sprintId: sprint.id,
           })),
           {
             key: "unscheduled",
@@ -153,6 +163,9 @@ export default function RoadMap({ productId }: RoadMapProps) {
             ))}
             {lane.items.length === 0 && <p className="lane-empty">Nothing here yet.</p>}
           </div>
+          {lane.sprintId !== undefined && (
+            <SprintCapacity sprintId={lane.sprintId} sprintName={lane.heading} />
+          )}
         </section>
       ))}
     </div>

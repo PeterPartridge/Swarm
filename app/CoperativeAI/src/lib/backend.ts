@@ -440,6 +440,25 @@ export const updateTestCase = (args: {
 export const deleteTestCase = (id: number): Promise<void> =>
   invoke("delete_test_case", { id });
 
+/** What one person has available in a sprint, beside what they have been
+ *  given. `assignedItems` is a count of work items, not estimated effort —
+ *  work items carry no estimate, so this is a weak signal shown honestly
+ *  rather than arithmetic that looks precise. */
+export interface MemberLoad {
+  teamMemberId: number;
+  capacity: number;
+  assignedItems: number;
+}
+
+export const getSprintLoad = (sprintId: number): Promise<MemberLoad[]> =>
+  invoke("get_sprint_load", { sprintId });
+export const setSprintCapacity = (
+  sprintId: number,
+  teamMemberId: number,
+  capacity: number,
+): Promise<number> =>
+  invoke("set_sprint_capacity", { sprintId, teamMemberId, capacity });
+
 // Sprints
 export const listSprints = (productId: number): Promise<Sprint[]> =>
   invoke("list_sprints", { productId });

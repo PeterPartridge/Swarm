@@ -13,6 +13,9 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     createSprint: vi.fn(),
     getRoadmapMode: vi.fn(),
     getPlanningHierarchy: vi.fn(),
+    getSprintLoad: vi.fn(),
+    setSprintCapacity: vi.fn(),
+    listTeamMembers: vi.fn(),
   };
 });
 
@@ -61,6 +64,8 @@ describe("RoadMap", () => {
     ]);
     mocked.getRoadmapMode.mockResolvedValue("sprints");
     mocked.listSprints.mockResolvedValue([datedSprint]);
+    mocked.listTeamMembers.mockResolvedValue([]);
+    mocked.getSprintLoad.mockResolvedValue([]);
     mocked.listWorkItems.mockResolvedValue([
       item({ id: 1, title: "Checkout", sprintId: 9 }),
       item({ id: 2, title: "Search", sprintId: null }),
@@ -110,5 +115,35 @@ describe("RoadMap", () => {
         endDate: null,
       }),
     );
+  });
+
+  /// The point of the panel: someone holding more than they said they had.
+  it("flags a member carrying more items than their capacity", async () => {
+    mocked.listTeamMembers.mockResolvedValue([
+      { id: 5, name: "Ada", roleId: null },
+    ]);
+    mocked.getSprintLoad.mockResolvedValue([
+      { teamMemberId: 5, capacity: 2, assignedItems: 4 },
+    ]);
+    render(<RoadMap productId={7} />);
+
+    expect(
+      await screen.findByRole("region", { name: "Capacity for Sprint 1" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/4 items assigned — over capacity/)).toBeInTheDocument();
+  });
+
+  /// A count of items is not effort, and the panel must not imply otherwise.
+  it("says the comparison is item count, not effort", async () => {
+    mocked.listTeamMembers.mockResolvedValue([
+      { id: 5, name: "Ada", roleId: null },
+    ]);
+    mocked.getSprintLoad.mockResolvedValue([
+      { teamMemberId: 5, capacity: 8, assignedItems: 1 },
+    ]);
+    render(<RoadMap productId={7} />);
+
+    expect(await screen.findByText(/rough signal, not effort/)).toBeInTheDocument();
+    expect(screen.queryByText(/over capacity/)).not.toBeInTheDocument();
   });
 });

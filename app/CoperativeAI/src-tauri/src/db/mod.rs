@@ -21,6 +21,7 @@ pub mod solution;
 pub mod solution_management;
 pub mod solution_strategy;
 pub mod sprint;
+pub mod sprint_capacity;
 pub mod strategy;
 pub mod system_setting;
 pub mod team_member;
@@ -75,6 +76,8 @@ pub async fn create_all_tables(conn: &Connection) -> Result<()> {
     team_member::create_table(conn).await?;
     deliverable::create_table(conn).await?;
     sprint::create_table(conn).await?;
+    // after sprint + team_member: capacity names both
+    sprint_capacity::create_table(conn).await?;
     solution::create_table(conn).await?;
     repository::create_table(conn).await?;
     work_item::create_table(conn).await?;

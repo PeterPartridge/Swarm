@@ -93,6 +93,8 @@ fn main() {
             commands::sprints::list_sprints,
             commands::sprints::create_sprint,
             commands::sprints::remove_sprint,
+            commands::capacity::get_sprint_load,
+            commands::capacity::set_sprint_capacity,
             commands::settings::get_planning_hierarchy,
             commands::settings::set_planning_hierarchy,
             commands::settings::get_roadmap_mode,
