@@ -32,6 +32,8 @@
       { "fieldName": "sprintId", "type": "id / key", "nullable": true, "default": "", "rules": "must reference a Sprint row of the same Product when set", "description": "The sprint the item is scheduled into" },
       { "fieldName": "startDate", "type": "date", "nullable": true, "default": "", "rules": "", "description": "Optional start date — teams that don't set times leave this empty" },
       { "fieldName": "endDate", "type": "date", "nullable": true, "default": "", "rules": "must not be before startDate when both are set", "description": "Optional target date" },
+      { "fieldName": "risk", "type": "text", "nullable": false, "default": "", "rules": "", "description": "What could go wrong with this piece of work, in the planner's own words. Free text on purpose — a risk that has to be picked from a dropdown is a risk nobody writes down" },
+      { "fieldName": "solutionId", "type": "id / key", "nullable": true, "default": "", "rules": "must reference a Solution of the same Product when set", "description": "The Solution this work touches, and so the repository it lands in. Nullable because plenty of work is not code" },
       { "fieldName": "createdAt", "type": "date", "nullable": false, "default": "now", "rules": "", "description": "When the item was created" },
       { "fieldName": "updatedAt", "type": "date", "nullable": false, "default": "now", "rules": "updated on every change", "description": "When the item last changed" }
     ]
@@ -42,7 +44,8 @@
       { "field": "productId", "relationship": "many-to-one", "relatedTable": "Product", "relatedField": "id", "constraintName": "FK_WorkItem_Product" },
       { "field": "parentItemId", "relationship": "many-to-one", "relatedTable": "WorkItem", "relatedField": "id", "constraintName": "FK_WorkItem_Parent" },
       { "field": "assigneeId", "relationship": "many-to-one", "relatedTable": "TeamMember", "relatedField": "id", "constraintName": "FK_WorkItem_Assignee" },
-      { "field": "sprintId", "relationship": "many-to-one", "relatedTable": "Sprint", "relatedField": "id", "constraintName": "FK_WorkItem_Sprint" }
+      { "field": "sprintId", "relationship": "many-to-one", "relatedTable": "Sprint", "relatedField": "id", "constraintName": "FK_WorkItem_Sprint" },
+      { "field": "solutionId", "relationship": "many-to-one", "relatedTable": "Solution", "relatedField": "id", "constraintName": "FK_WorkItem_Solution" }
     ]
   },
   "lookupsAndPerformance": {
@@ -67,7 +70,8 @@
     "guidance": "Each time you come back to change this model, add an entry describing what should change.",
     "rounds": [
       { "round": 2, "change": "Planning now attaches to Products, not repositories: productId replaces repositoryId. itemType list becomes epic/feature/userStory/task (the hierarchy, governed by the planningHierarchy setting) plus bug/test (any level). New optional fields: assigneeId (TeamMember), sprintId (Sprint), startDate, endDate — all nullable so teams that don't assign or schedule aren't forced to." },
-      { "round": 3, "change": "Add a Deliverable link and commercial fields: deliverableId (nullable FK → Deliverable of the same Product), expectedCost, estimatedProfit (nullable money), chargeable (yes/no, default no), customerCoverPct (nullable 0–100). The three commercial fields' visibility is gated per Role in the UI (Role.seeCost/seeProfit/seeChargeable)." }
+      { "round": 3, "change": "Add a Deliverable link and commercial fields: deliverableId (nullable FK → Deliverable of the same Product), expectedCost, estimatedProfit (nullable money), chargeable (yes/no, default no), customerCoverPct (nullable 0–100). The three commercial fields' visibility is gated per Role in the UI (Role.seeCost/seeProfit/seeChargeable)." },
+      { "round": 8, "change": "Planning becomes execution-only, so work items carry what executing them needs: risk (free text — what could go wrong, in the planner's words) and solutionId (nullable FK → Solution of the same Product, which is how a piece of work reaches a repository). Both are added with ALTER TABLE rather than the drop-and-recreate used elsewhere: work items are a team's actual plan, the one thing in this database nobody could reconstruct." }
     ]
   }
 }

@@ -9,17 +9,25 @@ import {
   getPlanningHierarchy,
   listDeliverables,
   listSprints,
+  listSolutions,
   listTeamMembers,
   listWorkItems,
+  listWorkItemLinks,
+  linkWorkItems,
+  unlinkWorkItems,
   updateWorkItem,
   updateWorkItemStatus,
   ANY_LEVEL_TYPES,
   STATUSES,
   TYPE_LABELS,
+  WORK_ITEM_LINK_KINDS,
   type Deliverable,
+  type Solution,
   type Sprint,
   type TeamMember,
   type WorkItem,
+  type WorkItemLink,
+  type WorkItemLinkKind,
 } from "../lib/backend";
 
 interface PlanningBoardProps {
@@ -60,7 +68,134 @@ function optimisticItem(
     estimatedProfit: null,
     chargeable: false,
     customerCoverPct: null,
+    risk: "",
+    solutionId: null,
   };
+}
+
+const LINK_LABELS: Record<WorkItemLinkKind, string> = {
+  blocks: "blocks",
+  relatesTo: "relates to",
+};
+
+/** What a work item waits on and what waits on it. Two items in different
+ *  Solutions are a cross-repo dependency, which is the case worth spotting —
+ *  so it is labelled rather than left for the reader to work out. */
+function WorkItemDependencies({
+  item,
+  items,
+  links,
+  solutionOf,
+  isCrossRepo,
+  open,
+  onOpen,
+  onLink,
+  onUnlink,
+}: {
+  item: WorkItem;
+  items: WorkItem[];
+  links: WorkItemLink[];
+  solutionOf: (id: number | null) => Solution | undefined;
+  isCrossRepo: (link: WorkItemLink) => boolean;
+  open: boolean;
+  onOpen: () => void;
+  onLink: (toWorkItemId: number, kind: WorkItemLinkKind) => void;
+  onUnlink: (id: number) => void;
+}) {
+  const [target, setTarget] = useState("");
+  const [kind, setKind] = useState<WorkItemLinkKind>("blocks");
+
+  const outgoing = links.filter((l) => l.fromWorkItemId === item.id);
+  const incoming = links.filter((l) => l.toWorkItemId === item.id);
+  const titleOf = (id: number) => items.find((i) => i.id === id)?.title ?? `#${id}`;
+  const candidates = items.filter(
+    (other) =>
+      other.id !== item.id &&
+      other.id > 0 &&
+      !outgoing.some((l) => l.toWorkItemId === other.id && l.kind === kind),
+  );
+
+  function describe(link: WorkItemLink, otherId: number) {
+    const other = solutionOf(items.find((i) => i.id === otherId)?.solutionId ?? null);
+    return isCrossRepo(link) && other ? ` (in ${other.name})` : "";
+  }
+
+  return (
+    <section className="card-dependencies" aria-label={`Dependencies of ${item.title}`}>
+      {outgoing.length + incoming.length > 0 && (
+        <ul>
+          {outgoing.map((l) => (
+            <li key={l.id} className={isCrossRepo(l) ? "cross-repo" : ""}>
+              <span>
+                {LINK_LABELS[l.kind]} {titleOf(l.toWorkItemId)}
+                {describe(l, l.toWorkItemId)}
+              </span>
+              <button
+                aria-label={`Remove dependency on ${titleOf(l.toWorkItemId)} from ${item.title}`}
+                onClick={() => onUnlink(l.id)}
+              >
+                ×
+              </button>
+            </li>
+          ))}
+          {/* What waits on you matters as much as what you wait on, but it is
+              not yours to remove — the other item owns that link. */}
+          {incoming.map((l) => (
+            <li key={l.id} className={isCrossRepo(l) ? "cross-repo" : ""}>
+              <span className="incoming">
+                {titleOf(l.fromWorkItemId)} {LINK_LABELS[l.kind]} this
+                {describe(l, l.fromWorkItemId)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <button aria-label={`Add dependency to ${item.title}`} onClick={onOpen}>
+        {open ? "Cancel" : "Add dependency"}
+      </button>
+      {open && (
+        <div className="dependency-form">
+          <select
+            aria-label={`Dependency kind for ${item.title}`}
+            value={kind}
+            onChange={(e) => setKind(e.target.value as WorkItemLinkKind)}
+          >
+            {WORK_ITEM_LINK_KINDS.map((k) => (
+              <option key={k} value={k}>
+                {LINK_LABELS[k]}
+              </option>
+            ))}
+          </select>
+          <select
+            aria-label={`Dependency target for ${item.title}`}
+            value={target}
+            onChange={(e) => setTarget(e.target.value)}
+          >
+            <option value="">Choose a work item</option>
+            {candidates.map((c) => {
+              const s = solutionOf(c.solutionId);
+              return (
+                <option key={c.id} value={c.id}>
+                  {c.title}
+                  {s ? ` — ${s.name}` : ""}
+                </option>
+              );
+            })}
+          </select>
+          <button
+            aria-label={`Save dependency for ${item.title}`}
+            disabled={target === ""}
+            onClick={() => {
+              onLink(Number(target), kind);
+              setTarget("");
+            }}
+          >
+            Link
+          </button>
+        </div>
+      )}
+    </section>
+  );
 }
 
 export default function PlanningBoard({ productId }: PlanningBoardProps) {
@@ -69,6 +204,9 @@ export default function PlanningBoard({ productId }: PlanningBoardProps) {
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [sprints, setSprints] = useState<Sprint[]>([]);
   const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
+  const [solutions, setSolutions] = useState<Solution[]>([]);
+  const [links, setLinks] = useState<WorkItemLink[]>([]);
+  const [linkFrom, setLinkFrom] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [title, setTitle] = useState("");
@@ -81,19 +219,32 @@ export default function PlanningBoard({ productId }: PlanningBoardProps) {
 
   const refresh = useCallback(async () => {
     try {
-      const [loadedItems, loadedHierarchy, loadedMembers, loadedSprints, loadedDeliverables] =
-        await Promise.all([
-          listWorkItems(productId),
-          getPlanningHierarchy(),
-          listTeamMembers(),
-          listSprints(productId),
-          listDeliverables(productId),
-        ]);
+      const [
+        loadedItems,
+        loadedHierarchy,
+        loadedMembers,
+        loadedSprints,
+        loadedDeliverables,
+        loadedSolutions,
+        loadedLinks,
+      ] = await Promise.all([
+        listWorkItems(productId),
+        getPlanningHierarchy(),
+        listTeamMembers(),
+        listSprints(productId),
+        listDeliverables(productId),
+        listSolutions(),
+        listWorkItemLinks(productId),
+      ]);
       setItems(loadedItems);
       setHierarchy(loadedHierarchy);
       setMembers(loadedMembers);
       setSprints(loadedSprints);
       setDeliverables(loadedDeliverables);
+      // Solutions are listed app-wide; work can only land in one of its own
+      // Product's, and the backend refuses anything else.
+      setSolutions(loadedSolutions.filter((s) => s.productId === productId));
+      setLinks(loadedLinks);
       setItemType((t) => (t === "" ? loadedHierarchy[0] : t));
       setError(null);
     } catch (e) {
@@ -189,12 +340,26 @@ export default function PlanningBoard({ productId }: PlanningBoardProps) {
         estimatedProfit: m.estimatedProfit,
         chargeable: m.chargeable,
         customerCoverPct: m.customerCoverPct,
+        risk: m.risk,
+        solutionId: m.solutionId,
       }),
     );
   }
 
   const numberOrNull = (v: string): number | null =>
     v.trim() === "" ? null : Number(v);
+
+  const solutionOf = (id: number | null) =>
+    solutions.find((s) => s.id === id);
+  const itemById = (id: number) => items.find((i) => i.id === id);
+
+  /** A link is cross-repo when the two items sit in different Solutions, and
+   *  so in different repositories. Derived, never stored — one fact, held once. */
+  function isCrossRepo(link: WorkItemLink): boolean {
+    const from = itemById(link.fromWorkItemId)?.solutionId ?? null;
+    const to = itemById(link.toWorkItemId)?.solutionId ?? null;
+    return from !== null && to !== null && from !== to;
+  }
 
   const showAiButton = hierarchy.includes("userStory");
   const showCommercial =
@@ -290,6 +455,53 @@ export default function PlanningBoard({ productId }: PlanningBoardProps) {
                       </option>
                     ))}
                   </select>
+                  {solutions.length > 0 && (
+                    <select
+                      aria-label={`Solution of ${item.title}`}
+                      value={item.solutionId ?? ""}
+                      onChange={(e) =>
+                        commit(item, {
+                          solutionId: e.target.value === "" ? null : Number(e.target.value),
+                        })
+                      }
+                    >
+                      {/* Plenty of work is not code, so no Solution is a real answer. */}
+                      <option value="">No Solution</option>
+                      {solutions.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+
+                  <div className="field card-risk">
+                    <span>Risk</span>
+                    <textarea
+                      rows={2}
+                      aria-label={`Risk of ${item.title}`}
+                      placeholder="What could go wrong?"
+                      defaultValue={item.risk}
+                      onBlur={(e) => commit(item, { risk: e.target.value })}
+                    />
+                  </div>
+
+                  <WorkItemDependencies
+                    item={item}
+                    items={items}
+                    links={links}
+                    solutionOf={solutionOf}
+                    isCrossRepo={isCrossRepo}
+                    open={linkFrom === item.id}
+                    onOpen={() => setLinkFrom(linkFrom === item.id ? null : item.id)}
+                    onLink={(to, kind) =>
+                      run(async () => {
+                        await linkWorkItems(item.id, to, kind);
+                        setLinkFrom(null);
+                      })
+                    }
+                    onUnlink={(id) => run(() => unlinkWorkItems(id))}
+                  />
 
                   {showCommercial && (
                     <div className="card-commercial">

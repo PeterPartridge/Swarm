@@ -27,6 +27,7 @@ pub mod system_setting;
 pub mod team_member;
 pub mod test_case;
 pub mod work_item;
+pub mod work_item_link;
 pub mod work_item_policy;
 
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -81,6 +82,8 @@ pub async fn create_all_tables(conn: &Connection) -> Result<()> {
     solution::create_table(conn).await?;
     repository::create_table(conn).await?;
     work_item::create_table(conn).await?;
+    // after work_item: links name two of them
+    work_item_link::create_table(conn).await?;
     ai_provider::create_table(conn).await?;
     work_item_policy::create_table(conn).await?;
     product_policy::create_table(conn).await?;

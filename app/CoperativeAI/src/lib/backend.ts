@@ -115,7 +115,26 @@ export interface WorkItem {
   estimatedProfit: number | null;
   chargeable: boolean;
   customerCoverPct: number | null;
+  /** Free text — what could go wrong, in the planner's own words. */
+  risk: string;
+  /** The Solution this work touches, and so the repository it lands in.
+   *  Null for the plenty of work that is not code. */
+  solutionId: number | null;
 }
+
+/** A dependency between two work items. When their Solutions differ this is a
+ *  cross-repo dependency — derived from `solutionId`, never stored twice. */
+export interface WorkItemLink {
+  id: number;
+  fromWorkItemId: number;
+  toWorkItemId: number;
+  kind: WorkItemLinkKind;
+}
+
+/** `blocks` orders work and must stay acyclic; `relatesTo` implies no order. */
+export type WorkItemLinkKind = "blocks" | "relatesTo";
+
+export const WORK_ITEM_LINK_KINDS: WorkItemLinkKind[] = ["blocks", "relatesTo"];
 
 export interface Repository {
   id: number;
@@ -503,9 +522,22 @@ export const updateWorkItem = (args: {
   estimatedProfit: number | null;
   chargeable: boolean;
   customerCoverPct: number | null;
+  risk: string;
+  solutionId: number | null;
 }): Promise<void> => invoke("update_work_item", args);
 export const deleteWorkItem = (id: number): Promise<void> =>
   invoke("delete_work_item", { id });
+/** Every link out of this Product's items — one call for a whole board. */
+export const listWorkItemLinks = (productId: number): Promise<WorkItemLink[]> =>
+  invoke("list_work_item_links", { productId });
+export const linkWorkItems = (
+  fromWorkItemId: number,
+  toWorkItemId: number,
+  kind: WorkItemLinkKind,
+): Promise<number> =>
+  invoke("link_work_items", { fromWorkItemId, toWorkItemId, kind });
+export const unlinkWorkItems = (id: number): Promise<void> =>
+  invoke("unlink_work_items", { id });
 /** What a generation produced, and which provider actually ran it. `reason`
  *  explains the routing — it says so when a budget handed the work to a local
  *  model, because that changes the quality of what comes back. */

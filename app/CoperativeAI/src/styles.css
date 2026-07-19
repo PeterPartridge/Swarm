@@ -315,6 +315,63 @@ body {
   width: 5rem;
 }
 
+.card-risk {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.75rem;
+}
+
+.card-risk span {
+  color: #6b7280;
+}
+
+.card-risk textarea {
+  resize: vertical;
+  font: inherit;
+}
+
+.card-dependencies {
+  border-top: 1px dashed #e5e7eb;
+  padding-top: 0.35rem;
+  font-size: 0.75rem;
+}
+
+.card-dependencies ul {
+  list-style: none;
+  margin: 0 0 0.3rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.card-dependencies li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.3rem;
+}
+
+/* What waits on you is context, not something you own — so it reads quieter
+   and carries no remove button. */
+.card-dependencies .incoming {
+  color: #6b7280;
+}
+
+/* A dependency that crosses a repository is the one worth spotting. */
+.card-dependencies li.cross-repo {
+  border-left: 2px solid #f59e0b;
+  padding-left: 0.3rem;
+}
+
+.dependency-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.25rem;
+}
+
 .planning-screen {
   display: flex;
   flex-direction: column;

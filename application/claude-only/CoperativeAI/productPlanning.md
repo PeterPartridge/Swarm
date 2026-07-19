@@ -109,6 +109,45 @@ The economics hold up as well: **91 output tokens to decline against 126 to prod
 - Nothing detects the model asking the *same* question twice; a user could answer it repeatedly.
 - `AiQuestions` fetches per card, so a board of 30 items makes 30 calls on render.
 
+## Round 8 — Strategy above, execution below
+
+### My Feedback
+
+The requirement was a restructure: Strategy top-level and absorbing the creation questions, Planning execution-only, Admin holding every policy, plus a Marketing & Design area and a rebuilt Developer Workspace. This section covers the first part — the restructure itself. Marketing & Design and the Workspace are separate rounds.
+
+**Roughly 60% of it already existed.** Strategy, deliverables, budgets, policies and the board were all built; what was wrong was *where they lived*. So most of this round is moving and linking rather than building, and the plan said so explicitly to avoid rebuilding working code.
+
+Five pieces shipped:
+
+1. **The Product brief moved into Strategy**, and gained the four questions the creation card never asked — commercial model, long-term roadmap, constraints, risks. Creating a Product still asks a short form; the full set is edited afterwards, because a creation card that asks fifteen questions is a card people abandon.
+
+2. **Deliverables can depend on each other**, with cycle detection. A deliverable cannot depend on itself directly or transitively; the walk has a 1000-step guard so a corrupted chain cannot hang the app instead of erroring.
+
+3. **Admin absorbed the policies.** The Developer Rules editor moved out of Develop; Develop now links to Admin rather than holding a second copy.
+
+4. **Sprint capacity** — one number per member per sprint, in whatever unit the team already uses. Compared against a **count of work items, not effort**, which the panel states in plain words because work items carry no estimate and inventing one would be a guess dressed as arithmetic.
+
+5. **Risk and cross-repo links on work items** — the two pieces that make Planning genuinely execution-only. See [`../CoperativeAIdb/WorkItem-model.md`](../CoperativeAIdb/WorkItem-model.md) and [`../CoperativeAIdb/WorkItemLink-model.md`](../CoperativeAIdb/WorkItemLink-model.md).
+
+The decision worth restating: **cross-repo is derived, never stored.** A work item points at a Solution and a Solution at a repository, so "these two are in different repos" is already answerable. A stored flag would be a second copy of that fact, and the two would eventually disagree.
+
+### Your Feedback
+
+- **This round's bookkeeping was four commits late.** The brief, the mirrors and the Code_map went unwritten while five commits landed, and I only noticed when I went looking for the round number. The specs are supposed to be how the next session learns what happened — five commits of silence is exactly the gap they exist to prevent. Caught up here, but the honest note is that it was caught late rather than kept current.
+- **The migration pattern finally split, and it should have split earlier.** Every table in this project drops and recreates, which is fine for data the app regenerates. Work items are not that — they are the team's actual plan. `risk` and `solutionId` therefore use `ALTER TABLE ADD COLUMN`. The right rule is not "pre-release means drop-and-recreate", it is "drop what the app can rebuild, preserve what only a person could have written", and that distinction was available from the start.
+- **A real bug surfaced while writing the debt list.** Documenting "`solutionId` could dangle when a Solution is deleted" was about to be filed as known debt; it was a one-line fix and a test, so it was fixed instead. Writing debt honestly is a decent bug detector — but the lesson is that "known debt" is sometimes just an unfixed bug wearing a better name.
+- **Capacity says out loud that it is not effort.** A test pins that wording. Numbers in a planning tool are read as precise whether or not they are, so the panel has to disclaim itself.
+
+### Technical Debt
+
+- **The cycle check is not transactional.** Both deliverable dependencies and work-item `blocks` links walk the graph, then insert, with no transaction spanning the two. Two links added at the same instant could both pass and together form a loop. Single-user desktop app, so this is theoretical — and it stops being theoretical the moment anything concurrent touches these tables.
+- **`list_work_item_links` returns links whose *source* is in the Product.** A link from another Product's item into this one is invisible here. The right default — the source owns its dependency — but it means an item can be blocked by something its own board never mentions.
+- **Dependencies render as a flat list per card.** Nothing draws the graph, so a five-deep blocking chain has to be assembled by reading five cards.
+- **Moving policies to Admin left redirects.** Develop's rule editor is now a read-only view pointing at Admin; a stale bookmark or muscle memory lands somewhere that no longer edits.
+- **Capacity is deliberately crude** — a number per member per sprint, no calendar, no holidays, no part-time handling, no carry-over. A model demanding all of that before it says anything useful is one nobody fills in, but it does mean the number is only as good as the honesty behind it.
+- **The board loads every Solution in the app** and filters by Product client-side, because `list_solutions` takes no Product argument.
+- **Standing, and now the oldest item on this list: the Claude path is unproven live.** Caching, `usage` capture and pricing have never run against a real Anthropic response. Ollama is proven; Claude is not. `ANTHROPIC_API_KEY=sk-... cargo test -- --ignored caching_is_live` closes it, and only you can run it — I will not handle your key.
+
 ## Round 6b — Who may manage the budget
 
 ### My Feedback

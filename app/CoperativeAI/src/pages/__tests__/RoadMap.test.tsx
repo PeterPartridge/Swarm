@@ -41,6 +41,8 @@ function item(overrides: Partial<WorkItem>): WorkItem {
     estimatedProfit: null,
     chargeable: false,
     customerCoverPct: null,
+    risk: "",
+    solutionId: null,
     ...overrides,
   };
 }

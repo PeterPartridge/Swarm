@@ -141,6 +141,13 @@ pub async fn list_by_product(conn: &Connection, product_id: i64) -> Result<Vec<S
 }
 
 pub async fn delete(conn: &Connection, id: i64) -> Result<()> {
+    // Work planned against this Solution is unlinked, never deleted — the work
+    // still needs doing, it just no longer knows where it lands.
+    conn.execute(
+        "UPDATE work_items SET solutionId = NULL WHERE solutionId = ?1",
+        (id,),
+    )
+    .await?;
     conn.execute("DELETE FROM solutions WHERE id = ?1", (id,))
         .await?;
     Ok(())
@@ -226,6 +233,26 @@ mod tests {
             .await
             .expect("product")
             .is_some());
+    }
+
+    /// The work still needs doing — it just no longer knows where it lands.
+    #[tokio::test]
+    async fn deleting_a_solution_unlinks_its_work_rather_than_deleting_it() {
+        use crate::db::work_item::{self, WorkItemFields};
+        let (conn, product_id) = db_with_product().await;
+        let id = create(&conn, "API", product_id, "api", "{}").await.expect("create");
+        let item = work_item::create(&conn, "Add endpoint", "feature", product_id, None, None)
+            .await
+            .expect("item");
+        work_item::update_item(&conn, item, WorkItemFields { solution_id: Some(id), ..Default::default() })
+            .await
+            .expect("link");
+
+        delete(&conn, id).await.expect("delete");
+
+        let survivor = work_item::find_by_id(&conn, item).await.expect("q").expect("still there");
+        assert_eq!(survivor.title, "Add endpoint");
+        assert_eq!(survivor.solution_id, None, "must not dangle at a deleted Solution");
     }
 
     #[tokio::test]

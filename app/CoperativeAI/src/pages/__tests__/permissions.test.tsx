@@ -14,6 +14,8 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     listTeamMembers: vi.fn(),
     listSprints: vi.fn(),
     listDeliverables: vi.fn(),
+    listSolutions: vi.fn(),
+    listWorkItemLinks: vi.fn(),
   };
 });
 
@@ -38,6 +40,8 @@ const item: WorkItem = {
   estimatedProfit: null,
   chargeable: false,
   customerCoverPct: null,
+  risk: "",
+  solutionId: null,
 };
 
 function perms(overrides: Partial<ActivePermissions>): ActivePermissions {
@@ -64,6 +68,8 @@ describe("permission gating of cost fields", () => {
     mocked.listTeamMembers.mockResolvedValue([]);
     mocked.listSprints.mockResolvedValue([]);
     mocked.listDeliverables.mockResolvedValue([]);
+    mocked.listSolutions.mockResolvedValue([]);
+    mocked.listWorkItemLinks.mockResolvedValue([]);
   });
 
   it("a role that can't see cost/profit/chargeable hides those fields", async () => {

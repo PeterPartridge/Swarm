@@ -26,6 +26,8 @@ pub struct WorkItemDto {
     pub estimated_profit: Option<f64>,
     pub chargeable: bool,
     pub customer_cover_pct: Option<f64>,
+    pub risk: String,
+    pub solution_id: Option<i64>,
 }
 
 impl From<WorkItem> for WorkItemDto {
@@ -47,6 +49,8 @@ impl From<WorkItem> for WorkItemDto {
             estimated_profit: w.estimated_profit,
             chargeable: w.chargeable,
             customer_cover_pct: w.customer_cover_pct,
+            risk: w.risk,
+            solution_id: w.solution_id,
         }
     }
 }
@@ -111,6 +115,8 @@ pub async fn update_work_item(
     estimated_profit: Option<f64>,
     chargeable: bool,
     customer_cover_pct: Option<f64>,
+    risk: Option<String>,
+    solution_id: Option<i64>,
 ) -> Result<(), String> {
     let conn = db.0.lock().await;
     work_item::update_item(
@@ -126,10 +132,66 @@ pub async fn update_work_item(
             estimated_profit,
             chargeable,
             customer_cover_pct,
+            risk: risk.unwrap_or_default(),
+            solution_id,
         },
     )
     .await
     .map_err(to_message)
+}
+
+/// Dependencies between work items. Two items whose Solutions differ are a
+/// cross-repo dependency, which the caller derives from `solutionId` rather
+/// than being told — one fact, held once.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkItemLinkDto {
+    pub id: i64,
+    pub from_work_item_id: i64,
+    pub to_work_item_id: i64,
+    pub kind: String,
+}
+
+/// Every link out of this Product's items — one call for a whole board.
+#[tauri::command]
+pub async fn list_work_item_links(
+    db: State<'_, AppDb>,
+    product_id: i64,
+) -> Result<Vec<WorkItemLinkDto>, String> {
+    let conn = db.0.lock().await;
+    let links = crate::db::work_item_link::list_for_product(&conn, product_id)
+        .await
+        .map_err(to_message)?;
+    Ok(links
+        .into_iter()
+        .map(|l| WorkItemLinkDto {
+            id: l.id,
+            from_work_item_id: l.from_work_item_id,
+            to_work_item_id: l.to_work_item_id,
+            kind: l.kind,
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn link_work_items(
+    db: State<'_, AppDb>,
+    from_work_item_id: i64,
+    to_work_item_id: i64,
+    kind: String,
+) -> Result<i64, String> {
+    let conn = db.0.lock().await;
+    crate::db::work_item_link::link(&conn, from_work_item_id, to_work_item_id, &kind)
+        .await
+        .map_err(to_message)
+}
+
+#[tauri::command]
+pub async fn unlink_work_items(db: State<'_, AppDb>, id: i64) -> Result<(), String> {
+    let conn = db.0.lock().await;
+    crate::db::work_item_link::unlink(&conn, id)
+        .await
+        .map_err(to_message)
 }
 
 #[tauri::command]

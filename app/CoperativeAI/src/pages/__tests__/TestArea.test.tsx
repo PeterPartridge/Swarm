@@ -49,6 +49,8 @@ const workItem: WorkItem = {
   estimatedProfit: null,
   chargeable: false,
   customerCoverPct: null,
+  risk: "",
+  solutionId: null,
 };
 const testCase: TestCase = {
   id: 5,

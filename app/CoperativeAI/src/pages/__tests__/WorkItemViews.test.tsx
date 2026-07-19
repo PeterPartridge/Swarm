@@ -27,7 +27,7 @@ function item(o: Partial<WorkItem>): WorkItem {
     id: 1, title: "Checkout", itemType: "feature", status: "planned", description: null,
     productId: 7, parentItemId: null, assigneeId: null, sprintId: null, startDate: null,
     endDate: null, deliverableId: null, expectedCost: null, estimatedProfit: null,
-    chargeable: false, customerCoverPct: null, ...o,
+    chargeable: false, customerCoverPct: null, risk: "", solutionId: null, ...o,
   };
 }
 

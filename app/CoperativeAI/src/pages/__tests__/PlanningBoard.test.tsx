@@ -2,7 +2,7 @@
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import PlanningBoard from "../../components/PlanningBoard";
-import type { Sprint, TeamMember, WorkItem } from "../../lib/backend";
+import type { Solution, Sprint, TeamMember, WorkItem } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../lib/backend")>();
@@ -23,6 +23,10 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     setWorkItemPolicy: vi.fn(),
     listAiProviders: vi.fn(),
     listDeliverables: vi.fn(),
+    listSolutions: vi.fn(),
+    listWorkItemLinks: vi.fn(),
+    linkWorkItems: vi.fn(),
+    unlinkWorkItems: vi.fn(),
   };
 });
 
@@ -48,7 +52,22 @@ function item(overrides: Partial<WorkItem>): WorkItem {
     estimatedProfit: null,
     chargeable: false,
     customerCoverPct: null,
+    risk: "",
+    solutionId: null,
     ...overrides,
+  };
+}
+
+function solution(id: number, name: string, productId: number): Solution {
+  return {
+    id,
+    name,
+    productId,
+    solutionType: "api",
+    answers: "{}",
+    origin: "created",
+    githubUrl: null,
+    githubVisibility: null,
   };
 }
 
@@ -74,6 +93,8 @@ describe("PlanningBoard", () => {
     mocked.listTeamMembers.mockResolvedValue([member]);
     mocked.listSprints.mockResolvedValue([sprint]);
     mocked.listDeliverables.mockResolvedValue([]);
+    mocked.listSolutions.mockResolvedValue([]);
+    mocked.listWorkItemLinks.mockResolvedValue([]);
     mocked.getWorkItemPolicy.mockResolvedValue(null);
     mocked.listAiFeedback.mockResolvedValue([]);
     mocked.listAiProviders.mockResolvedValue([
@@ -188,6 +209,173 @@ describe("PlanningBoard", () => {
         expect.objectContaining({ id: 1, deliverableId: 4 }),
       ),
     );
+  });
+
+  /// Risk is free text: whatever the planner typed comes back unchanged.
+  it("saves a risk in the planner's own words", async () => {
+    const user = userEvent.setup();
+    mocked.updateWorkItem.mockResolvedValue();
+    render(<PlanningBoard productId={7} />);
+
+    const risk = await screen.findByLabelText("Risk of Checkout");
+    await user.type(risk, "the payments vendor may not sign off in time");
+    await user.tab();
+    await waitFor(() =>
+      expect(mocked.updateWorkItem).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          id: 1,
+          risk: "the payments vendor may not sign off in time",
+        }),
+      ),
+    );
+  });
+
+  /// A Product with no Solutions has nowhere for code to land, so the choice
+  /// is not offered at all rather than offered empty.
+  it("hides the Solution choice when the Product has none", async () => {
+    render(<PlanningBoard productId={7} />);
+    await screen.findByText("Checkout");
+    expect(screen.queryByLabelText("Solution of Checkout")).not.toBeInTheDocument();
+  });
+
+  /// Work can only land in its own Product's Solution — the backend refuses
+  /// anything else, so the board must not offer it. "No Solution" stays a real
+  /// answer: plenty of work is not code.
+  it("offers this Product's Solutions only", async () => {
+    const user = userEvent.setup();
+    mocked.updateWorkItem.mockResolvedValue();
+    mocked.listSolutions.mockResolvedValue([
+      solution(11, "API", 7),
+      solution(12, "Someone else's", 99),
+    ]);
+    render(<PlanningBoard productId={7} />);
+
+    const select = await screen.findByLabelText("Solution of Checkout");
+    expect(within(select).getByRole("option", { name: "API" })).toBeInTheDocument();
+    expect(
+      within(select).queryByRole("option", { name: "Someone else's" }),
+    ).not.toBeInTheDocument();
+    expect(within(select).getByRole("option", { name: "No Solution" })).toBeInTheDocument();
+
+    await user.selectOptions(select, "11");
+    await waitFor(() =>
+      expect(mocked.updateWorkItem).toHaveBeenLastCalledWith(
+        expect.objectContaining({ id: 1, solutionId: 11 }),
+      ),
+    );
+  });
+
+  it("links one work item to another", async () => {
+    const user = userEvent.setup();
+    mocked.linkWorkItems.mockResolvedValue(1);
+    mocked.listWorkItems.mockResolvedValue([
+      item({}),
+      item({ id: 2, title: "Call endpoint" }),
+    ]);
+    render(<PlanningBoard productId={7} />);
+
+    await user.click(await screen.findByLabelText("Add dependency to Checkout"));
+    await user.selectOptions(screen.getByLabelText("Dependency target for Checkout"), "2");
+    await user.click(screen.getByLabelText("Save dependency for Checkout"));
+
+    await waitFor(() =>
+      expect(mocked.linkWorkItems).toHaveBeenCalledWith(1, 2, "blocks"),
+    );
+  });
+
+  /// The case worth spotting: two items in different Solutions, and so in
+  /// different repositories. Cross-repo is derived from the Solutions, never
+  /// stored, so the board must say it rather than leave it to be worked out.
+  it("names the other repository when a dependency crosses one", async () => {
+    mocked.listSolutions.mockResolvedValue([
+      solution(11, "API", 7),
+      solution(12, "Web", 7),
+    ]);
+    mocked.listWorkItems.mockResolvedValue([
+      item({ id: 1, title: "Add endpoint", solutionId: 11 }),
+      item({ id: 2, title: "Call endpoint", solutionId: 12 }),
+    ]);
+    mocked.listWorkItemLinks.mockResolvedValue([
+      { id: 30, fromWorkItemId: 1, toWorkItemId: 2, kind: "blocks" },
+    ]);
+    render(<PlanningBoard productId={7} />);
+
+    const deps = await screen.findByRole("region", {
+      name: "Dependencies of Add endpoint",
+    });
+    expect(within(deps).getByText(/blocks Call endpoint \(in Web\)/)).toBeInTheDocument();
+
+    // and the same link, seen from the other end
+    const incoming = screen.getByRole("region", {
+      name: "Dependencies of Call endpoint",
+    });
+    expect(
+      within(incoming).getByText(/Add endpoint blocks this \(in API\)/),
+    ).toBeInTheDocument();
+  });
+
+  /// Work with no Solution is not cross-repo — most work is not code at all.
+  it("does not claim a repository crossing when either item has no Solution", async () => {
+    mocked.listSolutions.mockResolvedValue([solution(11, "API", 7)]);
+    mocked.listWorkItems.mockResolvedValue([
+      item({ id: 1, title: "Add endpoint", solutionId: 11 }),
+      item({ id: 2, title: "Write the copy", solutionId: null }),
+    ]);
+    mocked.listWorkItemLinks.mockResolvedValue([
+      { id: 30, fromWorkItemId: 1, toWorkItemId: 2, kind: "relatesTo" },
+    ]);
+    render(<PlanningBoard productId={7} />);
+
+    const deps = await screen.findByRole("region", {
+      name: "Dependencies of Add endpoint",
+    });
+    expect(within(deps).getByText("relates to Write the copy")).toBeInTheDocument();
+  });
+
+  /// The backend refuses a blocking loop; the board must show why rather than
+  /// silently doing nothing.
+  it("surfaces a refused blocking loop", async () => {
+    const user = userEvent.setup();
+    mocked.listWorkItems.mockResolvedValue([
+      item({}),
+      item({ id: 2, title: "Call endpoint" }),
+    ]);
+    mocked.linkWorkItems.mockRejectedValue(
+      "that would make a blocking loop — neither item could start",
+    );
+    render(<PlanningBoard productId={7} />);
+
+    await user.click(await screen.findByLabelText("Add dependency to Checkout"));
+    await user.selectOptions(screen.getByLabelText("Dependency target for Checkout"), "2");
+    await user.click(screen.getByLabelText("Save dependency for Checkout"));
+
+    expect(await screen.findByText(/blocking loop/)).toBeInTheDocument();
+  });
+
+  it("removes a dependency it owns, but not one pointing at it", async () => {
+    const user = userEvent.setup();
+    mocked.unlinkWorkItems.mockResolvedValue();
+    mocked.listWorkItems.mockResolvedValue([
+      item({}),
+      item({ id: 2, title: "Call endpoint" }),
+    ]);
+    mocked.listWorkItemLinks.mockResolvedValue([
+      { id: 30, fromWorkItemId: 1, toWorkItemId: 2, kind: "blocks" },
+    ]);
+    render(<PlanningBoard productId={7} />);
+
+    await user.click(
+      await screen.findByLabelText("Remove dependency on Call endpoint from Checkout"),
+    );
+    await waitFor(() => expect(mocked.unlinkWorkItems).toHaveBeenCalledWith(30));
+
+    // The other item shows the link but owns no button for it.
+    const incoming = screen.getByRole("region", {
+      name: "Dependencies of Call endpoint",
+    });
+    expect(
+      within(incoming).queryByLabelText(/^Remove dependency/),
+    ).not.toBeInTheDocument();
   });
 
   it("shows the AI story button on features when the hierarchy includes user stories", async () => {

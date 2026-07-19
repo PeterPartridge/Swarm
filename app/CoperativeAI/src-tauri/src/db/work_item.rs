@@ -27,6 +27,13 @@ pub struct WorkItem {
     pub estimated_profit: Option<f64>,
     pub chargeable: bool,
     pub customer_cover_pct: Option<f64>,
+    /// What could go wrong with this piece of work, in the planner's words.
+    /// Free text on purpose — a risk that has to be picked from a dropdown is
+    /// a risk nobody writes down.
+    pub risk: String,
+    /// The Solution this work touches, and so the repository it lands in.
+    /// Nullable: plenty of work is not code.
+    pub solution_id: Option<i64>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -45,9 +52,11 @@ pub struct WorkItemFields {
     pub estimated_profit: Option<f64>,
     pub chargeable: bool,
     pub customer_cover_pct: Option<f64>,
+    pub risk: String,
+    pub solution_id: Option<i64>,
 }
 
-const SELECT_COLUMNS: &str = "SELECT id, title, itemType, status, description, productId, parentItemId, assigneeId, sprintId, startDate, endDate, deliverableId, expectedCost, estimatedProfit, chargeable, customerCoverPct, createdAt, updatedAt";
+const SELECT_COLUMNS: &str = "SELECT id, title, itemType, status, description, productId, parentItemId, assigneeId, sprintId, startDate, endDate, deliverableId, expectedCost, estimatedProfit, chargeable, customerCoverPct, risk, solutionId, createdAt, updatedAt";
 
 pub async fn create_table(conn: &Connection) -> Result<()> {
     // Migration: drop & recreate if the table predates round 3 (legacy
@@ -87,12 +96,27 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             estimatedProfit REAL,
             chargeable INTEGER NOT NULL DEFAULT 0,
             customerCoverPct REAL,
+            risk TEXT NOT NULL DEFAULT '',
+            solutionId INTEGER,
             createdAt INTEGER NOT NULL,
             updatedAt INTEGER NOT NULL
         )",
         (),
     )
     .await?;
+
+    // `risk` and `solutionId` are added to an existing table rather than
+    // triggering another drop. Work items are a team's actual plan — the one
+    // thing in this database nobody could reconstruct — so they get the
+    // data-preserving path even though the columns above do not.
+    for (name, ddl) in [
+        ("risk", "ALTER TABLE work_items ADD COLUMN risk TEXT NOT NULL DEFAULT ''"),
+        ("solutionId", "ALTER TABLE work_items ADD COLUMN solutionId INTEGER"),
+    ] {
+        if has_table && !stale && !columns.iter().any(|c| c == name) {
+            conn.execute(ddl, ()).await?;
+        }
+    }
     Ok(())
 }
 
@@ -220,12 +244,31 @@ pub async fn update_item(conn: &Connection, id: i64, fields: WorkItemFields) -> 
             ));
         }
     }
+    if let Some(solution_id) = fields.solution_id {
+        match crate::db::solution::find_by_id(conn, solution_id).await? {
+            // Work lands in a repository through a Solution, and a Solution
+            // belongs to a Product — so pointing at another Product's Solution
+            // would put the work somewhere its plan does not reach.
+            Some(solution) if solution.product_id != item.product_id => {
+                return Err(DbError::Validation(
+                    "a work item can only be linked to a Solution of its own Product".into(),
+                ));
+            }
+            None => {
+                return Err(DbError::Validation(format!(
+                    "no Solution with id {solution_id}"
+                )));
+            }
+            _ => {}
+        }
+    }
     conn.execute(
-        "UPDATE work_items SET assigneeId=?1, sprintId=?2, startDate=?3, endDate=?4, deliverableId=?5, expectedCost=?6, estimatedProfit=?7, chargeable=?8, customerCoverPct=?9, updatedAt=?10 WHERE id=?11",
+        "UPDATE work_items SET assigneeId=?1, sprintId=?2, startDate=?3, endDate=?4, deliverableId=?5, expectedCost=?6, estimatedProfit=?7, chargeable=?8, customerCoverPct=?9, risk=?10, solutionId=?11, updatedAt=?12 WHERE id=?13",
         (
             fields.assignee_id, fields.sprint_id, fields.start_date, fields.end_date,
             fields.deliverable_id, fields.expected_cost, fields.estimated_profit,
-            fields.chargeable as i64, fields.customer_cover_pct, now_millis(), id,
+            fields.chargeable as i64, fields.customer_cover_pct,
+            fields.risk.as_str(), fields.solution_id, now_millis(), id,
         ),
     )
     .await?;
@@ -260,6 +303,8 @@ pub async fn find_by_id(conn: &Connection, id: i64) -> Result<Option<WorkItem>> 
 pub async fn delete(conn: &Connection, id: i64) -> Result<()> {
     conn.execute("DELETE FROM work_item_policies WHERE workItemId = ?1", (id,)).await?;
     conn.execute("DELETE FROM feature_designs WHERE workItemId = ?1", (id,)).await?;
+    // A link to a deleted item is not a dependency, it is a dangling row.
+    crate::db::work_item_link::remove_for_item(conn, id).await?;
     // QA's test cases survive the work item; they are only unlinked.
     conn.execute("UPDATE test_cases SET workItemId = NULL WHERE workItemId = ?1", (id,)).await?;
     conn.execute("DELETE FROM work_items WHERE id = ?1", (id,)).await?;
@@ -285,8 +330,10 @@ fn row_to_item(row: turso::Row) -> Result<WorkItem> {
         estimated_profit: row.get(13)?,
         chargeable: chargeable != 0,
         customer_cover_pct: row.get(15)?,
-        created_at: row.get(16)?,
-        updated_at: row.get(17)?,
+        risk: row.get(16)?,
+        solution_id: row.get(17)?,
+        created_at: row.get(18)?,
+        updated_at: row.get(19)?,
     })
 }
 
@@ -379,6 +426,61 @@ pub(crate) mod tests {
         let other = crate::db::product::create(&conn, "Other", "{}").await.expect("other");
         let foreign = crate::db::deliverable::create(&conn, other, "X", "").await.expect("d2");
         assert!(update_item(&conn, item, WorkItemFields { deliverable_id: Some(foreign), ..Default::default() }).await.is_err());
+    }
+
+    /// Risk is free text and stays exactly as it was typed. A planner writing
+    /// "the payments vendor may not sign off in time" must get that back, not
+    /// a category it was squeezed into.
+    #[tokio::test]
+    async fn risk_is_stored_verbatim_and_clears_when_emptied() {
+        let (conn, product_id) = db_with_product().await;
+        let item = create(&conn, "Feature", "feature", product_id, None, None).await.expect("item");
+        assert_eq!(find_by_id(&conn, item).await.expect("q").unwrap().risk, "");
+
+        let written = "the payments vendor may not sign off in time — £40k at stake";
+        update_item(&conn, item, WorkItemFields { risk: written.into(), ..Default::default() })
+            .await
+            .expect("update");
+        assert_eq!(find_by_id(&conn, item).await.expect("q").unwrap().risk, written);
+
+        update_item(&conn, item, WorkItemFields::default()).await.expect("clear");
+        assert_eq!(
+            find_by_id(&conn, item).await.expect("q").unwrap().risk,
+            "",
+            "a risk that has passed must be removable"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_solution_must_belong_to_the_same_product() {
+        let (conn, product_id) = db_with_product().await;
+        let item = create(&conn, "Feature", "feature", product_id, None, None).await.expect("item");
+        let own = crate::db::solution::create(&conn, "API", product_id, "api", "{}").await.expect("s");
+        update_item(&conn, item, WorkItemFields { solution_id: Some(own), ..Default::default() })
+            .await
+            .expect("link");
+        assert_eq!(find_by_id(&conn, item).await.expect("q").unwrap().solution_id, Some(own));
+
+        let other = crate::db::product::create(&conn, "Other", "{}").await.expect("other");
+        let foreign = crate::db::solution::create(&conn, "Theirs", other, "api", "{}").await.expect("s2");
+        assert!(update_item(&conn, item, WorkItemFields { solution_id: Some(foreign), ..Default::default() }).await.is_err());
+        assert!(update_item(&conn, item, WorkItemFields { solution_id: Some(999), ..Default::default() }).await.is_err());
+    }
+
+    /// Work items are a team's actual plan — the one thing in this database
+    /// nobody could reconstruct — so these columns are added, never dropped.
+    #[tokio::test]
+    async fn adding_risk_and_solution_keeps_existing_work_items() {
+        let (conn, product_id) = db_with_product().await;
+        let item = create(&conn, "Already planned", "feature", product_id, None, None).await.expect("item");
+        conn.execute("ALTER TABLE work_items DROP COLUMN risk", ()).await.expect("undo risk");
+        conn.execute("ALTER TABLE work_items DROP COLUMN solutionId", ()).await.expect("undo solution");
+
+        create_table(&conn).await.expect("migrate");
+
+        let survivor = find_by_id(&conn, item).await.expect("q").expect("still there");
+        assert_eq!(survivor.title, "Already planned");
+        assert_eq!(survivor.risk, "");
     }
 
     #[tokio::test]
