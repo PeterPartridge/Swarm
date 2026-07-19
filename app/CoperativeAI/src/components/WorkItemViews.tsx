@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
+import SolutionStrategyPanel from "./SolutionStrategyPanel";
 import {
   listSprints,
   listTeamMembers,
@@ -20,6 +21,7 @@ export default function WorkItemViews({ productId }: { productId: number }) {
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<(typeof DEV_VIEWS)[number]>("board");
   const [assignee, setAssignee] = useState<string>("all"); // "all" | "unassigned" | id
+  const [strategyItem, setStrategyItem] = useState<number | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -137,17 +139,35 @@ export default function WorkItemViews({ productId }: { productId: number }) {
               <th>Status</th>
               <th>Assignee</th>
               <th>Sprint</th>
+              <th>Build</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((i) => (
-              <tr key={i.id} aria-label={i.title}>
-                <td>{i.title}</td>
-                <td>{TYPE_LABELS[i.itemType] ?? i.itemType}</td>
-                <td>{i.status}</td>
-                <td>{memberName(i.assigneeId)}</td>
-                <td>{sprintName(i.sprintId)}</td>
-              </tr>
+              <Fragment key={i.id}>
+                <tr aria-label={i.title}>
+                  <td>{i.title}</td>
+                  <td>{TYPE_LABELS[i.itemType] ?? i.itemType}</td>
+                  <td>{i.status}</td>
+                  <td>{memberName(i.assigneeId)}</td>
+                  <td>{sprintName(i.sprintId)}</td>
+                  <td>
+                    <button
+                      aria-label={`Solution strategy for ${i.title}`}
+                      onClick={() => setStrategyItem(strategyItem === i.id ? null : i.id)}
+                    >
+                      {strategyItem === i.id ? "Hide" : "How to build"}
+                    </button>
+                  </td>
+                </tr>
+                {strategyItem === i.id && (
+                  <tr>
+                    <td colSpan={6}>
+                      <SolutionStrategyPanel workItemId={i.id} itemTitle={i.title} />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
           </tbody>
         </table>

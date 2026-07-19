@@ -491,6 +491,143 @@ export interface AiFeedback {
   resolvedNote: string;
 }
 
+/** Constraints developers put on the AI. `disallowedTech` is enforced: it is
+ *  stated as a prohibition in the prompt and the answer is checked against it. */
+export interface DeveloperRules {
+  productId: number;
+  codingStandards: string;
+  architecturePrinciples: string;
+  maintainability: string;
+  preferredFrameworks: string;
+  allowedTech: string;
+  disallowedTech: string;
+  aiConstraints: string;
+}
+
+export interface SolutionStrategy {
+  workItemId: number;
+  strategy: string;
+  /** JSON array of {name, kind, rationale, tradeoffs}. */
+  architectureOptions: string;
+  chosenOptionIndex: number | null;
+  techStack: string;
+  /** Forbidden technologies found in the AI's own output. */
+  ruleViolations: string[];
+}
+
+export interface ArchitectureOption {
+  name: string;
+  kind: string;
+  rationale: string;
+  tradeoffs: string;
+}
+
+/** The editable rule fields — every key except the product it belongs to. */
+export type DeveloperRuleField = Exclude<keyof DeveloperRules, "productId">;
+
+export const DEVELOPER_RULE_FIELDS: { id: DeveloperRuleField; label: string }[] = [
+  { id: "codingStandards", label: "Coding standards" },
+  { id: "architecturePrinciples", label: "Architecture principles" },
+  { id: "maintainability", label: "Maintainability rules" },
+  { id: "preferredFrameworks", label: "Preferred frameworks" },
+  { id: "allowedTech", label: "Allowed technologies" },
+  { id: "disallowedTech", label: "Disallowed technologies (enforced)" },
+  { id: "aiConstraints", label: "Constraints on AI behaviour" },
+];
+
+/** A model the platform has seen, and whether it may be used.
+ *  `detected` — seen on a provider, refused until installed.
+ *  `installed` — passed every probe. `failed` — ran, but did not pass. */
+export interface ModelStatus {
+  providerId: number;
+  provider: string;
+  model: string;
+  state: string;
+  packPath: string;
+  /** The last ValidationReport, as JSON. */
+  validationReport: string;
+}
+
+export interface ProbeResult {
+  probe: string;
+  passed: boolean;
+  detail: string;
+}
+
+export interface ValidationReport {
+  model: string;
+  passed: boolean;
+  probes: ProbeResult[];
+  suggestedFixes: string[];
+}
+
+export const PROBE_LABELS: Record<string, string> = {
+  workItemInterpretation: "Work item interpretation",
+  solutionStrategy: "Solution strategy",
+  architectureKinds: "Architecture planning",
+  respectsDisallowed: "Respects developer rules",
+  declinesVagueWork: "Declines vague work",
+};
+
+export const listModelStatus = (): Promise<ModelStatus[]> =>
+  invoke("list_model_status");
+/** Re-reads a local server's models so a newly pulled one is noticed. */
+export const refreshProviderModels = (providerId: number): Promise<string[]> =>
+  invoke("refresh_provider_models", { providerId });
+/** Builds the capability pack, writes it, and validates the model against it.
+ *  All-or-nothing: any failed probe leaves the model refused. */
+export const installModel = (
+  providerId: number,
+  model: string,
+  productId: number,
+): Promise<ValidationReport> =>
+  invoke("install_model", { providerId, model, productId });
+
+/** One way of doing a piece of work, with what it is expected to cost. */
+export interface Recommendation {
+  kind: string; // "fastest" | "costEfficient"
+  provider: string;
+  model: string;
+  estTokens: number;
+  estCostMicropence: number;
+  estMinutes: number;
+  /** "priceTable" — a stated guess; "history" — median of real calls. */
+  source: string;
+  affordable: boolean;
+}
+
+export interface Recommendations {
+  options: Recommendation[];
+  /** Set when an option was withheld rather than shown. */
+  note: string | null;
+}
+
+/** Estimates the fastest and cheapest ways to do a piece of work. Computed on
+ *  demand rather than stored — prices, budget and history all move. */
+export const recommendForWorkItem = (
+  workItemId: number,
+  purpose: string,
+): Promise<Recommendations> =>
+  invoke("recommend_for_work_item", { workItemId, purpose });
+
+export const getDeveloperRules = (
+  productId: number,
+): Promise<DeveloperRules | null> => invoke("get_developer_rules", { productId });
+export const setDeveloperRules = (rules: DeveloperRules): Promise<void> =>
+  invoke("set_developer_rules", { ...rules });
+export const getSolutionStrategy = (
+  workItemId: number,
+): Promise<SolutionStrategy | null> =>
+  invoke("get_solution_strategy", { workItemId });
+export const generateSolutionStrategy = (
+  workItemId: number,
+): Promise<GenerationResult> =>
+  invoke("generate_solution_strategy", { workItemId });
+export const chooseArchitectureOption = (
+  workItemId: number,
+  index: number | null,
+): Promise<void> => invoke("choose_architecture_option", { workItemId, index });
+
 export const listAiFeedback = (workItemId: number): Promise<AiFeedback[]> =>
   invoke("list_ai_feedback", { workItemId });
 /** Answers the AI's question. The note travels with the next prompt for this

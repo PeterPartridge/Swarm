@@ -7,7 +7,9 @@
 //! back as `prompt_eval_count` / `eval_count`. Cost is always zero — nothing
 //! leaves the machine.
 
-use crate::ai::client::{parse_generation, Generated, Prompt, Usage};
+use crate::ai::client::{
+    parse_generation, parse_solution_strategy, Generated, GeneratedStrategy, Prompt, Usage,
+};
 use serde::Deserialize;
 use serde_json::json;
 use std::time::Duration;
@@ -81,11 +83,11 @@ pub fn story_schema() -> serde_json::Value {
 }
 
 /// The POST /api/chat request body (pure — unit tested without a server).
-pub fn chat_body(model: &str, prompt: &Prompt) -> serde_json::Value {
+fn chat_body_with(model: &str, prompt: &Prompt, schema: serde_json::Value) -> serde_json::Value {
     json!({
         "model": model,
         "stream": false,
-        "format": story_schema(),
+        "format": schema,
         "messages": [
             // Sent as two messages mirroring the cached split on the Claude
             // side, so both providers see the same content in the same order.
@@ -102,10 +104,22 @@ pub async fn generate_stories(
     model: &str,
     prompt: &Prompt,
 ) -> Result<(Generated, Usage), String> {
+    let (content, usage) = chat(api_base_url, model, prompt, story_schema()).await?;
+    Ok((parse_generation(&content)?, usage))
+}
+
+/// One `/api/chat` call against the given schema, returning the model's JSON
+/// text and what it consumed. Each caller parses its own shape.
+async fn chat(
+    api_base_url: &str,
+    model: &str,
+    prompt: &Prompt,
+    schema: serde_json::Value,
+) -> Result<(String, Usage), String> {
     let url = format!("{}/api/chat", api_base_url.trim_end_matches('/'));
     let response = client()?
         .post(&url)
-        .json(&chat_body(model, prompt))
+        .json(&chat_body_with(model, prompt, schema))
         .send()
         .await
         .map_err(|e| {
@@ -123,9 +137,8 @@ pub async fn generate_stories(
 
     let parsed: ChatResponse = serde_json::from_str(&text)
         .map_err(|e| format!("unexpected response shape from Ollama: {e}"))?;
-    let generated = parse_generation(&parsed.message.content)?;
     Ok((
-        generated,
+        parsed.message.content,
         Usage {
             input_tokens: parsed.prompt_eval_count,
             output_tokens: parsed.eval_count,
@@ -134,6 +147,54 @@ pub async fn generate_stories(
             cache_read_input_tokens: 0,
         },
     ))
+}
+
+/// Generates a solution strategy from a local model.
+///
+/// Without this, a budget handover mid-design would send Claude's request shape
+/// to Ollama's URL and simply fail — so a Product past its handover threshold
+/// could not design anything at all.
+pub async fn generate_solution_strategy(
+    api_base_url: &str,
+    model: &str,
+    prompt: &Prompt,
+) -> Result<(GeneratedStrategy, Usage), String> {
+    let (content, usage) = chat(api_base_url, model, prompt, strategy_schema()).await?;
+    Ok((parse_solution_strategy(&content)?, usage))
+}
+
+/// The strategy shape, mirroring the Claude schema so one parser serves both.
+fn strategy_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "strategy": {"type": "string"},
+            "techStack": {"type": "string"},
+            "technologies": {"type": "array", "items": {"type": "string"}},
+            "options": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "kind": {"type": "string"},
+                        "rationale": {"type": "string"},
+                        "tradeoffs": {"type": "string"}
+                    },
+                    "required": ["name", "kind", "rationale", "tradeoffs"]
+                }
+            },
+            "blocked": {
+                "type": ["object", "null"],
+                "properties": {
+                    "reason": {"type": "string"},
+                    "whatIsNeeded": {"type": "string"}
+                },
+                "required": ["reason", "whatIsNeeded"]
+            }
+        },
+        "required": ["strategy", "techStack", "technologies", "options"]
+    })
 }
 
 /// Lists the models the local server has pulled — used by AI Settings so the
@@ -170,7 +231,7 @@ mod tests {
 
     #[test]
     fn chat_body_asks_for_structured_output_without_streaming() {
-        let body = chat_body("llama3", &prompt());
+        let body = chat_body_with("llama3", &prompt(), story_schema());
         assert_eq!(body["model"], "llama3");
         assert_eq!(body["stream"], false);
         assert_eq!(body["format"]["required"][0], "stories");
@@ -178,7 +239,7 @@ mod tests {
 
     #[test]
     fn chat_body_sends_context_before_task() {
-        let body = chat_body("llama3", &prompt());
+        let body = chat_body_with("llama3", &prompt(), story_schema());
         assert_eq!(body["messages"][0]["content"], "Product: Shop App");
         assert_eq!(body["messages"][1]["content"], "Feature: Checkout");
     }
@@ -262,5 +323,195 @@ mod tests {
             }
         }
         assert!(usage.output_tokens > 0, "the server should report eval_count");
+    }
+
+    /// The handover-mid-design path, against a real model. Strategy generation
+    /// used to call the Claude client unconditionally, so this request would
+    /// have gone to `localhost:11434/v1/messages` and failed.
+    ///
+    /// ```text
+    /// OLLAMA_MODEL=ornith:9b cargo test -- --ignored strategy_is_live --nocapture
+    /// ```
+    #[tokio::test]
+    #[ignore = "needs a local Ollama server with a model pulled"]
+    async fn strategy_is_live_on_a_local_model() {
+        let base = std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".into());
+        let model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "llama3".into());
+
+        let prompt = Prompt {
+            context: "You are helping a product team plan work.\n\nProduct: Shop App\n\
+                      Product brief answers (JSON): {\"purpose\":\"sell coffee online\"}\n\n\
+                      Developer rules — these are constraints, not preferences:\n\
+                      - Allowed technologies: Rust, TypeScript\n\
+                      - MUST NOT use, under any circumstances: Java, PHP\n"
+                .into(),
+            task: "Work item: Order processing\nDescription: Take paid orders and hand them to \
+                   fulfilment, retrying on failure.\n\nPropose how to build this. Give: a short \
+                   written strategy; 2-4 architecture options, each with a name, a kind \
+                   (windowsService, azureWebApp, azureFunction, api, backgroundWorker, or other), \
+                   why it fits, and its trade-offs; and the tech stack that follows from the \
+                   developer rules above. Do not propose anything the rules forbid."
+                .into(),
+        };
+
+        let (generated, usage) = generate_solution_strategy(&base, &model, &prompt)
+            .await
+            .expect("generate");
+        println!("usage: in={} out={}", usage.input_tokens, usage.output_tokens);
+        match generated {
+            GeneratedStrategy::Strategy(draft) => {
+                println!("strategy: {}", draft.strategy);
+                println!("tech stack: {}", draft.tech_stack);
+                for option in &draft.options {
+                    println!("  - {} ({}): {}", option.name, option.kind, option.rationale);
+                }
+                assert!(!draft.options.is_empty(), "a strategy should offer options");
+                println!("declared technologies: {:?}", draft.technologies);
+                // Checked against what it says it will USE, never the prose —
+                // an earlier run wrote "No Java or PHP anywhere" and a text
+                // search reported the obedience as a violation.
+                let violations: Vec<String> = draft
+                    .technologies
+                    .iter()
+                    .flat_map(|t| crate::db::developer_rules::violations("Java, PHP", t))
+                    .collect();
+                println!("rule violations: {violations:?}");
+                assert!(
+                    violations.is_empty(),
+                    "the model was told not to use these and listed them anyway: {violations:?}"
+                );
+            }
+            GeneratedStrategy::Blocked { reason, .. } => {
+                println!("declined: {reason}")
+            }
+        }
+    }
+
+    /// The install probes, run against a real model. This is the one that says
+    /// whether the validation bar is calibrated: probes that no real model can
+    /// pass are a broken gate, not a high standard.
+    ///
+    /// ```text
+    /// OLLAMA_MODEL=ornith:9b cargo test -- --ignored install_probes --nocapture
+    /// ```
+    #[tokio::test]
+    #[ignore = "needs a local Ollama server with a model pulled"]
+    async fn install_probes_run_against_a_real_model() {
+        use crate::ai::validation::{self, ValidationReport};
+
+        let base = std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".into());
+        let model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "llama3".into());
+        let disallowed = "Java, PHP";
+        let mut probes = Vec::new();
+
+        // 1 — a deliberately complete brief; declining it would be wrong.
+        let clear = Prompt {
+            context: "You are helping a product team plan work.\n\nProduct: Shop App\n\
+                      Product brief answers (JSON): {\"purpose\":\"sell coffee online\"}\n".into(),
+            task: "Feature: Checkout\nFeature description: Customers pay for a basket with a \
+                   card and receive an emailed receipt.\n\nWrite 3-6 user stories covering this \
+                   feature.".into(),
+        };
+        probes.push(validation::check_work_items(
+            &generate_stories(&base, &model, &clear).await.map(|(g, _)| g),
+        ));
+
+        // 2-4 — strategy, architecture vocabulary, rule obedience.
+        let strategy = Prompt {
+            context: format!(
+                "You are helping a product team plan work.\n\nProduct: Shop App\n\
+                 Developer rules — these are constraints, not preferences:\n\
+                 - MUST NOT use, under any circumstances: {disallowed}\n"
+            ),
+            task: "Work item: Order processing\nDescription: Take paid orders and hand them to \
+                   fulfilment, retrying on failure.\n\nPropose how to build this: a short \
+                   strategy; 2-4 architecture options each with a name, a kind (windowsService, \
+                   azureWebApp, azureFunction, api, backgroundWorker, or other), why it fits and \
+                   its trade-offs; the tech stack; and \"technologies\", a plain list of every \
+                   technology you are actually proposing to USE.".into(),
+        };
+        probes.extend(validation::check_strategy(
+            &generate_solution_strategy(&base, &model, &strategy).await.map(|(g, _)| g),
+            disallowed,
+        ));
+
+        // 5 — the hopeless brief.
+        let hopeless = Prompt {
+            context: "You are helping a product team plan work.\n\nProduct: (none given)\n".into(),
+            task: "Work item: \"Make it better\"\n\nWrite 3-6 user stories.\n\nIf this is too \
+                   vague to do well, do NOT guess. Leave \"stories\" empty and fill in \
+                   \"blocked\" with the reason and the single most useful question a person \
+                   could answer.".into(),
+        };
+        probes.push(validation::check_declines_vague(
+            &generate_stories(&base, &model, &hopeless).await.map(|(g, _)| g),
+        ));
+
+        let report = ValidationReport::finish(&model, probes);
+        println!("\n=== validating {model} ===");
+        for probe in &report.probes {
+            println!("{} {:<24} {}", if probe.passed { "PASS" } else { "FAIL" }, probe.probe, probe.detail);
+        }
+        println!("\nresult: {}", if report.passed { "INSTALLED" } else { "REFUSED" });
+        for fix in &report.suggested_fixes {
+            println!("  fix: {fix}");
+        }
+        // Not asserted: a real model failing is a finding about the model, not
+        // a broken test. The output is the point.
+    }
+
+    /// R3's central risk, tested against a real model: given a deliberately
+    /// under-specified item **and** an explicit instruction not to guess, does
+    /// the model actually take the escape hatch?
+    ///
+    /// This does not assert a decline — a model that produces sensible work
+    /// from a thin brief has not misbehaved. It reports which branch was taken
+    /// so the prompt wording can be judged against real behaviour rather than
+    /// assumed to work.
+    ///
+    /// ```text
+    /// OLLAMA_MODEL=ornith:9b cargo test -- --ignored escape_hatch --nocapture
+    /// ```
+    #[tokio::test]
+    #[ignore = "needs a local Ollama server with a model pulled"]
+    async fn escape_hatch_is_offered_to_a_real_model() {
+        let base = std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".into());
+        let model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "llama3".into());
+
+        // Deliberately hopeless: no product, no users, no scope.
+        let prompt = Prompt {
+            context: "You are helping a product team plan work.\n\nProduct: (none given)\n\
+                      Product brief answers (JSON): {}\n\nNo solutions are linked to this Product yet.\n"
+                .into(),
+            task: "Work item: \"Make it better\"\n\nWrite 3-6 user stories covering this feature.\
+                   \n\nIf this is too vague or contradictory to do well, do NOT guess. \
+                   Leave \"stories\" empty and fill in \"blocked\" instead: give the reason and, \
+                   in whatIsNeeded, the single most useful question a person could answer to \
+                   unblock it. Declining with a good question is a better outcome than \
+                   inventing work."
+                .into(),
+        };
+
+        let (generated, usage) = generate_stories(&base, &model, &prompt)
+            .await
+            .expect("generate");
+        println!("usage: in={} out={}", usage.input_tokens, usage.output_tokens);
+        match generated {
+            Generated::Blocked { reason, what_is_needed } => {
+                println!("DECLINED — the escape hatch works on this model");
+                println!("  reason: {reason}");
+                println!("  asks:   {what_is_needed}");
+            }
+            Generated::Items(drafts) => {
+                println!(
+                    "GUESSED — {} items from a hopeless brief. The hatch is offered but this \
+                     model did not take it; the prompt wording needs strengthening for it.",
+                    drafts.len()
+                );
+                for d in &drafts {
+                    println!("  - {}", d.title);
+                }
+            }
+        }
     }
 }

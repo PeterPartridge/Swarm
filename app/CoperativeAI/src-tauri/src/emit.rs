@@ -200,6 +200,33 @@ pub fn write_files(
     Ok((report, recorded))
 }
 
+/// Writes files the app **owns and regenerates**, overwriting unconditionally.
+///
+/// Separate from `write_files` on purpose. That function protects things a
+/// person authors, where an edit must never be lost. A capability pack is the
+/// opposite: it is derived from the Product's current rules, so an edited pack
+/// is a stale pack, and keeping it would bind a model to rules that no longer
+/// apply. Using the wrong one of these two functions is the kind of mistake
+/// that is invisible until someone loses work, hence the different names.
+pub fn write_generated(root: &str, files: &[EmitFile]) -> Result<Vec<String>, String> {
+    let root_path = Path::new(root);
+    if !root_path.is_dir() {
+        return Err(format!("the Product's folder no longer exists: {root}"));
+    }
+    let mut written = Vec::new();
+    for file in files {
+        let target = root_path.join(&file.rel_path);
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("could not create {}: {e}", parent.display()))?;
+        }
+        fs::write(&target, &file.contents)
+            .map_err(|e| format!("could not write {}: {e}", file.rel_path))?;
+        written.push(file.rel_path.clone());
+    }
+    Ok(written)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -342,6 +369,20 @@ mod tests {
             write_files(&root, &[file("spec.json", "{}")], &HashMap::new()).expect("emit");
         assert_eq!(report.conflicts, vec!["spec.json".to_string()]);
         assert_eq!(fs::read_to_string(&path).expect("read"), "someone else's file");
+    }
+
+    /// A pack is derived from the Product's current rules, so an edited pack is
+    /// a stale one and must be replaced — the opposite of a brief.
+    #[test]
+    fn generated_files_overwrite_without_asking() {
+        let root = temp_dir("generated");
+        write_generated(&root, &[file("packs/m/system.md", "v1")]).expect("first");
+        let path = Path::new(&root).join("packs/m/system.md");
+        fs::write(&path, "hand edited").expect("edit");
+
+        let written = write_generated(&root, &[file("packs/m/system.md", "v2")]).expect("second");
+        assert_eq!(written, vec!["packs/m/system.md".to_string()]);
+        assert_eq!(fs::read_to_string(&path).expect("read"), "v2");
     }
 
     #[test]

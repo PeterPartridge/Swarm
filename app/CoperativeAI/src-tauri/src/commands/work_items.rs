@@ -336,23 +336,37 @@ pub(crate) async fn resolve_story_generation(
             "The current planning method doesn't use user stories — change 'How Products are planned' in settings to a method that includes them.".into(),
         );
     }
-    // Deny-by-default: no policy row, or a policy that doesn't allow reading
-    // via a named provider, blocks the call before any content moves.
-    let Some(policy) = work_item_policy::get_for_item(conn, feature_id)
+    let (provider, effort_tier) = resolve_item_ai_gate(conn, feature_id, &item.title).await?;
+    Ok(StoryGenerationContext {
+        feature: item,
+        provider,
+        effort_tier,
+    })
+}
+
+/// The deny-by-default policy gate for one work item, without the checks that
+/// are specific to story generation. Every AI action anchored on an item goes
+/// through this, so a new feature cannot accidentally skip the policy.
+pub(crate) async fn resolve_item_ai_gate(
+    conn: &turso::Connection,
+    item_id: i64,
+    item_title: &str,
+) -> Result<(crate::db::ai_provider::AiProvider, String), String> {
+    // No policy row, or one that doesn't allow reading via a named provider,
+    // blocks the call before any content moves.
+    let Some(policy) = work_item_policy::get_for_item(conn, item_id)
         .await
         .map_err(to_message)?
     else {
         return Err(format!(
-            "'{}' has no AI policy, so AI can't touch it (deny-by-default). Set its work-item AI policy to allow reading, and configure an AI provider in AI Settings.",
-            item.title
+            "'{item_title}' has no AI policy, so AI can't touch it (deny-by-default). Set its work-item AI policy to allow reading, and configure an AI provider in AI Settings."
         ));
     };
     let provider_id = match (policy.allow_read, policy.provider_id) {
         (true, Some(provider_id)) => provider_id,
         _ => {
             return Err(format!(
-                "'{}''s AI policy blocks this: it must allow reading and name an AI provider. Configure a provider in AI Settings and update the item's policy.",
-                item.title
+                "'{item_title}''s AI policy blocks this: it must allow reading and name an AI provider. Configure a provider in AI Settings and update the item's policy."
             ));
         }
     };
@@ -362,11 +376,7 @@ pub(crate) async fn resolve_story_generation(
     else {
         return Err("the policy's AI provider no longer exists — update the item's policy".into());
     };
-    Ok(StoryGenerationContext {
-        feature: item,
-        provider,
-        effort_tier: policy.effort_tier,
-    })
+    Ok((provider, policy.effort_tier))
 }
 
 /// Everything the Deliverable gate resolves before any content moves.

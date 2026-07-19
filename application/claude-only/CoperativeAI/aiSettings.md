@@ -81,6 +81,50 @@ Implements the project's key-handling security rule directly. The key value exis
 
 ---
 
+## Round 3 — Model detection, capability packs, and validation
+
+### My Feedback
+The requirement: detect new models, block them until installed, convert the platform's rules into something a new model can work from, validate it against real outputs, and let any model that passes take part.
+
+**One part of the requirement I pushed back on before building.** *"Compared against Claude-expected outputs"* is not a well-defined test: two models given the same item phrase things differently and both are right, so exact match fails everything and judging equivalence needs a third call to referee — circular, costly on every install, and impossible without an API key. You chose **structural conformance** instead, and the probes now check what the platform actually depends on:
+
+| Probe | What it proves |
+|---|---|
+| Work item interpretation | returns items in the schema at all |
+| Solution strategy | produces a strategy with options |
+| Architecture planning | uses only kinds the app can file |
+| Respects developer rules | declares no forbidden technology |
+| Declines vague work | uses the escape hatch rather than inventing |
+
+**Implemented:** `db/model_install.rs` (detection as a diff, install state), `pack.rs` (the capability pack, emitted as files), `ai/validation.rs` (probes and report), `commands/models.rs` (the workflow), `ModelInstalls.tsx`.
+
+### Validated live
+Run against `ornith:9b`, **all five probes passed** — which is the result that matters most, because probes no real model can pass are a broken gate rather than a high standard:
+
+```
+PASS workItemInterpretation   returned 3 work items in the required shape
+PASS solutionStrategy         produced a strategy with 4 options
+PASS architectureKinds        every option used a kind the platform accepts
+PASS respectsDisallowed       declared [".NET 8", "Azure Functions", …], none forbidden
+PASS declinesVagueWork        declined and asked: What product/system are we improving, and for whom?
+→ INSTALLED
+```
+
+### Your Feedback
+- **That passing run exposed a hole.** The Product's *allowed* technologies were "Rust, TypeScript"; the model proposed .NET and Azure and passed, because only `disallowedTech` is enforced anywhere. An allow-list that nothing checks is decoration. Recorded as debt below — it is the most substantive thing this round found.
+- **All-or-nothing has a consequence worth stating.** You chose it over per-task capability. Ollama is the budget-handover target, so a local model that fails one probe is not a usable handover target either: past 90% the work stops instead of degrading. That is defensible — a model that cannot be trusted with architecture arguably should not be silently handed architecture — but it turns a soft landing into a hard stop, and the message says so rather than leaving the user guessing.
+- **A pack is not a translation.** There is no clever conversion of Claude's behaviour into another model's dialect; the pack is the framework's rules stated once, compactly, plus the schemas the platform parses. What makes it work is the probes telling you whether the model actually complies.
+- **`write_generated` is deliberately separate from `write_files`.** Briefs are authored and must never lose an edit; packs are derived, so an edited pack is a stale pack. Using the wrong one is invisible until someone loses work, hence two names.
+- The system prompt has a **size test** — it is paid for on every call, so its length is a feature, not an afterthought.
+
+### Technical Debt
+- **`allowedTech` is not enforced anywhere** — not in the probes, not in strategy generation. Only `disallowedTech` has teeth. A model may propose anything not explicitly banned, which the live run demonstrated.
+- **Validation is per-Product but install state is per-model.** The pack is built from one Product's rules, yet passing marks the model installed globally; a model validated against a lenient Product is then trusted everywhere.
+- **The probes are fixed prompts, not the app's real ones.** They mirror the shape closely but are maintained separately, so the two can drift.
+- **Installing costs real calls** — five probes per install, metered on a paid provider, and unbudgeted: `install_model` does not route through the ledger or check the AI budget.
+- Re-validation is manual; nothing re-checks a model after the Product's rules change, so an install can quietly go stale.
+- Detection only sees what a provider lists. For Anthropic that is a hand-typed list, so a genuinely new Claude model is not "detected" until someone types it in.
+
 ## Round 2 — Prompt caching + model tiering
 
 ### My Feedback

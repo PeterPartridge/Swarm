@@ -5,7 +5,9 @@
 
 pub mod backend;
 pub mod client;
+pub mod estimator;
 pub mod keys;
 pub mod ollama;
 pub mod router;
 pub mod tiering;
+pub mod validation;

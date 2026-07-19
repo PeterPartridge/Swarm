@@ -6,6 +6,7 @@ mod commands;
 mod db;
 mod emit;
 mod github;
+mod pack;
 mod scaffold;
 mod terminal;
 
@@ -75,6 +76,12 @@ fn main() {
             commands::deliverables::list_deliverables,
             commands::deliverables::create_deliverable,
             commands::deliverables::delete_deliverable,
+            commands::recommendations::recommend_for_work_item,
+            commands::strategies::get_developer_rules,
+            commands::strategies::set_developer_rules,
+            commands::strategies::get_solution_strategy,
+            commands::strategies::generate_solution_strategy,
+            commands::strategies::choose_architecture_option,
             commands::strategy::get_strategy,
             commands::strategy::save_strategy,
             commands::test_cases::list_test_cases,
@@ -95,6 +102,9 @@ fn main() {
             commands::budgets::list_model_prices,
             commands::budgets::set_model_price,
             commands::budgets::delete_model_price,
+            commands::models::list_model_status,
+            commands::models::refresh_provider_models,
+            commands::models::install_model,
             commands::ai_settings::list_ai_providers,
             commands::ai_settings::add_ai_provider,
             commands::ai_settings::add_ollama_provider,

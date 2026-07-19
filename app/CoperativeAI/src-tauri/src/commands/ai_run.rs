@@ -14,7 +14,7 @@ use super::to_message;
 use crate::ai::client::Usage;
 use crate::ai::router::{self, BudgetState, Decision, ProviderOption};
 use crate::db::ai_usage::{self, TokenCounts};
-use crate::db::{ai_provider, model_price, product_budget};
+use crate::db::{ai_provider, model_install, model_price, product_budget};
 use crate::db::ai_provider::AiProvider;
 use turso::Connection;
 
@@ -83,6 +83,26 @@ pub(crate) async fn plan(
                 .await
                 .map_err(to_message)?
                 .ok_or_else(|| "the chosen AI provider no longer exists".to_string())?;
+
+            // A model the platform has not installed is refused here, at the
+            // last gate before content moves — so it cannot be reached by any
+            // route, including a budget handover that picked it automatically.
+            if !model_install::is_installed(conn, provider.id, &model)
+                .await
+                .map_err(to_message)?
+            {
+                let _ = ai_usage::record(
+                    conn, Some(product_id), None, Some(provider.id), &model, purpose,
+                    TokenCounts::default(), 0, 0, "blocked",
+                )
+                .await;
+                return Err(format!(
+                    "'{model}' on {} has not been installed yet. Install it in AI Settings — \
+                     the platform validates a model before trusting it with work.",
+                    provider.name
+                ));
+            }
+
             Ok(Routed {
                 provider,
                 model,
@@ -157,14 +177,27 @@ mod tests {
     use super::*;
     use crate::db::product::tests::db_with_product;
 
+    /// Marks a provider's models installed. Every routing test needs this now:
+    /// the platform refuses a model it has not validated, so a test that skips
+    /// installation is testing the install gate rather than routing.
+    async fn install_all(conn: &Connection, provider_id: i64, models: &[&str]) {
+        for model in models {
+            model_install::set_result(conn, provider_id, model, "installed", "", "{}")
+                .await
+                .expect("install");
+        }
+    }
+
     async fn claude(conn: &Connection) -> i64 {
-        ai_provider::add(conn, "Claude", "https://api.anthropic.com", &["haiku", "opus"], "claude")
+        let id = ai_provider::add(conn, "Claude", "https://api.anthropic.com", &["haiku", "opus"], "claude")
             .await
-            .expect("provider")
+            .expect("provider");
+        install_all(conn, id, &["haiku", "opus"]).await;
+        id
     }
 
     async fn local(conn: &Connection) -> i64 {
-        ai_provider::add_of_kind(
+        let id = ai_provider::add_of_kind(
             conn,
             "Ollama",
             "http://localhost:11434",
@@ -174,7 +207,9 @@ mod tests {
             false,
         )
         .await
-        .expect("provider")
+        .expect("provider");
+        install_all(conn, id, &["llama3"]).await;
+        id
     }
 
     #[tokio::test]
@@ -214,6 +249,64 @@ mod tests {
             .expect("planned");
         assert_eq!(routed.provider.id, local_id, "should hand over: {}", routed.reason);
         assert!(routed.reason.contains("handed over"), "got: {}", routed.reason);
+    }
+
+    /// A model that has not been through installation is refused at the last
+    /// gate, whichever route chose it.
+    #[tokio::test]
+    async fn an_uninstalled_model_is_refused_even_though_the_provider_is_fine() {
+        let (conn, product_id) = db_with_product().await;
+        let claude_id = ai_provider::add(
+            &conn, "Claude", "https://api.anthropic.com", &["haiku"], "claude",
+        )
+        .await
+        .expect("provider");
+        // deliberately not installed
+
+        let err = plan(&conn, product_id, claude_id, "low", "storyGeneration")
+            .await
+            .expect_err("must be refused");
+        assert!(err.contains("has not been installed"), "got: {err}");
+
+        // …and the refusal is on the record, without counting as spend.
+        let ledger = ai_usage::list_for_product(&conn, product_id, 10).await.expect("list");
+        assert!(ledger.iter().any(|u| u.outcome == "blocked"));
+        assert_eq!(ai_usage::spend_for_product(&conn, product_id, 0).await.expect("spend").calls, 0);
+    }
+
+    /// The interaction worth knowing about: with all-or-nothing installation, a
+    /// local model that failed validation is not a usable handover target, so
+    /// passing the threshold stops work rather than degrading it.
+    #[tokio::test]
+    async fn handover_to_an_uninstalled_local_model_is_refused_not_silently_downgraded() {
+        let (conn, product_id) = db_with_product().await;
+        let claude_id = claude(&conn).await;
+        let local_id = ai_provider::add_of_kind(
+            &conn, "Ollama", "http://localhost:11434", &["llama3"], "ollama", "ollama", false,
+        )
+        .await
+        .expect("provider");
+        // the handover target exists but never passed validation
+
+        product_budget::set_budget(
+            &conn, product_id, 0, 1_000_000, 0, 75, 90, 100, 30, &[claude_id, local_id],
+        )
+        .await
+        .expect("budget");
+        ai_usage::record(
+            &conn, Some(product_id), None, Some(claude_id), "haiku", "storyGeneration",
+            TokenCounts::default(), 950_000, 10, "ok",
+        )
+        .await
+        .expect("record");
+
+        let err = plan(&conn, product_id, claude_id, "low", "storyGeneration")
+            .await
+            .expect_err("must be refused");
+        assert!(
+            err.contains("has not been installed"),
+            "the user should be told why work stopped, not left guessing: {err}"
+        );
     }
 
     #[tokio::test]

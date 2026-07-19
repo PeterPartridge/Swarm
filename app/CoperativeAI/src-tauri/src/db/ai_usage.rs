@@ -172,6 +172,59 @@ pub async fn spend_for_product(
     }
 }
 
+/// Token totals of past successful calls of one kind, newest first.
+///
+/// Only `ok` calls count: a declined call is cheap and a failed one is
+/// incomplete, so including either would drag the estimate below what real
+/// work actually costs.
+pub async fn recent_token_totals(
+    conn: &Connection,
+    purpose: &str,
+    model: &str,
+    limit: i64,
+) -> Result<Vec<i64>> {
+    let mut rows = conn
+        .query(
+            "SELECT inputTokens + outputTokens FROM ai_usage
+             WHERE purpose = ?1 AND model = ?2 AND outcome = 'ok'
+             ORDER BY id DESC LIMIT ?3",
+            (purpose, model, limit),
+        )
+        .await?;
+    let mut totals = Vec::new();
+    while let Some(row) = rows.next().await? {
+        totals.push(row.get(0)?);
+    }
+    Ok(totals)
+}
+
+/// Observed throughput in tokens per second, one figure per recorded call.
+///
+/// The price table's `tokensPerSecond` is typed in by hand and nothing has ever
+/// checked it. The ledger has been recording `latencyMs` since the first call,
+/// so the real number is already there — this reads it back. Calls faster than
+/// a second are skipped rather than dividing by zero and reporting an absurd
+/// rate.
+pub async fn recent_throughput(conn: &Connection, model: &str, limit: i64) -> Result<Vec<i64>> {
+    let mut rows = conn
+        .query(
+            "SELECT (inputTokens + outputTokens) * 1000 / latencyMs FROM ai_usage
+             WHERE model = ?1 AND outcome = 'ok' AND latencyMs >= 1000
+               AND (inputTokens + outputTokens) > 0
+             ORDER BY id DESC LIMIT ?2",
+            (model, limit),
+        )
+        .await?;
+    let mut rates = Vec::new();
+    while let Some(row) = rows.next().await? {
+        let rate: i64 = row.get(0)?;
+        if rate > 0 {
+            rates.push(rate);
+        }
+    }
+    Ok(rates)
+}
+
 pub async fn list_for_product(conn: &Connection, product_id: i64, limit: i64) -> Result<Vec<AiUsage>> {
     let mut rows = conn
         .query(
@@ -304,6 +357,47 @@ mod tests {
             .expect("spend");
         assert_eq!(spend.calls, 0);
         assert_eq!(spend.micropence, 0);
+    }
+
+    /// The price table's throughput is a guess; the ledger holds the truth.
+    #[tokio::test]
+    async fn throughput_is_read_back_from_recorded_latency() {
+        let (conn, product_id) = db_with_product().await;
+        // 3000 tokens in 30 seconds = 100 tokens/second
+        record(&conn, Some(product_id), None, None, "haiku", "storyGeneration",
+            tokens(2000, 1000), 0, 30_000, "ok")
+            .await
+            .expect("record");
+
+        let rates = recent_throughput(&conn, "haiku", 10).await.expect("throughput");
+        assert_eq!(rates, vec![100]);
+    }
+
+    /// A sub-second call would divide into an absurd rate and poison the
+    /// median, so it is skipped rather than trusted.
+    #[tokio::test]
+    async fn very_fast_and_empty_calls_are_left_out_of_throughput() {
+        let (conn, product_id) = db_with_product().await;
+        record(&conn, Some(product_id), None, None, "haiku", "storyGeneration",
+            tokens(10, 5), 0, 12, "ok").await.expect("too fast");
+        record(&conn, Some(product_id), None, None, "haiku", "storyGeneration",
+            tokens(0, 0), 0, 5_000, "ok").await.expect("no tokens");
+        record(&conn, Some(product_id), None, None, "haiku", "storyGeneration",
+            tokens(100, 0), 0, 5_000, "blocked").await.expect("blocked");
+
+        assert!(recent_throughput(&conn, "haiku", 10).await.expect("q").is_empty());
+    }
+
+    #[tokio::test]
+    async fn throughput_is_per_model() {
+        let (conn, product_id) = db_with_product().await;
+        record(&conn, Some(product_id), None, None, "fast", "storyGeneration",
+            tokens(9000, 1000), 0, 10_000, "ok").await.expect("fast");
+        record(&conn, Some(product_id), None, None, "slow", "storyGeneration",
+            tokens(300, 50), 0, 35_000, "ok").await.expect("slow");
+
+        assert_eq!(recent_throughput(&conn, "fast", 10).await.expect("q"), vec![1000]);
+        assert_eq!(recent_throughput(&conn, "slow", 10).await.expect("q"), vec![10]);
     }
 
     #[tokio::test]

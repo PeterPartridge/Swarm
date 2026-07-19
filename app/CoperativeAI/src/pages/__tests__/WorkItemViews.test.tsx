@@ -11,6 +11,10 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     listWorkItems: vi.fn(),
     listSprints: vi.fn(),
     listTeamMembers: vi.fn(),
+    getSolutionStrategy: vi.fn(),
+    generateSolutionStrategy: vi.fn(),
+    chooseArchitectureOption: vi.fn(),
+    recommendForWorkItem: vi.fn(),
   };
 });
 
@@ -36,6 +40,7 @@ describe("WorkItemViews", () => {
     vi.clearAllMocks();
     mocked.listSprints.mockResolvedValue([sprint]);
     mocked.listTeamMembers.mockResolvedValue([ada, bob]);
+    mocked.getSolutionStrategy.mockResolvedValue(null);
     mocked.listWorkItems.mockResolvedValue([
       item({ id: 1, title: "Checkout", status: "planned", assigneeId: 5, sprintId: 9 }),
       item({ id: 2, title: "Search", status: "building", assigneeId: 6, sprintId: null }),
@@ -75,5 +80,119 @@ describe("WorkItemViews", () => {
     const table = screen.getByRole("table", { name: "List view" });
     expect(within(table).queryByRole("row", { name: "Checkout" })).toBeInTheDocument();
     expect(within(table).queryByRole("row", { name: "Search" })).not.toBeInTheDocument();
+  });
+
+  /// A rule the AI broke must be visible on the strategy it broke it in.
+  /// Stating a constraint in the prompt is not the same as it being obeyed,
+  /// which is why the answer is checked and the result surfaced here.
+  it("shows when a generated strategy breaks the developer rules", async () => {
+    const user = userEvent.setup();
+    mocked.getSolutionStrategy.mockResolvedValue({
+      workItemId: 1,
+      strategy: "Build the service in Java with Spring Boot.",
+      architectureOptions: "[]",
+      chosenOptionIndex: null,
+      techStack: "Java, Spring",
+      ruleViolations: ["java"],
+    });
+    render(<WorkItemViews productId={7} />);
+
+    await user.click(await screen.findByRole("tab", { name: "List" }));
+    await user.click(screen.getByRole("button", { name: "Solution strategy for Checkout" }));
+
+    const warning = await screen.findByRole("alert");
+    expect(warning).toHaveTextContent(/technology your rules forbid/);
+    expect(warning).toHaveTextContent("java");
+  });
+
+  /// Every figure must say where it came from. A price-table guess shown with
+  /// the same confidence as a measured median would be dishonest.
+  it("shows both cost options and labels the estimate's source", async () => {
+    const user = userEvent.setup();
+    mocked.recommendForWorkItem.mockResolvedValue({
+      options: [
+        {
+          kind: "fastest",
+          provider: "Claude",
+          model: "claude-opus-4-8",
+          estTokens: 18_000,
+          estCostMicropence: 94_000_000,
+          estMinutes: 2,
+          source: "priceTable",
+          affordable: true,
+        },
+        {
+          kind: "costEfficient",
+          provider: "Ollama (local)",
+          model: "ornith:9b",
+          estTokens: 22_000,
+          estCostMicropence: 0,
+          estMinutes: 6,
+          source: "history",
+          affordable: true,
+        },
+      ],
+      note: null,
+    });
+    render(<WorkItemViews productId={7} />);
+
+    await user.click(await screen.findByRole("tab", { name: "List" }));
+    await user.click(screen.getByRole("button", { name: "Solution strategy for Checkout" }));
+    await user.click(await screen.findByRole("button", { name: "Estimate AI cost for Checkout" }));
+
+    expect(await screen.findByText(/£0\.94/)).toBeInTheDocument();
+    expect(screen.getByText(/£0\.00/)).toBeInTheDocument();
+    expect(screen.getByText(/price table, no history yet/)).toBeInTheDocument();
+    expect(screen.getByText(/median of your recorded calls/)).toBeInTheDocument();
+  });
+
+  it("marks an option that would exceed the remaining budget", async () => {
+    const user = userEvent.setup();
+    mocked.recommendForWorkItem.mockResolvedValue({
+      options: [
+        {
+          kind: "fastest",
+          provider: "Claude",
+          model: "claude-opus-4-8",
+          estTokens: 18_000,
+          estCostMicropence: 94_000_000,
+          estMinutes: 2,
+          source: "priceTable",
+          affordable: false,
+        },
+      ],
+      note: null,
+    });
+    render(<WorkItemViews productId={7} />);
+
+    await user.click(await screen.findByRole("tab", { name: "List" }));
+    await user.click(screen.getByRole("button", { name: "Solution strategy for Checkout" }));
+    await user.click(await screen.findByRole("button", { name: "Estimate AI cost for Checkout" }));
+
+    expect(
+      await screen.findByText(/exceed what is left of the AI budget/),
+    ).toBeInTheDocument();
+  });
+
+  it("offers architecture options to choose between", async () => {
+    const user = userEvent.setup();
+    mocked.getSolutionStrategy.mockResolvedValue({
+      workItemId: 1,
+      strategy: "Run it as a queue consumer.",
+      architectureOptions: JSON.stringify([
+        { name: "Azure Function", kind: "azureFunction", rationale: "cheap", tradeoffs: "cold starts" },
+      ]),
+      chosenOptionIndex: null,
+      techStack: "Rust",
+      ruleViolations: [],
+    });
+    mocked.chooseArchitectureOption.mockResolvedValue(undefined);
+    render(<WorkItemViews productId={7} />);
+
+    await user.click(await screen.findByRole("tab", { name: "List" }));
+    await user.click(screen.getByRole("button", { name: "Solution strategy for Checkout" }));
+    await user.click(await screen.findByRole("button", { name: "Choose Azure Function" }));
+
+    expect(mocked.chooseArchitectureOption).toHaveBeenCalledWith(1, 0);
   });
 });

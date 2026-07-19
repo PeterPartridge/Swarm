@@ -550,6 +550,221 @@ body {
   color: var(--env-color, #7c3aed);
 }
 
+/* Model installation: detection, validation, capability packs */
+.model-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.model {
+  border: 1px solid #e5e7eb;
+  border-left: 3px solid #9ca3af;
+  border-radius: 0.375rem;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.8rem;
+}
+
+.model.state-installed {
+  border-left-color: #16a34a;
+}
+
+.model.state-failed {
+  border-left-color: #dc2626;
+  background: #fef2f2;
+}
+
+.model.state-detected {
+  border-left-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.model-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.model-provider {
+  color: #6b7280;
+}
+
+.model-state {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-left: auto;
+}
+
+.model-state.installed {
+  color: #16a34a;
+}
+
+.model-state.failed {
+  color: #991b1b;
+}
+
+.model-state.detected {
+  color: #92400e;
+}
+
+.probe-list,
+.fix-list {
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  font-size: 0.75rem;
+}
+
+.probe-list li.pass .probe-mark {
+  color: #16a34a;
+}
+
+.probe-list li.fail .probe-mark {
+  color: #dc2626;
+  font-weight: 700;
+}
+
+.probe-detail {
+  color: #6b7280;
+}
+
+.fix-list {
+  margin-top: 0.3rem;
+  padding-left: 0.9rem;
+  list-style: disc;
+  color: #991b1b;
+}
+
+.pack-path {
+  margin: 0.3rem 0 0;
+  font-size: 0.7rem;
+  color: #6b7280;
+}
+
+/* Cost recommendations: what the AI would cost, before you ask it */
+.cost-recommendation {
+  margin: 0.4rem 0;
+}
+
+.cost-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+
+.cost-option {
+  flex: 1 1 14rem;
+  border: 1px solid #e5e7eb;
+  border-left: 3px solid #6366f1;
+  border-radius: 0.25rem;
+  padding: 0.4rem 0.5rem;
+  background: #fff;
+}
+
+.cost-option.unaffordable {
+  border-left-color: #dc2626;
+  background: #fef2f2;
+}
+
+.cost-option p {
+  margin: 0.15rem 0;
+}
+
+.option-source {
+  font-size: 0.7rem;
+  color: #6b7280;
+  font-style: italic;
+}
+
+.option-warning {
+  color: #991b1b;
+  font-size: 0.72rem;
+}
+
+.option-note {
+  flex-basis: 100%;
+  margin: 0.2rem 0 0;
+  font-size: 0.72rem;
+  color: #6b7280;
+}
+
+/* Solution strategy: how the AI proposes to build a work item */
+.solution-strategy {
+  background: #fafafa;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.6rem;
+  font-size: 0.8rem;
+  text-align: left;
+}
+
+.strategy-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.strategy-head h3 {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.strategy-text {
+  white-space: pre-wrap;
+}
+
+.rule-violation {
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  border-radius: 0.25rem;
+  padding: 0.4rem 0.5rem;
+  color: #991b1b;
+}
+
+.architecture-options {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.architecture-options li {
+  border: 1px solid #e5e7eb;
+  border-left: 3px solid #9ca3af;
+  border-radius: 0.25rem;
+  padding: 0.4rem 0.5rem;
+  background: #fff;
+}
+
+.architecture-options li.chosen {
+  border-left-color: #16a34a;
+  background: #f0fdf4;
+}
+
+.architecture-options p {
+  margin: 0.2rem 0;
+}
+
+.option-kind {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+}
+
+.tradeoffs {
+  color: #6b7280;
+}
+
 /* AI questions raised against a work item instead of guessing */
 .ai-questions {
   display: flex;
