@@ -511,6 +511,35 @@ body {
   background: #fffbeb;
 }
 
+.coding-pal {
+  border-top: 1px dashed #e5e7eb;
+  margin-top: 0.3rem;
+  padding-top: 0.3rem;
+  font-size: 0.75rem;
+}
+
+.pal-ask {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.pal-ask input {
+  flex: 1;
+  min-width: 8rem;
+}
+
+.pal-explanation {
+  max-height: 12rem;
+  overflow: auto;
+  background: #f9fafb;
+  border-radius: 4px;
+  padding: 0.4rem;
+  font-size: 0.72rem;
+  margin: 0.3rem 0;
+  white-space: pre-wrap;
+}
+
 .code-window-head {
   display: flex;
   align-items: center;

@@ -125,6 +125,36 @@ export const writeSolutionFile = (
   path: string,
   contents: string,
 ): Promise<void> => invoke("write_solution_file", { solutionId, path, contents });
+
+/** What the coding pal said. A replacement never touches disk by itself — it
+ *  goes into the editor buffer, and your own save is the gate. */
+export interface PalAnswer {
+  explanation: string;
+  replacement: string;
+  /** Forbidden technologies found in the proposal — shown before you apply. */
+  violations: string[];
+  provider: string;
+  model: string;
+  reason: string;
+  blocked: Blocked | null;
+}
+
+export type PalAction = "explain" | "refactor" | "docs" | "tests";
+
+export const PAL_ACTION_LABELS: Record<PalAction, string> = {
+  explain: "Explain this",
+  refactor: "Refactor",
+  docs: "Document it",
+  tests: "Draft tests",
+};
+
+export const askCodingPal = (args: {
+  solutionId: number;
+  path: string;
+  action: PalAction;
+  instruction: string;
+  selection: string | null;
+}): Promise<PalAnswer> => invoke("ask_coding_pal", args);
 export const reviewSolutionChanges = (
   solutionId: number,
 ): Promise<ChangeReview> => invoke("review_solution_changes", { solutionId });

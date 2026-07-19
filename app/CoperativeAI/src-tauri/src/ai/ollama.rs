@@ -8,8 +8,8 @@
 //! leaves the machine.
 
 use crate::ai::client::{
-    parse_design, parse_diagram, parse_generation, parse_solution_strategy, Generated,
-    GeneratedDesign, GeneratedDiagram, GeneratedStrategy, Prompt, Usage,
+    parse_design, parse_diagram, parse_generation, parse_pal, parse_solution_strategy, Generated,
+    GeneratedDesign, GeneratedDiagram, GeneratedPal, GeneratedStrategy, Prompt, Usage,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -245,6 +245,36 @@ fn diagram_schema() -> serde_json::Value {
             }
         },
         "required": ["name", "content", "explanation"]
+    })
+}
+
+/// The coding pal from a local model.
+pub async fn generate_pal(
+    api_base_url: &str,
+    model: &str,
+    prompt: &Prompt,
+) -> Result<(GeneratedPal, Usage), String> {
+    let (content, usage) = chat(api_base_url, model, prompt, pal_schema()).await?;
+    Ok((parse_pal(&content)?, usage))
+}
+
+/// The pal shape, mirroring the Claude schema so one parser serves both.
+fn pal_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "explanation": {"type": "string"},
+            "replacement": {"type": "string"},
+            "technologies": {"type": "array", "items": {"type": "string"}},
+            "blocked": {
+                "type": ["object", "null"],
+                "properties": {
+                    "reason": {"type": "string"},
+                    "whatIsNeeded": {"type": "string"}
+                }
+            }
+        },
+        "required": ["explanation", "replacement", "technologies"]
     })
 }
 

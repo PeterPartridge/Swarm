@@ -1005,6 +1005,175 @@ pub async fn generate_diagram(
     Ok((parse_diagram(&json_text, format)?, usage))
 }
 
+/// What the coding pal came back with.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PalDraft {
+    /// Always present — even a revision says what it did and why.
+    pub explanation: String,
+    /// The complete revised file, when the action changes code. Empty for
+    /// actions that only talk. It replaces the file wholesale, so the prompt
+    /// warns that an elided line is a deleted line.
+    pub replacement: String,
+    /// Technologies the revised code uses — checked against the rules.
+    pub technologies: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum GeneratedPal {
+    Answer(Box<PalDraft>),
+    Blocked {
+        reason: String,
+        what_is_needed: String,
+    },
+}
+
+/// The actions the pal offers. A closed list, validated before any money is
+/// spent — an unknown action is a caller bug, not a prompt.
+pub const PAL_ACTIONS: &[&str] = &["explain", "refactor", "docs", "tests"];
+
+/// Builds the coding-pal prompt.
+///
+/// The file travels in the **context** half: it is the most expensive part of
+/// the prompt and the least likely to change across several questions about
+/// the same code, so caching covers it. `rules_doc` is
+/// `pack::developer_rules_doc` output — the same rendering the capability pack
+/// and the handover brief use, so the pal reads the rules in the same words
+/// every other agent does.
+pub fn build_pal_prompt(
+    file_path: &str,
+    file_content: &str,
+    rules_doc: &str,
+    action: &str,
+    instruction: &str,
+    selection: Option<&str>,
+) -> Prompt {
+    let mut context = String::new();
+    context.push_str(rules_doc);
+    context.push_str(&format!("\nFile `{file_path}`:\n```\n{file_content}\n```\n"));
+
+    let mut task = String::new();
+    if let Some(selected) = selection.filter(|s| !s.trim().is_empty()) {
+        task.push_str(&format!(
+            "The developer selected this part of the file:\n```\n{selected}\n```\n\
+             Focus there — but a revision must still return the whole file.\n\n"
+        ));
+    }
+    if !instruction.trim().is_empty() {
+        task.push_str(&format!("Instruction: {instruction}\n\n"));
+    }
+    task.push_str(match action {
+        "refactor" => {
+            "Revise the file accordingly. Return the COMPLETE revised file in \
+             \"replacement\" — it replaces the file wholesale, so an elided line is a \
+             deleted line. Explain what changed and why in \"explanation\", and list in \
+             \"technologies\" every technology the revised code uses. Do not introduce \
+             anything the developer rules forbid."
+        }
+        "docs" => {
+            "Add documentation comments to this file, in its own language's convention. \
+             Return the COMPLETE revised file in \"replacement\" — it replaces the file \
+             wholesale. Change nothing but comments. Summarise what you documented in \
+             \"explanation\", and list the file's technologies in \"technologies\"."
+        }
+        "tests" => {
+            "Write tests for this code. Tests usually belong in a file of their own and \
+             this tool only saves the open one — so put the test code in \"explanation\", \
+             with a note saying where it should live, and leave \"replacement\" empty."
+        }
+        _ => {
+            "Explain what this code does, how it is shaped, and anything a developer \
+             new to it should be warned about. Leave \"replacement\" empty."
+        }
+    });
+    task.push_str(ESCAPE_HATCH_PAL);
+    Prompt { context, task }
+}
+
+const ESCAPE_HATCH_PAL: &str = "\n\nIf the instruction is too vague or contradicts the \
+     developer rules, do NOT guess. Leave \"explanation\" and \"replacement\" empty and \
+     fill in \"blocked\" with the reason and the single most useful question.";
+
+fn pal_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "explanation": {"type": "string"},
+            "replacement": {"type": "string"},
+            "technologies": {"type": "array", "items": {"type": "string"}},
+            "blocked": blocked_schema()
+        },
+        "required": ["explanation", "replacement", "technologies"],
+        "additionalProperties": false
+    })
+}
+
+/// Parses a pal response (pure — unit tested).
+pub fn parse_pal(text: &str) -> Result<GeneratedPal, String> {
+    let value: Value = serde_json::from_str(text)
+        .map_err(|e| format!("the AI response was not valid JSON: {e}"))?;
+
+    if let Some(blocked) = value.get("blocked").filter(|b| !b.is_null()) {
+        let reason = blocked
+            .get("reason")
+            .and_then(|r| r.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if !reason.is_empty() {
+            return Ok(GeneratedPal::Blocked {
+                reason,
+                what_is_needed: blocked
+                    .get("whatIsNeeded")
+                    .and_then(|w| w.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string(),
+            });
+        }
+    }
+
+    let explanation = value
+        .get("explanation")
+        .and_then(|e| e.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if explanation.is_empty() {
+        return Err("the AI response explained nothing".into());
+    }
+    Ok(GeneratedPal::Answer(Box::new(PalDraft {
+        explanation,
+        replacement: strip_fence(
+            value.get("replacement").and_then(|r| r.as_str()).unwrap_or(""),
+        ),
+        technologies: value
+            .get("technologies")
+            .and_then(|t| t.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|t| t.as_str())
+                    .map(|t| t.trim().to_string())
+                    .filter(|t| !t.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default(),
+    })))
+}
+
+/// Calls the provider for the coding pal.
+pub async fn generate_pal(
+    api_base_url: &str,
+    api_key: &str,
+    model: &str,
+    effort: &str,
+    prompt: &Prompt,
+) -> Result<(GeneratedPal, Usage), String> {
+    let (json_text, usage) =
+        post_structured(api_base_url, api_key, model, effort, prompt, pal_schema()).await?;
+    Ok((parse_pal(&json_text)?, usage))
+}
+
 /// Minimal connectivity check: one tiny Messages call.
 pub async fn test_connection(api_base_url: &str, api_key: &str, model: &str) -> Result<(), String> {
     let url = format!("{}/v1/messages", api_base_url.trim_end_matches('/'));
@@ -1136,6 +1305,70 @@ mod tests {
         assert!(prompt.task.contains("Draw the components"));
         assert!(prompt.task.contains("Mermaid"));
         assert!(!prompt.task.contains("How it fits"), "context, not task");
+    }
+
+    /// The file is the expensive, stable half of a pal prompt — several
+    /// questions about the same code should hit the cache, not re-bill it.
+    #[test]
+    fn the_pal_carries_the_file_and_rules_in_the_cacheable_half() {
+        let prompt = build_pal_prompt(
+            "src/main.rs",
+            "fn main() {}",
+            "# Developer rules\n- MUST NOT use: jQuery\n",
+            "refactor",
+            "split this up",
+            Some("fn main"),
+        );
+        assert!(prompt.context.contains("fn main() {}"));
+        assert!(prompt.context.contains("jQuery"));
+        assert!(!prompt.task.contains("Developer rules"));
+        assert!(prompt.task.contains("split this up"));
+        assert!(prompt.task.contains("fn main"), "the selection travels in the task");
+        assert!(prompt.task.contains("elided line is a deleted line"));
+    }
+
+    /// Tests belong in a file of their own and the editor only saves the open
+    /// one — so the tests action must not produce a replacement that would
+    /// overwrite the code under test with its own tests.
+    #[test]
+    fn the_tests_action_asks_for_no_replacement() {
+        let tests = build_pal_prompt("a.rs", "code", "", "tests", "", None);
+        assert!(tests.task.contains("leave \"replacement\" empty"));
+
+        let explain = build_pal_prompt("a.rs", "code", "", "explain", "", None);
+        assert!(explain.task.contains("Leave \"replacement\" empty"));
+    }
+
+    #[test]
+    fn a_pal_answer_parses_with_its_fence_stripped() {
+        let response = json!({
+            "explanation": "Split the function in two.",
+            "replacement": "```rust\nfn main() { helper(); }\n```",
+            "technologies": ["Rust", ""]
+        })
+        .to_string();
+
+        let GeneratedPal::Answer(draft) = parse_pal(&response).expect("parse") else {
+            panic!("expected an answer");
+        };
+        assert_eq!(draft.replacement, "fn main() { helper(); }");
+        assert_eq!(draft.technologies, vec!["Rust"]);
+    }
+
+    #[test]
+    fn a_pal_that_explains_nothing_is_an_error_and_a_refusal_is_a_question() {
+        let empty = json!({ "explanation": " ", "replacement": "", "technologies": [] });
+        assert!(parse_pal(&empty.to_string()).is_err());
+
+        let blocked = json!({
+            "explanation": "", "replacement": "", "technologies": [],
+            "blocked": { "reason": "The instruction contradicts the rules.", "whatIsNeeded": "Which wins?" }
+        })
+        .to_string();
+        match parse_pal(&blocked).expect("parse") {
+            GeneratedPal::Blocked { reason, .. } => assert!(reason.contains("contradicts")),
+            other => panic!("expected Blocked, got {other:?}"),
+        }
     }
 
     /// Mermaid and JSON arrive fenced often enough that stripping is worth more

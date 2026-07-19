@@ -6,7 +6,7 @@
 //! what let the handover feature land without touching the call sites.
 
 use crate::ai::client::{
-    Generated, GeneratedDesign, GeneratedDiagram, GeneratedStrategy, Prompt, Usage,
+    Generated, GeneratedDesign, GeneratedDiagram, GeneratedPal, GeneratedStrategy, Prompt, Usage,
 };
 use crate::ai::{client, keys, ollama};
 use crate::db::ai_provider::AiProvider;
@@ -87,6 +87,25 @@ pub async fn generate_diagram(
             let api_key = keys::get_key(&provider.key_alias)?;
             client::generate_diagram(&provider.api_base_url, &api_key, model, effort, prompt, format)
                 .await
+        }
+        other => Err(unknown_kind(provider, other)),
+    }
+}
+
+/// The coding pal, whichever provider the router chose. Dispatched by kind for
+/// the same reason as everything else: a Product past its handover threshold
+/// still gets a pal, just a local one.
+pub async fn generate_pal(
+    provider: &AiProvider,
+    model: &str,
+    effort: &str,
+    prompt: &Prompt,
+) -> Result<(GeneratedPal, Usage), String> {
+    match provider.kind.as_str() {
+        "ollama" => ollama::generate_pal(&provider.api_base_url, model, prompt).await,
+        "anthropic" => {
+            let api_key = keys::get_key(&provider.key_alias)?;
+            client::generate_pal(&provider.api_base_url, &api_key, model, effort, prompt).await
         }
         other => Err(unknown_kind(provider, other)),
     }

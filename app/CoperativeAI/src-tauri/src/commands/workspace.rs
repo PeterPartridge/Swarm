@@ -64,6 +64,167 @@ pub async fn read_solution_file(
     workspace::read_file(&root, &path)
 }
 
+/// What the coding pal said. `replacement` never touches disk from here — it
+/// goes into the editor buffer, and the developer's own save is the gate.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PalDto {
+    pub explanation: String,
+    pub replacement: String,
+    /// Forbidden technologies found in the proposal — shown, not enforced,
+    /// because accepting is ungated everywhere in this app; but shown before
+    /// the apply, not after the save.
+    pub violations: Vec<String>,
+    pub provider: String,
+    pub model: String,
+    pub reason: String,
+    pub blocked: Option<super::work_items::BlockedDto>,
+}
+
+/// The in-editor coding pal: explain, refactor, document, or draft tests for
+/// the open file. Gated by the Product AI policy, routed through the budget,
+/// ledgered like every other AI action — an editor does not get its own
+/// unmetered path.
+#[tauri::command]
+pub async fn ask_coding_pal(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+    path: String,
+    action: String,
+    instruction: String,
+    selection: Option<String>,
+) -> Result<PalDto, String> {
+    use crate::ai::{backend, client};
+    use crate::commands::ai_run;
+    use crate::db::{product_policy, solution};
+
+    const PURPOSE: &str = "codingPal";
+
+    if !client::PAL_ACTIONS.contains(&action.as_str()) {
+        return Err(format!(
+            "'{action}' is not something the pal does — it can {}",
+            client::PAL_ACTIONS.join(", ")
+        ));
+    }
+
+    let (routed, prompt, effort_tier, product_id, disallowed) = {
+        let conn = db.0.lock().await;
+        let Some(solution_row) = solution::find_by_id(&conn, solution_id)
+            .await
+            .map_err(to_message)?
+        else {
+            return Err("that Solution no longer exists".into());
+        };
+        let product_id = solution_row.product_id;
+        // Deny-by-default, the same policy that gates every Product-scoped
+        // generation.
+        let Some(policy) = product_policy::get_for_product(&conn, product_id)
+            .await
+            .map_err(to_message)?
+        else {
+            return Err(
+                "this Product has no AI policy, so the pal can't read its code (deny-by-default). Set the Product's AI policy to allow reading and generating.".into(),
+            );
+        };
+        let provider_id = match (policy.allow_read, policy.allow_generate, policy.provider_id) {
+            (true, true, Some(id)) => id,
+            _ => {
+                return Err(
+                    "The Product's AI policy blocks this: it must allow reading and generating, and name an AI provider.".into(),
+                );
+            }
+        };
+        let routed = ai_run::plan(&conn, product_id, provider_id, &policy.effort_tier, PURPOSE).await?;
+        let root = root_for(&conn, solution_id).await?;
+        // The same containment rule as every read — the pal cannot be pointed
+        // at a file outside the Solution's folder.
+        let file_content = workspace::read_file(&root, &path)?;
+        let rules = developer_rules::get_for_product(&conn, product_id)
+            .await
+            .map_err(to_message)?
+            .unwrap_or_default();
+        let disallowed = rules.disallowed_tech.clone();
+        let rules_doc = crate::pack::developer_rules_doc(&rules);
+        let prompt = client::build_pal_prompt(
+            &path,
+            &file_content,
+            &rules_doc,
+            &action,
+            &instruction,
+            selection.as_deref(),
+        );
+        (routed, prompt, policy.effort_tier, product_id, disallowed)
+    };
+
+    let started = std::time::Instant::now();
+    let result =
+        backend::generate_pal(&routed.provider, &routed.model, &effort_tier, &prompt).await;
+    let latency_ms = started.elapsed().as_millis() as i64;
+
+    match result {
+        Ok((client::GeneratedPal::Answer(draft), usage)) => {
+            let conn = db.0.lock().await;
+            ai_run::record(
+                &conn, product_id, None, &routed.provider, &routed.model,
+                PURPOSE, &usage, latency_ms, "ok",
+            )
+            .await;
+            // Checked two ways, both against what the proposal would introduce:
+            // the technologies the model says the code uses, and the code
+            // itself — a replacement containing `import jquery` uses jQuery
+            // whether or not it was declared.
+            let mut violations: Vec<String> = draft
+                .technologies
+                .iter()
+                .flat_map(|t| crate::db::developer_rules::violations(&disallowed, t))
+                .chain(crate::db::developer_rules::violations(&disallowed, &draft.replacement))
+                .collect();
+            violations.sort();
+            violations.dedup();
+            Ok(PalDto {
+                explanation: draft.explanation,
+                replacement: draft.replacement,
+                violations,
+                provider: routed.provider.name.clone(),
+                model: routed.model.clone(),
+                reason: routed.reason.clone(),
+                blocked: None,
+            })
+        }
+        Ok((client::GeneratedPal::Blocked { reason, what_is_needed }, usage)) => {
+            let conn = db.0.lock().await;
+            ai_run::record(
+                &conn, product_id, None, &routed.provider, &routed.model,
+                PURPOSE, &usage, latency_ms, "declined",
+            )
+            .await;
+            Ok(PalDto {
+                explanation: String::new(),
+                replacement: String::new(),
+                violations: Vec::new(),
+                provider: routed.provider.name.clone(),
+                model: routed.model.clone(),
+                reason: routed.reason.clone(),
+                blocked: Some(super::work_items::BlockedDto {
+                    reason,
+                    what_is_needed,
+                    feedback_id: 0,
+                }),
+            })
+        }
+        Err(e) => {
+            let conn = db.0.lock().await;
+            let outcome = if e.contains("refusal") { "refusal" } else { "error" };
+            ai_run::record(
+                &conn, product_id, None, &routed.provider, &routed.model,
+                PURPOSE, &Default::default(), latency_ms, outcome,
+            )
+            .await;
+            Err(e)
+        }
+    }
+}
+
 /// Saves an edited file back into the working copy. The path is untrusted;
 /// `workspace::write_file` refuses anything outside the root or under `.git`.
 #[tauri::command]

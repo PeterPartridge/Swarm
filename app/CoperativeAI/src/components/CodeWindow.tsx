@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState, type ComponentType } from "react";
-import { writeSolutionFile } from "../lib/backend";
+import {
+  askCodingPal,
+  writeSolutionFile,
+  PAL_ACTION_LABELS,
+  type PalAction,
+  type PalAnswer,
+} from "../lib/backend";
+
+const PAL_ACTIONS = Object.keys(PAL_ACTION_LABELS) as PalAction[];
 
 /** Loosely typed on purpose: the editor component is loaded dynamically and
  *  jsdom tests substitute a plain textarea for it. */
@@ -36,6 +44,10 @@ export default function CodeWindow({
   const [savedContent, setSavedContent] = useState(initialContent);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [palAction, setPalAction] = useState<PalAction>("explain");
+  const [palInstruction, setPalInstruction] = useState("");
+  const [palAnswer, setPalAnswer] = useState<PalAnswer | null>(null);
+  const [palBusy, setPalBusy] = useState(false);
   // Ctrl+S is registered once on mount; the ref keeps it pointing at the
   // current save rather than the closure from the first render.
   const saveRef = useRef<() => void>(() => {});
@@ -79,6 +91,29 @@ export default function CodeWindow({
     }
   }
   saveRef.current = () => void onSave();
+
+  async function onAskPal() {
+    setPalBusy(true);
+    try {
+      // The pal reads what is on disk, not the buffer — unsaved edits are the
+      // developer's, and sending them would spend money on a moving target.
+      setPalAnswer(
+        await askCodingPal({
+          solutionId,
+          path,
+          action: palAction,
+          instruction: palInstruction,
+          selection: null,
+        }),
+      );
+      setError(null);
+    } catch (e) {
+      setPalAnswer(null);
+      setError(String(e));
+    } finally {
+      setPalBusy(false);
+    }
+  }
 
   return (
     <div className="code-window">
@@ -124,6 +159,68 @@ export default function CodeWindow({
       ) : (
         !error && <p className="hint">Loading the editor…</p>
       )}
+
+      <section className="coding-pal" aria-label={`Coding pal for ${path}`}>
+        <div className="pal-ask">
+          <select
+            aria-label="Pal action"
+            value={palAction}
+            onChange={(e) => setPalAction(e.target.value as PalAction)}
+          >
+            {PAL_ACTIONS.map((a) => (
+              <option key={a} value={a}>
+                {PAL_ACTION_LABELS[a]}
+              </option>
+            ))}
+          </select>
+          <input
+            aria-label="Pal instruction"
+            placeholder="anything specific? (optional)"
+            value={palInstruction}
+            onChange={(e) => setPalInstruction(e.target.value)}
+          />
+          <button aria-label={`Ask the pal about ${path}`} onClick={onAskPal} disabled={palBusy}>
+            {palBusy ? "Thinking…" : "Ask"}
+          </button>
+        </div>
+
+        {palAnswer && palAnswer.blocked && (
+          <p role="status">
+            The pal stopped rather than guessing: {palAnswer.blocked.reason}{" "}
+            {palAnswer.blocked.whatIsNeeded}
+          </p>
+        )}
+        {palAnswer && !palAnswer.blocked && (
+          <div className="pal-answer">
+            {/* Shown before apply, not after save — but never enforced,
+                because accepting is ungated everywhere in this app. */}
+            {palAnswer.violations.length > 0 && (
+              <p role="alert">
+                The proposal uses technology the developer rules forbid:{" "}
+                {palAnswer.violations.join(", ")}.
+              </p>
+            )}
+            <pre className="pal-explanation" aria-label={`Pal explanation for ${path}`}>
+              {palAnswer.explanation}
+            </pre>
+            {palAnswer.replacement !== "" && (
+              <button
+                aria-label={`Apply the pal's revision to ${path}`}
+                onClick={() => {
+                  setValue(palAnswer.replacement);
+                  setPalAnswer(null);
+                }}
+              >
+                Apply to the editor
+              </button>
+            )}
+            <p className="hint">
+              {palAnswer.provider} · {palAnswer.reason}. Applying only changes the
+              editor — your save is what touches the file.
+            </p>
+          </div>
+        )}
+      </section>
     </div>
   );
 }

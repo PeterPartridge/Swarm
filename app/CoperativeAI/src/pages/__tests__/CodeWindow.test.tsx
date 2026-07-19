@@ -5,7 +5,7 @@ import CodeWindow from "../../components/CodeWindow";
 
 vi.mock("../../lib/backend", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../lib/backend")>();
-  return { ...original, writeSolutionFile: vi.fn() };
+  return { ...original, writeSolutionFile: vi.fn(), askCodingPal: vi.fn() };
 });
 
 // jsdom cannot host Monaco; the stub honours value/onChange like the real one.
@@ -88,6 +88,90 @@ describe("CodeWindow", () => {
 
     await user.type(editor, "one");
     expect(screen.queryByLabelText(/has unsaved changes/)).not.toBeInTheDocument();
+  });
+
+  /// The pal's revision goes into the editor buffer, never onto disk — the
+  /// developer's own save is the gate, and applying must read as unsaved.
+  it("applies a pal revision to the buffer and leaves the save to the developer", async () => {
+    const user = userEvent.setup();
+    mocked.askCodingPal.mockResolvedValue({
+      explanation: "Split the function in two.",
+      replacement: "fn main() { helper(); }",
+      violations: [],
+      provider: "Ollama",
+      model: "ornith:9b",
+      reason: "past the handover threshold",
+      blocked: null,
+    });
+    render(
+      <CodeWindow solutionId={3} path="src/main.rs" initialContent="fn main() {}" onSaved={vi.fn()} />,
+    );
+
+    await screen.findByLabelText("Editor for src/main.rs");
+    await user.selectOptions(screen.getByLabelText("Pal action"), "refactor");
+    await user.type(screen.getByLabelText("Pal instruction"), "split this up");
+    await user.click(screen.getByLabelText("Ask the pal about src/main.rs"));
+
+    await waitFor(() =>
+      expect(mocked.askCodingPal).toHaveBeenCalledWith({
+        solutionId: 3,
+        path: "src/main.rs",
+        action: "refactor",
+        instruction: "split this up",
+        selection: null,
+      }),
+    );
+    expect(await screen.findByText("Split the function in two.")).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("Apply the pal's revision to src/main.rs"));
+
+    expect(screen.getByLabelText("Editor for src/main.rs")).toHaveValue("fn main() { helper(); }");
+    expect(screen.getByLabelText("src/main.rs has unsaved changes")).toBeInTheDocument();
+    expect(mocked.writeSolutionFile).not.toHaveBeenCalled();
+  });
+
+  /// Violations are shown before apply, not discovered after save.
+  it("names forbidden technology in a proposal before it can be applied", async () => {
+    const user = userEvent.setup();
+    mocked.askCodingPal.mockResolvedValue({
+      explanation: "Swapped to jQuery for brevity.",
+      replacement: "import $ from 'jquery';",
+      violations: ["jquery"],
+      provider: "Claude",
+      model: "m",
+      reason: "within budget",
+      blocked: null,
+    });
+    render(<CodeWindow solutionId={3} path="a.js" initialContent="x" onSaved={vi.fn()} />);
+
+    await screen.findByLabelText("Editor for a.js");
+    await user.click(screen.getByLabelText("Ask the pal about a.js"));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("developer rules forbid");
+    expect(alert).toHaveTextContent("jquery");
+    // apply stays available — accepting is ungated everywhere in this app
+    expect(screen.getByLabelText("Apply the pal's revision to a.js")).toBeEnabled();
+  });
+
+  it("shows a pal refusal as a question, not a failure", async () => {
+    const user = userEvent.setup();
+    mocked.askCodingPal.mockResolvedValue({
+      explanation: "",
+      replacement: "",
+      violations: [],
+      provider: "Claude",
+      model: "m",
+      reason: "within budget",
+      blocked: { reason: "The instruction contradicts the rules.", whatIsNeeded: "Which wins?", feedbackId: 0 },
+    });
+    render(<CodeWindow solutionId={3} path="a.js" initialContent="x" onSaved={vi.fn()} />);
+
+    await screen.findByLabelText("Editor for a.js");
+    await user.click(screen.getByLabelText("Ask the pal about a.js"));
+
+    expect(await screen.findByText(/stopped rather than guessing/)).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   /// A refused save must say why and keep the work dirty — silently losing the
