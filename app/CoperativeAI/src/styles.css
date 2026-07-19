@@ -315,6 +315,111 @@ body {
   width: 5rem;
 }
 
+.developer-planning {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.developer-planning h3 {
+  margin: 0 0 0.3rem;
+  font-size: 0.85rem;
+}
+
+.developer-planning .field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.8rem;
+}
+
+.developer-planning .field span {
+  color: #6b7280;
+}
+
+.repo-map,
+.architecture-docs {
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 0.6rem;
+  font-size: 0.8rem;
+}
+
+.repo-links {
+  list-style: none;
+  margin: 0 0 0.4rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.repo-links li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.3rem;
+}
+
+/* buildsOn is the only kind that orders anything, so it is the only one that
+   can deadlock — worth seeing at a glance. */
+.repo-links li.ordering {
+  border-left: 2px solid #f59e0b;
+  padding-left: 0.3rem;
+}
+
+.repo-link-form,
+.architecture-form,
+.impact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.4rem;
+}
+
+.doc-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.doc-list li {
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 0.5rem;
+}
+
+.doc-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.doc-kind,
+.doc-scope {
+  font-size: 0.7rem;
+  color: #6b7280;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  padding: 0 0.4rem;
+}
+
+.doc-content {
+  max-height: 14rem;
+  overflow: auto;
+  background: #f9fafb;
+  border-radius: 4px;
+  padding: 0.4rem;
+  font-size: 0.72rem;
+  margin: 0.3rem 0;
+  white-space: pre-wrap;
+}
+
 .marketing-design {
   display: flex;
   flex-direction: column;

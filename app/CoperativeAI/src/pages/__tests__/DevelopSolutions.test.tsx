@@ -26,6 +26,8 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     removeGithubToken: vi.fn(),
     linkSolutionRepo: vi.fn(),
     createSolutionRepo: vi.fn(),
+    listArchitectureDocs: vi.fn(),
+    listRepoLinks: vi.fn(),
   };
 });
 
@@ -52,6 +54,8 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     mocked.listSolutions.mockResolvedValue([solution]);
     mocked.listAiProviders.mockResolvedValue([]);
     mocked.getStrategy.mockResolvedValue("{}");
+    mocked.listArchitectureDocs.mockResolvedValue([]);
+    mocked.listRepoLinks.mockResolvedValue([]);
     mocked.listWorkItems.mockResolvedValue([]);
     mocked.listSprints.mockResolvedValue([]);
     mocked.listTeamMembers.mockResolvedValue([]);

@@ -8,8 +8,8 @@
 //! leaves the machine.
 
 use crate::ai::client::{
-    parse_design, parse_generation, parse_solution_strategy, Generated, GeneratedDesign,
-    GeneratedStrategy, Prompt, Usage,
+    parse_design, parse_diagram, parse_generation, parse_solution_strategy, Generated,
+    GeneratedDesign, GeneratedDiagram, GeneratedStrategy, Prompt, Usage,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -202,6 +202,37 @@ fn design_schema() -> serde_json::Value {
             }
         },
         "required": ["strategy", "tokens", "flows", "components"]
+    })
+}
+
+/// Generates an architecture document from a local model.
+pub async fn generate_diagram(
+    api_base_url: &str,
+    model: &str,
+    prompt: &Prompt,
+    format: &str,
+) -> Result<(GeneratedDiagram, Usage), String> {
+    let (content, usage) = chat(api_base_url, model, prompt, diagram_schema()).await?;
+    Ok((parse_diagram(&content, format)?, usage))
+}
+
+/// The diagram shape, mirroring the Claude schema so one parser serves both.
+fn diagram_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "content": {"type": "string"},
+            "explanation": {"type": "string"},
+            "blocked": {
+                "type": ["object", "null"],
+                "properties": {
+                    "reason": {"type": "string"},
+                    "whatIsNeeded": {"type": "string"}
+                }
+            }
+        },
+        "required": ["name", "content", "explanation"]
     })
 }
 

@@ -4,6 +4,7 @@
 mod ai;
 mod commands;
 mod db;
+mod diagram;
 mod emit;
 mod figma;
 mod github;
@@ -78,6 +79,14 @@ fn main() {
             commands::design::post_figma_comment,
             commands::design::generate_design_strategy,
             commands::design::emit_design_files,
+            commands::architecture::list_architecture_docs,
+            commands::architecture::save_architecture_doc,
+            commands::architecture::delete_architecture_doc,
+            commands::architecture::list_repo_links,
+            commands::architecture::link_solutions,
+            commands::architecture::unlink_solutions,
+            commands::architecture::solutions_reached_by,
+            commands::architecture::generate_architecture_doc,
             commands::team_members::list_team_members,
             commands::team_members::add_team_member,
             commands::team_members::set_member_role,

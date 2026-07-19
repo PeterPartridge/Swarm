@@ -6,6 +6,7 @@
 pub mod ai_feedback;
 pub mod ai_provider;
 pub mod ai_usage;
+pub mod architecture_doc;
 pub mod deliverable;
 pub mod design_asset;
 pub mod developer_rules;
@@ -16,6 +17,7 @@ pub mod feature_design;
 pub mod product;
 pub mod product_budget;
 pub mod product_policy;
+pub mod repo_link;
 pub mod repository;
 pub mod role;
 pub mod solution;
@@ -81,6 +83,9 @@ pub async fn create_all_tables(conn: &Connection) -> Result<()> {
     // after sprint + team_member: capacity names both
     sprint_capacity::create_table(conn).await?;
     solution::create_table(conn).await?;
+    // after solution: links and architecture docs name them
+    repo_link::create_table(conn).await?;
+    architecture_doc::create_table(conn).await?;
     repository::create_table(conn).await?;
     work_item::create_table(conn).await?;
     // after work_item: links name two of them

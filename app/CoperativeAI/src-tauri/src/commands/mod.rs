@@ -2,6 +2,7 @@
 
 pub mod ai_run;
 pub mod ai_settings;
+pub mod architecture;
 pub mod budgets;
 pub mod capacity;
 pub mod deliverables;

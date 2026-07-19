@@ -148,6 +148,12 @@ pub async fn delete(conn: &Connection, id: i64) -> Result<()> {
         (id,),
     )
     .await?;
+    // Architecture documents outlive the Solution they were drawn for — often
+    // they are the only record of why it was shaped that way — so they are
+    // unlinked. Dependency links are not: a link to a deleted Solution is not
+    // a dependency, it is a dangling row.
+    crate::db::architecture_doc::unlink_solution(conn, id).await?;
+    crate::db::repo_link::remove_for_solution(conn, id).await?;
     conn.execute("DELETE FROM solutions WHERE id = ?1", (id,))
         .await?;
     Ok(())

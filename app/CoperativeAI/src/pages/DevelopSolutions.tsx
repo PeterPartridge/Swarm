@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import AiSettings from "../components/AiSettings";
+import DeveloperPlanning from "../components/DeveloperPlanning";
 import DeveloperRulesEditor from "../components/DeveloperRulesEditor";
 import FrameworkFiles from "../components/FrameworkFiles";
 import GithubCard from "../components/GithubCard";
@@ -119,6 +120,7 @@ export default function DevelopSolutions() {
                   set of rules would drift, and the drift would be invisible
                   until the AI obeyed the wrong copy. */}
               <DeveloperRulesEditor productId={Number(activeProduct)} readOnly />
+              <DeveloperPlanning productId={Number(activeProduct)} />
               <WorkItemViews productId={Number(activeProduct)} />
               <FrameworkFiles productId={Number(activeProduct)} />
             </>

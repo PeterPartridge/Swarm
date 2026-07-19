@@ -100,10 +100,11 @@ pub async fn save(
         serde_json::from_str::<serde_json::Value>(content)
             .map_err(|e| DbError::Validation(format!("{kind} must be valid JSON: {e}")))?;
     }
-    if format == "mermaid" && !looks_like_mermaid(content) {
-        return Err(DbError::Validation(format!(
-            "{kind} must be a Mermaid diagram — it needs to start with a diagram type such as 'flowchart TD' or 'graph LR'"
-        )));
+    if format == "mermaid" {
+        // The same check architecture documents use — one answer to "is this a
+        // diagram", rather than two that drift apart.
+        crate::diagram::check(format, content)
+            .map_err(|e| DbError::Validation(format!("{kind}: {e}")))?;
     }
 
     let now = now_millis();
@@ -188,27 +189,6 @@ pub async fn delete(conn: &Connection, id: i64) -> Result<()> {
     conn.execute("DELETE FROM design_assets WHERE id = ?1", (id,))
         .await?;
     Ok(())
-}
-
-/// A cheap structural check, not a parser. It catches the common failure — an
-/// AI returning prose or a fenced block where a diagram was asked for — without
-/// pretending to validate Mermaid, which only Mermaid can do.
-fn looks_like_mermaid(content: &str) -> bool {
-    const STARTERS: &[&str] = &[
-        "flowchart",
-        "graph",
-        "sequenceDiagram",
-        "classDiagram",
-        "stateDiagram",
-        "erDiagram",
-        "journey",
-        "gantt",
-    ];
-    content
-        .lines()
-        .map(str::trim)
-        .find(|l| !l.is_empty() && !l.starts_with("%%"))
-        .is_some_and(|first| STARTERS.iter().any(|s| first.starts_with(s)))
 }
 
 fn row_to_asset(row: turso::Row) -> Result<DesignAsset> {

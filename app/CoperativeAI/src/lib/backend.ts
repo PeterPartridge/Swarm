@@ -519,6 +519,96 @@ export const generateDesignStrategy = (args: {
   figmaFileRef: string | null;
 }): Promise<GenerationResult> => invoke("generate_design_strategy", args);
 
+// Developer Planning — architecture documents and how Solutions depend on each other
+export interface ArchitectureDoc {
+  id: number;
+  productId: number;
+  /** Null means the document is about the Product as a whole. */
+  solutionId: number | null;
+  kind: ArchitectureDocKind;
+  name: string;
+  content: string;
+  format: DiagramFormat;
+}
+
+export type ArchitectureDocKind =
+  | "systemInteraction"
+  | "componentMap"
+  | "apiContract"
+  | "eventFlow"
+  | "infrastructure";
+
+export type DiagramFormat = "mermaid" | "plantuml" | "jsonGraph";
+
+export const ARCHITECTURE_KIND_LABELS: Record<ArchitectureDocKind, string> = {
+  systemInteraction: "System interaction",
+  componentMap: "Component map",
+  apiContract: "API contract",
+  eventFlow: "Event flow",
+  infrastructure: "Infrastructure",
+};
+
+export const DIAGRAM_FORMATS: DiagramFormat[] = ["mermaid", "plantuml", "jsonGraph"];
+
+/** How two of a Product's Solutions — and so two repositories — depend on
+ *  each other. `buildsOn` orders work and must stay acyclic; the rest describe
+ *  runtime, where mutual dependence is a real and workable arrangement. */
+export interface RepoLink {
+  id: number;
+  fromSolutionId: number;
+  toSolutionId: number;
+  kind: RepoLinkKind;
+  notes: string;
+}
+
+export type RepoLinkKind = "callsApi" | "sharesSchema" | "publishesEvent" | "buildsOn";
+
+export const REPO_LINK_LABELS: Record<RepoLinkKind, string> = {
+  callsApi: "calls the API of",
+  sharesSchema: "shares a schema with",
+  publishesEvent: "publishes events to",
+  buildsOn: "builds on",
+};
+
+export const listArchitectureDocs = (
+  productId: number,
+): Promise<ArchitectureDoc[]> =>
+  invoke("list_architecture_docs", { productId });
+export const saveArchitectureDoc = (args: {
+  productId: number;
+  solutionId: number | null;
+  kind: ArchitectureDocKind;
+  name: string;
+  content: string;
+  format: DiagramFormat;
+}): Promise<number> => invoke("save_architecture_doc", args);
+export const deleteArchitectureDoc = (id: number): Promise<void> =>
+  invoke("delete_architecture_doc", { id });
+
+export const listRepoLinks = (productId: number): Promise<RepoLink[]> =>
+  invoke("list_repo_links", { productId });
+export const linkSolutions = (
+  fromSolutionId: number,
+  toSolutionId: number,
+  kind: RepoLinkKind,
+  notes: string,
+): Promise<number> =>
+  invoke("link_solutions", { fromSolutionId, toSolutionId, kind, notes });
+export const unlinkSolutions = (id: number): Promise<void> =>
+  invoke("unlink_solutions", { id });
+/** What a change to this Solution would reach, at any depth — the question the
+ *  cross-repo map exists to answer. */
+export const solutionsReachedBy = (solutionId: number): Promise<number[]> =>
+  invoke("solutions_reached_by", { solutionId });
+
+export const generateArchitectureDoc = (args: {
+  productId: number;
+  solutionId: number | null;
+  kind: ArchitectureDocKind;
+  format: DiagramFormat;
+  brief: string;
+}): Promise<GenerationResult> => invoke("generate_architecture_doc", args);
+
 // Strategy (structured document per product + area)
 export const getStrategy = (productId: number, area: string): Promise<string> =>
   invoke("get_strategy", { productId, area });

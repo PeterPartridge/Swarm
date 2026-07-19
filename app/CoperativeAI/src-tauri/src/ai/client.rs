@@ -796,6 +796,169 @@ pub async fn generate_design(
     Ok((parse_design(&json_text)?, usage))
 }
 
+/// An architecture document the AI drew.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DiagramDraft {
+    pub name: String,
+    pub content: String,
+    pub format: String,
+    /// What the diagram is saying, in prose. Stored beside it so a reader who
+    /// cannot parse Mermaid in their head still gets the point.
+    pub explanation: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum GeneratedDiagram {
+    Diagram(Box<DiagramDraft>),
+    Blocked {
+        reason: String,
+        what_is_needed: String,
+    },
+}
+
+/// Builds the prompt for an architecture document.
+///
+/// The existing documents travel in the context half rather than the task half:
+/// they are the expensive, stable part, and a second diagram for the same
+/// Product should agree with the first rather than contradict it.
+#[allow(clippy::too_many_arguments)]
+pub fn build_architecture_prompt(
+    product_name: &str,
+    product_answers: &str,
+    strategy: &str,
+    solutions: &[(String, String, String)],
+    links: &[String],
+    existing: &[(String, String)], // (name, content)
+    kind: &str,
+    format: &str,
+    brief: &str,
+) -> Prompt {
+    let mut context = product_context(product_name, product_answers, Some(strategy), solutions);
+    if !links.is_empty() {
+        context.push_str("\nHow these systems already depend on one another:\n");
+        for line in links {
+            context.push_str(&format!("- {line}\n"));
+        }
+    }
+    if !existing.is_empty() {
+        context.push_str("\nArchitecture already documented for this Product:\n");
+        for (name, content) in existing {
+            context.push_str(&format!("--- {name} ---\n{content}\n"));
+        }
+        context.push_str(
+            "\nA new diagram must agree with these. If it contradicts one, say so in the \
+             explanation rather than quietly drawing something different.\n",
+        );
+    }
+
+    let notation = match format {
+        "plantuml" => "PlantUML, starting with @startuml and ending with @enduml",
+        "jsonGraph" => {
+            "a JSON object with \"nodes\" (each with a string \"id\" and \"label\") and \
+             \"edges\" (each with \"from\" and \"to\" matching node ids)"
+        }
+        _ => "Mermaid, starting with a diagram type such as \"flowchart TD\" or \"sequenceDiagram\"",
+    };
+    let subject = match kind {
+        "systemInteraction" => "how the systems interact",
+        "componentMap" => "the components and what they contain",
+        "apiContract" => "the API surface and who calls what",
+        "eventFlow" => "the events, who publishes them and who consumes them",
+        _ => "the infrastructure this runs on",
+    };
+
+    let mut task = format!(
+        "{brief}\n\nDraw {subject}. Return the diagram as raw {notation} — no code fences, no \
+         commentary inside the diagram. Give it a short name, and an explanation in plain \
+         English of what it is saying, for a reader who cannot parse the notation in their head. \
+         Draw only what this Product actually has; do not invent systems."
+    );
+    task.push_str(ESCAPE_HATCH_DIAGRAM);
+    Prompt { context, task }
+}
+
+const ESCAPE_HATCH_DIAGRAM: &str = "\n\nIf the Product's systems are described too vaguely to \
+     draw honestly, do NOT invent an architecture. Leave \"content\" empty and fill in \
+     \"blocked\" with the reason and the single most useful question a person could answer.";
+
+fn diagram_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "content": {"type": "string"},
+            "explanation": {"type": "string"},
+            "blocked": blocked_schema()
+        },
+        "required": ["name", "content", "explanation"],
+        "additionalProperties": false
+    })
+}
+
+/// Parses an architecture response (pure — unit tested). The declared format is
+/// the caller's, not the model's: it was asked for one notation, and letting it
+/// answer in another would defeat the check that follows.
+pub fn parse_diagram(text: &str, format: &str) -> Result<GeneratedDiagram, String> {
+    let value: Value = serde_json::from_str(text)
+        .map_err(|e| format!("the AI response was not valid JSON: {e}"))?;
+
+    if let Some(blocked) = value.get("blocked").filter(|b| !b.is_null()) {
+        let reason = blocked
+            .get("reason")
+            .and_then(|r| r.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if !reason.is_empty() {
+            return Ok(GeneratedDiagram::Blocked {
+                reason,
+                what_is_needed: blocked
+                    .get("whatIsNeeded")
+                    .and_then(|w| w.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string(),
+            });
+        }
+    }
+
+    let content = strip_fence(value.get("content").and_then(|c| c.as_str()).unwrap_or(""));
+    if content.is_empty() {
+        return Err("the AI response contained no diagram".into());
+    }
+    let name = value
+        .get("name")
+        .and_then(|n| n.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    Ok(GeneratedDiagram::Diagram(Box::new(DiagramDraft {
+        name: if name.is_empty() { "Untitled".into() } else { name },
+        content,
+        format: format.to_string(),
+        explanation: value
+            .get("explanation")
+            .and_then(|e| e.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string(),
+    })))
+}
+
+/// Calls the provider for an architecture document.
+pub async fn generate_diagram(
+    api_base_url: &str,
+    api_key: &str,
+    model: &str,
+    effort: &str,
+    prompt: &Prompt,
+    format: &str,
+) -> Result<(GeneratedDiagram, Usage), String> {
+    let (json_text, usage) =
+        post_structured(api_base_url, api_key, model, effort, prompt, diagram_schema()).await?;
+    Ok((parse_diagram(&json_text, format)?, usage))
+}
+
 /// Minimal connectivity check: one tiny Messages call.
 pub async fn test_connection(api_base_url: &str, api_key: &str, model: &str) -> Result<(), String> {
     let url = format!("{}/v1/messages", api_base_url.trim_end_matches('/'));
@@ -834,6 +997,100 @@ fn http_client() -> Result<reqwest::Client, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The declared format is the caller's, not the model's. It was asked for
+    /// one notation; letting the response redeclare it would defeat the check
+    /// that runs next.
+    #[test]
+    fn a_diagram_keeps_the_format_it_was_asked_for() {
+        let response = json!({
+            "name": "How it fits",
+            "content": "```mermaid\nflowchart TD\n  Web --> Api\n```",
+            "explanation": "The web app calls the API."
+        })
+        .to_string();
+
+        let GeneratedDiagram::Diagram(draft) = parse_diagram(&response, "mermaid").expect("parse")
+        else {
+            panic!("expected a diagram");
+        };
+        assert_eq!(draft.content, "flowchart TD\n  Web --> Api", "fence stripped");
+        assert_eq!(draft.format, "mermaid");
+        assert_eq!(draft.explanation, "The web app calls the API.");
+    }
+
+    /// A model answering in the wrong notation parses fine here — the format
+    /// check is `diagram::check`'s job, and it runs before anything is stored.
+    /// This test pins the division of labour so neither side starts guessing.
+    #[test]
+    fn the_parser_does_not_judge_notation_but_the_checker_does() {
+        let response = json!({
+            "name": "Infra",
+            "content": "flowchart TD\n  A --> B",
+            "explanation": ""
+        })
+        .to_string();
+
+        let GeneratedDiagram::Diagram(draft) = parse_diagram(&response, "plantuml").expect("parse")
+        else {
+            panic!("expected a diagram");
+        };
+        assert_eq!(draft.format, "plantuml", "the parser takes the caller's word");
+        assert!(
+            crate::diagram::check(&draft.format, &draft.content).is_err(),
+            "and the checker catches that it is not PlantUML"
+        );
+    }
+
+    #[test]
+    fn a_nameless_diagram_gets_a_placeholder_rather_than_an_empty_title() {
+        let response = json!({ "name": "  ", "content": "flowchart TD\n A-->B", "explanation": "" });
+        let GeneratedDiagram::Diagram(draft) =
+            parse_diagram(&response.to_string(), "mermaid").expect("parse")
+        else {
+            panic!("expected a diagram");
+        };
+        assert_eq!(draft.name, "Untitled");
+    }
+
+    #[test]
+    fn an_empty_diagram_is_an_error_and_a_refusal_is_a_question() {
+        let empty = json!({ "name": "X", "content": "   ", "explanation": "" }).to_string();
+        assert!(parse_diagram(&empty, "mermaid").is_err());
+
+        let blocked = json!({
+            "name": "", "content": "", "explanation": "",
+            "blocked": { "reason": "No systems described.", "whatIsNeeded": "What talks to what?" }
+        })
+        .to_string();
+        match parse_diagram(&blocked, "mermaid").expect("parse") {
+            GeneratedDiagram::Blocked { reason, .. } => assert!(reason.contains("No systems")),
+            other => panic!("expected Blocked, got {other:?}"),
+        }
+    }
+
+    /// A second diagram should agree with the first rather than contradict it,
+    /// so what already exists travels in the cacheable half.
+    #[test]
+    fn existing_architecture_is_given_as_context_to_agree_with() {
+        let prompt = build_architecture_prompt(
+            "Shop",
+            "{}",
+            "{}",
+            &[],
+            &["Web callsApi API".to_string()],
+            &[("How it fits".to_string(), "flowchart TD\n Web-->Api".to_string())],
+            "componentMap",
+            "mermaid",
+            "Draw the components",
+        );
+        assert!(prompt.context.contains("Web callsApi API"));
+        assert!(prompt.context.contains("How it fits"));
+        assert!(prompt.context.contains("must agree"));
+        assert!(prompt.task.contains("Draw the components"));
+        assert!(prompt.task.contains("Mermaid"));
+        assert!(!prompt.task.contains("How it fits"), "context, not task");
+    }
 
     /// Mermaid and JSON arrive fenced often enough that stripping is worth more
     /// than strictness — a fenced diagram is a valid diagram wearing a jacket,

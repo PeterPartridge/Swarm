@@ -5,7 +5,9 @@
 //! process is this module's problem, not theirs. Keeping the dispatch here is
 //! what let the handover feature land without touching the call sites.
 
-use crate::ai::client::{Generated, GeneratedDesign, GeneratedStrategy, Prompt, Usage};
+use crate::ai::client::{
+    Generated, GeneratedDesign, GeneratedDiagram, GeneratedStrategy, Prompt, Usage,
+};
 use crate::ai::{client, keys, ollama};
 use crate::db::ai_provider::AiProvider;
 
@@ -66,6 +68,25 @@ pub async fn generate_design(
         "anthropic" => {
             let api_key = keys::get_key(&provider.key_alias)?;
             client::generate_design(&provider.api_base_url, &api_key, model, effort, prompt).await
+        }
+        other => Err(unknown_kind(provider, other)),
+    }
+}
+
+/// Generates an architecture document, whichever provider the router chose.
+pub async fn generate_diagram(
+    provider: &AiProvider,
+    model: &str,
+    effort: &str,
+    prompt: &Prompt,
+    format: &str,
+) -> Result<(GeneratedDiagram, Usage), String> {
+    match provider.kind.as_str() {
+        "ollama" => ollama::generate_diagram(&provider.api_base_url, model, prompt, format).await,
+        "anthropic" => {
+            let api_key = keys::get_key(&provider.key_alias)?;
+            client::generate_diagram(&provider.api_base_url, &api_key, model, effort, prompt, format)
+                .await
         }
         other => Err(unknown_kind(provider, other)),
     }
