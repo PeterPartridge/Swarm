@@ -315,6 +315,52 @@ body {
   width: 5rem;
 }
 
+.diagram-view {
+  margin: 0.3rem 0;
+}
+
+.diagram-svg {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  padding: 0.4rem;
+  overflow-x: auto;
+}
+
+.diagram-svg svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.diagram-source {
+  max-height: 14rem;
+  overflow: auto;
+  background: #f9fafb;
+  border-radius: 4px;
+  padding: 0.4rem;
+  font-size: 0.72rem;
+  margin: 0.3rem 0;
+  white-space: pre-wrap;
+}
+
+/* A diagram that passed the structural check can still fail to render — the
+   check is not a parser. Saying so beats a blank space. */
+.diagram-failed {
+  color: #92400e;
+  font-size: 0.75rem;
+  margin: 0.2rem 0;
+}
+
+.diagram-toggle {
+  font-size: 0.7rem;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: #6b7280;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
 .solution-box {
   border-top: 1px dashed #e5e7eb;
   margin-top: 0.5rem;

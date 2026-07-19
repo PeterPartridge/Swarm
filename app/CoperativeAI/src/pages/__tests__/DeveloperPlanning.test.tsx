@@ -197,9 +197,11 @@ describe("DeveloperPlanning", () => {
 
     const docs = await screen.findByRole("region", { name: "Architecture documents" });
     expect(within(docs).getByText("whole Product")).toBeInTheDocument();
-    expect(within(docs).getAllByText(/flowchart TD/)).toHaveLength(2);
+    expect(within(docs).getByText("How it fits")).toBeInTheDocument();
 
     // Scoped to the row: "API" is also a Solution name in the selects above.
+    // The diagram itself is DiagramView's business and is tested there — this
+    // is about the document's identity and scope.
     const row = within(docs).getByText("Orders API").closest("li") as HTMLElement;
     expect(within(row).getByText("API")).toBeInTheDocument();
     expect(within(row).getByText("API contract")).toBeInTheDocument();

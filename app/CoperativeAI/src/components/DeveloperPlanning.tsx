@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import DiagramView from "./DiagramView";
 import {
   ARCHITECTURE_KIND_LABELS,
   DIAGRAM_FORMATS,
@@ -296,7 +297,11 @@ export default function DeveloperPlanning({ productId }: { productId: number }) 
                     {doc.solutionId === null ? "whole Product" : nameOf(doc.solutionId)}
                   </span>
                 </div>
-                <pre className="doc-content">{doc.content}</pre>
+                <DiagramView
+                  content={doc.content}
+                  format={doc.format}
+                  label={doc.name}
+                />
                 <button
                   aria-label={`Delete ${doc.name}`}
                   onClick={() =>

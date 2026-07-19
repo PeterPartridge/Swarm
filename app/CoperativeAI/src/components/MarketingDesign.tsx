@@ -11,6 +11,7 @@ import {
   type DesignAsset,
   type FigmaFile,
 } from "../lib/backend";
+import DiagramView from "./DiagramView";
 import FigmaLink from "./FigmaLink";
 
 /** Marketing and Design: a strategy the AI can draft, and — for design — the
@@ -189,7 +190,15 @@ export default function MarketingDesign({
                     <span className="asset-pushed">in Figma</span>
                   )}
                 </div>
-                <pre className="asset-content">{asset.content}</pre>
+                {asset.format === "mermaid" ? (
+                  <DiagramView
+                    content={asset.content}
+                    format="mermaid"
+                    label={asset.name}
+                  />
+                ) : (
+                  <pre className="asset-content">{asset.content}</pre>
+                )}
                 <div className="asset-actions">
                   {/* Only a token set can become Figma variables; anything else
                       has no representation there. */}
