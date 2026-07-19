@@ -64,6 +64,22 @@ pub async fn read_solution_file(
     workspace::read_file(&root, &path)
 }
 
+/// Saves an edited file back into the working copy. The path is untrusted;
+/// `workspace::write_file` refuses anything outside the root or under `.git`.
+#[tauri::command]
+pub async fn write_solution_file(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+    path: String,
+    contents: String,
+) -> Result<(), String> {
+    let root = {
+        let conn = db.0.lock().await;
+        root_for(&conn, solution_id).await?
+    };
+    workspace::write_file(&root, &path, &contents)
+}
+
 /// A work item prepared for a coding agent.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

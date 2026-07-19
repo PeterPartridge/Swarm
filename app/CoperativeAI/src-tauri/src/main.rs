@@ -94,6 +94,7 @@ fn main() {
             commands::workspace::read_solution_tree,
             commands::workspace::read_solution_file,
             commands::workspace::review_solution_changes,
+            commands::workspace::write_solution_file,
             commands::workspace::prepare_handover,
             commands::workspace::settle_change_run,
             commands::team_members::list_team_members,

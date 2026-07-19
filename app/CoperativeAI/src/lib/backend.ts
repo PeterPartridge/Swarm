@@ -118,6 +118,13 @@ export const readSolutionFile = (
   solutionId: number,
   path: string,
 ): Promise<string> => invoke("read_solution_file", { solutionId, path });
+/** Saves an edited file. Refused outside the Solution's folder or under
+ *  `.git` — a write into `.git/config` would change what the repository is. */
+export const writeSolutionFile = (
+  solutionId: number,
+  path: string,
+  contents: string,
+): Promise<void> => invoke("write_solution_file", { solutionId, path, contents });
 export const reviewSolutionChanges = (
   solutionId: number,
 ): Promise<ChangeReview> => invoke("review_solution_changes", { solutionId });

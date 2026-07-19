@@ -10,10 +10,29 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     ...original,
     readSolutionTree: vi.fn(),
     readSolutionFile: vi.fn(),
+    writeSolutionFile: vi.fn(),
     reviewSolutionChanges: vi.fn(),
     setSolutionPath: vi.fn(),
     settleChangeRun: vi.fn(),
     pickFolder: vi.fn(),
+  };
+});
+
+// The editor cannot render in jsdom; a textarea stands in for it here, and
+// CodeWindow's own behaviour is tested in CodeWindow.test.tsx.
+vi.mock("../../lib/monacoSetup", () => ({
+  ensureMonaco: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("@monaco-editor/react", async () => {
+  const { createElement } = await import("react");
+  return {
+    default: (props: { value: string; "aria-label"?: string }) =>
+      createElement("textarea", {
+        "aria-label": props["aria-label"],
+        value: props.value,
+        readOnly: true,
+      }),
+    loader: { config: () => {} },
   };
 });
 
@@ -91,9 +110,9 @@ describe("SolutionBox", () => {
     await user.click(screen.getByLabelText("Open src/main.rs"));
 
     await waitFor(() => expect(mocked.readSolutionFile).toHaveBeenCalledWith(3, "src/main.rs"));
-    expect(await screen.findByLabelText("Contents of src/main.rs")).toHaveTextContent(
-      "fn main() {}",
-    );
+    // The file now opens into an editor rather than a read-only view.
+    expect(await screen.findByLabelText("Editor for src/main.rs")).toHaveValue("fn main() {}");
+    expect(screen.getByLabelText("Save src/main.rs")).toBeInTheDocument();
   });
 
   /// A partial tree that does not say so reads as a complete one.

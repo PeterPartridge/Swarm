@@ -511,6 +511,26 @@ body {
   background: #fffbeb;
 }
 
+.code-window-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  margin-bottom: 0.2rem;
+}
+
+.code-dirty {
+  color: #b45309;
+  font-style: normal;
+  font-size: 0.7rem;
+}
+
+.code-window {
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  padding: 0.3rem;
+}
+
 .settle-run {
   display: flex;
   flex-wrap: wrap;

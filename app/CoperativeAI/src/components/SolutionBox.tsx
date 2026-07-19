@@ -9,6 +9,7 @@ import {
   type FileTree,
   type Solution,
 } from "../lib/backend";
+import CodeWindow from "./CodeWindow";
 import FolderField from "./FolderField";
 
 /** Open a Solution: its working copy, and what has changed in it.
@@ -143,12 +144,15 @@ export default function SolutionBox({
 
           <div className="file-view">
             {openPath ? (
-              <>
-                <p className="file-path">{openPath}</p>
-                <pre aria-label={`Contents of ${openPath}`}>{contents}</pre>
-              </>
+              <CodeWindow
+                key={openPath}
+                solutionId={solution.id}
+                path={openPath}
+                initialContent={contents}
+                onSaved={() => void refresh()}
+              />
             ) : (
-              <p className="hint">Pick a file to read it.</p>
+              <p className="hint">Pick a file to edit it.</p>
             )}
           </div>
         </div>

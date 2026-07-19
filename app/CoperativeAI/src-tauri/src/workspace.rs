@@ -157,6 +157,38 @@ pub fn read_file(root: &str, relative: &str) -> Result<String, String> {
     }
 }
 
+/// Writes one file back into the working copy — the only write path into a
+/// repository this app has, so `resolve_within` guards it, plus one rule of
+/// its own: **nothing writes under `.git`**. The tree view merely skips that
+/// folder, but a write into `.git/config` or a hook would change what the
+/// repository *is*, and no editor feature is worth that.
+///
+/// Only existing files can be written (`resolve_within` resolves the path,
+/// which requires it to exist). Creating files is deliberately not offered
+/// yet — an editor that edits before an editor that scaffolds.
+pub fn write_file(root: &str, relative: &str, contents: &str) -> Result<(), String> {
+    let path = resolve_within(root, relative)?;
+    // Checked on the *resolved* path: "src/../.git/config" stays inside the
+    // root and would pass the containment check alone.
+    let root_path = Path::new(root)
+        .canonicalize()
+        .map_err(|_| format!("the folder for this Solution is not there any more: {root}"))?;
+    let inside_git = path
+        .strip_prefix(&root_path)
+        .map(|p| p.components().any(|c| c.as_os_str() == ".git"))
+        .unwrap_or(true);
+    if inside_git {
+        return Err(
+            "nothing is written under .git — that would change the repository itself, not the code"
+                .into(),
+        );
+    }
+    if path.is_dir() {
+        return Err(format!("{relative} is a folder, not a file"));
+    }
+    std::fs::write(&path, contents).map_err(|e| format!("could not write {relative}: {e}"))
+}
+
 /// One file's worth of change.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -320,6 +352,39 @@ mod tests {
         assert_eq!(read_file(&root, "src/main.rs").expect("read"), "fn main() {}");
         assert!(read_file(&root, "src").is_err(), "a folder is not a file");
         assert!(read_file(&root, "nope.txt").is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_file_can_be_written_back_and_read_again() {
+        let dir = temp_repo("write");
+        let root = dir.to_string_lossy().to_string();
+
+        write_file(&root, "src/main.rs", "fn main() { println!(\"hi\"); }").expect("write");
+        assert!(read_file(&root, "src/main.rs").expect("read").contains("hi"));
+
+        // only existing files — creation is a different feature
+        assert!(write_file(&root, "src/new.rs", "x").is_err());
+        assert!(write_file(&root, "src", "x").is_err(), "a folder is not a file");
+        assert!(write_file(&root, "../outside.txt", "x").is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A write into .git/config would change what the repository IS. The path
+    /// stays inside the root, so the containment check alone would pass it —
+    /// this rule exists because of exactly that.
+    #[test]
+    fn nothing_writes_under_dot_git() {
+        let dir = temp_repo("gitwrite");
+        fs::create_dir_all(dir.join(".git")).expect("mk .git");
+        fs::write(dir.join(".git/config"), "[core]").expect("seed");
+        let root = dir.to_string_lossy().to_string();
+
+        for attempt in [".git/config", "src/../.git/config"] {
+            let err = write_file(&root, attempt, "[core]\nhooksPath=evil").expect_err(attempt);
+            assert!(err.contains(".git"), "got: {err}");
+        }
+        assert_eq!(fs::read_to_string(dir.join(".git/config")).expect("read"), "[core]");
         let _ = fs::remove_dir_all(&dir);
     }
 
