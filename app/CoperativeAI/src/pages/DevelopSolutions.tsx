@@ -5,6 +5,7 @@ import DeveloperRulesEditor from "../components/DeveloperRulesEditor";
 import FrameworkFiles from "../components/FrameworkFiles";
 import GithubCard from "../components/GithubCard";
 import ModelInstalls from "../components/ModelInstalls";
+import SolutionBox from "../components/SolutionBox";
 import SolutionRepo from "../components/SolutionRepo";
 import StrategyEditor from "../components/StrategyEditor";
 import WorkItemViews from "../components/WorkItemViews";
@@ -189,6 +190,7 @@ export default function DevelopSolutions() {
                 githubConnected={githubConnected}
                 onChange={refresh}
               />
+              <SolutionBox solution={s} onPathChanged={refresh} />
             </li>
           ))}
         </ul>

@@ -68,6 +68,7 @@ function solution(id: number, name: string, productId: number): Solution {
     origin: "created",
     githubUrl: null,
     githubVisibility: null,
+    localPath: null,
   };
 }
 

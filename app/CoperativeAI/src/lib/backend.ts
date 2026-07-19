@@ -23,11 +23,76 @@ export interface Solution {
   origin: string; // "created" | "imported"
   githubUrl: string | null;
   githubVisibility: string | null; // "private" | "public" | null
+  /** Where the code lives on this machine. Null until someone points at it —
+   *  a linked GitHub repository is not the same as a working copy. */
+  localPath: string | null;
 }
 
 export interface GithubStatus {
   connected: boolean;
 }
+
+// Developer Workspace — reading a Solution's working copy and reviewing it
+export interface TreeEntry {
+  /** Relative to the Solution's folder, forward slashes on every platform. */
+  path: string;
+  name: string;
+  isDir: boolean;
+  depth: number;
+}
+
+export interface FileTree {
+  entries: TreeEntry[];
+  /** True when the walk stopped early — a partial tree must say so. */
+  truncated: boolean;
+}
+
+export interface FileChange {
+  path: string;
+  status: "added" | "modified" | "deleted" | "renamed";
+  addedLines: number;
+  removedLines: number;
+  diff: string;
+}
+
+export interface ReviewFinding {
+  kind: "disallowedTech" | "unlistedTech" | "noTests";
+  /** Empty when the finding is about the change as a whole. */
+  path: string;
+  detail: string;
+}
+
+export interface ReviewReport {
+  /** A rule was broken. */
+  violations: ReviewFinding[];
+  /** Worth attention, but not a breach. */
+  notices: ReviewFinding[];
+  filesChanged: number;
+  addedLines: number;
+  removedLines: number;
+}
+
+export interface ChangeReview {
+  changes: FileChange[];
+  report: ReviewReport;
+  /** True when the Product has no developer rules, so nothing was checked —
+   *  silence for want of rules reads exactly like silence for want of problems. */
+  noRules: boolean;
+}
+
+export const setSolutionPath = (
+  solutionId: number,
+  localPath: string | null,
+): Promise<void> => invoke("set_solution_path", { solutionId, localPath });
+export const readSolutionTree = (solutionId: number): Promise<FileTree> =>
+  invoke("read_solution_tree", { solutionId });
+export const readSolutionFile = (
+  solutionId: number,
+  path: string,
+): Promise<string> => invoke("read_solution_file", { solutionId, path });
+export const reviewSolutionChanges = (
+  solutionId: number,
+): Promise<ChangeReview> => invoke("review_solution_changes", { solutionId });
 
 export interface TeamMember {
   id: number;

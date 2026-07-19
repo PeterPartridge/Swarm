@@ -9,8 +9,10 @@ mod emit;
 mod figma;
 mod github;
 mod pack;
+mod review;
 mod scaffold;
 mod terminal;
+mod workspace;
 
 use std::path::PathBuf;
 use tauri::Manager;
@@ -87,6 +89,10 @@ fn main() {
             commands::architecture::unlink_solutions,
             commands::architecture::solutions_reached_by,
             commands::architecture::generate_architecture_doc,
+            commands::workspace::set_solution_path,
+            commands::workspace::read_solution_tree,
+            commands::workspace::read_solution_file,
+            commands::workspace::review_solution_changes,
             commands::team_members::list_team_members,
             commands::team_members::add_team_member,
             commands::team_members::set_member_role,

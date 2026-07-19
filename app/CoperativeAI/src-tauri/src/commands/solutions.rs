@@ -16,6 +16,7 @@ pub struct SolutionDto {
     pub origin: String,
     pub github_url: Option<String>,
     pub github_visibility: Option<String>,
+    pub local_path: Option<String>,
 }
 
 impl From<Solution> for SolutionDto {
@@ -29,6 +30,7 @@ impl From<Solution> for SolutionDto {
             origin: s.origin,
             github_url: s.github_url,
             github_visibility: s.github_visibility,
+            local_path: s.local_path,
         }
     }
 }

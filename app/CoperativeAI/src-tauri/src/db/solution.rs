@@ -20,11 +20,14 @@ pub struct Solution {
     pub origin: String,
     pub github_url: Option<String>,
     pub github_visibility: Option<String>,
+    /// Where the code lives on this machine. Null until someone points at it —
+    /// a linked GitHub repository is not the same as a working copy.
+    pub local_path: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
-const SELECT: &str = "SELECT id, name, productId, solutionType, answers, origin, githubUrl, githubVisibility, createdAt, updatedAt FROM solutions";
+const SELECT: &str = "SELECT id, name, productId, solutionType, answers, origin, githubUrl, githubVisibility, localPath, createdAt, updatedAt FROM solutions";
 
 pub async fn create_table(conn: &Connection) -> Result<()> {
     // Round-2 migration: add GitHub link columns. Pre-release → drop & recreate
@@ -52,11 +55,46 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             origin TEXT NOT NULL DEFAULT 'created',
             githubUrl TEXT,
             githubVisibility TEXT,
+            localPath TEXT,
             createdAt INTEGER NOT NULL,
             updatedAt INTEGER NOT NULL,
             UNIQUE(productId, name)
         )",
         (),
+    )
+    .await?;
+
+    // `localPath` is added to an existing table rather than triggering another
+    // drop. A Solution's answers and repository link are person-authored — the
+    // rule this project settled on is drop what the app can rebuild, preserve
+    // what only a person could have written.
+    let has_table = !columns.is_empty();
+    let dropped = has_table && !columns.iter().any(|c| c == "origin");
+    if has_table && !dropped && !columns.iter().any(|c| c == "localPath") {
+        conn.execute("ALTER TABLE solutions ADD COLUMN localPath TEXT", ())
+            .await?;
+    }
+    Ok(())
+}
+
+/// Points a Solution at the folder its code lives in. Verified to exist here,
+/// because a path that is wrong is discovered later as a confusing empty file
+/// tree rather than as the mistake it is.
+pub async fn set_local_path(conn: &Connection, id: i64, local_path: Option<&str>) -> Result<()> {
+    if find_by_id(conn, id).await?.is_none() {
+        return Err(DbError::Validation(format!("no Solution with id {id}")));
+    }
+    if let Some(path) = local_path.filter(|p| !p.trim().is_empty()) {
+        if !std::path::Path::new(path).is_dir() {
+            return Err(DbError::Validation(format!(
+                "there is no folder at {path}"
+            )));
+        }
+    }
+    let stored = local_path.filter(|p| !p.trim().is_empty());
+    conn.execute(
+        "UPDATE solutions SET localPath = ?1, updatedAt = ?2 WHERE id = ?3",
+        (stored, now_millis(), id),
     )
     .await?;
     Ok(())
@@ -185,8 +223,9 @@ fn row_to_solution(row: turso::Row) -> Result<Solution> {
         origin: row.get(5)?,
         github_url: row.get(6)?,
         github_visibility: row.get(7)?,
-        created_at: row.get(8)?,
-        updated_at: row.get(9)?,
+        local_path: row.get(8)?,
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
     })
 }
 

@@ -33,6 +33,7 @@ function sol(id: number, name: string, productId = 7): Solution {
     origin: "created",
     githubUrl: null,
     githubVisibility: null,
+    localPath: null,
   };
 }
 
