@@ -177,6 +177,47 @@ mod tests {
     use super::*;
     use crate::db::product::tests::db_with_product;
 
+    /// Regression guard for a silent-loss bug. `record` swallows ledger errors
+    /// deliberately (generated work must never be lost to bookkeeping), which
+    /// meant a purpose missing from `PURPOSES` vanished without a trace: two
+    /// rounds of marketing, design and architecture spend were never written,
+    /// so the budget router routed against an understated bill. **Every purpose
+    /// a command passes to `plan`/`record` must be in this list, and this list
+    /// must stay in step with the commands.**
+    #[tokio::test]
+    async fn every_purpose_the_commands_use_actually_reaches_the_ledger() {
+        let (conn, product_id) = db_with_product().await;
+        let claude_id = claude(&conn).await;
+        let provider = ai_provider::find_by_id(&conn, claude_id).await.expect("q").expect("p");
+
+        // One entry per `PURPOSE` constant in commands/ (and the pal's).
+        let used_by_commands = [
+            "storyGeneration",     // work_items::generate_user_stories
+            "deliverablePlanning", // work_items::generate_deliverable_work
+            "solutionStrategy",    // strategies::generate_solution_strategy
+            "recommendation",      // recommendations
+            "modelValidation",     // models::install_model
+            "marketingStrategy",   // design::generate_design_strategy
+            "designStrategy",      // design::generate_design_strategy
+            "architectureDoc",     // architecture::generate_architecture_doc
+            "codingPal",           // workspace::ask_coding_pal
+        ];
+        for purpose in used_by_commands {
+            record(
+                &conn, product_id, None, &provider, "haiku", purpose,
+                &Usage { input_tokens: 10, output_tokens: 5, ..Default::default() },
+                1, "ok",
+            )
+            .await;
+        }
+        let spend = ai_usage::spend_for_product(&conn, product_id, 0).await.expect("spend");
+        assert_eq!(
+            spend.calls,
+            used_by_commands.len() as i64,
+            "a purpose was silently dropped — it is missing from ai_usage::PURPOSES"
+        );
+    }
+
     /// Marks a provider's models installed. Every routing test needs this now:
     /// the platform refuses a model it has not validated, so a test that skips
     /// installation is testing the install gate rather than routing.

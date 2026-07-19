@@ -23,6 +23,10 @@ pub const PURPOSES: &[&str] = &[
     // and are ledgered under their own purpose, so the cost of trying models out
     // is visible rather than buried in feature work.
     "modelValidation",
+    "marketingStrategy",
+    "designStrategy",
+    "architectureDoc",
+    "codingPal",
 ];
 
 /// How the call ended.
