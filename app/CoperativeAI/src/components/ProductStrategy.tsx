@@ -7,6 +7,7 @@ import {
   listDeliverables,
   listWorkItems,
   saveStrategy,
+  setDeliverableDependency,
   TYPE_LABELS,
   type Deliverable,
   type WorkItem,
@@ -74,6 +75,18 @@ export default function ProductStrategy({ productId }: { productId: number }) {
       await createDeliverable({ productId, name, description });
       setName("");
       setDescription("");
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  /// A circular plan is refused by the backend; the reason it gives names both
+  /// deliverables, so it is shown as-is rather than replaced with "invalid".
+  async function onSetDependency(d: Deliverable, value: string) {
+    try {
+      await setDeliverableDependency(d.id, value === "" ? null : Number(value));
+      setError(null);
       await refresh();
     } catch (e) {
       setError(String(e));
@@ -169,6 +182,23 @@ export default function ProductStrategy({ productId }: { productId: number }) {
             <header>
               <strong>{d.name}</strong>
               {d.description && <span className="deliverable-desc"> — {d.description}</span>}
+              <label className="deliverable-depends">
+                Waits on
+                <select
+                  aria-label={`What ${d.name} waits on`}
+                  value={d.dependsOnDeliverableId ?? ""}
+                  onChange={(e) => onSetDependency(d, e.target.value)}
+                >
+                  <option value="">Nothing</option>
+                  {deliverables
+                    .filter((other) => other.id !== d.id)
+                    .map((other) => (
+                      <option key={other.id} value={other.id}>
+                        {other.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
               <button
                 aria-label={`Generate work for ${d.name}`}
                 disabled={generating === d.id}

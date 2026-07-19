@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+﻿import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ProductStrategy from "../../components/ProductStrategy";
@@ -12,6 +12,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     getStrategy: vi.fn(),
     saveStrategy: vi.fn(),
     listDeliverables: vi.fn(),
+    setDeliverableDependency: vi.fn(),
     getActivePermissions: vi.fn(),
     createDeliverable: vi.fn(),
     deleteDeliverable: vi.fn(),
@@ -35,6 +36,7 @@ const deliverable: Deliverable = {
   productId: 1,
   name: "MVP",
   description: "the first release",
+  dependsOnDeliverableId: null,
 };
 
 const generatedItem: WorkItem = {
@@ -166,6 +168,40 @@ describe("ProductStrategy — generating the work for a Deliverable", () => {
     expect(status).toHaveTextContent("Which features must ship in the MVP?");
     // it must not surface as an error alert
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("records what a deliverable waits on", async () => {
+    const user = userEvent.setup();
+    mocked.listDeliverables.mockResolvedValue([
+      deliverable,
+      { id: 8, productId: 1, name: "Foundations", description: "", dependsOnDeliverableId: null },
+    ]);
+    mocked.setDeliverableDependency.mockResolvedValue(undefined);
+    render(<ProductStrategy productId={1} />);
+
+    await user.selectOptions(await screen.findByLabelText("What MVP waits on"), "8");
+
+    await waitFor(() =>
+      expect(mocked.setDeliverableDependency).toHaveBeenCalledWith(7, 8),
+    );
+  });
+
+  /// The backend names both deliverables in the refusal; showing that beats
+  /// replacing it with a generic "invalid".
+  it("shows the backend's reason when a dependency would make a loop", async () => {
+    const user = userEvent.setup();
+    mocked.listDeliverables.mockResolvedValue([
+      deliverable,
+      { id: 8, productId: 1, name: "Foundations", description: "", dependsOnDeliverableId: 7 },
+    ]);
+    mocked.setDeliverableDependency.mockRejectedValue(
+      "'Foundations' already depends on 'MVP', so this would make a loop",
+    );
+    render(<ProductStrategy productId={1} />);
+
+    await user.selectOptions(await screen.findByLabelText("What MVP waits on"), "8");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/would make a loop/);
   });
 
   it("surfaces a policy denial instead of failing silently", async () => {
@@ -304,3 +340,4 @@ describe("ProductStrategy — generating the work for a Deliverable", () => {
     );
   });
 });
+

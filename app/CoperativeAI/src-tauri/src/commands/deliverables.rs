@@ -13,6 +13,7 @@ pub struct DeliverableDto {
     pub product_id: i64,
     pub name: String,
     pub description: String,
+    pub depends_on_deliverable_id: Option<i64>,
 }
 
 impl From<Deliverable> for DeliverableDto {
@@ -22,8 +23,23 @@ impl From<Deliverable> for DeliverableDto {
             product_id: d.product_id,
             name: d.name,
             description: d.description,
+            depends_on_deliverable_id: d.depends_on_deliverable_id,
         }
     }
+}
+
+/// Sets what a deliverable waits on, or clears it with `None`. Refuses
+/// anything that would make the plan circular.
+#[tauri::command]
+pub async fn set_deliverable_dependency(
+    db: State<'_, AppDb>,
+    id: i64,
+    depends_on: Option<i64>,
+) -> Result<(), String> {
+    let conn = db.0.lock().await;
+    deliverable::set_dependency(&conn, id, depends_on)
+        .await
+        .map_err(to_message)
 }
 
 #[tauri::command]

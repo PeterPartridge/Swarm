@@ -54,7 +54,16 @@ export interface Deliverable {
   productId: number;
   name: string;
   description: string;
+  /** What this deliverable waits on. Kept acyclic by the backend. */
+  dependsOnDeliverableId: number | null;
 }
+
+/** Sets what a deliverable waits on, or clears it with null. The backend
+ *  refuses anything that would make the plan circular. */
+export const setDeliverableDependency = (
+  id: number,
+  dependsOn: number | null,
+): Promise<void> => invoke("set_deliverable_dependency", { id, dependsOn });
 
 export interface TestCase {
   id: number;

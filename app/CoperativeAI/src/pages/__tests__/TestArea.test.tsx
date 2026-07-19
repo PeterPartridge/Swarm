@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+﻿import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TestArea from "../TestArea";
@@ -30,6 +30,7 @@ const deliverable: Deliverable = {
   productId: 1,
   name: "MVP",
   description: "",
+  dependsOnDeliverableId: null,
 };
 const workItem: WorkItem = {
   id: 20,
@@ -173,3 +174,4 @@ describe("TestArea (Testing Strategy + test cases)", () => {
     expect(await screen.findByText(/create one in the Product tab/i)).toBeInTheDocument();
   });
 });
+

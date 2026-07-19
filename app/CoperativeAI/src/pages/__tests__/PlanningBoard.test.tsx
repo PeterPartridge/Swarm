@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+﻿import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import PlanningBoard from "../../components/PlanningBoard";
@@ -175,7 +175,7 @@ describe("PlanningBoard", () => {
     const user = userEvent.setup();
     mocked.updateWorkItem.mockResolvedValue();
     mocked.listDeliverables.mockResolvedValue([
-      { id: 4, productId: 7, name: "MVP", description: "" },
+      { id: 4, productId: 7, name: "MVP", description: "", dependsOnDeliverableId: null },
     ]);
     render(<PlanningBoard productId={7} />);
 
@@ -335,3 +335,4 @@ describe("PlanningBoard", () => {
     );
   });
 });
+
