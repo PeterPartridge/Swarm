@@ -84,6 +84,19 @@ pub async fn get_product(db: State<'_, AppDb>, id: i64) -> Result<ProductDto, St
         .ok_or_else(|| format!("no Product with id {id}"))
 }
 
+/// Saves the Product's brief answers, edited in Strategy after creation.
+#[tauri::command]
+pub async fn update_product_answers(
+    db: State<'_, AppDb>,
+    id: i64,
+    answers: String,
+) -> Result<(), String> {
+    let conn = db.0.lock().await;
+    product::update_answers(&conn, id, &answers)
+        .await
+        .map_err(to_message)
+}
+
 #[tauri::command]
 pub async fn delete_product(db: State<'_, AppDb>, id: i64) -> Result<(), String> {
     let conn = db.0.lock().await;

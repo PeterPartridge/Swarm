@@ -3,7 +3,10 @@ import {
   createDeliverable,
   deleteDeliverable,
   generateDeliverableWork,
+  getProduct,
   getStrategy,
+  updateProductAnswers,
+  PRODUCT_QUESTIONS,
   listDeliverables,
   listWorkItems,
   saveStrategy,
@@ -32,14 +35,21 @@ export default function ProductStrategy({ productId }: { productId: number }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [generating, setGenerating] = useState<number | null>(null);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
 
   const refresh = useCallback(async () => {
     try {
-      const [strategyJson, loadedDeliverables, loadedItems] = await Promise.all([
+      const [strategyJson, loadedDeliverables, loadedItems, product] = await Promise.all([
         getStrategy(productId, "product"),
         listDeliverables(productId),
         listWorkItems(productId),
+        getProduct(productId),
       ]);
+      try {
+        setAnswers(JSON.parse(product.answers) as Record<string, string>);
+      } catch {
+        setAnswers({});
+      }
       try {
         setStrategy(JSON.parse(strategyJson) as Record<string, string>);
       } catch {
@@ -56,6 +66,20 @@ export default function ProductStrategy({ productId }: { productId: number }) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  /// The Product brief lives in one JSON document, so a saved answer merges
+  /// into whatever is already there rather than replacing the lot.
+  async function saveAnswer(id: string, value: string) {
+    const next = { ...answers, [id]: value };
+    setAnswers(next);
+    try {
+      await updateProductAnswers(productId, JSON.stringify(next));
+      setSavedNote("Saved.");
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
 
   async function saveField(id: string, value: string) {
     const next = { ...strategy, [id]: value };
@@ -142,6 +166,25 @@ export default function ProductStrategy({ productId }: { productId: number }) {
       <h2>Strategy</h2>
       {error && <p role="alert">{error}</p>}
       {savedNote && <p role="status">{savedNote}</p>}
+
+      {/* The Product brief. It sits in Strategy because deciding what a
+          product is for, who buys it and what could go wrong is strategic
+          thinking — the creation card only asks enough to get started. */}
+      <section className="product-brief" aria-label="Product brief">
+        <h3>About this Product</h3>
+        <div className="strategy-fields">
+          {PRODUCT_QUESTIONS.map((q) => (
+            <label key={q.id}>
+              {q.label}
+              <textarea
+                aria-label={q.label}
+                defaultValue={answers[q.id] ?? ""}
+                onBlur={(e) => saveAnswer(q.id, e.target.value)}
+              />
+            </label>
+          ))}
+        </div>
+      </section>
 
       <div className="strategy-fields">
         {STRATEGY_FIELDS.map((f) => (

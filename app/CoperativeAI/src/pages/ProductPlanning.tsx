@@ -6,7 +6,7 @@ import {
   createProduct,
   deleteProduct,
   listProducts,
-  PRODUCT_QUESTIONS,
+  CREATE_PRODUCT_QUESTIONS,
   type Product,
 } from "../lib/backend";
 
@@ -109,7 +109,9 @@ export default function ProductPlanning() {
               Product name
               <input value={name} onChange={(e) => setName(e.target.value)} />
             </label>
-            {PRODUCT_QUESTIONS.map((q) => (
+            {/* Only the essentials — the rest of the brief is written in
+                Strategy once the Product exists. */}
+            {CREATE_PRODUCT_QUESTIONS.map((q) => (
               <label key={q.id}>
                 {q.label}
                 <textarea

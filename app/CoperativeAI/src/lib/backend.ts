@@ -249,15 +249,33 @@ export const SOLUTION_TYPES = [
   "application",
 ] as const;
 
-/** The Project_brief questions a Product card asks (Part 1 + Part 3). */
+/** The whole Product brief. Edited in Strategy, because thinking about a
+ *  Product is strategy — the creation card only asks enough to start. */
 export const PRODUCT_QUESTIONS: { id: string; label: string }[] = [
   { id: "purpose", label: "In one or two sentences, what is the purpose of this product?" },
   { id: "problem", label: "What problem does it solve, and for whom?" },
-  { id: "users", label: "Who will use it?" },
+  { id: "users", label: "Who is the customer?" },
+  { id: "commercialModel", label: "What is the commercial model?" },
+  { id: "roadmap", label: "What is the long-term roadmap?" },
+  { id: "constraints", label: "What are the constraints?" },
+  { id: "risks", label: "What are the risks?" },
   { id: "appsYouLike", label: "Are there any apps or websites you like?" },
   { id: "appsToAvoid", label: "Are there any apps or websites you want to avoid copying?" },
   { id: "designs", label: "Any designs, sketches, or look-and-feel notes?" },
 ];
+
+/** What the Add-a-Product card asks. Deliberately short: a Product should be
+ *  cheap to start, and answering ten questions before it exists is how a
+ *  planning tool becomes a form nobody fills in. The rest is Strategy's job. */
+export const CREATE_PRODUCT_QUESTIONS = PRODUCT_QUESTIONS.filter((q) =>
+  ["purpose", "problem", "users"].includes(q.id),
+);
+
+/** Saves brief answers edited in Strategy after the Product exists. */
+export const updateProductAnswers = (
+  id: number,
+  answers: string,
+): Promise<void> => invoke("update_product_answers", { id, answers });
 
 /** The solution-spec questions the Develop tab's Solution card asks. */
 export const SOLUTION_QUESTIONS: { id: string; label: string }[] = [

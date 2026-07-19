@@ -13,6 +13,8 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     saveStrategy: vi.fn(),
     listDeliverables: vi.fn(),
     setDeliverableDependency: vi.fn(),
+    getProduct: vi.fn(),
+    updateProductAnswers: vi.fn(),
     getActivePermissions: vi.fn(),
     createDeliverable: vi.fn(),
     deleteDeliverable: vi.fn(),
@@ -74,6 +76,11 @@ describe("ProductStrategy — generating the work for a Deliverable", () => {
     mocked.listWorkItems.mockResolvedValue([]);
     mocked.getProductPolicy.mockResolvedValue(openPolicy);
     mocked.listAiProviders.mockResolvedValue([]);
+    mocked.getProduct.mockResolvedValue({
+      id: 1,
+      name: "Shop App",
+      answers: JSON.stringify({ purpose: "sell coffee" }),
+    });
     mocked.getProductBudget.mockResolvedValue(null);
     mocked.getSpendSummary.mockResolvedValue({
       spentMicropence: 0,
@@ -168,6 +175,39 @@ describe("ProductStrategy — generating the work for a Deliverable", () => {
     expect(status).toHaveTextContent("Which features must ship in the MVP?");
     // it must not surface as an error alert
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  /// The brief moved here from the creation card: deciding what a product is
+  /// for, who buys it and what could go wrong is strategic thinking.
+  it("holds the full Product brief, including the questions creation no longer asks", async () => {
+    render(<ProductStrategy productId={1} />);
+
+    expect(await screen.findByRole("region", { name: "Product brief" })).toBeInTheDocument();
+    for (const label of [
+      "What is the commercial model?",
+      "What is the long-term roadmap?",
+      "What are the constraints?",
+      "What are the risks?",
+    ]) {
+      expect(screen.getByLabelText(label)).toBeInTheDocument();
+    }
+  });
+
+  it("merges a saved answer into the existing brief rather than replacing it", async () => {
+    const user = userEvent.setup();
+    mocked.updateProductAnswers.mockResolvedValue(undefined);
+    render(<ProductStrategy productId={1} />);
+
+    const risks = await screen.findByLabelText("What are the risks?");
+    await user.type(risks, "Supplier concentration");
+    await user.tab();
+
+    await waitFor(() => expect(mocked.updateProductAnswers).toHaveBeenCalled());
+    const [, json] = mocked.updateProductAnswers.mock.calls[0];
+    const saved = JSON.parse(json as string);
+    expect(saved.risks).toBe("Supplier concentration");
+    // the answer already there must survive a merge, not be replaced by it
+    expect(saved.purpose).toBe("sell coffee");
   });
 
   it("records what a deliverable waits on", async () => {
