@@ -63,4 +63,5 @@ Whatever the Product's AI policy says — this area does not get its own budget 
 ## Part 4 — changes-over-time
 
 > Each time you come back to improve the page, add a bullet describing what you want to change. Keep changes small.
+- Round 8b (my feedback): Marketing outputs become **stored artefacts** like Design's — campaign ideas, launch plan and messaging are things a person can pick up and hand to someone, which a paragraph inside a strategy document is not. *(Applied: three new asset kinds in the shared table, generated explicitly by the marketing prompt, shown on the Marketing screen only, and emitted as `marketing/` files.)*
 - Round 8 (my feedback): Add a **Marketing & Design** section. Marketing covers target audience, messaging, positioning, pricing, campaigns and launch. Design covers branding, tokens and flows. Design output should include **writing into Figma**. *(Answered during the round: the Figma account is on the **free** plan, and the decision taken was to build the Enterprise variables path anyway and to let the AI download and read the file. Both are built; the variables push cannot be verified from a free plan and is unit-tested only.)*

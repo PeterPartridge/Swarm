@@ -91,3 +91,31 @@ Two details came from thinking about failure rather than the happy path:
 - **`settle_change_run` is built and not yet wired to any button.** The command exists; the review panel does not offer kept/discarded.
 - **Architecture selection is coarse** — the brief carries this Solution's documents *and* every Product-wide one. For a Product with many diagrams that is a large brief.
 - **No estimate is offered either.** The estimator could price what the work *would* cost at API rates, clearly labelled — that would be honest and useful, and it is not built.
+
+## Round 8d — The editor, the pal, and an accept that is never gated
+
+### My Feedback
+
+Three decisions were put to you and you took them: **full editor plus coding pal** (over my recommendation to skip both), **accept always available** (over my recommendation to gate it on a clean review), and **marketing artefacts stored** (as recommended). All three are built.
+
+**The editor.** Monaco over the open file — edit, save, dirty state measured against the last saved content so an edit undone by hand reads as clean. Saving is the first write path this app has ever had into a working copy, so it gets the containment rule plus one of its own: **nothing writes under `.git`**. `src/../.git/config` resolves to a path *inside* the root — the containment check alone would pass it — and a write there changes what the repository *is*. The check runs on the resolved path and a test drives both spellings at a real `.git/config`. Monaco loads on demand (+4 kB startup) and is pointed at the bundled build explicitly, because the wrapper's default fetches the editor from a CDN and an offline desktop app must never do that.
+
+**The pal.** Explain / refactor / document / draft tests, through the same gates as every other AI action — Product policy, budget router, ledger, dispatch by provider kind. The boundary that matters: **the pal never touches disk.** A revision lands in the editor buffer as an unsaved change and the developer's save is the gate; a test pins that apply calls no write. Proposals are rule-checked two ways before apply — declared technologies and the replacement code itself — and violations are shown, never enforced, consistent with the accept decision. The tests action deliberately returns no replacement: tests belong in their own file, this tool saves only the open one, and a replacement would overwrite the code under test with its own tests.
+
+**The ungated accept.** A review now attaches to the newest unsettled handover and records its findings on the run *before* any button exists to press. Keep is then offered whatever the findings say — your decision — and keeping over a violation is confirmed as "with the broken rules above on the record", not laundered into a clean pass. A settled run stops attracting reviews. Keep/discard records the decision and touches no files.
+
+### Your Feedback
+
+- **Adding the pal's ledger purpose uncovered a real bug**, the worst class this platform can have: `marketingStrategy`, `designStrategy` and `architectureDoc` were never added to `ai_usage::PURPOSES`, and `ai_run::record` swallows ledger errors by design — so every R2/R3 generation ran, was paid for, and left no ledger row. The budget router has been routing on an understated bill. Two protections cancelled each other: validation raised exactly the error the swallow ate. Fixed, with a regression test that records one call per purpose the commands use and counts the rows. The rows never written are gone.
+- **I recommended against two of these features and built them properly anyway.** The record should show both halves: the recommendation and the decision. The pal is the strongest version of itself I could make — cached file context, shared rules rendering, disk never touched — and the ungated accept keeps the audit trail even though it gives up the gate.
+- **`user.type` into Monaco is a stub.** jsdom cannot host the real editor, so a textarea honouring value/onChange stands in. Everything the tests prove about typing is proved against the stub; the containment and write behaviour is cargo-tested against real directories, which is where the risk actually lives.
+
+### Technical Debt
+
+- **The pal sends no selection.** The command and prompt support one; the UI passes `null`, because the Monaco selection API was not worth wiring in the same round. "Focus there" is built and unreachable.
+- **The pal reads disk, not the buffer** — stated in the UI, but it means asking about unsaved work answers about the old version.
+- **No inline suggestions, maintainability scoring or per-keystroke cost estimation.** Continuous completion against a metered API is a money furnace and against local models is treacle; declined knowingly rather than half-built.
+- **File creation is still not offered** — the editor edits, it does not scaffold, so the tests action's output must be pasted by hand into a new file.
+- **The build now needs a 4 GB Node heap** (Monaco's five workers) and takes ~68s, up from ~12s.
+- **Auto-accept without review** is technically the state of the world: Keep appears after a review, but nothing forces reading it. That is the shape of the decision taken, recorded here so nobody later mistakes it for an oversight.
+- **Standing: the Claude path is unproven live.**
