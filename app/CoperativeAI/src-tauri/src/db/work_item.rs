@@ -305,6 +305,7 @@ pub async fn delete(conn: &Connection, id: i64) -> Result<()> {
     conn.execute("DELETE FROM feature_designs WHERE workItemId = ?1", (id,)).await?;
     // A link to a deleted item is not a dependency, it is a dangling row.
     crate::db::work_item_link::remove_for_item(conn, id).await?;
+    crate::db::change_run::remove_for_item(conn, id).await?;
     // QA's test cases survive the work item; they are only unlinked.
     conn.execute("UPDATE test_cases SET workItemId = NULL WHERE workItemId = ?1", (id,)).await?;
     conn.execute("DELETE FROM work_items WHERE id = ?1", (id,)).await?;

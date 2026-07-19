@@ -80,6 +80,28 @@ export interface ChangeReview {
   noRules: boolean;
 }
 
+/** A work item assembled into one brief and written into its working copy.
+ *
+ *  There is no cost here, deliberately. Claude Code bills against its own
+ *  subscription; this app's ledger meters the calls it makes itself, so any
+ *  figure shown would be one the app cannot see. */
+export interface Handover {
+  runId: number;
+  briefPath: string;
+  brief: string;
+  /** Shown, never executed. */
+  command: string;
+}
+
+export const prepareHandover = (workItemId: number): Promise<Handover> =>
+  invoke("prepare_handover", { workItemId });
+/** The app cannot see whether a change was committed, so it records what it
+ *  is told. */
+export const settleChangeRun = (
+  runId: number,
+  state: "kept" | "discarded",
+): Promise<void> => invoke("settle_change_run", { runId, state });
+
 export const setSolutionPath = (
   solutionId: number,
   localPath: string | null,

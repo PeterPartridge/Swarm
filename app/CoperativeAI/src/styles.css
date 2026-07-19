@@ -315,6 +315,43 @@ body {
   width: 5rem;
 }
 
+.handover {
+  border-top: 1px dashed #e5e7eb;
+  padding-top: 0.35rem;
+  font-size: 0.75rem;
+}
+
+.handover-result {
+  margin-top: 0.3rem;
+}
+
+.handover-command {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: #f9fafb;
+  border-radius: 4px;
+  padding: 0.3rem;
+  margin: 0.3rem 0;
+  overflow-x: auto;
+}
+
+.handover-command code {
+  white-space: nowrap;
+  font-size: 0.72rem;
+}
+
+.handover-brief {
+  max-height: 18rem;
+  overflow: auto;
+  background: #f9fafb;
+  border-radius: 4px;
+  padding: 0.4rem;
+  font-size: 0.72rem;
+  margin: 0.3rem 0;
+  white-space: pre-wrap;
+}
+
 .diagram-view {
   margin: 0.3rem 0;
 }

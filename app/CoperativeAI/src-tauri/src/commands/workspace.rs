@@ -64,6 +64,164 @@ pub async fn read_solution_file(
     workspace::read_file(&root, &path)
 }
 
+/// A work item prepared for a coding agent.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HandoverDto {
+    pub run_id: i64,
+    pub brief_path: String,
+    pub brief: String,
+    /// The command to run. Shown, not executed — see `handover.rs`.
+    pub command: String,
+}
+
+/// Assembles everything known about a work item into one brief, writes it into
+/// the working copy, and records the handover.
+///
+/// **Nothing is spawned and no cost is reported.** Claude Code bills against
+/// its own subscription, so a figure here would be one the app cannot see. What
+/// it does own is assembling the context completely and once — which is where
+/// the tokens are actually saved, because the expensive failure is an agent
+/// told too little that builds the wrong thing.
+#[tauri::command]
+pub async fn prepare_handover(
+    db: State<'_, AppDb>,
+    work_item_id: i64,
+) -> Result<HandoverDto, String> {
+    use crate::db::{
+        ai_feedback, architecture_doc, product, solution_strategy, work_item, work_item_link,
+    };
+    use crate::handover::{self, HandoverInputs};
+
+    let (brief, brief_path, root, solution_id) = {
+        let conn = db.0.lock().await;
+        let Some(item) = work_item::find_by_id(&conn, work_item_id)
+            .await
+            .map_err(to_message)?
+        else {
+            return Err("that work item no longer exists".into());
+        };
+        let Some(solution_id) = item.solution_id else {
+            return Err(format!(
+                "'{}' is not linked to a Solution, so there is nowhere to hand it over to. Set its Solution on the planning board.",
+                item.title
+            ));
+        };
+        let root = root_for(&conn, solution_id).await?;
+        let Some(product_row) = product::find_by_id(&conn, item.product_id)
+            .await
+            .map_err(to_message)?
+        else {
+            return Err("this work item's Product no longer exists".into());
+        };
+        let solution_row = solution::find_by_id(&conn, solution_id)
+            .await
+            .map_err(to_message)?;
+        let rules = developer_rules::get_for_product(&conn, item.product_id)
+            .await
+            .map_err(to_message)?
+            .unwrap_or_default();
+
+        // The build strategy, and which option the developer settled on — so
+        // the agent does not re-open a decision that has already been made.
+        let strategy = solution_strategy::get_for_item(&conn, work_item_id)
+            .await
+            .map_err(to_message)?;
+        let chosen = strategy.as_ref().and_then(|s| {
+            let options: Vec<serde_json::Value> =
+                serde_json::from_str(&s.architecture_options).unwrap_or_default();
+            s.chosen_option_index
+                .and_then(|i| options.get(i as usize).cloned())
+                .and_then(|o| o.get("name").and_then(|n| n.as_str()).map(str::to_string))
+        });
+
+        // Only this Solution's architecture: a brief carrying every diagram in
+        // the Product buries the request underneath them.
+        let architecture: Vec<(String, String, String)> =
+            architecture_doc::list_by_product(&conn, item.product_id)
+                .await
+                .map_err(to_message)?
+                .into_iter()
+                .filter(|d| d.solution_id == Some(solution_id) || d.solution_id.is_none())
+                .map(|d| (d.name, d.format, d.content))
+                .collect();
+
+        let clarifications = ai_feedback::clarifications_for_item(&conn, work_item_id)
+            .await
+            .map_err(to_message)?;
+
+        // What waits on this work — the shape it must not break.
+        let all_items = work_item::list_by_product(&conn, item.product_id)
+            .await
+            .map_err(to_message)?;
+        let depended_on_by: Vec<String> = work_item_link::list_for_item(&conn, work_item_id)
+            .await
+            .map_err(to_message)?
+            .into_iter()
+            .filter(|l| l.to_work_item_id == work_item_id && l.kind == "blocks")
+            .filter_map(|l| {
+                all_items
+                    .iter()
+                    .find(|i| i.id == l.from_work_item_id)
+                    .map(|i| i.title.clone())
+            })
+            .collect();
+
+        let brief = handover::brief(&HandoverInputs {
+            product_name: &product_row.name,
+            work_item_title: &item.title,
+            work_item_type: &item.item_type,
+            work_item_description: item.description.as_deref(),
+            risk: &item.risk,
+            solution_name: solution_row.as_ref().map(|s| s.name.as_str()),
+            strategy: strategy.as_ref().map(|s| s.strategy.as_str()),
+            chosen_option: chosen.as_deref(),
+            rules: &rules,
+            architecture: &architecture,
+            clarifications: &clarifications,
+            depended_on_by: &depended_on_by,
+        });
+        let brief_path = handover::brief_path(&item.title);
+        (brief, brief_path, root, solution_id)
+    };
+
+    // Written into the working copy so the agent can read it in place, under
+    // this app's own folder rather than the project's root.
+    crate::emit::write_generated(
+        &root,
+        &[crate::emit::EmitFile {
+            rel_path: brief_path.clone(),
+            contents: brief.clone(),
+        }],
+    )?;
+
+    let conn = db.0.lock().await;
+    let run_id = crate::db::change_run::prepare(&conn, work_item_id, solution_id, &brief_path)
+        .await
+        .map_err(to_message)?;
+
+    Ok(HandoverDto {
+        run_id,
+        command: crate::handover::suggested_command(&brief_path),
+        brief_path,
+        brief,
+    })
+}
+
+/// Records what the developer decided about a run. The app cannot see whether
+/// a change was committed, so it records what it is told.
+#[tauri::command]
+pub async fn settle_change_run(
+    db: State<'_, AppDb>,
+    run_id: i64,
+    state: String,
+) -> Result<(), String> {
+    let conn = db.0.lock().await;
+    crate::db::change_run::settle(&conn, run_id, &state)
+        .await
+        .map_err(to_message)
+}
+
 /// What changed in the working copy, and what the developer rules make of it.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

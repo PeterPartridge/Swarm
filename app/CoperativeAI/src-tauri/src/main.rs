@@ -7,6 +7,7 @@ mod db;
 mod diagram;
 mod emit;
 mod figma;
+mod handover;
 mod github;
 mod pack;
 mod review;
@@ -93,6 +94,8 @@ fn main() {
             commands::workspace::read_solution_tree,
             commands::workspace::read_solution_file,
             commands::workspace::review_solution_changes,
+            commands::workspace::prepare_handover,
+            commands::workspace::settle_change_run,
             commands::team_members::list_team_members,
             commands::team_members::add_team_member,
             commands::team_members::set_member_role,

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import AiQuestions from "./AiQuestions";
 import PolicyEditor from "./PolicyEditor";
 import { usePermissions } from "../lib/permissions";
+import HandoverPanel from "./HandoverPanel";
 import {
   createWorkItem,
   deleteWorkItem,
@@ -485,6 +486,9 @@ export default function PlanningBoard({ productId }: PlanningBoardProps) {
                       onBlur={(e) => commit(item, { risk: e.target.value })}
                     />
                   </div>
+
+                  {/* Only work that has somewhere to land can be handed over. */}
+                  {item.solutionId !== null && <HandoverPanel item={item} />}
 
                   <WorkItemDependencies
                     item={item}

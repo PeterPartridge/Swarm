@@ -7,6 +7,7 @@ pub mod ai_feedback;
 pub mod ai_provider;
 pub mod ai_usage;
 pub mod architecture_doc;
+pub mod change_run;
 pub mod deliverable;
 pub mod design_asset;
 pub mod developer_rules;
@@ -90,6 +91,8 @@ pub async fn create_all_tables(conn: &Connection) -> Result<()> {
     work_item::create_table(conn).await?;
     // after work_item: links name two of them
     work_item_link::create_table(conn).await?;
+    // after work_item + solution: a run hands one into the other
+    change_run::create_table(conn).await?;
     ai_provider::create_table(conn).await?;
     work_item_policy::create_table(conn).await?;
     product_policy::create_table(conn).await?;
