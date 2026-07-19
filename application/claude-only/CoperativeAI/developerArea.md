@@ -34,6 +34,39 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 8 — Developer Planning: architecture that has to render
+
+### My Feedback
+
+Develop gains a planning sub-area: architecture documents, API contracts, and a cross-repo map. Three decisions carried it.
+
+**Validation is on the way in, not the way out.** A diagram that does not render is worse than no diagram — it *looks* like documentation, so the gap stops being visible and nobody writes the real thing. `architecture_doc::save` refuses anything `diagram::check` rejects, and the AI command reports "the AI drew something that will not render, so it was not saved" rather than storing it and letting a renderer surface the failure weeks later.
+
+**The checks are structural, not parsers, and the module says so.** They catch what actually goes wrong — a model answering in prose, or in the wrong notation. Three earned their place: PlantUML is checked at **both ends**, because a truncated response opens correctly and never closes; a JSON-graph edge must join nodes that exist, because a dangling edge renders as a line going nowhere and reads as a decision rather than a mistake; and Mermaid tolerates leading `%%` comments, because generated diagrams carry them.
+
+**Only `buildsOn` is cycle-checked.** Cycle detection exists to stop a state nothing can start from, and only an ordering relation produces one. A build cycle genuinely cannot be resolved. Two services calling each other's APIs is a common, workable arrangement — a webhook back is not a paradox — and refusing it would make the map lie about the system it describes. A map that refuses to record reality is one people stop updating.
+
+That is now a rule this codebase applies three times, and it is worth naming: **check the kind that orders, allow the kinds that describe.** `blocks` on work items, `buildsOn` on Solutions, deliverable dependencies.
+
+**The impact walk is deliberately wider than the cycle check.** `reaches` follows *every* kind of link, because a runtime dependency is exactly how a change propagates. Restricting it to `buildsOn` would answer a question nobody asked.
+
+### Your Feedback
+
+- **A passing test suite was hiding a broken render.** Adding `DeveloperPlanning` to `DevelopSolutions` left its backend calls unmocked, so they fell through to the real `invoke`, failed, and landed in the component's error state — and every existing test still passed, because none of them assert the absence of an error. Green tests concealing a broken panel are worse than a red one. Mocks added, but the lesson is that partial `...original` mocks fail silently by design.
+- **`design_asset` and `architecture_doc` are now near-identical.** Both product-scoped, both kind-decides-format, both name-replaces-in-place, both validating diagrams. They stayed separate because kinds and lifecycles differ, and two similar things are cheaper than the wrong abstraction — but a third would be the moment to extract one.
+- **Extracting `diagram.rs` was the right call and nearly wasn't made.** The Mermaid check already existed, privately, inside `design_asset`. Copying it would have been faster and would have produced two definitions of "is this a diagram" that drifted the first time either was tightened.
+
+### Technical Debt
+
+- **Nothing renders the diagrams.** They are shown as source in a `<pre>`. Mermaid rendering is available in this stack and is not wired up, so a non-technical reader gets text where a picture was the point.
+- **The "agree with existing documents" instruction is unenforced.** The prompt asks; nothing checks the answer — unlike the developer-rules path, which re-checks what the model declared. A contradictory second diagram would be stored without complaint.
+- **No history on architecture documents.** Regenerating replaces, so there is no way to see what changed between drafts — which is exactly what a reviewer wants.
+- **Cross-Product integration cannot be recorded.** Refusing it keeps the map coherent, but a real dependency on another Product's API now has nowhere to live.
+- **`reaches` returns ids with no path**, so a surprising result cannot be traced without reading the whole link list. And nothing draws the graph.
+- **Links are recorded by hand.** Nothing derives them from the code, so the map is only as true as the last person to update it.
+- **The cycle check is not transactional** — the third instance of this in the codebase.
+- **Standing: the Claude path is unproven live**, now three rounds running.
+
 ## Round 7 — What live testing found
 
 Three things the unit tests could not have told us, from running rounds 4–6 against a real `ornith:9b`.

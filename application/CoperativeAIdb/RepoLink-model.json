@@ -1,0 +1,63 @@
+{
+  "form": "database-model",
+  "modelName": "RepoLink",
+  "status": "built",
+  "dependsOn": {
+    "guidance": "Briefs that must be built before this one — usually the tables this model's relationships point at.",
+    "example": ["ClothingDatabase/Customer.json"],
+    "entries": ["CoperativeAIdb/Solution-model.json"]
+  },
+  "instructions": {
+    "whoFillsThisIn": "Developers (Product can sanity-check the information being stored).",
+    "when": "Whenever a page needs to store data. One of these per model/table.",
+    "how": "Answer in plain English where you can.",
+    "note": "Solution = the folder this file sits in. Table / object name = this file's name."
+  },
+  "whatThisModelIs": {
+    "question": "What does this model represent, in one line?",
+    "example": "A customer's order.",
+    "answer": "How two of a Product's Solutions — and so two repositories — depend on one another. Distinct from WorkItemLink, which joins two pieces of work: this joins two systems, outlives any sprint, and answers 'if we change the API, what else moves?'"
+  },
+  "fields": {
+    "guidance": "One entry per piece of data.",
+    "entries": [
+      { "fieldName": "id", "type": "id / key", "nullable": false, "default": "auto", "rules": "unique", "description": "The unique identifier" },
+      { "fieldName": "fromSolutionId", "type": "id / key", "nullable": false, "default": "", "rules": "must reference a Solution row; must not equal toSolutionId; must share a Product with it", "description": "The Solution that depends on the other" },
+      { "fieldName": "toSolutionId", "type": "id / key", "nullable": false, "default": "", "rules": "must reference a Solution row", "description": "The Solution depended on" },
+      { "fieldName": "kind", "type": "list", "nullable": false, "default": "callsApi", "rules": "one of: callsApi / sharesSchema / publishesEvent / buildsOn", "description": "How they depend on each other. 'buildsOn' means one is compiled or deployed against the other — it orders work, so it must stay acyclic. The rest describe runtime, where mutual dependence is a real and workable arrangement" },
+      { "fieldName": "notes", "type": "text", "nullable": false, "default": "", "rules": "", "description": "Why the dependency exists, in the developer's own words" },
+      { "fieldName": "createdAt", "type": "date", "nullable": false, "default": "now", "rules": "", "description": "When the link was recorded" }
+    ]
+  },
+  "relationships": {
+    "guidance": "How this model connects to others.",
+    "entries": [
+      { "field": "fromSolutionId", "relationship": "many-to-one", "relatedTable": "Solution", "relatedField": "id", "constraintName": "FK_RepoLink_From" },
+      { "field": "toSolutionId", "relationship": "many-to-one", "relatedTable": "Solution", "relatedField": "id", "constraintName": "FK_RepoLink_To" }
+    ]
+  },
+  "lookupsAndPerformance": {
+    "question": "Which fields do we search or filter on a lot?",
+    "answer": ["fromSolutionId", "toSolutionId", "kind"]
+  },
+  "lifecycleAndRules": {
+    "retention": {
+      "question": "How long do we keep this data / when is it deleted?",
+      "answer": "Until the link is removed or either Solution is deleted. Deleting a Solution removes every link touching it — a link to a deleted Solution is not a dependency, it is a dangling row."
+    },
+    "sensitiveFields": {
+      "question": "Any sensitive fields that need extra protection?",
+      "answer": "No."
+    },
+    "invariants": {
+      "question": "Anything that must always be true?",
+      "answer": "Both Solutions exist, differ, and belong to the same Product — this map is drawn per Product, so a link reaching outside it would be invisible from both ends. 'buildsOn' must never form a cycle, directly or transitively, because neither side could be built first. The other kinds may loop freely: two services calling each other's APIs is a real arrangement, and refusing it would make the map lie about the system it describes."
+    }
+  },
+  "changesOverTime": {
+    "guidance": "Each time you come back to change this model, add an entry describing what should change.",
+    "rounds": [
+      { "round": 8, "change": "New: Developer Planning needs a cross-repo map, so a change in one repository can be traced to everything it reaches." }
+    ]
+  }
+}

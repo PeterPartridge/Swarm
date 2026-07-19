@@ -1,0 +1,66 @@
+{
+  "form": "database-model",
+  "modelName": "ArchitectureDoc",
+  "status": "built",
+  "dependsOn": {
+    "guidance": "Briefs that must be built before this one — usually the tables this model's relationships point at.",
+    "example": ["ClothingDatabase/Customer.json"],
+    "entries": ["CoperativeAIdb/Product-model.json", "CoperativeAIdb/Solution-model.json"]
+  },
+  "instructions": {
+    "whoFillsThisIn": "Developers (Product can sanity-check the information being stored).",
+    "when": "Whenever a page needs to store data. One of these per model/table.",
+    "how": "Answer in plain English where you can.",
+    "note": "Solution = the folder this file sits in. Table / object name = this file's name."
+  },
+  "whatThisModelIs": {
+    "question": "What does this model represent, in one line?",
+    "example": "A customer's order.",
+    "answer": "How a system is put together, as a diagram — a system-interaction map, a component map, an API contract, an event flow, or an infrastructure picture. Attached to a Product as a whole, or to one of its Solutions."
+  },
+  "fields": {
+    "guidance": "One entry per piece of data.",
+    "entries": [
+      { "fieldName": "id", "type": "id / key", "nullable": false, "default": "auto", "rules": "unique", "description": "The unique identifier" },
+      { "fieldName": "productId", "type": "id / key", "nullable": false, "default": "", "rules": "must reference a Product row", "description": "The Product this document belongs to" },
+      { "fieldName": "solutionId", "type": "id / key", "nullable": true, "default": "", "rules": "must reference a Solution of the same Product when set", "description": "The Solution this document describes. Null means it is about the whole Product — a system-interaction map spans several Solutions, an API contract belongs to one" },
+      { "fieldName": "kind", "type": "list", "nullable": false, "default": "systemInteraction", "rules": "one of: systemInteraction / componentMap / apiContract / eventFlow / infrastructure", "description": "What sort of picture this is" },
+      { "fieldName": "name", "type": "text", "nullable": false, "default": "", "rules": "not empty; unique per (product, kind)", "description": "What the document is called. Regenerating the same name replaces it rather than leaving two" },
+      { "fieldName": "content", "type": "text", "nullable": false, "default": "", "rules": "must be valid in its declared format — checked before storing, never after", "description": "The diagram source" },
+      { "fieldName": "format", "type": "list", "nullable": false, "default": "mermaid", "rules": "one of: mermaid / plantuml / jsonGraph", "description": "The notation the content is written in" },
+      { "fieldName": "createdAt", "type": "date", "nullable": false, "default": "now", "rules": "", "description": "When the document was first stored" },
+      { "fieldName": "updatedAt", "type": "date", "nullable": false, "default": "now", "rules": "updated on every change", "description": "When it last changed" }
+    ]
+  },
+  "relationships": {
+    "guidance": "How this model connects to others.",
+    "entries": [
+      { "field": "productId", "relationship": "many-to-one", "relatedTable": "Product", "relatedField": "id", "constraintName": "FK_ArchitectureDoc_Product" },
+      { "field": "solutionId", "relationship": "many-to-one", "relatedTable": "Solution", "relatedField": "id", "constraintName": "FK_ArchitectureDoc_Solution" }
+    ]
+  },
+  "lookupsAndPerformance": {
+    "question": "Which fields do we search or filter on a lot?",
+    "answer": ["productId", "solutionId", "kind"]
+  },
+  "lifecycleAndRules": {
+    "retention": {
+      "question": "How long do we keep this data / when is it deleted?",
+      "answer": "Until the document or its Product is deleted. Deleting a Solution only unlinks its documents — an architecture document usually outlives the Solution it was drawn for, and is often the only record of why the thing was shaped that way."
+    },
+    "sensitiveFields": {
+      "question": "Any sensitive fields that need extra protection?",
+      "answer": "No."
+    },
+    "invariants": {
+      "question": "Anything that must always be true?",
+      "answer": "The content is valid in its declared format, checked before it is stored and never after. A diagram that does not render is worse than no diagram: it looks like documentation, so the gap stops being visible and nobody writes the real thing. A document about a Solution names a Solution of its own Product."
+    }
+  },
+  "changesOverTime": {
+    "guidance": "Each time you come back to change this model, add an entry describing what should change.",
+    "rounds": [
+      { "round": 8, "change": "New: Developer Planning needs somewhere to keep architecture — system interactions, component maps, API contracts, event flows, infrastructure — that the AI can draw and the app can validate, show and emit." }
+    ]
+  }
+}
