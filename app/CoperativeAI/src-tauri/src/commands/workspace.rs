@@ -358,7 +358,14 @@ pub async fn prepare_handover(
             clarifications: &clarifications,
             depended_on_by: &depended_on_by,
         });
-        let brief_path = handover::brief_path(&item.title);
+        // Attempt number from the run history, so a second handover writes a
+        // new file beside the first rather than over it.
+        let attempt = crate::db::change_run::list_for_item(&conn, work_item_id)
+            .await
+            .map_err(to_message)?
+            .len()
+            + 1;
+        let brief_path = handover::brief_path(&item.title, attempt);
         (brief, brief_path, root, solution_id)
     };
 

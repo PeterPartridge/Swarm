@@ -127,11 +127,17 @@ pub fn brief(inputs: &HandoverInputs<'_>) -> String {
 /// Inside `.coperativeai/` rather than the repository root: it is this app's
 /// output, not the project's, and it should be obvious which is which to
 /// whoever opens the folder next.
-pub fn brief_path(work_item_title: &str) -> String {
-    format!(
-        ".coperativeai/briefs/{}.md",
-        crate::emit::safe_stem(work_item_title)
-    )
+///
+/// `attempt` numbers the file from the second try onward, so preparing again
+/// never overwrites what an earlier attempt was told — which is the first
+/// thing anyone wants to read when a second attempt goes wrong.
+pub fn brief_path(work_item_title: &str, attempt: usize) -> String {
+    let stem = crate::emit::safe_stem(work_item_title);
+    if attempt <= 1 {
+        format!(".coperativeai/briefs/{stem}.md")
+    } else {
+        format!(".coperativeai/briefs/{stem}-attempt-{attempt}.md")
+    }
 }
 
 /// The command that runs this brief through Claude Code.
@@ -272,11 +278,18 @@ mod tests {
         assert!(!brief.contains("How the system is put together"));
     }
 
+    /// A second attempt must not erase what the first was told — that history
+    /// is the first thing anyone reads when attempt two goes wrong.
     #[test]
-    fn the_brief_is_written_under_this_apps_own_folder() {
+    fn each_attempt_gets_its_own_brief_file() {
+        assert_eq!(brief_path("Add checkout!", 1), ".coperativeai/briefs/add-checkout.md");
         assert_eq!(
-            brief_path("Add checkout!"),
-            ".coperativeai/briefs/add-checkout.md"
+            brief_path("Add checkout!", 2),
+            ".coperativeai/briefs/add-checkout-attempt-2.md"
+        );
+        assert_eq!(
+            brief_path("Add checkout!", 3),
+            ".coperativeai/briefs/add-checkout-attempt-3.md"
         );
         assert!(suggested_command(".coperativeai/briefs/add-checkout.md").starts_with("claude "));
     }
