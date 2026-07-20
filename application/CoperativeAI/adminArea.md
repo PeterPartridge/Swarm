@@ -60,6 +60,7 @@ Mid-range model, medium effort.
 
 ## Part 4 — changes-over-time
 
+- Round 4 (my feedback): The **AI planning policy** (whether the AI may read a Product and generate its work — for Product, Development and Testing) should live in Admin, not on the Product Strategy screen. *(Applied: the policy panel moved into Admin's per-Product policies section beside the developer rules, so it is set by Admin rather than by whoever is doing the planning. The AI budget/handover stayed on the Strategy screen — deciding what to spend is a strategy call, not a constraint imposed on someone.)*
 - Round 3 (my feedback): Roles must also control access to the **Marketing** and **Design** screens — the restructure's role list named them and they had shipped ungated. *(Applied: `canMarketing`/`canDesign` flags beside the area toggles, separate from Product access because a developer often needs Planning without campaign drafts. Seeded on for Admin and Product, off for Developer and QA; off by default for custom roles. This was the roles table's first data-preserving migration — custom roles are person-authored, so the columns were added rather than the table dropped a third time.)*
 - Round 2 (my feedback): Admin must also control **who may manage the AI budget and strategy** — a role-level permission alongside the cost/profit/chargeability visibility flags.
 
