@@ -112,7 +112,7 @@ Three decisions were put to you and you took them: **full editor plus coding pal
 
 ### Technical Debt
 
-- **The pal sends no selection.** The command and prompt support one; the UI passes `null`, because the Monaco selection API was not worth wiring in the same round. "Focus there" is built and unreachable.
+- ~~**The pal sends no selection.**~~ **Closed the next round** — Monaco's selection now travels with the ask, with a visible note, and clearing it returns to whole-file questions. The asymmetry is stated where it lives: the file is read from disk, the selection from the editor, because "this bit" only exists there.
 - **The pal reads disk, not the buffer** — stated in the UI, but it means asking about unsaved work answers about the old version.
 - **No inline suggestions, maintainability scoring or per-keystroke cost estimation.** Continuous completion against a metered API is a money furnace and against local models is treacle; declined knowingly rather than half-built.
 - **File creation is still not offered** — the editor edits, it does not scaffold, so the tests action's output must be pasted by hand into a new file.

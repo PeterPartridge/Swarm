@@ -59,6 +59,6 @@ You said the account is on the **free** plan, and chose: build the Enterprise pa
 - **Comments post the asset content raw.** A large token set becomes a very long Figma comment. No truncation, no formatting.
 - **`emit_design_files` overwrites unconditionally** via `write_generated`. Correct for app-owned output, but a hand-edited `design/brand.md` is lost — unlike the authored briefs, which `write_files` protects.
 - **The digest caps copy at 40 strings per page** and says when it truncated, but the cap is arbitrary and not tuned against any real file.
-- **`canMarketing` / `canDesign` role flags still do not exist.** Deferred from R1 and still deferred: both screens are visible to everyone. Consistent with the rest of the app, where roles are visibility rather than security, but it means these areas are not gated at all.
+- ~~**`canMarketing` / `canDesign` role flags still do not exist.**~~ **Closed** — see [`adminArea.md`](../../CoperativeAI/adminArea.md) round 3: both screens now gate on role flags, seeded sensibly and off by default for custom roles. Still visibility, not security, like every role flag here.
 - **Not run in the real app.** Tauri UI cannot be exercised in a plain Vite preview — there is no IPC, so every call fails. Verified by tests and builds only.
 - **Standing: the Claude path is still unproven live.** Unchanged, and now two rounds old.
