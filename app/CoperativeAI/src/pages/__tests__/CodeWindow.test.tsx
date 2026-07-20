@@ -14,7 +14,12 @@ vi.mock("../../lib/monacoSetup", () => ({
 }));
 vi.mock("@monaco-editor/react", async () => {
   const { createElement } = await import("react");
+  // Lets a test act as the developer dragging a selection: the fake editor
+  // hands the range's own text back through getValueInRange, like Monaco does.
+  let selectionListener: ((ev: { selection: unknown }) => void) | null = null;
   return {
+    __fireSelection: (text: string) =>
+      selectionListener?.({ selection: { __text: text } }),
     default: (props: {
       value: string;
       onChange: (v: string | undefined) => void;
@@ -22,7 +27,15 @@ vi.mock("@monaco-editor/react", async () => {
       "aria-label"?: string;
     }) => {
       props.onMount?.(
-        { addCommand: () => {} },
+        {
+          addCommand: () => {},
+          onDidChangeCursorSelection: (cb: (ev: { selection: unknown }) => void) => {
+            selectionListener = cb;
+          },
+          getModel: () => ({
+            getValueInRange: (range: unknown) => (range as { __text: string }).__text,
+          }),
+        },
         { KeyMod: { CtrlCmd: 2048 }, KeyCode: { KeyS: 49 } },
       );
       return createElement("textarea", {
@@ -128,6 +141,48 @@ describe("CodeWindow", () => {
     expect(screen.getByLabelText("Editor for src/main.rs")).toHaveValue("fn main() { helper(); }");
     expect(screen.getByLabelText("src/main.rs has unsaved changes")).toBeInTheDocument();
     expect(mocked.writeSolutionFile).not.toHaveBeenCalled();
+  });
+
+  /// "Explain this bit" — a selection travels with the ask, and clearing it
+  /// goes back to asking about the whole file.
+  it("sends the selected code with the ask, and null once cleared", async () => {
+    const user = userEvent.setup();
+    const { act } = await import("@testing-library/react");
+    const mod = (await import("@monaco-editor/react")) as unknown as {
+      __fireSelection: (text: string) => void;
+    };
+    mocked.askCodingPal.mockResolvedValue({
+      explanation: "It is the entry point.",
+      replacement: "",
+      violations: [],
+      provider: "Claude",
+      model: "m",
+      reason: "within budget",
+      blocked: null,
+    });
+    render(
+      <CodeWindow solutionId={3} path="src/main.rs" initialContent="fn main() {}" onSaved={vi.fn()} />,
+    );
+    await screen.findByLabelText("Editor for src/main.rs");
+
+    act(() => mod.__fireSelection("fn main"));
+    expect(await screen.findByText(/Asking about the selected code/)).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("Ask the pal about src/main.rs"));
+    await waitFor(() =>
+      expect(mocked.askCodingPal).toHaveBeenCalledWith(
+        expect.objectContaining({ selection: "fn main" }),
+      ),
+    );
+
+    act(() => mod.__fireSelection(""));
+    expect(screen.queryByText(/Asking about the selected code/)).not.toBeInTheDocument();
+    await user.click(screen.getByLabelText("Ask the pal about src/main.rs"));
+    await waitFor(() =>
+      expect(mocked.askCodingPal).toHaveBeenLastCalledWith(
+        expect.objectContaining({ selection: null }),
+      ),
+    );
   });
 
   /// Violations are shown before apply, not discovered after save.

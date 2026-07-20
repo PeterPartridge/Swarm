@@ -48,6 +48,9 @@ export default function CodeWindow({
   const [palInstruction, setPalInstruction] = useState("");
   const [palAnswer, setPalAnswer] = useState<PalAnswer | null>(null);
   const [palBusy, setPalBusy] = useState(false);
+  /// What the developer has selected in the editor, kept as text so the pal
+  /// can be pointed at "this bit" rather than the whole file.
+  const [selection, setSelection] = useState("");
   // Ctrl+S is registered once on mount; the ref keeps it pointing at the
   // current save rather than the closure from the first render.
   const saveRef = useRef<() => void>(() => {});
@@ -95,15 +98,17 @@ export default function CodeWindow({
   async function onAskPal() {
     setPalBusy(true);
     try {
-      // The pal reads what is on disk, not the buffer — unsaved edits are the
-      // developer's, and sending them would spend money on a moving target.
+      // The file itself is read from disk at the backend — unsaved edits are
+      // the developer's, and paying to reason about a moving target buys a
+      // stale answer. The selection travels from the editor, because "this
+      // bit" only exists there.
       setPalAnswer(
         await askCodingPal({
           solutionId,
           path,
           action: palAction,
           instruction: palInstruction,
-          selection: null,
+          selection: selection.trim() === "" ? null : selection,
         }),
       );
       setError(null);
@@ -144,12 +149,21 @@ export default function CodeWindow({
           onMount={(editor, monaco) => {
             const e = editor as {
               addCommand: (keybinding: number, handler: () => void) => void;
+              onDidChangeCursorSelection?: (
+                cb: (ev: { selection: unknown }) => void,
+              ) => void;
+              getModel?: () => {
+                getValueInRange?: (range: unknown) => string;
+              } | null;
             };
             const m = monaco as {
               KeyMod: { CtrlCmd: number };
               KeyCode: { KeyS: number };
             };
             e.addCommand(m.KeyMod.CtrlCmd | m.KeyCode.KeyS, () => saveRef.current());
+            e.onDidChangeCursorSelection?.((ev) => {
+              setSelection(e.getModel?.()?.getValueInRange?.(ev.selection) ?? "");
+            });
           }}
           theme="vs"
           height="24rem"
@@ -183,6 +197,12 @@ export default function CodeWindow({
             {palBusy ? "Thinking…" : "Ask"}
           </button>
         </div>
+        {selection.trim() !== "" && (
+          <p className="hint" role="status">
+            Asking about the selected code — clear the selection to ask about
+            the whole file.
+          </p>
+        )}
 
         {palAnswer && palAnswer.blocked && (
           <p role="status">
