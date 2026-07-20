@@ -20,14 +20,19 @@ pub struct Role {
     /// from `see_cost`: reading what was spent and deciding what may be spent
     /// are different powers, and Product roles usually want only the first.
     pub can_manage_budget: bool,
+    /// The Marketing and Design screens inside the Product workspace. Separate
+    /// from `can_product` because a developer often needs Planning without
+    /// needing campaign drafts, and a marketer the reverse.
+    pub can_marketing: bool,
+    pub can_design: bool,
 }
 
-/// (name, product, develop, test, admin, cost, profit, chargeable, budget)
-const DEFAULT_ROLES: &[(&str, bool, bool, bool, bool, bool, bool, bool, bool)] = &[
-    ("Admin", true, true, true, true, true, true, true, true),
-    ("Product", true, false, false, false, true, true, true, true),
-    ("Developer", false, true, true, false, false, false, false, false),
-    ("QA", false, false, true, false, false, false, false, false),
+/// (name, product, develop, test, admin, cost, profit, chargeable, budget, marketing, design)
+const DEFAULT_ROLES: &[(&str, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool)] = &[
+    ("Admin", true, true, true, true, true, true, true, true, true, true),
+    ("Product", true, false, false, false, true, true, true, true, true, true),
+    ("Developer", false, true, true, false, false, false, false, false, false, false),
+    ("QA", false, false, true, false, false, false, false, false, false, false),
 ];
 
 pub async fn create_table(conn: &Connection) -> Result<()> {
@@ -58,11 +63,35 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             seeProfit INTEGER NOT NULL DEFAULT 0,
             seeChargeable INTEGER NOT NULL DEFAULT 0,
             canManageBudget INTEGER NOT NULL DEFAULT 0,
+            canMarketing INTEGER NOT NULL DEFAULT 0,
+            canDesign INTEGER NOT NULL DEFAULT 0,
             createdAt INTEGER NOT NULL
         )",
         (),
     )
     .await?;
+
+    // canMarketing/canDesign are ADDED rather than the third drop this table
+    // has taken. The first two drops predate the rule this project settled on;
+    // custom roles are person-authored — exactly what the rule says to
+    // preserve. New flags default to 0 (deny-by-default for custom roles), and
+    // the seeded Admin/Product rows are backfilled once, in the same branch
+    // that added the columns, so a user's later toggling is never re-flipped.
+    let had_table = !columns.is_empty();
+    let dropped = had_table && !columns.iter().any(|c| c == "canManageBudget");
+    if had_table && !dropped && !columns.iter().any(|c| c == "canMarketing") {
+        for ddl in [
+            "ALTER TABLE roles ADD COLUMN canMarketing INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE roles ADD COLUMN canDesign INTEGER NOT NULL DEFAULT 0",
+        ] {
+            conn.execute(ddl, ()).await?;
+        }
+        conn.execute(
+            "UPDATE roles SET canMarketing = 1, canDesign = 1 WHERE name IN ('Admin', 'Product')",
+            (),
+        )
+        .await?;
+    }
     seed_defaults(conn).await
 }
 
@@ -77,13 +106,14 @@ async fn seed_defaults(conn: &Connection) -> Result<()> {
     if count > 0 {
         return Ok(());
     }
-    for (name, p, d, t, a, cost, profit, charge, budget) in DEFAULT_ROLES {
+    for (name, p, d, t, a, cost, profit, charge, budget, marketing, design) in DEFAULT_ROLES {
         conn.execute(
-            "INSERT INTO roles (name, canProduct, canDevelop, canTest, canAdmin, seeCost, seeProfit, seeChargeable, canManageBudget, createdAt)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT INTO roles (name, canProduct, canDevelop, canTest, canAdmin, seeCost, seeProfit, seeChargeable, canManageBudget, canMarketing, canDesign, createdAt)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             (
                 *name, *p as i64, *d as i64, *t as i64, *a as i64,
-                *cost as i64, *profit as i64, *charge as i64, *budget as i64, now_millis(),
+                *cost as i64, *profit as i64, *charge as i64, *budget as i64,
+                *marketing as i64, *design as i64, now_millis(),
             ),
         )
         .await?;
@@ -91,10 +121,10 @@ async fn seed_defaults(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+const SELECT: &str = "SELECT id, name, canProduct, canDevelop, canTest, canAdmin, seeCost, seeProfit, seeChargeable, canManageBudget, canMarketing, canDesign FROM roles";
+
 pub async fn list_all(conn: &Connection) -> Result<Vec<Role>> {
-    let mut rows = conn
-        .query("SELECT id, name, canProduct, canDevelop, canTest, canAdmin, seeCost, seeProfit, seeChargeable, canManageBudget FROM roles ORDER BY id", ())
-        .await?;
+    let mut rows = conn.query(&format!("{SELECT} ORDER BY id"), ()).await?;
     let mut roles = Vec::new();
     while let Some(row) = rows.next().await? {
         roles.push(row_to_role(row)?);
@@ -103,9 +133,7 @@ pub async fn list_all(conn: &Connection) -> Result<Vec<Role>> {
 }
 
 pub async fn find_by_id(conn: &Connection, id: i64) -> Result<Option<Role>> {
-    let mut rows = conn
-        .query("SELECT id, name, canProduct, canDevelop, canTest, canAdmin, seeCost, seeProfit, seeChargeable, canManageBudget FROM roles WHERE id = ?1", (id,))
-        .await?;
+    let mut rows = conn.query(&format!("{SELECT} WHERE id = ?1"), (id,)).await?;
     match rows.next().await? {
         Some(row) => Ok(Some(row_to_role(row)?)),
         None => Ok(None),
@@ -113,9 +141,7 @@ pub async fn find_by_id(conn: &Connection, id: i64) -> Result<Option<Role>> {
 }
 
 pub async fn find_by_name(conn: &Connection, name: &str) -> Result<Option<Role>> {
-    let mut rows = conn
-        .query("SELECT id, name, canProduct, canDevelop, canTest, canAdmin, seeCost, seeProfit, seeChargeable, canManageBudget FROM roles WHERE name = ?1", (name,))
-        .await?;
+    let mut rows = conn.query(&format!("{SELECT} WHERE name = ?1"), (name,)).await?;
     match rows.next().await? {
         Some(row) => Ok(Some(row_to_role(row)?)),
         None => Ok(None),
@@ -146,24 +172,27 @@ pub async fn update(
     see_profit: bool,
     see_chargeable: bool,
     can_manage_budget: bool,
+    can_marketing: bool,
+    can_design: bool,
 ) -> Result<()> {
     let Some(role) = find_by_id(conn, id).await? else {
         return Err(DbError::Validation(format!("no role with id {id}")));
     };
     // The Admin role must keep full access so you can never lock yourself out —
-    // including budget management, or nobody could raise a spent budget.
-    let (can_admin, can_product, can_develop, can_test, can_manage_budget) =
+    // including budget management, or nobody could raise a spent budget, and
+    // the new areas, or a screen could become invisible to everyone.
+    let (can_admin, can_product, can_develop, can_test, can_manage_budget, can_marketing, can_design) =
         if role.name == "Admin" {
-            (true, true, true, true, true)
+            (true, true, true, true, true, true, true)
         } else {
-            (can_admin, can_product, can_develop, can_test, can_manage_budget)
+            (can_admin, can_product, can_develop, can_test, can_manage_budget, can_marketing, can_design)
         };
     conn.execute(
-        "UPDATE roles SET canProduct=?1, canDevelop=?2, canTest=?3, canAdmin=?4, seeCost=?5, seeProfit=?6, seeChargeable=?7, canManageBudget=?8 WHERE id=?9",
+        "UPDATE roles SET canProduct=?1, canDevelop=?2, canTest=?3, canAdmin=?4, seeCost=?5, seeProfit=?6, seeChargeable=?7, canManageBudget=?8, canMarketing=?9, canDesign=?10 WHERE id=?11",
         (
             can_product as i64, can_develop as i64, can_test as i64, can_admin as i64,
             see_cost as i64, see_profit as i64, see_chargeable as i64,
-            can_manage_budget as i64, id,
+            can_manage_budget as i64, can_marketing as i64, can_design as i64, id,
         ),
     )
     .await?;
@@ -207,6 +236,8 @@ fn row_to_role(row: turso::Row) -> Result<Role> {
         see_profit: b(7)?,
         see_chargeable: b(8)?,
         can_manage_budget: b(9)?,
+        can_marketing: b(10)?,
+        can_design: b(11)?,
     })
 }
 
@@ -243,14 +274,54 @@ mod tests {
     async fn admin_role_stays_full_even_if_update_tries_to_weaken_it() {
         let conn = test_db().await;
         let admin = find_by_name(&conn, "Admin").await.expect("q").unwrap();
-        update(&conn, admin.id, false, false, false, false, false, false, false, false)
+        update(&conn, admin.id, false, false, false, false, false, false, false, false, false, false)
             .await
             .expect("update");
         let reloaded = find_by_id(&conn, admin.id).await.expect("q").unwrap();
         assert!(reloaded.can_admin && reloaded.can_product && reloaded.can_test);
         // Admin must keep budget management too, or a spent budget could never
-        // be raised by anyone.
+        // be raised by anyone — and the new areas, or a screen could become
+        // invisible to everyone.
         assert!(reloaded.can_manage_budget);
+        assert!(reloaded.can_marketing && reloaded.can_design);
+    }
+
+    /// The first two migrations of this table dropped it; custom roles are
+    /// person-authored, which is exactly what the project's rule says to
+    /// preserve — so the third adds columns instead, and proves it.
+    #[tokio::test]
+    async fn adding_marketing_and_design_preserves_custom_roles() {
+        let conn = connect(":memory:").await.expect("db");
+        // A round-2 table: has canManageBudget, predates the new flags.
+        conn.execute(
+            "CREATE TABLE roles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE,
+                canProduct INTEGER NOT NULL DEFAULT 0, canDevelop INTEGER NOT NULL DEFAULT 0,
+                canTest INTEGER NOT NULL DEFAULT 0, canAdmin INTEGER NOT NULL DEFAULT 0,
+                seeCost INTEGER NOT NULL DEFAULT 0, seeProfit INTEGER NOT NULL DEFAULT 0,
+                seeChargeable INTEGER NOT NULL DEFAULT 0, canManageBudget INTEGER NOT NULL DEFAULT 0,
+                createdAt INTEGER NOT NULL
+            )",
+            (),
+        )
+        .await
+        .expect("old table");
+        conn.execute(
+            "INSERT INTO roles (name, canProduct, canAdmin, createdAt) VALUES ('Admin', 1, 1, 1), ('Contractor', 1, 0, 1)",
+            (),
+        )
+        .await
+        .expect("seed old rows");
+
+        create_table(&conn).await.expect("migrate");
+
+        let custom = find_by_name(&conn, "Contractor").await.expect("q").expect("survives");
+        assert!(custom.can_product, "the hand-made role keeps its old flags");
+        assert!(!custom.can_marketing, "new flags start off for custom roles — deny by default");
+
+        // …but the seeded roles are backfilled, or Admin would lose two screens.
+        let admin = find_by_name(&conn, "Admin").await.expect("q").unwrap();
+        assert!(admin.can_marketing && admin.can_design);
     }
 
     #[tokio::test]
@@ -264,12 +335,14 @@ mod tests {
     async fn custom_role_can_be_created_and_updated() {
         let conn = test_db().await;
         let id = create(&conn, "Designer").await.expect("create");
-        update(&conn, id, true, false, false, false, true, false, false, false)
+        update(&conn, id, true, false, false, false, true, false, false, false, false, true)
             .await
             .expect("update");
         let role = find_by_id(&conn, id).await.expect("q").unwrap();
         assert!(role.can_product && role.see_cost && !role.can_develop);
         assert!(!role.can_manage_budget);
+        // a designer sees Design and not Marketing — the flags split
+        assert!(role.can_design && !role.can_marketing);
     }
 
     /// Seeing what was spent and deciding what may be spent are different
@@ -278,7 +351,7 @@ mod tests {
     async fn a_role_can_see_cost_without_being_able_to_change_the_budget() {
         let conn = test_db().await;
         let id = create(&conn, "Analyst").await.expect("create");
-        update(&conn, id, true, false, false, false, true, true, true, false)
+        update(&conn, id, true, false, false, false, true, true, true, false, false, false)
             .await
             .expect("update");
         let role = find_by_id(&conn, id).await.expect("q").unwrap();

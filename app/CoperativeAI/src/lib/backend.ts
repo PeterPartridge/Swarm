@@ -177,6 +177,11 @@ export interface Role {
   seeChargeable: boolean;
   /** May set AI budgets and the provider chain — separate from seeing spend. */
   canManageBudget: boolean;
+  /** The Marketing and Design screens — separate from canProduct, because a
+   *  developer often needs Planning without campaign drafts, and a marketer
+   *  the reverse. */
+  canMarketing: boolean;
+  canDesign: boolean;
 }
 
 export interface Deliverable {
@@ -218,6 +223,8 @@ export interface ActivePermissions {
   seeProfit: boolean;
   seeChargeable: boolean;
   canManageBudget: boolean;
+  canMarketing: boolean;
+  canDesign: boolean;
 }
 
 export interface Sprint {
@@ -535,6 +542,8 @@ export const updateRole = (role: Role): Promise<void> =>
     seeProfit: role.seeProfit,
     seeChargeable: role.seeChargeable,
     canManageBudget: role.canManageBudget,
+    canMarketing: role.canMarketing,
+    canDesign: role.canDesign,
   });
 export const deleteRole = (id: number): Promise<void> =>
   invoke("delete_role", { id });

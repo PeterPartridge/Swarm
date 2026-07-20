@@ -8,7 +8,7 @@ import {
 } from "react";
 import { getActivePermissions, type ActivePermissions } from "./backend";
 
-export type Area = "product" | "develop" | "test" | "admin";
+export type Area = "product" | "develop" | "test" | "admin" | "marketing" | "design";
 export type GatedField = "cost" | "profit" | "chargeable";
 
 /** Full access — the safe default while loading and when no user is active. */
@@ -23,6 +23,8 @@ const FULL_ACCESS: ActivePermissions = {
   seeProfit: true,
   seeChargeable: true,
   canManageBudget: true,
+  canMarketing: true,
+  canDesign: true,
 };
 
 interface PermissionValue {
@@ -60,14 +62,22 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
     void reload();
   }, [reload]);
 
-  const canAccess = (area: Area) =>
-    area === "product"
-      ? perms.canProduct
-      : area === "develop"
-        ? perms.canDevelop
-        : area === "test"
-          ? perms.canTest
-          : perms.canAdmin;
+  const canAccess = (area: Area) => {
+    switch (area) {
+      case "product":
+        return perms.canProduct;
+      case "develop":
+        return perms.canDevelop;
+      case "test":
+        return perms.canTest;
+      case "marketing":
+        return perms.canMarketing;
+      case "design":
+        return perms.canDesign;
+      default:
+        return perms.canAdmin;
+    }
+  };
 
   const canSeeField = (field: GatedField) =>
     field === "cost"

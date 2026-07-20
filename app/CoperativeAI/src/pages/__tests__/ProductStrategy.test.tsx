@@ -335,6 +335,8 @@ describe("ProductStrategy — generating the work for a Deliverable", () => {
       seeProfit: true,
       seeChargeable: true,
       canManageBudget: false,
+      canMarketing: false,
+      canDesign: false,
     });
     mocked.getSpendSummary.mockResolvedValue({
       spentMicropence: 1_000_000_000,

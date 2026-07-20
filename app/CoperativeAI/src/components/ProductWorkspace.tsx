@@ -4,6 +4,7 @@ import RoadMap from "./RoadMap";
 import ProductOverview from "./ProductOverview";
 import MarketingDesign from "./MarketingDesign";
 import { openScreenWindow, type Product } from "../lib/backend";
+import { usePermissions } from "../lib/permissions";
 
 export const WORKSPACE_SCREENS = [
   { id: "planning", label: "Planning" },
@@ -63,10 +64,17 @@ function PopOutHandle({ label, onPopOut }: { label: string; onPopOut: () => void
   );
 }
 
-/** The Product workspace: all three panels showing at once, each pulled out
- *  into its own OS window by dragging its handle. */
+/** The Product workspace: every panel showing at once, each pulled out
+ *  into its own OS window by dragging its handle. Marketing and Design have
+ *  their own role flags — a developer often needs Planning without campaign
+ *  drafts — so those two panels render only for roles that hold them. */
 export default function ProductWorkspace({ product, onBack }: ProductWorkspaceProps) {
   const [error, setError] = useState<string | null>(null);
+  const { canAccess } = usePermissions();
+
+  const visibleScreens = WORKSPACE_SCREENS.filter(({ id }) =>
+    id === "marketing" || id === "design" ? canAccess(id) : true,
+  );
 
   async function popOut(screen: ScreenId) {
     try {
@@ -87,7 +95,7 @@ export default function ProductWorkspace({ product, onBack }: ProductWorkspacePr
       </header>
       {error && <p role="alert">{error}</p>}
       <div className="workspace-panels">
-        {WORKSPACE_SCREENS.map(({ id, label }) => (
+        {visibleScreens.map(({ id, label }) => (
           <section key={id} className="workspace-panel" aria-label={label}>
             <header className="panel-header">
               <h3>{label}</h3>

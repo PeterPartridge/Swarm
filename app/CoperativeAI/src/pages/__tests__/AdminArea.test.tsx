@@ -39,6 +39,8 @@ const adminRole: Role = {
   seeProfit: true,
   seeChargeable: true,
   canManageBudget: true,
+  canMarketing: true,
+  canDesign: true,
 };
 const devRole: Role = {
   id: 3,
@@ -51,6 +53,8 @@ const devRole: Role = {
   seeProfit: false,
   seeChargeable: false,
   canManageBudget: false,
+  canMarketing: false,
+  canDesign: false,
 };
 const member: TeamMember = { id: 5, name: "Ada", roleId: null };
 
@@ -82,6 +86,8 @@ describe("AdminArea", () => {
       seeProfit: true,
       seeChargeable: true,
       canManageBudget: true,
+      canMarketing: true,
+      canDesign: true,
     });
   });
 

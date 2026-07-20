@@ -21,6 +21,10 @@ const AREA_FLAGS = [
   ["canDevelop", "Develop"],
   ["canTest", "Test"],
   ["canAdmin", "Admin"],
+  // Screens inside the Product workspace with flags of their own — a
+  // developer often needs Planning without campaign drafts.
+  ["canMarketing", "Marketing"],
+  ["canDesign", "Design"],
 ] as const;
 const FIELD_FLAGS = [
   ["seeCost", "Cost"],
