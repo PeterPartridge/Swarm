@@ -85,7 +85,7 @@ describe("ProductPlanning (Product home)", () => {
     expect(screen.getByLabelText("RoadMap style")).toBeInTheDocument();
   });
 
-  it("scaffolds behind the scenes and opens the three-panel workspace on create", async () => {
+  it("scaffolds behind the scenes and opens the workspace on create", async () => {
     const user = userEvent.setup();
     mocked.createProduct.mockResolvedValue(2);
     render(<ProductPlanning />);
@@ -113,11 +113,11 @@ describe("ProductPlanning (Product home)", () => {
         "C:/somewhere",
       ),
     );
-    // Straight into the workspace with all three panels showing.
+    // Straight into the workspace: Planning showing, the rest a tab away.
     expect(await screen.findByRole("heading", { name: "New Product" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Planning" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "RoadMap" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Overview" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "RoadMap" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Overview" })).toBeInTheDocument();
   });
 
   it("opens an existing Product's workspace; dragging a panel handle pops it out", async () => {
@@ -128,8 +128,9 @@ describe("ProductPlanning (Product home)", () => {
     await user.click(await screen.findByRole("button", { name: "Open Shop App" }));
     expect(await screen.findByRole("heading", { name: "Shop App" })).toBeInTheDocument();
 
-    // Dragging the RoadMap handle tears it out into its own window.
-    const handle = screen.getByRole("button", { name: "Drag to pop out RoadMap" });
+    // Open the RoadMap tab, then drag its handle to tear it into its own window.
+    await user.click(screen.getByRole("button", { name: "RoadMap" }));
+    const handle = await screen.findByRole("button", { name: "Drag to pop out RoadMap" });
     fireEvent.dragStart(handle);
     fireEvent.dragEnd(handle);
 
@@ -155,6 +156,8 @@ describe("ProductPlanning (Product home)", () => {
     render(<ProductPlanning />);
 
     await user.click(await screen.findByRole("button", { name: "Open Shop App" }));
+    // Overview is a tab now, so open it before looking for its content.
+    await user.click(await screen.findByRole("button", { name: "Overview" }));
     expect(await screen.findByText("C:/somewhere/Shop-App")).toBeInTheDocument();
   });
 });

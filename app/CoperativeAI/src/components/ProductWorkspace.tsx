@@ -64,17 +64,27 @@ function PopOutHandle({ label, onPopOut }: { label: string; onPopOut: () => void
   );
 }
 
-/** The Product workspace: every panel showing at once, each pulled out
- *  into its own OS window by dragging its handle. Marketing and Design have
- *  their own role flags — a developer often needs Planning without campaign
- *  drafts — so those two panels render only for roles that hold them. */
+/** The Product workspace: one screen at a time behind a tab row, each still
+ *  tear-out-able into its own OS window by dragging its handle — so side-by-side
+ *  is a deliberate act (drag it out) rather than the crowded default it became
+ *  once the three original panels grew to five.
+ *
+ *  Marketing and Design have their own role flags — a developer often needs
+ *  Planning without campaign drafts — so those two tabs appear only for roles
+ *  that hold them. */
 export default function ProductWorkspace({ product, onBack }: ProductWorkspaceProps) {
   const [error, setError] = useState<string | null>(null);
+  const [active, setActive] = useState<ScreenId>("planning");
   const { canAccess } = usePermissions();
 
   const visibleScreens = WORKSPACE_SCREENS.filter(({ id }) =>
     id === "marketing" || id === "design" ? canAccess(id) : true,
   );
+  // A role change could hide the tab you were on; fall back to the first
+  // visible one rather than showing a blank workspace. Planning is always
+  // visible, so this always resolves.
+  const current = visibleScreens.some((s) => s.id === active) ? active : visibleScreens[0].id;
+  const currentLabel = WORKSPACE_SCREENS.find((s) => s.id === current)!.label;
 
   async function popOut(screen: ScreenId) {
     try {
@@ -94,17 +104,30 @@ export default function ProductWorkspace({ product, onBack }: ProductWorkspacePr
         <h2>{product.name}</h2>
       </header>
       {error && <p role="alert">{error}</p>}
-      <div className="workspace-panels">
+
+      {/* aria-pressed buttons, not role="tab": the app shell's top TabBar is
+          already the page's tablist, and a second one competing with it makes
+          "the tabs" ambiguous to a screen reader. */}
+      <nav className="workspace-tabs" aria-label="Product screens">
         {visibleScreens.map(({ id, label }) => (
-          <section key={id} className="workspace-panel" aria-label={label}>
-            <header className="panel-header">
-              <h3>{label}</h3>
-              <PopOutHandle label={label} onPopOut={() => popOut(id)} />
-            </header>
-            <WorkspaceScreen screen={id} productId={product.id} product={product} />
-          </section>
+          <button
+            key={id}
+            aria-pressed={current === id}
+            className={current === id ? "workspace-tab-active" : ""}
+            onClick={() => setActive(id)}
+          >
+            {label}
+          </button>
         ))}
-      </div>
+      </nav>
+
+      <section className="workspace-panel" aria-label={currentLabel}>
+        <header className="panel-header">
+          <h3>{currentLabel}</h3>
+          <PopOutHandle label={currentLabel} onPopOut={() => popOut(current)} />
+        </header>
+        <WorkspaceScreen screen={current} productId={product.id} product={product} />
+      </section>
     </div>
   );
 }

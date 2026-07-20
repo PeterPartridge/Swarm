@@ -608,14 +608,16 @@ body {
   font-size: 0.7rem;
 }
 
-.develop-tabs {
+.develop-tabs,
+.workspace-tabs {
   display: flex;
   gap: 0.25rem;
   margin: 0.5rem 0 0.75rem;
   border-bottom: 1px solid #e5e7eb;
 }
 
-.develop-tabs button {
+.develop-tabs button,
+.workspace-tabs button {
   border: 0;
   background: none;
   padding: 0.35rem 0.7rem;
@@ -625,7 +627,8 @@ body {
   border-bottom: 2px solid transparent;
 }
 
-.develop-tabs button.develop-tab-active {
+.develop-tabs button.develop-tab-active,
+.workspace-tabs button.workspace-tab-active {
   color: inherit;
   border-bottom-color: currentColor;
   font-weight: 600;

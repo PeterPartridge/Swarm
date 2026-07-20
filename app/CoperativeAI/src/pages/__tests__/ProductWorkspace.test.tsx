@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import ProductWorkspace from "../../components/ProductWorkspace";
 import { PermissionProvider } from "../../lib/permissions";
@@ -54,33 +55,48 @@ describe("ProductWorkspace screen gating", () => {
     vi.clearAllMocks();
   });
 
-  it("shows Marketing and Design to a role that holds the flags", async () => {
+  /// One screen at a time now: the screens are tabs, so gating is about which
+  /// tabs a role is offered, not which panels render together.
+  it("offers Marketing and Design tabs to a role that holds the flags", async () => {
     mocked.getActivePermissions.mockResolvedValue(perms({}));
     renderWorkspace();
 
+    // Planning is the default panel; every screen is reachable as a tab.
+    expect(await screen.findByRole("region", { name: "Planning" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Marketing" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Design" })).toBeInTheDocument();
+  });
+
+  it("opens a screen when its tab is clicked", async () => {
+    const user = userEvent.setup();
+    mocked.getActivePermissions.mockResolvedValue(perms({}));
+    renderWorkspace();
+
+    await user.click(await screen.findByRole("button", { name: "Marketing" }));
     expect(await screen.findByRole("region", { name: "Marketing" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Design" })).toBeInTheDocument();
+    // one at a time: Planning's panel is gone once Marketing is open
+    expect(screen.queryByRole("region", { name: "Planning" })).not.toBeInTheDocument();
   });
 
   /// The flags are separate from canProduct on purpose: a developer often
   /// needs Planning without campaign drafts, and a marketer the reverse.
-  it("hides them from a role without the flags, leaving the rest alone", async () => {
+  it("hides the tabs from a role without the flags, leaving the rest alone", async () => {
     mocked.getActivePermissions.mockResolvedValue(
       perms({ canMarketing: false, canDesign: false }),
     );
     renderWorkspace();
 
-    expect(await screen.findByRole("region", { name: "Planning" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "RoadMap" })).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "Marketing" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "Design" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Planning" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "RoadMap" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Marketing" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Design" })).not.toBeInTheDocument();
   });
 
-  it("can grant one without the other", async () => {
+  it("can grant one tab without the other", async () => {
     mocked.getActivePermissions.mockResolvedValue(perms({ canMarketing: false }));
     renderWorkspace();
 
-    expect(await screen.findByRole("region", { name: "Design" })).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "Marketing" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Design" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Marketing" })).not.toBeInTheDocument();
   });
 });
