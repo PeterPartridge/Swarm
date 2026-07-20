@@ -8,6 +8,7 @@ import type { ActivePermissions } from "../../lib/backend";
 // The workspace's own job is which panels exist; the panels' insides are
 // tested in their own files, so they are stubbed here rather than letting
 // their backend calls fall through to the real invoke and error out quietly.
+vi.mock("../../components/ProductStrategy", () => ({ default: () => <div>strategy-stub</div> }));
 vi.mock("../../components/PlanningScreen", () => ({ default: () => <div>planning-stub</div> }));
 vi.mock("../../components/RoadMap", () => ({ default: () => <div>roadmap-stub</div> }));
 vi.mock("../../components/ProductOverview", () => ({ default: () => <div>overview-stub</div> }));
@@ -61,8 +62,8 @@ describe("ProductWorkspace screen gating", () => {
     mocked.getActivePermissions.mockResolvedValue(perms({}));
     renderWorkspace();
 
-    // Planning is the default panel; every screen is reachable as a tab.
-    expect(await screen.findByRole("region", { name: "Planning" })).toBeInTheDocument();
+    // Strategy is the default panel; every screen is reachable as a tab.
+    expect(await screen.findByRole("region", { name: "Strategy" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Marketing" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Design" })).toBeInTheDocument();
   });

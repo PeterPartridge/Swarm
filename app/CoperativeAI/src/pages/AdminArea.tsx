@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import DeveloperRulesEditor from "../components/DeveloperRulesEditor";
+import ProductAiPolicy from "../components/ProductAiPolicy";
 import {
   addTeamMember,
   createRole,
@@ -102,11 +103,12 @@ export default function AdminArea() {
     <div className="admin-area">
       {error && <p role="alert">{error}</p>}
 
-      {/* Development policies live here rather than in Develop: they govern
-          what developers and the AI may do, so the people who set them are
-          not the same people they constrain. Develop shows them read-only. */}
-      <section className="admin-card" aria-label="Development policies">
-        <h2>Development policies</h2>
+      {/* Every policy lives here rather than in the area it governs: the
+          people who set what developers and the AI may do are not the same
+          people it constrains. Product, Develop and Test all read these; only
+          Admin edits them. */}
+      <section className="admin-card" aria-label="Product and development policies">
+        <h2>Policies</h2>
         {products.length === 0 ? (
           <p>No Products yet — policies are set per Product.</p>
         ) : (
@@ -126,7 +128,15 @@ export default function AdminArea() {
               </select>
             </label>
             {policyProduct !== "" && (
-              <DeveloperRulesEditor productId={Number(policyProduct)} />
+              <>
+                {/* The AI planning policy: deny-by-default, and what lets the
+                    AI read a Product and generate its work — for Product
+                    planning, Development planning and Testing alike. Moved out
+                    of the Product Strategy screen so it is set by Admin, not by
+                    whoever is doing the planning. */}
+                <ProductAiPolicy productId={Number(policyProduct)} />
+                <DeveloperRulesEditor productId={Number(policyProduct)} />
+              </>
             )}
           </>
         )}

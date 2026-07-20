@@ -15,7 +15,6 @@ import {
   type Deliverable,
   type WorkItem,
 } from "../lib/backend";
-import ProductAiPolicy from "./ProductAiPolicy";
 import BudgetPanel from "./BudgetPanel";
 
 const STRATEGY_FIELDS: { id: string; label: string }[] = [
@@ -199,8 +198,11 @@ export default function ProductStrategy({ productId }: { productId: number }) {
         ))}
       </div>
 
+      {/* The AI planning policy (who may let the AI read this Product and
+          generate work) now lives in Admin, with the other policies — the
+          people who set it are not the same people it governs. The budget
+          stays here: deciding what to spend is a strategy call. */}
       <BudgetPanel productId={productId} />
-      <ProductAiPolicy productId={productId} />
 
       <div className="deliverables" aria-label="Deliverables">
         <h3>Deliverables</h3>

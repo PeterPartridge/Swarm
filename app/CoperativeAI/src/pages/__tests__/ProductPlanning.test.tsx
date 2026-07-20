@@ -113,9 +113,10 @@ describe("ProductPlanning (Product home)", () => {
         "C:/somewhere",
       ),
     );
-    // Straight into the workspace: Planning showing, the rest a tab away.
+    // Straight into the workspace: Strategy showing, the rest a tab away.
     expect(await screen.findByRole("heading", { name: "New Product" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Planning" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Strategy" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Planning" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "RoadMap" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Overview" })).toBeInTheDocument();
   });
@@ -145,7 +146,8 @@ describe("ProductPlanning (Product home)", () => {
     render(<ProductPlanning />);
     await user.click(await screen.findByRole("button", { name: "Open Shop App" }));
 
-    const handle = await screen.findByRole("button", { name: "Drag to pop out Planning" });
+    // Strategy is the screen showing on open, so its handle is the one here.
+    const handle = await screen.findByRole("button", { name: "Drag to pop out Strategy" });
     await user.click(handle);
     expect(mocked.openScreenWindow).not.toHaveBeenCalled();
   });

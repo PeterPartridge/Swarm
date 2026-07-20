@@ -609,7 +609,8 @@ body {
 }
 
 .develop-tabs,
-.workspace-tabs {
+.workspace-tabs,
+.roadmap-views {
   display: flex;
   gap: 0.25rem;
   margin: 0.5rem 0 0.75rem;
@@ -617,7 +618,8 @@ body {
 }
 
 .develop-tabs button,
-.workspace-tabs button {
+.workspace-tabs button,
+.roadmap-views button {
   border: 0;
   background: none;
   padding: 0.35rem 0.7rem;
@@ -628,10 +630,66 @@ body {
 }
 
 .develop-tabs button.develop-tab-active,
-.workspace-tabs button.workspace-tab-active {
+.workspace-tabs button.workspace-tab-active,
+.roadmap-views button.roadmap-view-active {
   color: inherit;
   border-bottom-color: currentColor;
   font-weight: 600;
+}
+
+/* Month timeline: columns left-to-right, scrolling horizontally, so a year of
+   work reads as a calendar rather than a stack. */
+.roadmap-timeline {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+}
+
+.roadmap-month {
+  flex: 0 0 12rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 0.4rem;
+}
+
+.roadmap-month.undated {
+  border-style: dashed;
+}
+
+.roadmap-month > header h2 {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.sprint-manager {
+  margin-bottom: 0.75rem;
+}
+
+.sprint-manager h3 {
+  margin: 0 0 0.3rem;
+  font-size: 0.85rem;
+}
+
+.sprint-list {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.sprint-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.sprint-dates {
+  color: #6b7280;
+  font-size: 0.75rem;
 }
 
 .developer-planning {

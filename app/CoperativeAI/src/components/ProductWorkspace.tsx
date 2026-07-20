@@ -1,4 +1,5 @@
 import { useState } from "react";
+import ProductStrategy from "./ProductStrategy";
 import PlanningScreen from "./PlanningScreen";
 import RoadMap from "./RoadMap";
 import ProductOverview from "./ProductOverview";
@@ -7,6 +8,7 @@ import { openScreenWindow, type Product } from "../lib/backend";
 import { usePermissions } from "../lib/permissions";
 
 export const WORKSPACE_SCREENS = [
+  { id: "strategy", label: "Strategy" },
   { id: "planning", label: "Planning" },
   { id: "roadmap", label: "RoadMap" },
   { id: "marketing", label: "Marketing" },
@@ -30,6 +32,7 @@ export function WorkspaceScreen({
   productId: number;
   product?: Product;
 }) {
+  if (screen === "strategy") return <ProductStrategy productId={productId} />;
   if (screen === "planning") return <PlanningScreen productId={productId} />;
   if (screen === "roadmap") return <RoadMap productId={productId} />;
   if (screen === "marketing" || screen === "design")
@@ -74,7 +77,9 @@ function PopOutHandle({ label, onPopOut }: { label: string; onPopOut: () => void
  *  that hold them. */
 export default function ProductWorkspace({ product, onBack }: ProductWorkspaceProps) {
   const [error, setError] = useState<string | null>(null);
-  const [active, setActive] = useState<ScreenId>("planning");
+  // Opens on Strategy — the leftmost tab, and where a Product starts before
+  // there is any planning to do.
+  const [active, setActive] = useState<ScreenId>("strategy");
   const { canAccess } = usePermissions();
 
   const visibleScreens = WORKSPACE_SCREENS.filter(({ id }) =>

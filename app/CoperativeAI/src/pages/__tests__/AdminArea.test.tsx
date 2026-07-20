@@ -21,6 +21,9 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     listProducts: vi.fn(),
     getDeveloperRules: vi.fn(),
     setDeveloperRules: vi.fn(),
+    getProductPolicy: vi.fn(),
+    setProductPolicy: vi.fn(),
+    listAiProviders: vi.fn(),
   };
 });
 
@@ -75,6 +78,8 @@ describe("AdminArea", () => {
       { id: 1, name: "Shop App", answers: "{}" },
     ]);
     mocked.getDeveloperRules.mockResolvedValue(null);
+    mocked.getProductPolicy.mockResolvedValue(null);
+    mocked.listAiProviders.mockResolvedValue([]);
     mocked.getActivePermissions.mockResolvedValue({
       memberId: null,
       role: null,
@@ -138,19 +143,37 @@ describe("AdminArea", () => {
     ).toBeInTheDocument();
   });
 
-  /// Development policies moved here from Develop: they govern what developers
-  /// and the AI may do, so the people who set them are not the people they
-  /// constrain.
-  it("owns the development policies, editable, per Product", async () => {
+  /// Every policy moved here from the area it governs: those who set what
+  /// developers and the AI may do are not the same people it constrains. The
+  /// AI planning policy and the developer rules both live in this one section.
+  it("owns the policies, editable, per Product", async () => {
     renderAdmin();
 
     expect(
-      await screen.findByRole("region", { name: "Development policies" }),
+      await screen.findByRole("region", { name: "Product and development policies" }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Policy product")).toBeInTheDocument();
 
+    // the AI planning policy, moved out of the Product Strategy screen
+    expect(await screen.findByRole("region", { name: "Product AI policy" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Allow AI to read this Product")).not.toBeChecked();
+
+    // and the developer rules, editable here (read-only in Develop)
     const disallowed = await screen.findByLabelText("Disallowed technologies (enforced)");
     expect(disallowed).not.toHaveAttribute("readonly");
+  });
+
+  it("saves the AI planning policy from Admin", async () => {
+    const user = userEvent.setup();
+    mocked.setProductPolicy.mockResolvedValue(undefined);
+    renderAdmin();
+
+    await user.click(await screen.findByLabelText("Allow AI to generate work items"));
+    await waitFor(() =>
+      expect(mocked.setProductPolicy).toHaveBeenCalledWith(
+        expect.objectContaining({ productId: 1, allowGenerate: true }),
+      ),
+    );
   });
 
   it("says so rather than showing an empty picker when there are no Products", async () => {

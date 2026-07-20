@@ -260,16 +260,8 @@ describe("ProductStrategy — generating the work for a Deliverable", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/deny-by-default/);
   });
 
-  it("shows the Product AI policy, off by default", async () => {
-    mocked.getProductPolicy.mockResolvedValue(null);
-    render(<ProductStrategy productId={1} />);
-
-    expect(
-      await screen.findByRole("region", { name: "Product AI policy" }),
-    ).toBeInTheDocument();
-    expect(screen.getByLabelText("Allow AI to read this Product")).not.toBeChecked();
-    expect(screen.getByLabelText("Allow AI to generate work items")).not.toBeChecked();
-  });
+  // The Product AI policy moved to Admin (Admin owns every policy). Its
+  // behaviour is tested in AdminArea.test.tsx now; it no longer renders here.
 
   it("says no budget is set until one is, rather than showing a bar at zero", async () => {
     render(<ProductStrategy productId={1} />);
@@ -365,23 +357,5 @@ describe("ProductStrategy — generating the work for a Deliverable", () => {
     expect(screen.getByText(/can see AI spend but not change the budget/)).toBeInTheDocument();
   });
 
-  it("saves the Product AI policy when a switch is turned on", async () => {
-    const user = userEvent.setup();
-    mocked.getProductPolicy.mockResolvedValue(null);
-    mocked.setProductPolicy.mockResolvedValue(undefined);
-    render(<ProductStrategy productId={1} />);
-
-    await user.click(await screen.findByLabelText("Allow AI to generate work items"));
-
-    await waitFor(() =>
-      expect(mocked.setProductPolicy).toHaveBeenCalledWith({
-        productId: 1,
-        allowRead: false,
-        allowGenerate: true,
-        providerId: null,
-        effortTier: "low",
-      }),
-    );
-  });
 });
 

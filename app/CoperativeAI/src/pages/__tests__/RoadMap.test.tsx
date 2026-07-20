@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import RoadMap from "../../components/RoadMap";
@@ -10,8 +10,6 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     ...original,
     listWorkItems: vi.fn(),
     listSprints: vi.fn(),
-    createSprint: vi.fn(),
-    getRoadmapMode: vi.fn(),
     getPlanningHierarchy: vi.fn(),
     getSprintLoad: vi.fn(),
     setSprintCapacity: vi.fn(),
@@ -64,7 +62,6 @@ describe("RoadMap", () => {
       "userStory",
       "task",
     ]);
-    mocked.getRoadmapMode.mockResolvedValue("sprints");
     mocked.listSprints.mockResolvedValue([datedSprint]);
     mocked.listTeamMembers.mockResolvedValue([]);
     mocked.getSprintLoad.mockResolvedValue([]);
@@ -75,8 +72,39 @@ describe("RoadMap", () => {
     ]);
   });
 
-  it("sprints mode: one lane per sprint with its dates, plus Unscheduled", async () => {
+  /// The default view: a month timeline. Checkout takes its month from the
+  /// sprint it is in (August); Search has no date and no dated sprint, so it
+  /// sits apart in Undated rather than being silently dropped.
+  it("month view is the default and places work by month", async () => {
     render(<RoadMap productId={7} />);
+
+    const august = await screen.findByRole("region", { name: "August 2026" });
+    expect(within(august).getByText("Checkout")).toBeInTheDocument();
+
+    const undated = screen.getByRole("region", { name: "Undated" });
+    expect(within(undated).getByText("Search")).toBeInTheDocument();
+  });
+
+  it("bugs stay off the roadmap in every view", async () => {
+    render(<RoadMap productId={7} />);
+    await screen.findByRole("region", { name: "August 2026" });
+    expect(screen.queryByText("Broken button")).not.toBeInTheDocument();
+  });
+
+  /// A timeline needs something to place; with no roadmap items at all, say so
+  /// rather than showing a blank month strip.
+  it("explains the empty timeline when there is nothing to place", async () => {
+    mocked.listSprints.mockResolvedValue([]);
+    mocked.listWorkItems.mockResolvedValue([]);
+    render(<RoadMap productId={7} />);
+
+    expect(await screen.findByText(/Nothing to place on a timeline yet/)).toBeInTheDocument();
+  });
+
+  it("by sprint: one lane per sprint with its dates, plus Unscheduled", async () => {
+    const user = userEvent.setup();
+    render(<RoadMap productId={7} />);
+    await user.click(await screen.findByRole("button", { name: "By sprint" }));
 
     const sprintLane = await screen.findByRole("region", { name: "Sprint 1" });
     expect(sprintLane).toHaveTextContent("2026-08-01 → 2026-08-14");
@@ -86,48 +114,31 @@ describe("RoadMap", () => {
     expect(within(unscheduled).getByText("Search")).toBeInTheDocument();
   });
 
-  it("shows hierarchy items only — bugs stay on the board", async () => {
+  /// Sprint creation moved to Planning — the roadmap only shows.
+  it("has no sprint-create form in any view", async () => {
+    const user = userEvent.setup();
     render(<RoadMap productId={7} />);
-    await screen.findByRole("region", { name: "Sprint 1" });
-    expect(screen.queryByText("Broken button")).not.toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "By sprint" }));
+    expect(screen.queryByLabelText("Sprint name")).not.toBeInTheDocument();
   });
 
-  it("kanban mode: one lane per status, no sprint form", async () => {
-    mocked.getRoadmapMode.mockResolvedValue("kanban");
+  it("by status: one lane per status", async () => {
+    const user = userEvent.setup();
     render(<RoadMap productId={7} />);
+    await user.click(await screen.findByRole("button", { name: "By status" }));
 
     expect(await screen.findByRole("region", { name: "planned" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "done" })).toBeInTheDocument();
-    expect(screen.queryByRole("form", { name: "Create sprint" })).not.toBeInTheDocument();
-  });
-
-  it("creates a sprint without dates (teams that don't set times)", async () => {
-    const user = userEvent.setup();
-    mocked.createSprint.mockResolvedValue(10);
-    render(<RoadMap productId={7} />);
-
-    await user.type(await screen.findByLabelText("Sprint name"), "Sprint 2");
-    await user.click(screen.getByRole("button", { name: "Add sprint" }));
-
-    await waitFor(() =>
-      expect(mocked.createSprint).toHaveBeenCalledWith({
-        productId: 7,
-        name: "Sprint 2",
-        startDate: null,
-        endDate: null,
-      }),
-    );
   });
 
   /// The point of the panel: someone holding more than they said they had.
+  /// Capacity is a sprint idea, so it shows on the sprint view.
   it("flags a member carrying more items than their capacity", async () => {
-    mocked.listTeamMembers.mockResolvedValue([
-      { id: 5, name: "Ada", roleId: null },
-    ]);
-    mocked.getSprintLoad.mockResolvedValue([
-      { teamMemberId: 5, capacity: 2, assignedItems: 4 },
-    ]);
+    const user = userEvent.setup();
+    mocked.listTeamMembers.mockResolvedValue([{ id: 5, name: "Ada", roleId: null }]);
+    mocked.getSprintLoad.mockResolvedValue([{ teamMemberId: 5, capacity: 2, assignedItems: 4 }]);
     render(<RoadMap productId={7} />);
+    await user.click(await screen.findByRole("button", { name: "By sprint" }));
 
     expect(
       await screen.findByRole("region", { name: "Capacity for Sprint 1" }),
@@ -137,13 +148,11 @@ describe("RoadMap", () => {
 
   /// A count of items is not effort, and the panel must not imply otherwise.
   it("says the comparison is item count, not effort", async () => {
-    mocked.listTeamMembers.mockResolvedValue([
-      { id: 5, name: "Ada", roleId: null },
-    ]);
-    mocked.getSprintLoad.mockResolvedValue([
-      { teamMemberId: 5, capacity: 8, assignedItems: 1 },
-    ]);
+    const user = userEvent.setup();
+    mocked.listTeamMembers.mockResolvedValue([{ id: 5, name: "Ada", roleId: null }]);
+    mocked.getSprintLoad.mockResolvedValue([{ teamMemberId: 5, capacity: 8, assignedItems: 1 }]);
     render(<RoadMap productId={7} />);
+    await user.click(await screen.findByRole("button", { name: "By sprint" }));
 
     expect(await screen.findByText(/rough signal, not effort/)).toBeInTheDocument();
     expect(screen.queryByText(/over capacity/)).not.toBeInTheDocument();

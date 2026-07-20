@@ -13,7 +13,7 @@ const productId = params.get("productId");
 // This list must agree with WORKSPACE_SCREENS and the Rust SCREENS constant —
 // R2 grew both and missed this one, so a Marketing pop-out rendered the whole
 // app shell inside its little window.
-const STANDALONE_SCREENS = ["planning", "roadmap", "marketing", "design", "overview"];
+const STANDALONE_SCREENS = ["strategy", "planning", "roadmap", "marketing", "design", "overview"];
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
