@@ -22,12 +22,27 @@ import {
   type Solution,
 } from "../lib/backend";
 
-/** The Develop environment: pick a Product to see its Technical Strategy and
- *  Board/Sprint/List views, then create Solutions and configure AI. */
+/** Which slice of the Develop area is showing. Ten sections in one scrolling
+ *  column had stopped being a page, so they are grouped by what a developer is
+ *  doing: thinking (Planning), executing (Work), writing code (Workspace), or
+ *  wiring things up (Settings). */
+type DevelopView = "planning" | "work" | "workspace" | "settings";
+
+const DEVELOP_TABS: { id: DevelopView; label: string }[] = [
+  { id: "planning", label: "Planning" },
+  { id: "work", label: "Work" },
+  { id: "workspace", label: "Workspace" },
+  { id: "settings", label: "Settings" },
+];
+
+/** The Develop environment: pick a Product, then work in one of four tabs —
+ *  Planning (strategy, rules, architecture), Work (board/sprint/list),
+ *  Workspace (solutions, editor, review), Settings (GitHub, models, AI). */
 export default function DevelopSolutions() {
   const [products, setProducts] = useState<Product[]>([]);
   const [solutions, setSolutions] = useState<Solution[]>([]);
   const [activeProduct, setActiveProduct] = useState<number | "">("");
+  const [view, setView] = useState<DevelopView>("planning");
   const [githubConnected, setGithubConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -93,42 +108,79 @@ export default function DevelopSolutions() {
       {products.length === 0 ? (
         <p>No Products yet — create one in the Product tab to develop against it.</p>
       ) : (
-        <>
-          <label className="develop-product-picker">
-            Product
-            <select
-              aria-label="Develop product"
-              value={activeProduct}
-              onChange={(e) => setActiveProduct(Number(e.target.value))}
-            >
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </label>
+        <label className="develop-product-picker">
+          Product
+          <select
+            aria-label="Develop product"
+            value={activeProduct}
+            onChange={(e) => setActiveProduct(Number(e.target.value))}
+          >
+            {products.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
 
-          {activeProduct !== "" && (
-            <>
-              <StrategyEditor
-                productId={Number(activeProduct)}
-                area="develop"
-                title="Technical Strategy"
-                fields={DEVELOP_STRATEGY_FIELDS}
-              />
-              {/* Read-only here — these are set in Admin. Two editors for one
-                  set of rules would drift, and the drift would be invisible
-                  until the AI obeyed the wrong copy. */}
-              <DeveloperRulesEditor productId={Number(activeProduct)} readOnly />
-              <DeveloperPlanning productId={Number(activeProduct)} />
-              <WorkItemViews productId={Number(activeProduct)} />
-              <FrameworkFiles productId={Number(activeProduct)} />
-            </>
-          )}
+      {/* Plain buttons, not role="tab" — WorkItemViews already owns real
+          Board/Sprint/List tabs inside the Work section, and two tablists on
+          one page would make "the tabs" ambiguous to a screen reader. */}
+      <nav className="develop-tabs" aria-label="Develop sections">
+        {DEVELOP_TABS.map((t) => (
+          <button
+            key={t.id}
+            aria-pressed={view === t.id}
+            className={view === t.id ? "develop-tab-active" : ""}
+            onClick={() => setView(t.id)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+
+      {view === "planning" && activeProduct !== "" && (
+        <>
+          <StrategyEditor
+            productId={Number(activeProduct)}
+            area="develop"
+            title="Technical Strategy"
+            fields={DEVELOP_STRATEGY_FIELDS}
+          />
+          {/* Read-only here — these are set in Admin. Two editors for one
+              set of rules would drift, and the drift would be invisible
+              until the AI obeyed the wrong copy. */}
+          <DeveloperRulesEditor productId={Number(activeProduct)} readOnly />
+          <DeveloperPlanning productId={Number(activeProduct)} />
         </>
       )}
 
+      {view === "work" && activeProduct !== "" && (
+        <WorkItemViews productId={Number(activeProduct)} />
+      )}
+
+      {/* A plain function call, not a <Component> — an inner component gets a
+          new identity every render, and React would remount the whole subtree
+          on each keystroke, dropping the editor's open file and input focus. */}
+      {view === "workspace" && workspaceSection()}
+
+      {view === "settings" && (
+        <>
+          <GithubCard onChange={refresh} />
+          <ModelInstalls productId={activeProduct === "" ? null : Number(activeProduct)} />
+          <AiSettings />
+        </>
+      )}
+    </div>
+  );
+
+  /** Solutions and the code around them: create, link to GitHub, open the
+   *  working copy, and the framework files the handover feeds on. */
+  function workspaceSection() {
+    return (
+      <>
+      {activeProduct !== "" && <FrameworkFiles productId={Number(activeProduct)} />}
       <section className="develop-card" aria-label="Create a Solution">
         <h2>Create a Solution</h2>
         {products.length === 0 ? (
@@ -195,10 +247,7 @@ export default function DevelopSolutions() {
           ))}
         </ul>
       </section>
-
-      <GithubCard onChange={refresh} />
-      <ModelInstalls productId={activeProduct === "" ? null : Number(activeProduct)} />
-      <AiSettings />
-    </div>
-  );
+      </>
+    );
+  }
 }

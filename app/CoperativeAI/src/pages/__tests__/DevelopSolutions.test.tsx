@@ -51,6 +51,15 @@ const solution: Solution = {
   localPath: null,
 };
 
+/** The area is tabbed now: Planning is the default; everything else lives
+ *  behind its section button. */
+async function openSection(
+  user: ReturnType<typeof userEvent.setup>,
+  name: "Work" | "Workspace" | "Settings",
+) {
+  await user.click(await screen.findByRole("button", { name }));
+}
+
 describe("DevelopSolutions (Solution creation + AI settings)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -68,23 +77,38 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     mocked.listModelStatus.mockResolvedValue([]);
   });
 
-  it("shows the AI Settings section", async () => {
+  /// The area is tabbed: one section at a time, Planning first. Ten sections
+  /// in one scrolling column had stopped being a page.
+  it("shows one section at a time, opening on Planning", async () => {
+    const user = userEvent.setup();
     render(<DevelopSolutions />);
+
+    expect(await screen.findByRole("region", { name: "Technical Strategy" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "AI Settings" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Create a Solution" })).not.toBeInTheDocument();
+
+    await openSection(user, "Settings");
     expect(await screen.findByRole("region", { name: "AI Settings" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Technical Strategy" })).not.toBeInTheDocument();
   });
 
-  it("shows the Technical Strategy and work views for the selected product", async () => {
+  it("shows the Technical Strategy on Planning and the views on Work", async () => {
+    const user = userEvent.setup();
     render(<DevelopSolutions />);
     expect(await screen.findByRole("region", { name: "Technical Strategy" })).toBeInTheDocument();
     expect(screen.getByLabelText("Required infrastructure")).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Work views" })).toBeInTheDocument();
+
+    await openSection(user, "Work");
+    expect(await screen.findByRole("region", { name: "Work views" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Board" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Sprint" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "List" })).toBeInTheDocument();
   });
 
   it("no longer manages team members here (moved to Admin)", async () => {
+    const user = userEvent.setup();
     render(<DevelopSolutions />);
+    await openSection(user, "Workspace");
     await screen.findByRole("region", { name: "Create a Solution" });
     expect(screen.queryByLabelText("Member name")).not.toBeInTheDocument();
   });
@@ -93,6 +117,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     const user = userEvent.setup();
     mocked.createSolution.mockResolvedValue(4);
     render(<DevelopSolutions />);
+    await openSection(user, "Workspace");
 
     await user.type(await screen.findByLabelText("Solution name"), "Shop Website");
     await user.selectOptions(screen.getByLabelText("Solution type"), "website");
@@ -113,14 +138,18 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
   });
 
   it("lists existing solutions under their product", async () => {
+    const user = userEvent.setup();
     render(<DevelopSolutions />);
+    await openSection(user, "Workspace");
     expect(await screen.findByText(/Shop API/)).toBeInTheDocument();
     expect(screen.getByText(/\(api\) — Shop App/)).toBeInTheDocument();
   });
 
   it("asks to create a Product first when none exist", async () => {
+    const user = userEvent.setup();
     mocked.listProducts.mockResolvedValue([]);
     render(<DevelopSolutions />);
+    await openSection(user, "Workspace");
     expect(
       await screen.findByText(/create a Product first/i),
     ).toBeInTheDocument();
@@ -134,6 +163,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
       conflicts: [],
     });
     render(<DevelopSolutions />);
+    await openSection(user, "Workspace");
 
     await user.click(
       await screen.findByRole("button", { name: "Generate framework files" }),
@@ -153,6 +183,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
       conflicts: [".CoperativeAI/pages/checkout.md"],
     });
     render(<DevelopSolutions />);
+    await openSection(user, "Workspace");
 
     await user.click(
       await screen.findByRole("button", { name: "Generate framework files" }),
@@ -165,6 +196,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
   /// A model appearing on a provider does not make it usable — the whole point
   /// of the install gate.
   it("shows a newly detected model as not yet installed", async () => {
+    const user = userEvent.setup();
     mocked.listModelStatus.mockResolvedValue([
       {
         providerId: 2,
@@ -176,6 +208,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
       },
     ]);
     render(<DevelopSolutions />);
+    await openSection(user, "Settings");
 
     expect(await screen.findByText("ornith:9b")).toBeInTheDocument();
     expect(screen.getByText(/New — not yet installed/)).toBeInTheDocument();
@@ -204,6 +237,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
       suggestedFixes: [],
     });
     render(<DevelopSolutions />);
+    await openSection(user, "Settings");
 
     await user.click(await screen.findByRole("button", { name: "Install ornith:9b" }));
 
@@ -214,6 +248,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
   /// All-or-nothing: a failed probe leaves the model blocked, and the user is
   /// told which check failed and what to do about it.
   it("names the failed check and keeps a failing model blocked", async () => {
+    const user = userEvent.setup();
     mocked.listModelStatus.mockResolvedValue([
       {
         providerId: 2,
@@ -233,6 +268,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
       },
     ]);
     render(<DevelopSolutions />);
+    await openSection(user, "Settings");
 
     expect(await screen.findByText(/Failed validation/)).toBeInTheDocument();
     expect(screen.getByText(/invented kinds: microservice/)).toBeInTheDocument();
@@ -254,7 +290,9 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
   });
 
   it("offers to connect GitHub when no token is stored", async () => {
+    const user = userEvent.setup();
     render(<DevelopSolutions />);
+    await openSection(user, "Settings");
     expect(await screen.findByRole("region", { name: "GitHub" })).toBeInTheDocument();
     expect(screen.getByLabelText("GitHub token")).toBeInTheDocument();
   });
@@ -263,6 +301,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     const user = userEvent.setup();
     mocked.setGithubToken.mockResolvedValue("octocat");
     render(<DevelopSolutions />);
+    await openSection(user, "Settings");
 
     await user.type(await screen.findByLabelText("GitHub token"), "ghp_secret");
     await user.click(screen.getByRole("button", { name: "Connect" }));
@@ -279,6 +318,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     const user = userEvent.setup();
     mocked.linkSolutionRepo.mockResolvedValue(undefined);
     render(<DevelopSolutions />);
+    await openSection(user, "Workspace");
 
     await user.click(
       await screen.findByRole("button", { name: "Link a repo to Shop API" }),
@@ -298,7 +338,9 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
   });
 
   it("cannot create a repo until GitHub is connected", async () => {
+    const user = userEvent.setup();
     render(<DevelopSolutions />);
+    await openSection(user, "Workspace");
     expect(
       await screen.findByRole("button", { name: "Create a repo for Shop API" }),
     ).toBeDisabled();
@@ -309,6 +351,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     mocked.githubStatus.mockResolvedValue({ connected: true });
     mocked.createSolutionRepo.mockResolvedValue("https://github.com/me/shop-api");
     render(<DevelopSolutions />);
+    await openSection(user, "Workspace");
 
     await user.click(
       await screen.findByRole("button", { name: "Create a repo for Shop API" }),
@@ -326,6 +369,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
   });
 
   it("shows the linked repository on a Solution", async () => {
+    const user = userEvent.setup();
     mocked.listSolutions.mockResolvedValue([
       {
         ...solution,
@@ -335,6 +379,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
       },
     ]);
     render(<DevelopSolutions />);
+    await openSection(user, "Workspace");
     expect(
       await screen.findByRole("link", { name: "https://github.com/me/shop-api" }),
     ).toBeInTheDocument();

@@ -608,6 +608,29 @@ body {
   font-size: 0.7rem;
 }
 
+.develop-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin: 0.5rem 0 0.75rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.develop-tabs button {
+  border: 0;
+  background: none;
+  padding: 0.35rem 0.7rem;
+  cursor: pointer;
+  font: inherit;
+  color: #6b7280;
+  border-bottom: 2px solid transparent;
+}
+
+.develop-tabs button.develop-tab-active {
+  color: inherit;
+  border-bottom-color: currentColor;
+  font-weight: 600;
+}
+
 .developer-planning {
   display: flex;
   flex-direction: column;
