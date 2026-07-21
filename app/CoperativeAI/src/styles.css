@@ -429,6 +429,39 @@ body {
   color: #9ca3af;
 }
 
+/* One tab per open Solution: cross-repo work is one screen, not a sequence. */
+.solution-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.solution-tab {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  padding: 0 0.2rem;
+  font-size: 0.78rem;
+}
+
+.solution-tab-active {
+  background: #f3f4f6;
+  font-weight: 600;
+}
+
+.solution-tab button {
+  background: none;
+  border: 0;
+  padding: 0.2rem 0.35rem;
+  font: inherit;
+  cursor: pointer;
+}
+
 .editor-tabs {
   display: flex;
   flex-wrap: wrap;

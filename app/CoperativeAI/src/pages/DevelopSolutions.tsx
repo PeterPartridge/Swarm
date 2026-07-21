@@ -170,14 +170,18 @@ export default function DevelopSolutions() {
           on each keystroke, dropping the editor's open file and input focus. */}
       {view === "workspace" && workspaceSection()}
 
-      {view === "code" &&
-        (openSolution ? (
-          <CodeEditor solution={openSolution} />
-        ) : (
-          <p className="hint">
-            No Solution open. Pick one on the Workspace tab and press Open.
-          </p>
-        ))}
+      {/* The explorer can hold several of this Product's Solutions at once —
+          a change spanning an API and the app in front of it is one job. */}
+      {view === "code" && (
+        <CodeEditor
+          solutions={
+            activeProduct === ""
+              ? []
+              : solutions.filter((s) => s.productId === Number(activeProduct))
+          }
+          opened={openSolution}
+        />
+      )}
 
       {view === "settings" && (
         <>
