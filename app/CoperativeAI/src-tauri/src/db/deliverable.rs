@@ -37,15 +37,7 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
     // it**. Every other migration here drops and recreates, which is fine for
     // rows the app regenerates — but deliverables are written by a person and
     // cannot be recovered, so this one preserves them.
-    let mut columns: Vec<String> = Vec::new();
-    {
-        let mut rows = conn
-            .query("SELECT name FROM pragma_table_info('deliverables')", ())
-            .await?;
-        while let Some(row) = rows.next().await? {
-            columns.push(row.get(0)?);
-        }
-    }
+    let columns = crate::db::table_columns(conn, "deliverables").await?;
     if !columns.iter().any(|c| c == "dependsOnDeliverableId") {
         conn.execute(
             "ALTER TABLE deliverables ADD COLUMN dependsOnDeliverableId INTEGER",

@@ -14,20 +14,9 @@ pub struct TeamMember {
 pub async fn create_table(conn: &Connection) -> Result<()> {
     // Round-2 migration: the round-1 table used a free `role` text column.
     // Pre-release data, so a legacy table (no `roleId`) is dropped and recreated.
-    let mut legacy = false;
-    let mut has_table = false;
-    {
-        let mut rows = conn
-            .query("SELECT name FROM pragma_table_info('team_members')", ())
-            .await?;
-        while let Some(row) = rows.next().await? {
-            has_table = true;
-            let column: String = row.get(0)?;
-            if column == "role" {
-                legacy = true;
-            }
-        }
-    }
+    let columns = crate::db::table_columns(conn, "team_members").await?;
+    let has_table = !columns.is_empty();
+    let legacy = columns.iter().any(|c| c == "role");
     if has_table && legacy {
         conn.execute("DROP TABLE team_members", ()).await?;
     }

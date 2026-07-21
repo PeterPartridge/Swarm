@@ -45,15 +45,7 @@ const SELECT: &str = "SELECT id, workItemId, strategy, architectureOptions, chos
 pub async fn create_table(conn: &Connection) -> Result<()> {
     // Adds `technologies`. Pre-release → drop & recreate; strategies are
     // regenerated from the AI anyway, so nothing irreplaceable is lost.
-    let mut columns: Vec<String> = Vec::new();
-    {
-        let mut rows = conn
-            .query("SELECT name FROM pragma_table_info('solution_strategies')", ())
-            .await?;
-        while let Some(row) = rows.next().await? {
-            columns.push(row.get(0)?);
-        }
-    }
+    let columns = crate::db::table_columns(conn, "solution_strategies").await?;
     if !columns.is_empty() && !columns.iter().any(|c| c == "technologies") {
         conn.execute("DROP TABLE solution_strategies", ()).await?;
     }

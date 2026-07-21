@@ -32,15 +32,7 @@ const SELECT: &str = "SELECT id, name, productId, solutionType, answers, origin,
 pub async fn create_table(conn: &Connection) -> Result<()> {
     // Round-2 migration: add GitHub link columns. Pre-release → drop & recreate
     // when the round-1 table (no `origin`) is present.
-    let mut columns: Vec<String> = Vec::new();
-    {
-        let mut rows = conn
-            .query("SELECT name FROM pragma_table_info('solutions')", ())
-            .await?;
-        while let Some(row) = rows.next().await? {
-            columns.push(row.get(0)?);
-        }
-    }
+    let columns = crate::db::table_columns(conn, "solutions").await?;
     if !columns.is_empty() && !columns.iter().any(|c| c == "origin") {
         conn.execute("DROP TABLE solutions", ()).await?;
     }

@@ -32,15 +32,7 @@ const SELECT: &str =
 pub async fn create_table(conn: &Connection) -> Result<()> {
     // Round-2 migration: add kind/metered. Pre-release → drop & recreate when
     // the round-1 table (no `kind`) is present.
-    let mut columns: Vec<String> = Vec::new();
-    {
-        let mut rows = conn
-            .query("SELECT name FROM pragma_table_info('ai_providers')", ())
-            .await?;
-        while let Some(row) = rows.next().await? {
-            columns.push(row.get(0)?);
-        }
-    }
+    let columns = crate::db::table_columns(conn, "ai_providers").await?;
     if !columns.is_empty() && !columns.iter().any(|c| c == "kind") {
         conn.execute("DROP TABLE ai_providers", ()).await?;
     }
@@ -246,14 +238,9 @@ mod tests {
         // The schema itself is the guard: the only key-related column is the
         // alias. Assert the table has exactly the specced columns.
         let conn = test_db().await;
-        let mut rows = conn
-            .query("SELECT name FROM pragma_table_info('ai_providers')", ())
+        let columns = crate::db::table_columns(&conn, "ai_providers")
             .await
             .expect("table info");
-        let mut columns: Vec<String> = Vec::new();
-        while let Some(row) = rows.next().await.expect("next") {
-            columns.push(row.get(0).expect("column name"));
-        }
         assert_eq!(
             columns,
             vec![

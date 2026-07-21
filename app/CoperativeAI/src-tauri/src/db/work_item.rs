@@ -62,15 +62,7 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
     // Migration: drop & recreate if the table predates round 3 (legacy
     // repositoryId column, or missing the round-3 commercial columns).
     // Pre-release only — standing debt to replace with data-preserving migrations.
-    let mut columns: Vec<String> = Vec::new();
-    {
-        let mut rows = conn
-            .query("SELECT name FROM pragma_table_info('work_items')", ())
-            .await?;
-        while let Some(row) = rows.next().await? {
-            columns.push(row.get(0)?);
-        }
-    }
+    let columns = crate::db::table_columns(conn, "work_items").await?;
     let has_table = !columns.is_empty();
     let stale = columns.iter().any(|c| c == "repositoryId")
         || (has_table && !columns.iter().any(|c| c == "expectedCost"));
@@ -490,9 +482,7 @@ pub(crate) mod tests {
         let conn = connect(":memory:").await.expect("db");
         conn.execute("CREATE TABLE work_items (id INTEGER PRIMARY KEY, title TEXT, repositoryId INTEGER)", ()).await.expect("legacy");
         create_table(&conn).await.expect("migrate");
-        let mut rows = conn.query("SELECT name FROM pragma_table_info('work_items')", ()).await.expect("info");
-        let mut cols = Vec::new();
-        while let Some(r) = rows.next().await.expect("next") { cols.push(r.get::<String>(0).expect("n")); }
+        let cols = crate::db::table_columns(&conn, "work_items").await.expect("info");
         assert!(cols.contains(&"productId".to_string()) && cols.contains(&"expectedCost".to_string()));
         assert!(!cols.contains(&"repositoryId".to_string()));
     }

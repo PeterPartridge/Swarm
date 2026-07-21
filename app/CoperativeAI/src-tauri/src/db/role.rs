@@ -38,15 +38,7 @@ const DEFAULT_ROLES: &[(&str, bool, bool, bool, bool, bool, bool, bool, bool, bo
 pub async fn create_table(conn: &Connection) -> Result<()> {
     // Round-2 migration: add canManageBudget. Pre-release → drop & recreate,
     // which also re-seeds the defaults with the new flag set sensibly.
-    let mut columns: Vec<String> = Vec::new();
-    {
-        let mut rows = conn
-            .query("SELECT name FROM pragma_table_info('roles')", ())
-            .await?;
-        while let Some(row) = rows.next().await? {
-            columns.push(row.get(0)?);
-        }
-    }
+    let columns = crate::db::table_columns(conn, "roles").await?;
     if !columns.is_empty() && !columns.iter().any(|c| c == "canManageBudget") {
         conn.execute("DROP TABLE roles", ()).await?;
     }

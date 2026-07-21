@@ -72,6 +72,36 @@ pub async fn connect(path: &str) -> turso::Result<Connection> {
     db.connect()
 }
 
+/// The column names of a table, empty when the table does not exist.
+///
+/// Every migration asks this to decide whether it needs to run, and every one
+/// of them must ask it *this* way.
+///
+/// `SELECT name FROM pragma_table_info('x')` — the obvious spelling, and what
+/// this app used everywhere — leaves a read transaction open that nothing ever
+/// closes. Reads keep working, writes keep returning Ok, and **every write made
+/// afterwards on that connection is discarded when the process exits.** The
+/// page cache serves them for the life of the session, so the app looks
+/// correct right up until it is restarted.
+///
+/// That is how it presented: startup reached the first migration, poisoned the
+/// connection before the fifth table was created, and every Product anyone
+/// created was gone the next time they opened the app.
+///
+/// `PRAGMA table_info(...)` through turso's own pragma API does not do this —
+/// it drains and finalises the statement itself. Column 1 is the name.
+pub async fn table_columns(conn: &Connection, table: &str) -> Result<Vec<String>> {
+    let mut columns = Vec::new();
+    conn.pragma_query(&format!("table_info('{table}')"), |row| {
+        if let Ok(name) = row.get::<String>(1) {
+            columns.push(name);
+        }
+        Ok(())
+    })
+    .await?;
+    Ok(columns)
+}
+
 /// Creates every table the app uses. Called once at startup (and by tests
 /// that exercise cross-table rules).
 pub async fn create_all_tables(conn: &Connection) -> Result<()> {
@@ -125,4 +155,156 @@ pub fn now_millis() -> i64 {
         .duration_since(UNIX_EPOCH)
         .expect("system clock before 1970")
         .as_millis() as i64
+}
+
+#[cfg(test)]
+mod durability_tests {
+    use super::*;
+
+    /// The whole of startup must reach disk.
+    ///
+    /// This is the test that was missing. Every other database test runs
+    /// against `:memory:`, where a write that never reaches the file cannot
+    /// fail — so nothing proved that closing the app and opening it again
+    /// finds the work still there. It did not: one bad spelling of a schema
+    /// read poisoned the connection partway through `create_all_tables`, and
+    /// from that point on every write was discarded when the process exited.
+    /// Four tables of thirty survived, and every Product anyone created was
+    /// gone by the next launch.
+    ///
+    /// Asserting on the table count rather than on one row is deliberate: a
+    /// test that only checked Products would still have passed, because
+    /// `products` is built before the first migration that broke things.
+    #[tokio::test]
+    async fn every_table_and_a_late_write_survive_a_restart() {
+        let dir = std::env::temp_dir().join(format!(
+            "coperativeai-durability-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("CoperativeAIdb.db");
+        let path = path.to_str().expect("utf-8 path").to_string();
+
+        let expected = {
+            let conn = connect(&path).await.expect("open");
+            create_all_tables(&conn).await.expect("tables");
+            // written last, so it is behind every migration
+            product::create(&conn, "Shop App", "{}").await.expect("product");
+            team_member::add(&conn, "Ada", None).await.expect("member");
+            count_tables(&conn).await
+        };
+        assert!(expected > 20, "startup should build the whole schema, got {expected}");
+
+        let conn = connect(&path).await.expect("reopen");
+        assert_eq!(
+            count_tables(&conn).await,
+            expected,
+            "tables created at startup did not survive the restart"
+        );
+        assert_eq!(
+            product::list_all(&conn).await.expect("products").len(),
+            1,
+            "the Product was created and then lost when the app restarted"
+        );
+        assert_eq!(
+            team_member::list_all(&conn).await.expect("members").len(),
+            1,
+            "a write made after every migration did not survive the restart"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Startup is idempotent: running it again over a populated file must not
+    /// disturb what is already there.
+    #[tokio::test]
+    async fn a_second_startup_leaves_the_data_alone() {
+        let dir = std::env::temp_dir().join(format!(
+            "coperativeai-restart-idempotent-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("CoperativeAIdb.db");
+        let path = path.to_str().expect("utf-8 path").to_string();
+
+        {
+            let conn = connect(&path).await.expect("open");
+            create_all_tables(&conn).await.expect("tables");
+            product::create(&conn, "Shop App", "{}").await.expect("product");
+        }
+        {
+            // second launch: migrations run again over real data
+            let conn = connect(&path).await.expect("reopen");
+            create_all_tables(&conn).await.expect("tables again");
+            product::create(&conn, "Second Product", "{}").await.expect("product 2");
+        }
+
+        let conn = connect(&path).await.expect("third open");
+        create_all_tables(&conn).await.expect("tables again");
+        let names: Vec<String> = product::list_all(&conn)
+            .await
+            .expect("products")
+            .into_iter()
+            .map(|p| p.name)
+            .collect();
+        assert_eq!(names, vec!["Shop App", "Second Product"]);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    async fn count_tables(conn: &Connection) -> i64 {
+        let mut rows = conn
+            .query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'", ())
+            .await
+            .expect("count tables");
+        rows.next()
+            .await
+            .expect("row")
+            .expect("one row")
+            .get(0)
+            .expect("count")
+    }
+
+    /// The spelling that caused it, pinned so it cannot come back quietly.
+    ///
+    /// `SELECT ... FROM pragma_table_info(...)` leaves a read transaction open
+    /// that nothing closes, and every write afterwards is lost on exit. This
+    /// test does not assert the bug — it asserts that the helper every
+    /// migration now uses does *not* have it.
+    #[tokio::test]
+    async fn reading_a_tables_columns_does_not_stop_later_writes_persisting() {
+        let dir = std::env::temp_dir().join(format!(
+            "coperativeai-columns-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("CoperativeAIdb.db");
+        let path = path.to_str().expect("utf-8 path").to_string();
+
+        {
+            let conn = connect(&path).await.expect("open");
+            product::create_table(&conn).await.expect("table");
+            let columns = table_columns(&conn, "products").await.expect("columns");
+            assert!(columns.iter().any(|c| c == "answers"), "got {columns:?}");
+            // and a table that does not exist reads as no columns, not an error
+            assert!(table_columns(&conn, "not_a_table").await.expect("none").is_empty());
+
+            product::create(&conn, "Written After", "{}").await.expect("product");
+        }
+
+        let conn = connect(&path).await.expect("reopen");
+        assert_eq!(
+            product::list_all(&conn).await.expect("list").len(),
+            1,
+            "a write made after reading a table's columns was lost"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

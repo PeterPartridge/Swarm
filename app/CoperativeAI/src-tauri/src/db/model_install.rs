@@ -41,15 +41,7 @@ pub struct ModelInstall {
 const SELECT: &str = "SELECT id, providerId, model, state, packPath, validationReport, supportsVision, detectedAt, installedAt FROM model_installs";
 
 pub async fn create_table(conn: &Connection) -> Result<()> {
-    let mut columns: Vec<String> = Vec::new();
-    {
-        let mut rows = conn
-            .query("SELECT name FROM pragma_table_info('model_installs')", ())
-            .await?;
-        while let Some(row) = rows.next().await? {
-            columns.push(row.get(0)?);
-        }
-    }
+    let columns = crate::db::table_columns(conn, "model_installs").await?;
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS model_installs (

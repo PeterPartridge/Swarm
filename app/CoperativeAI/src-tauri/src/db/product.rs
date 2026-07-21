@@ -131,6 +131,45 @@ pub(crate) mod tests {
         (conn, id)
     }
 
+    /// The app is a desktop app: closing it and opening it again must find the
+    /// Products still there. Everything else is tested against `:memory:`,
+    /// which cannot fail this way — so nothing until now has proved that a
+    /// write reaches the file at all.
+    #[tokio::test]
+    async fn a_product_survives_closing_and_reopening_the_app() {
+        let dir = std::env::temp_dir().join(format!(
+            "coperativeai-restart-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("CoperativeAIdb.db");
+        let path_str = path.to_str().expect("utf-8 path").to_string();
+
+        // First run: start up, create a Product, then close.
+        {
+            let conn = connect(&path_str).await.expect("open");
+            create_all_tables(&conn).await.expect("tables");
+            create(&conn, "Shop App", "{}").await.expect("create product");
+            assert_eq!(list_all(&conn).await.expect("list").len(), 1);
+        }
+
+        // Second run: the same startup path, against the same file.
+        {
+            let conn = connect(&path_str).await.expect("reopen");
+            create_all_tables(&conn).await.expect("tables again");
+            let products = list_all(&conn).await.expect("list");
+            assert_eq!(
+                products.len(),
+                1,
+                "the Product was created and then lost when the app restarted"
+            );
+            assert_eq!(products[0].name, "Shop App");
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[tokio::test]
     async fn created_product_is_listed() {
         let (conn, id) = db_with_product().await;
