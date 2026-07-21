@@ -56,7 +56,10 @@ export interface FileChange {
 }
 
 export interface ReviewFinding {
-  kind: "disallowedTech" | "unlistedTech" | "noTests";
+  /** No `unlistedTech` here, unlike a solution strategy: that check needs the
+   *  list of technologies a proposal *declares*, and a diff declares nothing.
+   *  Inferring it from source text would be guesswork. */
+  kind: "disallowedTech" | "noTests";
   /** Empty when the finding is about the change as a whole. */
   path: string;
   detail: string;

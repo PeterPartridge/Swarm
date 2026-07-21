@@ -28,7 +28,13 @@ const SOURCE_EXTENSIONS: &[&str] = &[
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewFinding {
-    /// "disallowedTech" | "unlistedTech" | "noTests"
+    /// "disallowedTech" | "noTests".
+    ///
+    /// Deliberately no "unlistedTech", which the solution-strategy check does
+    /// have: that one compares the technologies a proposal **declares** against
+    /// the allow list, and a diff declares nothing. Inferring the technologies
+    /// from source text would be guesswork, and a guess in a rules report is
+    /// how people learn to ignore the report.
     pub kind: String,
     /// Empty when the finding is about the change as a whole.
     pub path: String,

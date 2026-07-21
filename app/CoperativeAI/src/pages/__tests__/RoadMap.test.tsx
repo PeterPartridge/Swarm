@@ -85,6 +85,26 @@ describe("RoadMap", () => {
     expect(within(undated).getByText("Search")).toBeInTheDocument();
   });
 
+  /// A timeline that showed a three-month piece of work in one month would
+  /// hide how long things take.
+  it("shows work spanning several months in each month it runs", async () => {
+    mocked.listSprints.mockResolvedValue([]);
+    mocked.listWorkItems.mockResolvedValue([
+      item({
+        id: 4,
+        title: "Migration",
+        startDate: Date.parse("2026-08-10"),
+        endDate: Date.parse("2026-10-05"),
+      }),
+    ]);
+    render(<RoadMap productId={7} />);
+
+    for (const month of ["August 2026", "September 2026", "October 2026"]) {
+      const lane = await screen.findByRole("region", { name: month });
+      expect(within(lane).getByText("Migration")).toBeInTheDocument();
+    }
+  });
+
   it("bugs stay off the roadmap in every view", async () => {
     render(<RoadMap productId={7} />);
     await screen.findByRole("region", { name: "August 2026" });

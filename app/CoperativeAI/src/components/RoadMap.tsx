@@ -41,12 +41,8 @@ function dateRange(start: number | null, end: number | null): string {
   return "no dates";
 }
 
-/** A month key like "2026-7" (0-based month) and its human label. UTC so it
- *  agrees with formatDate, which slices an ISO string. */
-function monthKey(millis: number): string {
-  const d = new Date(millis);
-  return `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
-}
+/** A month key is "2026-7" (0-based month); this is its human label. UTC
+ *  throughout so it agrees with formatDate, which slices an ISO string. */
 function monthLabel(key: string): string {
   const [year, month] = key.split("-").map(Number);
   return `${MONTH_NAMES[month]} ${year}`;
@@ -112,15 +108,23 @@ export default function RoadMap({ productId }: RoadMapProps) {
     [sprints],
   );
 
-  /** Where an item sits in time: its own start, else its own end, else the
-   *  dates of the sprint it is scheduled into. A dateless item in a dateless
-   *  sprint has no place on a timeline and lands in "Undated". */
-  const positionDate = useCallback(
-    (item: WorkItem): number | null => {
-      if (item.startDate !== null) return item.startDate;
-      if (item.endDate !== null) return item.endDate;
+  /** When an item runs, as a span. Its own dates first, else the dates of the
+   *  sprint it is scheduled into. A piece of work that starts in August and
+   *  finishes in October is in all three months — showing it only in August
+   *  would make a timeline that hides how long things take.
+   *
+   *  A dateless item in a dateless sprint has no place on a timeline and lands
+   *  in "Undated". */
+  const spanOf = useCallback(
+    (item: WorkItem): { from: number; to: number } | null => {
       const sprint = item.sprintId !== null ? sprintById.get(item.sprintId) : undefined;
-      return sprint?.startDate ?? sprint?.endDate ?? null;
+      const from =
+        item.startDate ?? item.endDate ?? sprint?.startDate ?? sprint?.endDate ?? null;
+      const to =
+        item.endDate ?? item.startDate ?? sprint?.endDate ?? sprint?.startDate ?? null;
+      if (from === null || to === null) return null;
+      // Tolerate a backwards pair rather than rendering nothing for it.
+      return from <= to ? { from, to } : { from: to, to: from };
     },
     [sprintById],
   );
@@ -130,28 +134,31 @@ export default function RoadMap({ productId }: RoadMapProps) {
     // between two sprints still appear.
     const dates: number[] = [];
     for (const item of roadmapItems) {
-      const d = positionDate(item);
-      if (d !== null) dates.push(d);
+      const span = spanOf(item);
+      if (span) dates.push(span.from, span.to);
     }
     for (const sprint of sprints) {
       if (sprint.startDate !== null) dates.push(sprint.startDate);
       if (sprint.endDate !== null) dates.push(sprint.endDate);
     }
-    const undated = roadmapItems.filter((i) => positionDate(i) === null);
+    const undated = roadmapItems.filter((i) => spanOf(i) === null);
 
     if (dates.length === 0) {
       return { months: [] as { key: string; items: WorkItem[] }[], undated };
     }
+    // Which months each item touches, worked out once rather than per lane.
+    const monthsOfItem = new Map<number, Set<string>>();
+    for (const item of roadmapItems) {
+      const span = spanOf(item);
+      if (span) monthsOfItem.set(item.id, new Set(monthsBetween(span.from, span.to)));
+    }
     const keys = monthsBetween(Math.min(...dates), Math.max(...dates));
     const months = keys.map((key) => ({
       key,
-      items: roadmapItems.filter((i) => {
-        const d = positionDate(i);
-        return d !== null && monthKey(d) === key;
-      }),
+      items: roadmapItems.filter((i) => monthsOfItem.get(i.id)?.has(key) ?? false),
     }));
     return { months, undated };
-  }, [roadmapItems, sprints, positionDate]);
+  }, [roadmapItems, sprints, spanOf]);
 
   const laneLanes: {
     key: string;

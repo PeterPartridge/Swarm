@@ -19,6 +19,20 @@ import type { DiagramFormat } from "../lib/backend";
  *  Mermaid is loaded on demand rather than imported at the top. It is by far
  *  the largest dependency in this app, and a workspace that only sometimes
  *  shows a diagram should not pay for it on every start. */
+/** Rendered SVG by diagram source. Mermaid re-renders cost real time on a page
+ *  of diagrams, and a diagram's source is its own identity — the same source
+ *  always draws the same picture, so the result is worth keeping across mounts.
+ *  Module-level on purpose: it should survive a component unmounting, which is
+ *  exactly when a tab switch throws the DOM away. */
+const rendered = new Map<string, string>();
+
+/** Empties the render cache. Only for tests: the cache is deliberately global
+ *  and long-lived, which is right in the app and would otherwise leak results
+ *  between test cases. */
+export function clearDiagramCache(): void {
+  rendered.clear();
+}
+
 export default function DiagramView({
   content,
   format,
@@ -46,6 +60,15 @@ export default function DiagramView({
       return;
     }
 
+    // Already drawn this exact source: reuse it rather than paying Mermaid
+    // again for a picture that cannot have changed.
+    const cached = rendered.get(source);
+    if (cached !== undefined) {
+      setSvg(cached);
+      setFailed(null);
+      return;
+    }
+
     void (async () => {
       try {
         const mermaid = (await import("mermaid")).default;
@@ -56,9 +79,10 @@ export default function DiagramView({
           securityLevel: "strict",
           theme: "neutral",
         });
-        const { svg: rendered } = await mermaid.render(idRef.current, source);
+        const { svg: drawn } = await mermaid.render(idRef.current, source);
+        rendered.set(source, drawn);
         if (!cancelled) {
-          setSvg(rendered);
+          setSvg(drawn);
           setFailed(null);
         }
       } catch (e) {

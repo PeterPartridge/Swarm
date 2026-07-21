@@ -1,7 +1,10 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import DiagramView, { jsonGraphToMermaid } from "../../components/DiagramView";
+import DiagramView, {
+  clearDiagramCache,
+  jsonGraphToMermaid,
+} from "../../components/DiagramView";
 
 const renderMock = vi.fn();
 const initializeMock = vi.fn();
@@ -16,6 +19,9 @@ vi.mock("mermaid", () => ({
 describe("DiagramView", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The cache is global and outlives a component on purpose; clear it so one
+    // case's drawing is not another's silent pass.
+    clearDiagramCache();
     renderMock.mockResolvedValue({ svg: "<svg><g>drawn</g></svg>" });
   });
 
@@ -47,6 +53,25 @@ describe("DiagramView", () => {
 
     expect(await screen.findByText(/did not render: Parse error on line 2/)).toBeInTheDocument();
     expect(screen.getByLabelText("Broken source")).toHaveTextContent("flowchart TD");
+  });
+
+  /// A page of architecture diagrams re-drawing on every tab switch is time
+  /// paid for a picture that cannot have changed.
+  it("draws a given source once and reuses it", async () => {
+    const { unmount } = render(
+      <DiagramView content="flowchart TD\n A-->B" format="mermaid" label="Once" />,
+    );
+    expect(await screen.findByRole("img", { name: "Once" })).toBeInTheDocument();
+    expect(renderMock).toHaveBeenCalledTimes(1);
+    unmount();
+
+    render(<DiagramView content="flowchart TD\n A-->B" format="mermaid" label="Again" />);
+    expect(await screen.findByRole("img", { name: "Again" })).toBeInTheDocument();
+    expect(renderMock).toHaveBeenCalledTimes(1);
+
+    // …but a different diagram is still drawn.
+    render(<DiagramView content="flowchart TD\n C-->D" format="mermaid" label="Other" />);
+    await waitFor(() => expect(renderMock).toHaveBeenCalledTimes(2));
   });
 
   it("shows and hides the source on request", async () => {
