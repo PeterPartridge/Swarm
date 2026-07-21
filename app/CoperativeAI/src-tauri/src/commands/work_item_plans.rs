@@ -149,7 +149,7 @@ pub async fn generate_change_plan(
 
     const PURPOSE: &str = "changePlan";
 
-    let (routed, prompt, effort_tier, product_id, plans, solution_names) = {
+    let (routed, prompt, effort_tier, product_id, plans, solution_names, images, skipped) = {
         let conn = db.0.lock().await;
         let Some(item) = work_item::find_by_id(&conn, work_item_id)
             .await
@@ -187,6 +187,26 @@ pub async fn generate_change_plan(
             super::work_items::resolve_item_ai_gate(&conn, work_item_id, &item.title).await?;
         let routed =
             ai_run::plan(&conn, product_id, policy_provider.id, &effort_tier, PURPOSE).await?;
+
+        // Only a model someone has confirmed can see gets shown the pictures.
+        // Sending them to a text-only model wastes a paid call on an error; the
+        // prompt wording changes to match, because a model told to look at
+        // pictures it was not sent will invent what it saw.
+        let can_see = crate::db::model_install::supports_vision(
+            &conn, routed.provider.id, &routed.model,
+        )
+        .await
+        .map_err(to_message)?;
+        let mockup_paths: Vec<String> = plans
+            .iter()
+            .flat_map(|p| serde_json::from_str::<Vec<String>>(&p.mockups).unwrap_or_default())
+            .collect();
+        let (images, skipped) = if can_see && !mockup_paths.is_empty() {
+            crate::ai::vision::load_images(&mockup_paths)
+        } else {
+            (Vec::new(), Vec::new())
+        };
+        let mockups_attached = !images.is_empty();
 
         let solutions = solution::list_by_product(&conn, product_id)
             .await
@@ -231,6 +251,7 @@ pub async fn generate_change_plan(
                 changes_required: changes,
                 unit_tests: tests,
                 mockups,
+                mockups_attached,
             })
             .collect();
 
@@ -266,12 +287,14 @@ pub async fn generate_change_plan(
                 )
             })
             .collect();
-        (routed, prompt, effort_tier, product_id, plans, names)
+        (routed, prompt, effort_tier, product_id, plans, names, images, skipped)
     };
 
     let started = std::time::Instant::now();
-    let result =
-        backend::generate_change_plan(&routed.provider, &routed.model, &effort_tier, &prompt).await;
+    let result = backend::generate_change_plan(
+        &routed.provider, &routed.model, &effort_tier, &prompt, &images,
+    )
+    .await;
     let latency_ms = started.elapsed().as_millis() as i64;
 
     match result {
@@ -307,6 +330,18 @@ pub async fn generate_change_plan(
             }
 
             let mut reason = routed.reason.clone();
+            if !images.is_empty() {
+                reason.push_str(&format!(
+                    " — {} picture{} shown to the model",
+                    images.len(),
+                    if images.len() == 1 { "" } else { "s" }
+                ));
+            }
+            // A picture silently dropped is a picture the user believes was
+            // looked at, so every omission is named.
+            if !skipped.is_empty() {
+                reason.push_str(&format!(" — not sent: {}", skipped.join("; ")));
+            }
             if !unmatched.is_empty() {
                 reason.push_str(&format!(
                     " — but it named {} which is not an affected Solution, so that part was dropped",

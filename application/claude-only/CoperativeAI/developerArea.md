@@ -34,6 +34,35 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Rounds 12–13 — The build plan, and letting the AI see the mockups
+
+### My Feedback
+
+**The build plan (round 12).** A work item now opens onto the Solutions it touches, and each one carries what it needs: changes required, unit tests, the branch to make and the branch to clone from — both prefilled from the Develop Strategy's pattern — questions for Product, and pictures. The written half and the AI-generated half are **separate writes that never overwrite each other**, so regenerating cannot silently erase what a person typed. Questions reuse the existing AI-feedback channel rather than growing a second one, which means an answer Product gives becomes a clarification that reaches the generation prompt without anyone re-typing it. Generation returns an API schema, a page schema and the files each Solution should expect — schemas, not raw code, because this app's job is to prepare and review while the agent writes. Replies are matched back to Solutions **by name**, and a reply naming a Solution that no longer exists is dropped and reported rather than written onto the wrong repository.
+
+**Vision (round 13).** Round 12 shipped with the pictures named to the model and the model told it could not see them. That is now conditional on the truth.
+
+Pictures are read from disk, encoded, and attached: typed image blocks for Claude, bare base64 in an `images` array for Ollama — two different shapes for the same idea. On the Claude side they sit **inside the cached prefix**, with the cache mark moving from the context text onto the last image. That is the whole cost argument: mockups do not change between regenerations of the same work item, and an image is the most expensive thing in the request, so leaving them outside the prefix would re-bill the dearest part at full price every time.
+
+**Whether a model can see is a person's answer, recorded in AI Settings, and off until they give it.** The platform cannot establish it cheaply — asking a model whether it can see costs a call and earns an answer models get wrong about themselves — and being wrong is expensive in both directions: mockups sent to a text-only model buy an error, and mockups withheld from one that can see leave it guessing at a layout that was sitting on disk. So a capability nobody has confirmed is treated as absent.
+
+The prompt then follows what was **actually** sent. Attached: "read the layout, fields and states from them." Not attached: the old wording, unchanged. A model told to look at pictures it never received will describe what it thinks it saw, and that is worse than a model that asks.
+
+### Your Feedback
+
+- **Guards run before the call, not after it.** 4 MB per image, four images per request, and a fixed list of types. A refusal on our side is free; the same refusal from the API is billed and arrives as a wall of provider error text.
+- **Every omission is named back on the run.** A picture silently dropped is a picture the user believes was looked at, so the run's reason line says how many were shown and, separately, what was not sent and why. This is the same rule as the cost display: never let the app imply something it did not do.
+- **Removing the text-only body builder was the right cleanup.** Once every path went through the images-capable one, keeping a thin wrapper for the empty case left a function only tests called — so the tests now exercise the production path with an empty slice, and one of them pins that a text-only call gains **no `images` key at all**, because some Ollama builds read its mere presence as a demand for a vision model.
+- **Two capability facts now live on `model_installs`** — whether the model passed validation, and whether it can see — and the table still has no model brief of its own. It is the only table in the platform without one.
+
+### Technical Debt
+
+- **Nothing checks that a recorded path is still a picture.** The plan stores paths; if the file is moved or replaced between typing it and generating, the run reports it as skipped, which is honest but late.
+- **The 4 MB and four-image limits are constants, not policy.** They belong in Admin with the other budgets, and a Product that works on dense UI will hit the count first.
+- **Nothing resizes.** A 4 MB screenshot is sent at full resolution and billed accordingly, when a downscale would usually read the same and cost a fraction.
+- **The vision toggle is per model, not per model per provider capability probe.** It is a person's assertion with nothing checking it, so a mistyped answer is discovered by a failed generation.
+- **Standing: the Claude path is unproven live** — and vision has just made that gap wider, because image blocks inside a cached prefix are exactly the shape no test here can prove. `ANTHROPIC_API_KEY=sk-... cargo test -- --ignored caching_is_live` remains the single highest-value check available, and only you can run it.
+
 ## Round 8 — Developer Planning: architecture that has to render
 
 ### My Feedback

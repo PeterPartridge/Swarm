@@ -112,19 +112,25 @@ pub async fn generate_pal(
     }
 }
 
-/// Generates a work item's change plan, whichever provider the router chose.
+/// Generates a work item's change plan, whichever provider the router chose,
+/// showing it the mockups when the caller has established the model can see.
 pub async fn generate_change_plan(
     provider: &AiProvider,
     model: &str,
     effort: &str,
     prompt: &Prompt,
+    images: &[crate::ai::vision::LoadedImage],
 ) -> Result<(GeneratedChangePlan, Usage), String> {
     match provider.kind.as_str() {
-        "ollama" => ollama::generate_change_plan(&provider.api_base_url, model, prompt).await,
+        "ollama" => {
+            ollama::generate_change_plan(&provider.api_base_url, model, prompt, images).await
+        }
         "anthropic" => {
             let api_key = keys::get_key(&provider.key_alias)?;
-            client::generate_change_plan(&provider.api_base_url, &api_key, model, effort, prompt)
-                .await
+            client::generate_change_plan(
+                &provider.api_base_url, &api_key, model, effort, prompt, images,
+            )
+            .await
         }
         other => Err(unknown_kind(provider, other)),
     }

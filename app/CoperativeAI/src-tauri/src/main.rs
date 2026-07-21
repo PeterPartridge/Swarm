@@ -151,6 +151,7 @@ fn main() {
             commands::models::list_model_status,
             commands::models::refresh_provider_models,
             commands::models::install_model,
+            commands::models::set_model_vision,
             commands::ai_settings::list_ai_providers,
             commands::ai_settings::add_ai_provider,
             commands::ai_settings::add_ollama_provider,

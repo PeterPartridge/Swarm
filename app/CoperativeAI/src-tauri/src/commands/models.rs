@@ -30,6 +30,9 @@ pub struct ModelStatusDto {
     pub pack_path: String,
     /// The last validation report, as JSON.
     pub validation_report: String,
+    /// Whether this model can be shown pictures. Set by a person — see
+    /// `set_model_vision`.
+    pub supports_vision: bool,
 }
 
 /// Lists every known model with its install state, detecting any that are new.
@@ -61,8 +64,31 @@ pub async fn list_model_status(db: State<'_, AppDb>) -> Result<Vec<ModelStatusDt
             state: m.state,
             pack_path: m.pack_path,
             validation_report: m.validation_report,
+            supports_vision: m.supports_vision,
         })
         .collect())
+}
+
+/// Records whether a model can be shown pictures.
+///
+/// A person sets this, and it stays off until they do. The platform cannot
+/// establish it cheaply — asking a model whether it can see costs a call and
+/// earns an answer models get wrong about themselves — and being wrong is
+/// expensive in both directions: mockups sent to a text-only model buy an
+/// error, and mockups withheld from one that can see leave it guessing at a
+/// layout that was sitting on disk the whole time. So a capability nobody has
+/// confirmed is treated as absent.
+#[tauri::command]
+pub async fn set_model_vision(
+    db: State<'_, AppDb>,
+    provider_id: i64,
+    model: String,
+    supports_vision: bool,
+) -> Result<(), String> {
+    let conn = db.0.lock().await;
+    model_install::set_supports_vision(&conn, provider_id, &model, supports_vision)
+        .await
+        .map_err(to_message)
 }
 
 /// Re-reads a local server's models, so a newly pulled one is noticed without

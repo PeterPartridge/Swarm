@@ -11,3 +11,4 @@ pub mod ollama;
 pub mod router;
 pub mod tiering;
 pub mod validation;
+pub mod vision;

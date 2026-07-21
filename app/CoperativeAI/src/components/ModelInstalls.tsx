@@ -3,6 +3,7 @@ import {
   installModel,
   listModelStatus,
   refreshProviderModels,
+  setModelVision,
   PROBE_LABELS,
   type ModelStatus,
   type ValidationReport,
@@ -84,6 +85,21 @@ export default function ModelInstalls({ productId }: { productId: number | null 
     }
   }
 
+  async function onVisionChange(entry: ModelStatus, canSee: boolean) {
+    try {
+      await setModelVision(entry.providerId, entry.model, canSee);
+      setError(null);
+      setNotice(
+        canSee
+          ? `${entry.model} will be shown UI mockups when generating code changes.`
+          : `${entry.model} will be told mockups exist but not shown them.`,
+      );
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   function reportOf(entry: ModelStatus): ValidationReport | null {
     try {
       const parsed = JSON.parse(entry.validationReport);
@@ -148,6 +164,20 @@ export default function ModelInstalls({ productId }: { productId: number | null 
                   </button>
                 )}
               </div>
+
+              <label className="model-vision">
+                <input
+                  type="checkbox"
+                  checked={entry.supportsVision}
+                  onChange={(e) => onVisionChange(entry, e.target.checked)}
+                />{" "}
+                This model can see pictures
+                <span className="hint">
+                  {" "}
+                  — UI mockups on a work item are sent to it. Leave off if you
+                  are not sure: a text-only model spends the call on an error.
+                </span>
+              </label>
 
               {report && report.probes.length > 0 && (
                 <ul className="probe-list">

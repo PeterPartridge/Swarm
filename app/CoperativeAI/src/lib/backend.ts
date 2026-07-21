@@ -1031,6 +1031,8 @@ export interface ModelStatus {
   packPath: string;
   /** The last ValidationReport, as JSON. */
   validationReport: string;
+  /** Whether this model can be shown pictures. Off until someone says so. */
+  supportsVision: boolean;
 }
 
 export interface ProbeResult {
@@ -1067,6 +1069,15 @@ export const installModel = (
   productId: number,
 ): Promise<ValidationReport> =>
   invoke("install_model", { providerId, model, productId });
+/** Records whether a model can be shown pictures. A person sets this: the
+ *  platform cannot establish it cheaply, and a capability nobody has confirmed
+ *  is treated as absent. */
+export const setModelVision = (
+  providerId: number,
+  model: string,
+  supportsVision: boolean,
+): Promise<void> =>
+  invoke("set_model_vision", { providerId, model, supportsVision });
 
 /** One way of doing a piece of work, with what it is expected to cost. */
 export interface Recommendation {

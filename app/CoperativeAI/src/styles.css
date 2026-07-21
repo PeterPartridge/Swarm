@@ -1517,6 +1517,18 @@ body {
   color: #6b7280;
 }
 
+/* Whether a model may be shown mockups — a person's answer, not a guess */
+.model-vision {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+}
+
+.model-vision .hint {
+  display: inline;
+  font-size: 0.7rem;
+}
+
 /* Sprint capacity: what people have, beside what they have been given */
 .sprint-capacity {
   border-top: 1px solid #e5e7eb;

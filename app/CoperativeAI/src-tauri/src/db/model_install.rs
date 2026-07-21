@@ -26,13 +26,31 @@ pub struct ModelInstall {
     pub pack_path: String,
     /// JSON report of the last validation run.
     pub validation_report: String,
+    /// Whether this model can be shown images.
+    ///
+    /// Off by default and set by a person, because the platform cannot measure
+    /// it cheaply and guessing wrong is expensive both ways: sending pictures
+    /// to a text-only model wastes a paid call on an error, and withholding
+    /// them from a model that can see silently degrades the work. A capability
+    /// nobody has confirmed is treated as absent.
+    pub supports_vision: bool,
     pub detected_at: i64,
     pub installed_at: Option<i64>,
 }
 
-const SELECT: &str = "SELECT id, providerId, model, state, packPath, validationReport, detectedAt, installedAt FROM model_installs";
+const SELECT: &str = "SELECT id, providerId, model, state, packPath, validationReport, supportsVision, detectedAt, installedAt FROM model_installs";
 
 pub async fn create_table(conn: &Connection) -> Result<()> {
+    let mut columns: Vec<String> = Vec::new();
+    {
+        let mut rows = conn
+            .query("SELECT name FROM pragma_table_info('model_installs')", ())
+            .await?;
+        while let Some(row) = rows.next().await? {
+            columns.push(row.get(0)?);
+        }
+    }
+
     conn.execute(
         "CREATE TABLE IF NOT EXISTS model_installs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,6 +59,7 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             state TEXT NOT NULL DEFAULT 'detected',
             packPath TEXT NOT NULL DEFAULT '',
             validationReport TEXT NOT NULL DEFAULT '{}',
+            supportsVision INTEGER NOT NULL DEFAULT 0,
             detectedAt INTEGER NOT NULL,
             installedAt INTEGER,
             UNIQUE(providerId, model)
@@ -48,7 +67,47 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
         (),
     )
     .await?;
+
+    // Added rather than dropped: an install record is a validation someone
+    // waited for, and re-running every probe to gain one column would be a
+    // charge for nothing.
+    if !columns.is_empty() && !columns.iter().any(|c| c == "supportsVision") {
+        conn.execute(
+            "ALTER TABLE model_installs ADD COLUMN supportsVision INTEGER NOT NULL DEFAULT 0",
+            (),
+        )
+        .await?;
+    }
     Ok(())
+}
+
+/// Records whether a model can be shown images.
+pub async fn set_supports_vision(
+    conn: &Connection,
+    provider_id: i64,
+    model: &str,
+    supports_vision: bool,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE model_installs SET supportsVision = ?1 WHERE providerId = ?2 AND model = ?3",
+        (supports_vision as i64, provider_id, model),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Whether this model may be sent pictures. Unknown models cannot.
+pub async fn supports_vision(conn: &Connection, provider_id: i64, model: &str) -> Result<bool> {
+    let mut rows = conn
+        .query(
+            "SELECT supportsVision FROM model_installs WHERE providerId = ?1 AND model = ?2",
+            (provider_id, model),
+        )
+        .await?;
+    match rows.next().await? {
+        Some(row) => Ok(row.get::<i64>(0)? != 0),
+        None => Ok(false),
+    }
 }
 
 /// Records any model on this provider the platform has not seen before.
@@ -179,9 +238,78 @@ fn row_to_install(row: turso::Row) -> Result<ModelInstall> {
         state: row.get(3)?,
         pack_path: row.get(4)?,
         validation_report: row.get(5)?,
-        detected_at: row.get(6)?,
-        installed_at: row.get(7)?,
+        supports_vision: row.get::<i64>(6)? != 0,
+        detected_at: row.get(7)?,
+        installed_at: row.get(8)?,
     })
+}
+
+#[cfg(test)]
+mod vision_tests {
+    use super::*;
+    use crate::db::{ai_provider, connect, create_all_tables};
+
+    async fn db_with_provider() -> (Connection, i64) {
+        let conn = connect(":memory:").await.expect("db");
+        create_all_tables(&conn).await.expect("tables");
+        let id = ai_provider::add(&conn, "Claude", "https://a.example", &["opus"], "alias")
+            .await
+            .expect("provider");
+        (conn, id)
+    }
+
+    /// A capability nobody has confirmed is treated as absent — sending
+    /// pictures to a text-only model wastes a paid call on an error.
+    #[tokio::test]
+    async fn a_model_cannot_be_shown_pictures_until_someone_says_it_can() {
+        let (conn, provider) = db_with_provider().await;
+        sync_for_provider(&conn, provider, &["opus".to_string()]).await.expect("sync");
+
+        assert!(!supports_vision(&conn, provider, "opus").await.expect("q"));
+
+        set_supports_vision(&conn, provider, "opus", true).await.expect("set");
+        assert!(supports_vision(&conn, provider, "opus").await.expect("q"));
+
+        set_supports_vision(&conn, provider, "opus", false).await.expect("unset");
+        assert!(!supports_vision(&conn, provider, "opus").await.expect("q"));
+    }
+
+    /// An unknown model is not a model that can see.
+    #[tokio::test]
+    async fn a_model_the_platform_has_never_seen_cannot_be_shown_pictures() {
+        let (conn, provider) = db_with_provider().await;
+        assert!(!supports_vision(&conn, provider, "never-heard-of-it").await.expect("q"));
+    }
+
+    /// An install record is a validation someone waited for; gaining a column
+    /// must not cost every probe again.
+    #[tokio::test]
+    async fn adding_the_vision_column_keeps_existing_installs() {
+        let conn = connect(":memory:").await.expect("db");
+        conn.execute(
+            "CREATE TABLE model_installs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, providerId INTEGER NOT NULL,
+                model TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'detected',
+                packPath TEXT NOT NULL DEFAULT '', validationReport TEXT NOT NULL DEFAULT '{}',
+                detectedAt INTEGER NOT NULL, installedAt INTEGER, UNIQUE(providerId, model)
+            )",
+            (),
+        )
+        .await
+        .expect("old table");
+        conn.execute(
+            "INSERT INTO model_installs (providerId, model, state, detectedAt) VALUES (1, 'opus', 'installed', 1)",
+            (),
+        )
+        .await
+        .expect("seed");
+
+        create_table(&conn).await.expect("migrate");
+
+        let survivor = find(&conn, 1, "opus").await.expect("q").expect("still there");
+        assert_eq!(survivor.state, "installed", "the validation is not thrown away");
+        assert!(!survivor.supports_vision, "and the new capability starts off");
+    }
 }
 
 #[cfg(test)]

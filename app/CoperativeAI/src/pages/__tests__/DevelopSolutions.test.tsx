@@ -22,6 +22,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     listModelStatus: vi.fn(),
     installModel: vi.fn(),
     refreshProviderModels: vi.fn(),
+    setModelVision: vi.fn(),
     setGithubToken: vi.fn(),
     removeGithubToken: vi.fn(),
     linkSolutionRepo: vi.fn(),
@@ -223,6 +224,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
         state: "detected",
         packPath: "",
         validationReport: "{}",
+        supportsVision: false,
       },
     ]);
     render(<DevelopSolutions />);
@@ -243,6 +245,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
         state: "detected",
         packPath: "",
         validationReport: "{}",
+        supportsVision: false,
       },
     ]);
     mocked.installModel.mockResolvedValue({
@@ -283,6 +286,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
           ],
           suggestedFixes: ["The model invented architecture kinds. The platform can only file these: api…"],
         }),
+        supportsVision: false,
       },
     ]);
     render(<DevelopSolutions />);
@@ -293,6 +297,37 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     expect(screen.getByText(/can only file these/)).toBeInTheDocument();
     // still offered for installation, never for use
     expect(screen.getByRole("button", { name: "Install tiny:1b" })).toBeInTheDocument();
+  });
+
+  /// Whether a model can see is a person's answer, not a guess: the platform
+  /// cannot establish it without spending a call, and being wrong costs money
+  /// either way. So it starts off, and turning it on is a deliberate act.
+  it("lets someone record that a model can see pictures", async () => {
+    const user = userEvent.setup();
+    mocked.listModelStatus.mockResolvedValue([
+      {
+        providerId: 2,
+        provider: "Ollama (local)",
+        model: "seer:7b",
+        state: "installed",
+        packPath: "packs/seer_7b",
+        validationReport: "{}",
+        supportsVision: false,
+      },
+    ]);
+    mocked.setModelVision.mockResolvedValue(undefined);
+    render(<DevelopSolutions />);
+    await openSection(user, "Settings");
+
+    const toggle = await screen.findByLabelText(/can see pictures/);
+    expect(toggle).not.toBeChecked();
+
+    await user.click(toggle);
+
+    await waitFor(() =>
+      expect(mocked.setModelVision).toHaveBeenCalledWith(2, "seer:7b", true),
+    );
+    expect(await screen.findByText(/will be shown UI mockups/)).toBeInTheDocument();
   });
 
   /// The other half of the move: Develop shows the rules developers work

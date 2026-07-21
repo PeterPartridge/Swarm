@@ -84,8 +84,26 @@ pub fn story_schema() -> serde_json::Value {
     })
 }
 
-/// The POST /api/chat request body (pure — unit tested without a server).
-fn chat_body_with(model: &str, prompt: &Prompt, schema: serde_json::Value) -> serde_json::Value {
+/// The POST /api/chat request body (pure — unit tested without a server),
+/// with any mockups attached to the context message.
+///
+/// Ollama takes images as bare base64 strings in an `images` array on the
+/// message — no media type, unlike Anthropic's typed source block. They ride
+/// with the context message rather than the task, matching the Claude side
+/// where they sit inside the cached prefix.
+pub(crate) fn chat_body_with_images(
+    model: &str,
+    prompt: &Prompt,
+    schema: serde_json::Value,
+    images: &[crate::ai::vision::LoadedImage],
+) -> serde_json::Value {
+    let mut context = json!({"role": "user", "content": prompt.context});
+    if !images.is_empty() {
+        context["images"] = json!(images
+            .iter()
+            .map(|i| i.base64.clone())
+            .collect::<Vec<_>>());
+    }
     json!({
         "model": model,
         "stream": false,
@@ -93,7 +111,7 @@ fn chat_body_with(model: &str, prompt: &Prompt, schema: serde_json::Value) -> se
         "messages": [
             // Sent as two messages mirroring the cached split on the Claude
             // side, so both providers see the same content in the same order.
-            {"role": "user", "content": prompt.context},
+            context,
             {"role": "user", "content": prompt.task}
         ]
     })
@@ -118,10 +136,20 @@ async fn chat(
     prompt: &Prompt,
     schema: serde_json::Value,
 ) -> Result<(String, Usage), String> {
+    chat_with_images(api_base_url, model, prompt, schema, &[]).await
+}
+
+async fn chat_with_images(
+    api_base_url: &str,
+    model: &str,
+    prompt: &Prompt,
+    schema: serde_json::Value,
+    images: &[crate::ai::vision::LoadedImage],
+) -> Result<(String, Usage), String> {
     let url = format!("{}/api/chat", api_base_url.trim_end_matches('/'));
     let response = client()?
         .post(&url)
-        .json(&chat_body_with(model, prompt, schema))
+        .json(&chat_body_with_images(model, prompt, schema, images))
         .send()
         .await
         .map_err(|e| {
@@ -279,13 +307,19 @@ fn pal_schema() -> serde_json::Value {
     })
 }
 
-/// Generates a work item's change plan from a local model.
+/// Generates a work item's change plan from a local model, showing it the
+/// mockups when the model can see them.
+///
+/// Ollama takes images as bare base64 on the message — no media type, unlike
+/// the Anthropic block — so the same `LoadedImage` serves both shapes.
 pub async fn generate_change_plan(
     api_base_url: &str,
     model: &str,
     prompt: &Prompt,
+    images: &[crate::ai::vision::LoadedImage],
 ) -> Result<(GeneratedChangePlan, Usage), String> {
-    let (content, usage) = chat(api_base_url, model, prompt, change_plan_schema()).await?;
+    let (content, usage) =
+        chat_with_images(api_base_url, model, prompt, change_plan_schema(), images).await?;
     Ok((parse_change_plan(&content)?, usage))
 }
 
@@ -387,7 +421,7 @@ mod tests {
 
     #[test]
     fn chat_body_asks_for_structured_output_without_streaming() {
-        let body = chat_body_with("llama3", &prompt(), story_schema());
+        let body = chat_body_with_images("llama3", &prompt(), story_schema(), &[]);
         assert_eq!(body["model"], "llama3");
         assert_eq!(body["stream"], false);
         assert_eq!(body["format"]["required"][0], "stories");
@@ -395,9 +429,37 @@ mod tests {
 
     #[test]
     fn chat_body_sends_context_before_task() {
-        let body = chat_body_with("llama3", &prompt(), story_schema());
+        let body = chat_body_with_images("llama3", &prompt(), story_schema(), &[]);
         assert_eq!(body["messages"][0]["content"], "Product: Shop App");
         assert_eq!(body["messages"][1]["content"], "Feature: Checkout");
+    }
+
+    /// Ollama hangs images off the message as bare base64 — no wrapper object,
+    /// no data URI prefix. Getting that shape wrong fails as a model that
+    /// simply ignores the pictures rather than as an error, so it is pinned.
+    #[test]
+    fn pictures_ride_on_the_context_message_as_bare_base64() {
+        let images = [crate::ai::vision::LoadedImage {
+            name: "basket.png".into(),
+            media_type: "image/png".into(),
+            base64: "AQIDBA==".into(),
+        }];
+        let body = chat_body_with_images("llava", &prompt(), story_schema(), &images);
+
+        assert_eq!(body["messages"][0]["images"][0], "AQIDBA==");
+        assert_eq!(body["messages"][0]["content"], "Product: Shop App");
+        assert!(
+            body["messages"][1]["images"].is_null(),
+            "pictures belong with the context, matching the cached half on the Claude side"
+        );
+    }
+
+    /// A text-only call must not gain an empty `images` key: some builds treat
+    /// its presence as a request for a vision model and refuse the call.
+    #[test]
+    fn no_pictures_means_no_images_field_at_all() {
+        let body = chat_body_with_images("llama3", &prompt(), story_schema(), &[]);
+        assert!(body["messages"][0].get("images").is_none());
     }
 
     #[test]

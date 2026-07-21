@@ -742,7 +742,7 @@ mod tests {
         let d = deliverable::create(&conn, product_id, "MVP", "")
             .await
             .expect("deliverable");
-        let provider = ai_provider::add(&conn, "Claude", "https://api.anthropic.com", &["m".into()], "alias")
+        let provider = ai_provider::add(&conn, "Claude", "https://api.anthropic.com", &["m"], "alias")
             .await
             .expect("provider");
 

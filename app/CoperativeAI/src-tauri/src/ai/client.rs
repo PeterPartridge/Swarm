@@ -318,6 +318,47 @@ async fn post_structured(
     prompt: &Prompt,
     schema: Value,
 ) -> Result<(String, Usage), String> {
+    post_structured_with_images(api_base_url, api_key, model, effort, prompt, schema, &[]).await
+}
+
+/// Builds the user message: the cacheable context, then any images, then the
+/// task.
+///
+/// The cache breakpoint sits on the **last block of the prefix**, which is the
+/// last image when there is one. Mockups do not change between two generations
+/// for the same work item, and an image is the most expensive thing in the
+/// prompt — leaving them outside the cached prefix would re-bill the dearest
+/// part every time. Pure, so the shape is testable without the network.
+pub(crate) fn structured_content(prompt: &Prompt, images: &[crate::ai::vision::LoadedImage]) -> Value {
+    let mut content: Vec<Value> = vec![json!({"type": "text", "text": prompt.context})];
+    for image in images {
+        content.push(json!({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": image.media_type,
+                "data": image.base64
+            }
+        }));
+    }
+    // Mark the end of the prefix, whatever it turned out to be.
+    if let Some(last) = content.last_mut() {
+        last["cache_control"] = json!({"type": "ephemeral"});
+    }
+    content.push(json!({"type": "text", "text": prompt.task}));
+    Value::Array(content)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn post_structured_with_images(
+    api_base_url: &str,
+    api_key: &str,
+    model: &str,
+    effort: &str,
+    prompt: &Prompt,
+    schema: Value,
+    images: &[crate::ai::vision::LoadedImage],
+) -> Result<(String, Usage), String> {
     let url = format!("{}/v1/messages", api_base_url.trim_end_matches('/'));
     let body = json!({
         "model": model,
@@ -331,14 +372,7 @@ async fn post_structured(
         },
         "messages": [{
             "role": "user",
-            "content": [
-                {
-                    "type": "text",
-                    "text": prompt.context,
-                    "cache_control": {"type": "ephemeral"}
-                },
-                {"type": "text", "text": prompt.task}
-            ]
+            "content": structured_content(prompt, images)
         }]
     });
 
@@ -1204,6 +1238,11 @@ pub struct SolutionPlanPrompt<'a> {
     pub changes_required: &'a str,
     pub unit_tests: &'a str,
     pub mockups: &'a [String],
+    /// True when the mockups are actually attached to this request. Changes
+    /// what the prompt says about them from "you cannot see these" to "look at
+    /// them" — a model told to look at pictures it was not sent will invent
+    /// what it saw.
+    pub mockups_attached: bool,
 }
 
 /// Builds the prompt that turns a written work-item plan into schemas.
@@ -1274,15 +1313,24 @@ pub fn build_change_plan_prompt(
         if !plan.unit_tests.trim().is_empty() {
             task.push_str(&format!("Must be proved by: {}\n", plan.unit_tests));
         }
-        // Named, never described: this platform sends text, so a mockup is a
-        // fact about the work rather than something the model can look at.
         if !plan.mockups.is_empty() {
-            task.push_str(&format!(
-                "UI mockups exist for this Solution ({}). You cannot see them — \
-                 if the layout matters and the written changes do not describe it, \
-                 say so rather than inventing one.\n",
-                plan.mockups.join(", ")
-            ));
+            if plan.mockups_attached {
+                task.push_str(&format!(
+                    "UI mockups for this Solution are attached to this message ({}). \
+                     Read the layout, fields and states from them, and let the page \
+                     schema follow what they show.\n",
+                    plan.mockups.join(", ")
+                ));
+            } else {
+                // Named, never described: the model was not sent them, and one
+                // told to look at pictures it does not have will invent them.
+                task.push_str(&format!(
+                    "UI mockups exist for this Solution ({}). You cannot see them — \
+                     if the layout matters and the written changes do not describe it, \
+                     say so rather than inventing one.\n",
+                    plan.mockups.join(", ")
+                ));
+            }
         }
         task.push('\n');
     }
@@ -1383,16 +1431,20 @@ pub fn parse_change_plan(text: &str) -> Result<GeneratedChangePlan, String> {
     Ok(GeneratedChangePlan::Plan(solutions))
 }
 
-/// Calls the provider for a work item's change plan.
+/// Calls the provider for a work item's change plan, showing it the mockups
+/// when the model can see them.
 pub async fn generate_change_plan(
     api_base_url: &str,
     api_key: &str,
     model: &str,
     effort: &str,
     prompt: &Prompt,
+    images: &[crate::ai::vision::LoadedImage],
 ) -> Result<(GeneratedChangePlan, Usage), String> {
-    let (json_text, usage) =
-        post_structured(api_base_url, api_key, model, effort, prompt, change_plan_schema()).await?;
+    let (json_text, usage) = post_structured_with_images(
+        api_base_url, api_key, model, effort, prompt, change_plan_schema(), images,
+    )
+    .await?;
     Ok((parse_change_plan(&json_text)?, usage))
 }
 
@@ -1529,6 +1581,82 @@ mod tests {
         assert!(!prompt.task.contains("How it fits"), "context, not task");
     }
 
+    /// Mockups sit *inside* the cached prefix, not after it. They do not change
+    /// between generations for the same work item and they are the most
+    /// expensive thing in the request, so a cache mark left on the context text
+    /// would re-bill the dearest part of every regeneration at full price.
+    #[test]
+    fn pictures_are_cached_with_the_context_and_the_task_stays_outside() {
+        let images = [crate::ai::vision::LoadedImage {
+            name: "basket.png".into(),
+            media_type: "image/png".into(),
+            base64: "AQIDBA==".into(),
+        }];
+        let content = structured_content(
+            &Prompt { context: "the rules".into(), task: "do the thing".into() },
+            &images,
+        );
+        let parts = content.as_array().expect("an array of blocks");
+
+        assert_eq!(parts.len(), 3, "context, picture, task");
+        assert_eq!(parts[1]["type"], "image");
+        assert_eq!(parts[1]["source"]["media_type"], "image/png");
+        assert_eq!(parts[1]["source"]["data"], "AQIDBA==");
+        assert!(parts[0]["cache_control"].is_null(), "the mark moved past the text");
+        assert_eq!(parts[1]["cache_control"]["type"], "ephemeral", "prefix ends at the picture");
+        assert!(parts[2]["cache_control"].is_null(), "the task is never cached");
+    }
+
+    /// With no pictures the prefix is just the context, so the mark stays there
+    /// — the shape every existing cached call already relies on.
+    #[test]
+    fn with_no_pictures_the_context_is_still_the_cached_prefix() {
+        let content = structured_content(
+            &Prompt { context: "the rules".into(), task: "do the thing".into() },
+            &[],
+        );
+        let parts = content.as_array().expect("an array of blocks");
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0]["cache_control"]["type"], "ephemeral");
+        assert!(parts[1]["cache_control"].is_null());
+    }
+
+    /// A model that was actually sent the pictures must be told to read them.
+    /// Left on the "you cannot see them" wording it would hedge about a layout
+    /// sitting in its own context; told to look at pictures it never received
+    /// it would invent one. The wording has to follow what was really attached.
+    #[test]
+    fn attached_mockups_are_described_as_visible() {
+        let rules = DeveloperRulesPrompt {
+            coding_standards: "",
+            architecture_principles: "",
+            maintainability: "",
+            preferred_frameworks: "",
+            allowed_tech: "",
+            disallowed_tech: "",
+            ai_constraints: "",
+        };
+        let plans = [SolutionPlanPrompt {
+            name: "Shop Web",
+            solution_type: "website",
+            changes_required: "Rework the basket",
+            unit_tests: "",
+            mockups: &["C:/shots/basket.png".to_string()],
+            mockups_attached: true,
+        }];
+        let prompt = build_change_plan_prompt(
+            "Shop", "{}", "{}", "Basket", None, &rules, &[], &[], &plans,
+        );
+
+        assert!(prompt.task.contains("basket.png"), "still named");
+        assert!(prompt.task.contains("attached"));
+        assert!(
+            !prompt.task.contains("You cannot see them"),
+            "it can see them: {}",
+            prompt.task
+        );
+    }
+
     /// The point of the whole feature: the questions Product already answered
     /// are clarifications on the item, so they reach the prompt without anyone
     /// re-typing them — in the cacheable half, with the rules.
@@ -1550,6 +1678,7 @@ mod tests {
                 changes_required: "Add POST /checkout",
                 unit_tests: "It charges once",
                 mockups: &[],
+                mockups_attached: false,
             },
             SolutionPlanPrompt {
                 name: "Shop Web",
@@ -1557,6 +1686,7 @@ mod tests {
                 changes_required: "",
                 mockups: &["C:/shots/basket.png".to_string()],
                 unit_tests: "",
+                mockups_attached: false,
             },
         ];
         let prompt = build_change_plan_prompt(
