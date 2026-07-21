@@ -55,7 +55,7 @@ const solution: Solution = {
  *  behind its section button. */
 async function openSection(
   user: ReturnType<typeof userEvent.setup>,
-  name: "Work" | "Workspace" | "Settings",
+  name: "Work" | "Workspace" | "Code" | "Settings",
 ) {
   await user.click(await screen.findByRole("button", { name }));
 }
@@ -103,6 +103,24 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     expect(screen.getByRole("tab", { name: "Board" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Sprint" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "List" })).toBeInTheDocument();
+  });
+
+  /// The Code tab is reached by opening a Solution, so the two tabs are one
+  /// flow rather than two disconnected screens.
+  it("opens a Solution from the Workspace tab into the Code tab", async () => {
+    const user = userEvent.setup();
+    mocked.listSolutions.mockResolvedValue([{ ...solution, localPath: "C:/repos/shop-api" }]);
+    render(<DevelopSolutions />);
+
+    // Nothing open yet: the Code tab says where to start.
+    await openSection(user, "Code");
+    expect(await screen.findByText(/No Solution open/)).toBeInTheDocument();
+
+    await openSection(user, "Workspace");
+    await user.click(await screen.findByLabelText("Open Shop API in the code editor"));
+
+    // …and it lands on the Code tab with that Solution's explorer.
+    expect(await screen.findByRole("list", { name: "Files in Shop API" })).toBeInTheDocument();
   });
 
   it("no longer manages team members here (moved to Admin)", async () => {

@@ -2,37 +2,18 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SolutionBox from "../../components/SolutionBox";
-import type { ChangeReview, FileTree, Solution } from "../../lib/backend";
+import type { ChangeReview, Solution } from "../../lib/backend";
 
+// No editor mock here: the explorer and editor moved to the Code tab, so this
+// panel is path + open + change review only.
 vi.mock("../../lib/backend", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../lib/backend")>();
   return {
     ...original,
-    readSolutionTree: vi.fn(),
-    readSolutionFile: vi.fn(),
-    writeSolutionFile: vi.fn(),
     reviewSolutionChanges: vi.fn(),
     setSolutionPath: vi.fn(),
     settleChangeRun: vi.fn(),
     pickFolder: vi.fn(),
-  };
-});
-
-// The editor cannot render in jsdom; a textarea stands in for it here, and
-// CodeWindow's own behaviour is tested in CodeWindow.test.tsx.
-vi.mock("../../lib/monacoSetup", () => ({
-  ensureMonaco: vi.fn().mockResolvedValue(undefined),
-}));
-vi.mock("@monaco-editor/react", async () => {
-  const { createElement } = await import("react");
-  return {
-    default: (props: { value: string; "aria-label"?: string }) =>
-      createElement("textarea", {
-        "aria-label": props["aria-label"],
-        value: props.value,
-        readOnly: true,
-      }),
-    loader: { config: () => {} },
   };
 });
 
@@ -55,15 +36,6 @@ function solution(overrides: Partial<Solution> = {}): Solution {
   };
 }
 
-const tree: FileTree = {
-  entries: [
-    { path: "src", name: "src", isDir: true, depth: 0 },
-    { path: "src/main.rs", name: "main.rs", isDir: false, depth: 1 },
-    { path: "README.md", name: "README.md", isDir: false, depth: 0 },
-  ],
-  truncated: false,
-};
-
 function review(overrides: Partial<ChangeReview> = {}): ChangeReview {
   return {
     changes: [],
@@ -84,43 +56,46 @@ function review(overrides: Partial<ChangeReview> = {}): ChangeReview {
 describe("SolutionBox", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocked.readSolutionTree.mockResolvedValue(tree);
   });
 
   /// A linked GitHub repository is not a checkout — the distinction has caught
-  /// people out, so the panel says it rather than showing an empty tree.
+  /// people out, so the panel says it rather than offering actions that cannot
+  /// work.
   it("asks for a working copy when there is none, and says why", async () => {
-    render(<SolutionBox solution={solution({ localPath: null })} onPathChanged={vi.fn()} />);
+    render(
+      <SolutionBox
+        solution={solution({ localPath: null })}
+        onPathChanged={vi.fn()}
+        onOpenInEditor={vi.fn()}
+      />,
+    );
 
     expect(
       await screen.findByText(/linked GitHub repository is not a checkout/),
     ).toBeInTheDocument();
-    expect(mocked.readSolutionTree).not.toHaveBeenCalled();
+    // nothing to open and nothing to review until there is a folder
+    expect(screen.queryByLabelText(/in the code editor$/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/^Review changes/)).not.toBeInTheDocument();
   });
 
-  it("lists the files and opens one", async () => {
+  /// Editing lives on the Code tab — one editor in one place. This panel just
+  /// hands the Solution over to it. (The explorer and editor themselves are
+  /// tested in CodeEditor.test.tsx.)
+  it("opens the Solution in the code editor", async () => {
     const user = userEvent.setup();
-    mocked.readSolutionFile.mockResolvedValue("fn main() {}");
-    render(<SolutionBox solution={solution()} onPathChanged={vi.fn()} />);
+    const onOpenInEditor = vi.fn();
+    render(
+      <SolutionBox
+        solution={solution()}
+        onPathChanged={vi.fn()}
+        onOpenInEditor={onOpenInEditor}
+      />,
+    );
 
-    const files = await screen.findByRole("list", { name: "Files in Shop API" });
-    expect(within(files).getByText("src/")).toBeInTheDocument();
-
-    await user.click(screen.getByLabelText("Open src/main.rs"));
-
-    await waitFor(() => expect(mocked.readSolutionFile).toHaveBeenCalledWith(3, "src/main.rs"));
-    // The file now opens into an editor rather than a read-only view.
-    expect(await screen.findByLabelText("Editor for src/main.rs")).toHaveValue("fn main() {}");
-    expect(screen.getByLabelText("Save src/main.rs")).toBeInTheDocument();
-  });
-
-  /// A partial tree that does not say so reads as a complete one.
-  it("says when the tree was cut short", async () => {
-    mocked.readSolutionTree.mockResolvedValue({ ...tree, truncated: true });
-    render(<SolutionBox solution={solution()} onPathChanged={vi.fn()} />);
-
-    expect(await screen.findByText(/more files not shown/)).toBeInTheDocument();
+    await user.click(await screen.findByLabelText("Open Shop API in the code editor"));
+    expect(onOpenInEditor).toHaveBeenCalledWith(expect.objectContaining({ id: 3 }));
+    // no editor here any more
+    expect(screen.queryByLabelText(/^Editor for/)).not.toBeInTheDocument();
   });
 
   it("reports a broken rule against the file that broke it", async () => {

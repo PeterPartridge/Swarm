@@ -1,69 +1,36 @@
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import {
-  readSolutionFile,
-  readSolutionTree,
   reviewSolutionChanges,
   setSolutionPath,
   settleChangeRun,
   type ChangeReview,
-  type FileTree,
   type Solution,
 } from "../lib/backend";
-import CodeWindow from "./CodeWindow";
 import FolderField from "./FolderField";
 
-/** Open a Solution: its working copy, and what has changed in it.
+/** Managing a Solution's working copy: where it is, and what has changed in it.
  *
- *  Read-only. Nothing here writes to the repository — this is the panel that
- *  shows you what is there and what an agent (or a person) just did to it.
- *
- *  The change review is the part that earns its keep: a diff checked against
+ *  Editing lives on the Code tab, not here — one editor in one place. This
+ *  panel points the Solution at a folder, opens it in the editor, and runs the
+ *  change review, which is the part that earns its keep: a diff checked against
  *  the Developer Rules, so an agent's output is reviewed rather than merely
  *  accepted. */
 export default function SolutionBox({
   solution,
   onPathChanged,
+  onOpenInEditor,
 }: {
   solution: Solution;
   onPathChanged: () => void;
+  /** Hands this Solution to the Code tab. */
+  onOpenInEditor?: (solution: Solution) => void;
 }) {
-  const [tree, setTree] = useState<FileTree | null>(null);
-  const [openPath, setOpenPath] = useState<string | null>(null);
-  const [contents, setContents] = useState<string>("");
   const [review, setReview] = useState<ChangeReview | null>(null);
   const [settled, setSettled] = useState<"kept" | "discarded" | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const linked = solution.localPath !== null && solution.localPath !== "";
-
-  const refresh = useCallback(async () => {
-    if (!linked) {
-      setTree(null);
-      return;
-    }
-    try {
-      setTree(await readSolutionTree(solution.id));
-      setError(null);
-    } catch (e) {
-      setTree(null);
-      setError(String(e));
-    }
-  }, [solution.id, linked]);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  async function onOpen(path: string) {
-    try {
-      setContents(await readSolutionFile(solution.id, path));
-      setOpenPath(path);
-      setError(null);
-    } catch (e) {
-      setError(String(e));
-    }
-  }
 
   async function onReview() {
     setBusy(true);
@@ -103,7 +70,7 @@ export default function SolutionBox({
   return (
     // No heading: whatever renders this already names the Solution, and
     // repeating it puts the same words on screen twice.
-    <section className="solution-box" aria-label={`Open ${solution.name}`}>
+    <section className="solution-box" aria-label={`${solution.name} working copy`}>
       {error && <p role="alert">{error}</p>}
 
       <FolderField
@@ -118,44 +85,13 @@ export default function SolutionBox({
         </p>
       )}
 
-      {tree && (
-        <div className="solution-panes">
-          <ul className="file-tree" aria-label={`Files in ${solution.name}`}>
-            {tree.entries.map((entry) => (
-              <li key={entry.path} style={{ paddingLeft: `${entry.depth * 0.75}rem` }}>
-                {entry.isDir ? (
-                  <span className="tree-dir">{entry.name}/</span>
-                ) : (
-                  <button
-                    className="tree-file"
-                    aria-label={`Open ${entry.path}`}
-                    onClick={() => onOpen(entry.path)}
-                  >
-                    {entry.name}
-                  </button>
-                )}
-              </li>
-            ))}
-            {tree.truncated && (
-              /* A partial tree that does not say so reads as a complete one. */
-              <li className="hint">…more files not shown</li>
-            )}
-          </ul>
-
-          <div className="file-view">
-            {openPath ? (
-              <CodeWindow
-                key={openPath}
-                solutionId={solution.id}
-                path={openPath}
-                initialContent={contents}
-                onSaved={() => void refresh()}
-              />
-            ) : (
-              <p className="hint">Pick a file to edit it.</p>
-            )}
-          </div>
-        </div>
+      {linked && onOpenInEditor && (
+        <button
+          aria-label={`Open ${solution.name} in the code editor`}
+          onClick={() => onOpenInEditor(solution)}
+        >
+          Open
+        </button>
       )}
 
       {linked && (

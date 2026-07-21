@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import AiSettings from "../components/AiSettings";
+import CodeEditor from "../components/CodeEditor";
 import DeveloperPlanning from "../components/DeveloperPlanning";
 import DeveloperRulesEditor from "../components/DeveloperRulesEditor";
 import FrameworkFiles from "../components/FrameworkFiles";
@@ -26,12 +27,13 @@ import {
  *  column had stopped being a page, so they are grouped by what a developer is
  *  doing: thinking (Planning), executing (Work), writing code (Workspace), or
  *  wiring things up (Settings). */
-type DevelopView = "planning" | "work" | "workspace" | "settings";
+type DevelopView = "planning" | "work" | "workspace" | "code" | "settings";
 
 const DEVELOP_TABS: { id: DevelopView; label: string }[] = [
   { id: "planning", label: "Planning" },
   { id: "work", label: "Work" },
   { id: "workspace", label: "Workspace" },
+  { id: "code", label: "Code" },
   { id: "settings", label: "Settings" },
 ];
 
@@ -43,6 +45,9 @@ export default function DevelopSolutions() {
   const [solutions, setSolutions] = useState<Solution[]>([]);
   const [activeProduct, setActiveProduct] = useState<number | "">("");
   const [view, setView] = useState<DevelopView>("planning");
+  /** Which Solution the Code tab is editing — set by "Open" on the Workspace
+   *  tab, so the two tabs are one flow rather than two disconnected screens. */
+  const [openSolution, setOpenSolution] = useState<Solution | null>(null);
   const [githubConnected, setGithubConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -165,6 +170,15 @@ export default function DevelopSolutions() {
           on each keystroke, dropping the editor's open file and input focus. */}
       {view === "workspace" && workspaceSection()}
 
+      {view === "code" &&
+        (openSolution ? (
+          <CodeEditor solution={openSolution} />
+        ) : (
+          <p className="hint">
+            No Solution open. Pick one on the Workspace tab and press Open.
+          </p>
+        ))}
+
       {view === "settings" && (
         <>
           <GithubCard onChange={refresh} />
@@ -242,7 +256,14 @@ export default function DevelopSolutions() {
                 githubConnected={githubConnected}
                 onChange={refresh}
               />
-              <SolutionBox solution={s} onPathChanged={refresh} />
+              <SolutionBox
+                solution={s}
+                onPathChanged={refresh}
+                onOpenInEditor={(sol) => {
+                  setOpenSolution(sol);
+                  setView("code");
+                }}
+              />
             </li>
           ))}
         </ul>
