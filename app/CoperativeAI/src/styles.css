@@ -410,6 +410,82 @@ body {
   font-size: 0.85rem;
 }
 
+/* A reviewer needs which lines arrived and which left before anything else. */
+.diff-added {
+  background: #ecfdf5;
+  color: #065f46;
+}
+
+.diff-removed {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.diff-hunk {
+  color: #6b7280;
+}
+
+.diff-header {
+  color: #9ca3af;
+}
+
+.editor-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  border-bottom: 1px solid #e5e7eb;
+  margin-bottom: 0.3rem;
+}
+
+.editor-tab {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #e5e7eb;
+  border-bottom: 0;
+  border-radius: 4px 4px 0 0;
+  padding: 0 0.2rem;
+  font-size: 0.72rem;
+}
+
+.editor-tab-active {
+  background: #f9fafb;
+  font-weight: 600;
+}
+
+.editor-tab button {
+  background: none;
+  border: 0;
+  padding: 0.2rem 0.3rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.explorer .new-file {
+  display: flex;
+  gap: 0.2rem;
+  margin-bottom: 0.3rem;
+}
+
+.explorer .new-file input {
+  min-width: 0;
+  flex: 1;
+  font-size: 0.72rem;
+}
+
+.tree-dir {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: #6b7280;
+  cursor: pointer;
+  text-align: left;
+}
+
+.tree-dirty {
+  color: #b45309;
+}
+
 /* The Code tab: explorer on the left, editor in the middle. Taller than the
    old inline panes because this is the whole tab, not a strip inside a list. */
 .code-editor-panes {

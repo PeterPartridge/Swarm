@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import CodeWindow from "../../components/CodeWindow";
 
@@ -52,6 +53,35 @@ import * as backend from "../../lib/backend";
 
 const mocked = vi.mocked(backend);
 
+/** The editor is controlled — its buffer belongs to whatever opens it, so that
+ *  switching between open files keeps each one's unsaved edits. This stands in
+ *  for that owner, which is the only realistic way to drive it. */
+function Harness({
+  path = "src/main.rs",
+  initial = "fn main() {}",
+  onSaved,
+}: {
+  path?: string;
+  initial?: string;
+  onSaved?: (saved: string) => void;
+}) {
+  const [value, setValue] = useState(initial);
+  const [saved, setSaved] = useState(initial);
+  return (
+    <CodeWindow
+      solutionId={3}
+      path={path}
+      value={value}
+      saved={saved}
+      onChange={setValue}
+      onSaved={(content) => {
+        setSaved(content);
+        onSaved?.(content);
+      }}
+    />
+  );
+}
+
 describe("CodeWindow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -60,7 +90,7 @@ describe("CodeWindow", () => {
 
   it("shows the file and keeps Save off while nothing has changed", async () => {
     render(
-      <CodeWindow solutionId={3} path="src/main.rs" initialContent="fn main() {}" onSaved={vi.fn()} />,
+      <Harness path="src/main.rs" initial="fn main() {}" />,
     );
 
     expect(await screen.findByLabelText("Editor for src/main.rs")).toHaveValue("fn main() {}");
@@ -72,7 +102,7 @@ describe("CodeWindow", () => {
     const user = userEvent.setup();
     const onSaved = vi.fn();
     render(
-      <CodeWindow solutionId={3} path="src/main.rs" initialContent="fn main() {}" onSaved={onSaved} />,
+      <Harness path="src/main.rs" initial="fn main() {}" onSaved={onSaved} />,
     );
 
     const editor = await screen.findByLabelText("Editor for src/main.rs");
@@ -93,7 +123,7 @@ describe("CodeWindow", () => {
   /// an edit undone by hand reads as clean.
   it("reads clean when an edit is typed back to the saved text", async () => {
     const user = userEvent.setup();
-    render(<CodeWindow solutionId={3} path="a.txt" initialContent="one" onSaved={vi.fn()} />);
+    render(<Harness path="a.txt" initial="one" />);
 
     const editor = await screen.findByLabelText("Editor for a.txt");
     await user.clear(editor);
@@ -117,7 +147,7 @@ describe("CodeWindow", () => {
       blocked: null,
     });
     render(
-      <CodeWindow solutionId={3} path="src/main.rs" initialContent="fn main() {}" onSaved={vi.fn()} />,
+      <Harness path="src/main.rs" initial="fn main() {}" />,
     );
 
     await screen.findByLabelText("Editor for src/main.rs");
@@ -161,7 +191,7 @@ describe("CodeWindow", () => {
       blocked: null,
     });
     render(
-      <CodeWindow solutionId={3} path="src/main.rs" initialContent="fn main() {}" onSaved={vi.fn()} />,
+      <Harness path="src/main.rs" initial="fn main() {}" />,
     );
     await screen.findByLabelText("Editor for src/main.rs");
 
@@ -197,7 +227,7 @@ describe("CodeWindow", () => {
       reason: "within budget",
       blocked: null,
     });
-    render(<CodeWindow solutionId={3} path="a.js" initialContent="x" onSaved={vi.fn()} />);
+    render(<Harness path="a.js" initial="x" />);
 
     await screen.findByLabelText("Editor for a.js");
     await user.click(screen.getByLabelText("Ask the pal about a.js"));
@@ -220,7 +250,7 @@ describe("CodeWindow", () => {
       reason: "within budget",
       blocked: { reason: "The instruction contradicts the rules.", whatIsNeeded: "Which wins?", feedbackId: 0 },
     });
-    render(<CodeWindow solutionId={3} path="a.js" initialContent="x" onSaved={vi.fn()} />);
+    render(<Harness path="a.js" initial="x" />);
 
     await screen.findByLabelText("Editor for a.js");
     await user.click(screen.getByLabelText("Ask the pal about a.js"));
@@ -236,7 +266,7 @@ describe("CodeWindow", () => {
     mocked.writeSolutionFile.mockRejectedValue(
       "nothing is written under .git — that would change the repository itself, not the code",
     );
-    render(<CodeWindow solutionId={3} path=".git/config" initialContent="[core]" onSaved={vi.fn()} />);
+    render(<Harness path=".git/config" initial="[core]" />);
 
     const editor = await screen.findByLabelText("Editor for .git/config");
     await user.type(editor, "{End}x");

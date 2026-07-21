@@ -64,6 +64,22 @@ pub async fn read_solution_file(
     workspace::read_file(&root, &path)
 }
 
+/// Creates a new empty file in the working copy, then it can be opened and
+/// edited like any other. Refused outside the Solution's folder or under
+/// `.git`, same as every other write.
+#[tauri::command]
+pub async fn create_solution_file(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+    path: String,
+) -> Result<(), String> {
+    let root = {
+        let conn = db.0.lock().await;
+        root_for(&conn, solution_id).await?
+    };
+    workspace::create_file(&root, &path)
+}
+
 /// What the coding pal said. `replacement` never touches disk from here — it
 /// goes into the editor buffer, and the developer's own save is the gate.
 #[derive(Serialize)]

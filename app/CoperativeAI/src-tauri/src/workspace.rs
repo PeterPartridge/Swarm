@@ -189,6 +189,70 @@ pub fn write_file(root: &str, relative: &str, contents: &str) -> Result<(), Stri
     std::fs::write(&path, contents).map_err(|e| format!("could not write {relative}: {e}"))
 }
 
+/// Creates a new empty file in the working copy.
+///
+/// Separate from `write_file` because `resolve_within` resolves a path that
+/// must already exist — the very thing creation cannot assume. So the *parent*
+/// is resolved and contained instead, and the new name is checked for the
+/// tricks a filename should never contain.
+pub fn create_file(root: &str, relative: &str) -> Result<(), String> {
+    let root_path = Path::new(root)
+        .canonicalize()
+        .map_err(|_| format!("the folder for this Solution is not there any more: {root}"))?;
+    let candidate = Path::new(relative);
+    if candidate.is_absolute() {
+        return Err("that path is outside the Solution's folder".into());
+    }
+    // `..` anywhere in a *new* path is always an escape attempt: there is no
+    // legitimate reason to create a file by walking upward.
+    if candidate
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err("that path is outside the Solution's folder".into());
+    }
+    let file_name = candidate
+        .file_name()
+        .ok_or("that is not a file name")?
+        .to_string_lossy()
+        .to_string();
+    if file_name.trim().is_empty() {
+        return Err("a new file needs a name".into());
+    }
+
+    // The parent must already exist and be inside the root — creating a file
+    // does not create a tree of folders nobody asked for.
+    let parent_rel = candidate.parent().unwrap_or(Path::new(""));
+    let parent = if parent_rel.as_os_str().is_empty() {
+        root_path.clone()
+    } else {
+        resolve_within(root, &parent_rel.to_string_lossy())?
+    };
+    if !parent.is_dir() {
+        return Err(format!(
+            "there is no folder at {} to put it in",
+            parent_rel.display()
+        ));
+    }
+    if parent
+        .strip_prefix(&root_path)
+        .map(|p| p.components().any(|c| c.as_os_str() == ".git"))
+        .unwrap_or(true)
+        || file_name == ".git"
+    {
+        return Err(
+            "nothing is written under .git — that would change the repository itself, not the code"
+                .into(),
+        );
+    }
+
+    let target = parent.join(&file_name);
+    if target.exists() {
+        return Err(format!("{relative} already exists"));
+    }
+    std::fs::write(&target, "").map_err(|e| format!("could not create {relative}: {e}"))
+}
+
 /// One file's worth of change.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -385,6 +449,31 @@ mod tests {
             assert!(err.contains(".git"), "got: {err}");
         }
         assert_eq!(fs::read_to_string(dir.join(".git/config")).expect("read"), "[core]");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Creation cannot use `resolve_within` on the target — the target is the
+    /// one thing that does not exist yet — so containment is proved through the
+    /// parent, and these are the cases that would slip past a weaker check.
+    #[test]
+    fn a_new_file_lands_inside_the_repository_or_not_at_all() {
+        let dir = temp_repo("create");
+        let root = dir.to_string_lossy().to_string();
+
+        create_file(&root, "src/new.rs").expect("inside is fine");
+        assert_eq!(read_file(&root, "src/new.rs").expect("read"), "");
+        create_file(&root, "top.txt").expect("root level is fine");
+
+        // the escapes
+        for attempt in ["../escaped.txt", "src/../../escaped.txt", "..\\escaped.txt"] {
+            assert!(create_file(&root, attempt).is_err(), "{attempt} must be refused");
+        }
+        assert!(create_file(&root, "/etc/passwd").is_err());
+        assert!(create_file(&root, ".git/hooks/pre-commit").is_err());
+        // and the ordinary refusals
+        assert!(create_file(&root, "src/new.rs").is_err(), "already exists");
+        assert!(create_file(&root, "nope/x.rs").is_err(), "no such folder");
+        assert!(create_file(&root, "").is_err());
         let _ = fs::remove_dir_all(&dir);
     }
 

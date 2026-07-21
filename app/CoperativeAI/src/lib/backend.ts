@@ -125,6 +125,12 @@ export const writeSolutionFile = (
   path: string,
   contents: string,
 ): Promise<void> => invoke("write_solution_file", { solutionId, path, contents });
+/** Creates a new empty file. Refused outside the Solution's folder, under
+ *  `.git`, or where the parent folder does not exist. */
+export const createSolutionFile = (
+  solutionId: number,
+  path: string,
+): Promise<void> => invoke("create_solution_file", { solutionId, path });
 
 /** What the coding pal said. A replacement never touches disk by itself — it
  *  goes into the editor buffer, and your own save is the gate. */

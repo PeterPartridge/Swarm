@@ -15,6 +15,16 @@ import FolderField from "./FolderField";
  *  change review, which is the part that earns its keep: a diff checked against
  *  the Developer Rules, so an agent's output is reviewed rather than merely
  *  accepted. */
+/** Which side of a diff a line is on. The `+++`/`---` headers name the file
+ *  rather than changing it, so they are neither. */
+function diffLineClass(line: string): string {
+  if (line.startsWith("+++") || line.startsWith("---")) return "diff-header";
+  if (line.startsWith("@@")) return "diff-hunk";
+  if (line.startsWith("+")) return "diff-added";
+  if (line.startsWith("-")) return "diff-removed";
+  return "";
+}
+
 export default function SolutionBox({
   solution,
   onPathChanged,
@@ -187,7 +197,17 @@ export default function SolutionBox({
                           +{c.addedLines} −{c.removedLines}
                         </span>
                       </div>
-                      <pre className="change-diff">{c.diff}</pre>
+                      {/* Coloured by line, not syntax-highlighted: what a
+                          reviewer needs first is which lines arrived and which
+                          left, and that is a per-line fact. */}
+                      <pre className="change-diff">
+                        {c.diff.split("\n").map((line, n) => (
+                          <span key={n} className={diffLineClass(line)}>
+                            {line}
+                            {"\n"}
+                          </span>
+                        ))}
+                      </pre>
                     </li>
                   ))}
                 </ul>

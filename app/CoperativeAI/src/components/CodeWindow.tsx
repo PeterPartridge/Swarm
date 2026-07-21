@@ -24,6 +24,10 @@ type EditorComponent = ComponentType<{
 
 /** A real editor over one file of a Solution's working copy.
  *
+ *  **Controlled.** The buffer lives in the parent, keyed by path, so switching
+ *  between open files keeps each one's unsaved edits. Holding it here would
+ *  mean every tab switch unmounted the editor and threw the work away.
+ *
  *  Saving goes through the same containment rule as every other path into the
  *  repository, and nothing can write under `.git`. Dirty state is tracked
  *  against the last saved content, not the last keystroke, so an undo back to
@@ -31,17 +35,22 @@ type EditorComponent = ComponentType<{
 export default function CodeWindow({
   solutionId,
   path,
-  initialContent,
+  value,
+  saved,
+  onChange,
   onSaved,
 }: {
   solutionId: number;
   path: string;
-  initialContent: string;
-  onSaved: () => void;
+  /** The working buffer — the parent's, so it survives a tab switch. */
+  value: string;
+  /** What is on disk, for the dirty comparison. */
+  saved: string;
+  onChange: (next: string) => void;
+  /** Called with the content that reached disk. */
+  onSaved: (savedContent: string) => void;
 }) {
   const [Editor, setEditor] = useState<EditorComponent | null>(null);
-  const [value, setValue] = useState(initialContent);
-  const [savedContent, setSavedContent] = useState(initialContent);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [palAction, setPalAction] = useState<PalAction>("explain");
@@ -55,11 +64,13 @@ export default function CodeWindow({
   // current save rather than the closure from the first render.
   const saveRef = useRef<() => void>(() => {});
 
+  // A different file is a different set of problems: clear the last one's
+  // error and pal answer rather than showing them over the new file.
   useEffect(() => {
-    setValue(initialContent);
-    setSavedContent(initialContent);
     setError(null);
-  }, [path, initialContent]);
+    setPalAnswer(null);
+    setSelection("");
+  }, [path]);
 
   useEffect(() => {
     let cancelled = false;
@@ -78,15 +89,14 @@ export default function CodeWindow({
     };
   }, []);
 
-  const dirty = value !== savedContent;
+  const dirty = value !== saved;
 
   async function onSave() {
     setSaving(true);
     try {
       await writeSolutionFile(solutionId, path, value);
-      setSavedContent(value);
       setError(null);
-      onSaved();
+      onSaved(value);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -145,7 +155,7 @@ export default function CodeWindow({
         <Editor
           path={path}
           value={value}
-          onChange={(next) => setValue(next ?? "")}
+          onChange={(next) => onChange(next ?? "")}
           onMount={(editor, monaco) => {
             const e = editor as {
               addCommand: (keybinding: number, handler: () => void) => void;
@@ -227,7 +237,7 @@ export default function CodeWindow({
               <button
                 aria-label={`Apply the pal's revision to ${path}`}
                 onClick={() => {
-                  setValue(palAnswer.replacement);
+                  onChange(palAnswer.replacement);
                   setPalAnswer(null);
                 }}
               >

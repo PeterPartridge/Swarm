@@ -11,6 +11,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     readSolutionTree: vi.fn(),
     readSolutionFile: vi.fn(),
     writeSolutionFile: vi.fn(),
+    createSolutionFile: vi.fn(),
     askCodingPal: vi.fn(),
   };
 });
@@ -23,11 +24,16 @@ vi.mock("../../lib/monacoSetup", () => ({
 vi.mock("@monaco-editor/react", async () => {
   const { createElement } = await import("react");
   return {
-    default: (props: { value: string; "aria-label"?: string }) =>
+    // Editable, so a test can prove an unsaved edit survives a tab switch.
+    default: (props: {
+      value: string;
+      onChange: (v: string | undefined) => void;
+      "aria-label"?: string;
+    }) =>
       createElement("textarea", {
         "aria-label": props["aria-label"],
         value: props.value,
-        readOnly: true,
+        onChange: (e: { target: { value: string } }) => props.onChange(e.target.value),
       }),
     loader: { config: () => {} },
   };
@@ -85,6 +91,86 @@ describe("CodeEditor", () => {
 
     await waitFor(() => expect(mocked.readSolutionFile).toHaveBeenCalledWith(3, "src/main.rs"));
     expect(await screen.findByLabelText("Editor for src/main.rs")).toHaveValue("fn main() {}");
+  });
+
+  /// The reason the buffer lives in this component rather than the editor:
+  /// switching tabs must not throw away work.
+  it("keeps each open file's unsaved edits when switching between tabs", async () => {
+    const user = userEvent.setup();
+    mocked.readSolutionFile.mockImplementation(async (_id: number, path: string) =>
+      path === "src/main.rs" ? "fn main() {}" : "# readme",
+    );
+    render(<CodeEditor solution={solution()} />);
+
+    await user.click(await screen.findByLabelText("Open src/main.rs"));
+    await user.type(await screen.findByLabelText("Editor for src/main.rs"), "{End} // wip");
+
+    // open a second file, then come back
+    await user.click(screen.getByLabelText("Open README.md"));
+    expect(await screen.findByLabelText("Editor for README.md")).toHaveValue("# readme");
+
+    await user.click(screen.getByLabelText("Show src/main.rs"));
+    expect(await screen.findByLabelText("Editor for src/main.rs")).toHaveValue(
+      "fn main() {} // wip",
+    );
+    expect(screen.getByLabelText("src/main.rs has unsaved changes")).toBeInTheDocument();
+  });
+
+  it("closes a tab and falls back to another open file", async () => {
+    const user = userEvent.setup();
+    mocked.readSolutionFile.mockResolvedValue("x");
+    render(<CodeEditor solution={solution()} />);
+
+    await user.click(await screen.findByLabelText("Open src/main.rs"));
+    await user.click(screen.getByLabelText("Open README.md"));
+    await user.click(screen.getByLabelText("Close README.md"));
+
+    expect(await screen.findByLabelText("Editor for src/main.rs")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Show README.md")).not.toBeInTheDocument();
+  });
+
+  /// A flat list of every file at every depth is a wall; folders fold.
+  it("collapses a folder and hides what is inside it", async () => {
+    const user = userEvent.setup();
+    render(<CodeEditor solution={solution()} />);
+
+    expect(await screen.findByLabelText("Open src/main.rs")).toBeInTheDocument();
+    await user.click(screen.getByLabelText("Collapse src"));
+
+    expect(screen.queryByLabelText("Open src/main.rs")).not.toBeInTheDocument();
+    // the folder itself stays, and the file outside it is untouched
+    expect(screen.getByLabelText("Expand src")).toBeInTheDocument();
+    expect(screen.getByLabelText("Open README.md")).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("Expand src"));
+    expect(screen.getByLabelText("Open src/main.rs")).toBeInTheDocument();
+  });
+
+  /// The pal drafts tests into a file that has to exist first.
+  it("creates a file and opens it", async () => {
+    const user = userEvent.setup();
+    mocked.createSolutionFile.mockResolvedValue();
+    mocked.readSolutionFile.mockResolvedValue("");
+    render(<CodeEditor solution={solution()} />);
+
+    await user.type(await screen.findByLabelText("New file path"), "src/new.rs");
+    await user.click(screen.getByLabelText("Create file"));
+
+    await waitFor(() =>
+      expect(mocked.createSolutionFile).toHaveBeenCalledWith(3, "src/new.rs"),
+    );
+    expect(await screen.findByLabelText("Editor for src/new.rs")).toBeInTheDocument();
+  });
+
+  it("surfaces a refused file creation", async () => {
+    const user = userEvent.setup();
+    mocked.createSolutionFile.mockRejectedValue("src/main.rs already exists");
+    render(<CodeEditor solution={solution()} />);
+
+    await user.type(await screen.findByLabelText("New file path"), "src/main.rs");
+    await user.click(screen.getByLabelText("Create file"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("already exists");
   });
 
   /// A partial tree that does not say so reads as a complete one.
