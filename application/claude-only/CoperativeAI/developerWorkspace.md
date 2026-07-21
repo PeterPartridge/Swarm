@@ -50,6 +50,11 @@ The plan staged this a–e: read-only Solution box, Monaco editor, Claude Code o
 ### Technical Debt
 
 - ~~**No orchestration.**~~ **Built, in the shape the constraint allows** — see the round below. The app assembles and hands over; it does not spawn the agent and shows no cost for the run.
+- ~~**`unlistedTech` is declared in the finding types and never produced.**~~ **Closed** — removed from the review's kinds, with both sides now saying why they differ: the strategy check has a declared technology list, a diff does not, and inferring one from source text would be a guess in a rules report.
+- ~~**The diff is shown as plain text.**~~ **Closed** — added and removed lines are coloured per line. Still no syntax highlighting or side-by-side.
+- ~~**No file creation.**~~ **Closed** — the explorer creates files. `write_file` could not be reused (it resolves a target that must already exist, the one thing creation cannot assume), so the *parent* is resolved and contained instead and `..` in a new path is refused outright.
+- ~~**One file at a time / switching files loses your place.**~~ **Closed** — editor tabs, each keeping its own unsaved edits. This needed `CodeWindow` to become controlled: holding the buffer in the editor meant every tab switch unmounted it and threw the work away.
+- ~~**The explorer doesn't collapse folders.**~~ **Closed** — folders fold; the flat tree with per-entry depth makes "inside a collapsed folder" a path-prefix test.
 - **Review is read-only — there is no accept/reject.** The plan wanted per-file accept or reject; this shows the diff and the findings and leaves the acting to git. Accepting or rejecting a hunk means writing to a working copy, which this round deliberately does not do.
 - **`unlistedTech` is declared in the finding types and never produced.** The rules check needs a declared technology list, which a diff does not carry — inferring it from source would be guesswork. The variant is there because the type is shared with the strategy path; nothing emits it here.
 - **The diff is shown as plain text.** No syntax highlighting, no side-by-side, no per-hunk collapse. A large change is a wall.
