@@ -8,6 +8,16 @@ export async function pickFolder(): Promise<string | null> {
   return typeof chosen === "string" ? chosen : null;
 }
 
+/** Opens the OS file picker for UI mockups; returns the chosen paths. */
+export async function pickImages(): Promise<string[]> {
+  const chosen = await open({
+    multiple: true,
+    filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg"] }],
+  });
+  if (Array.isArray(chosen)) return chosen;
+  return typeof chosen === "string" ? [chosen] : [];
+}
+
 export interface Product {
   id: number;
   name: string;
@@ -456,7 +466,56 @@ export const DEVELOP_STRATEGY_FIELDS: { id: string; label: string }[] = [
   { id: "architecture", label: "Architecture requirements" },
   { id: "solutionGuidelines", label: "Solution creation guidelines" },
   { id: "dependencies", label: "Dependencies / environment prerequisites" },
+  // Defaults for every work item's per-Solution plan, so the team's branch
+  // convention is applied rather than retyped differently by each person.
+  {
+    id: "branchPattern",
+    label: "Branch naming pattern — {id}, {title} and {type} are filled in",
+  },
+  { id: "defaultCloneFrom", label: "Branches are cut from" },
 ];
+
+/** What one work item requires of one Solution it touches. The written half is
+ *  the team's; the schema half is generated from it. */
+export interface WorkItemPlan {
+  id: number;
+  workItemId: number;
+  solutionId: number;
+  solutionName: string;
+  changesRequired: string;
+  unitTests: string;
+  branchName: string;
+  cloneFrom: string;
+  /** JSON array of file paths — UI mockups. */
+  mockups: string;
+  apiSchema: string;
+  pageSchema: string;
+  filesToChange: string;
+}
+
+export const listWorkItemPlans = (workItemId: number): Promise<WorkItemPlan[]> =>
+  invoke("list_work_item_plans", { workItemId });
+/** Marks a Solution as affected, prefilling branch and clone-from from the
+ *  Develop Strategy. Attaching one already attached changes nothing. */
+export const attachSolutionToWorkItem = (
+  workItemId: number,
+  solutionId: number,
+): Promise<number> =>
+  invoke("attach_solution_to_work_item", { workItemId, solutionId });
+export const saveWorkItemPlan = (args: {
+  id: number;
+  changesRequired: string;
+  unitTests: string;
+  branchName: string;
+  cloneFrom: string;
+  mockups: string;
+}): Promise<void> => invoke("save_work_item_plan", args);
+export const detachWorkItemPlan = (id: number): Promise<void> =>
+  invoke("detach_work_item_plan", { id });
+/** Turns what the team wrote into API and page schemas per Solution. */
+export const generateChangePlan = (
+  workItemId: number,
+): Promise<GenerationResult> => invoke("generate_change_plan", { workItemId });
 
 export const TEST_STRATEGY_FIELDS: { id: string; label: string }[] = [
   { id: "testPlans", label: "Test plans" },
@@ -1056,6 +1115,13 @@ export const chooseArchitectureOption = (
 
 export const listAiFeedback = (workItemId: number): Promise<AiFeedback[]> =>
   invoke("list_ai_feedback", { workItemId });
+/** Raises a question for Product. Uses the same channel as the AI's own
+ *  questions, so the answer becomes a clarification that travels into every
+ *  later prompt for this item. */
+export const askProductQuestion = (
+  workItemId: number,
+  question: string,
+): Promise<number> => invoke("ask_product_question", { workItemId, question });
 /** Answers the AI's question. The note travels with the next prompt for this
  *  item, so the same question is not asked (and paid for) twice. */
 export const resolveAiFeedback = (id: number, note: string): Promise<void> =>

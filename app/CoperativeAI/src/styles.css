@@ -429,6 +429,115 @@ body {
   color: #9ca3af;
 }
 
+.build-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  font-size: 0.8rem;
+  text-align: left;
+}
+
+.build-plan h4 {
+  margin: 0 0 0.2rem;
+  font-size: 0.82rem;
+}
+
+.build-plan .field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.build-plan .field span {
+  color: #6b7280;
+  font-size: 0.75rem;
+}
+
+.plan-solution {
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.plan-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.plan-branch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+}
+
+.plan-mockups ul,
+.open-questions,
+.answered-questions {
+  list-style: none;
+  margin: 0.3rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.plan-mockups li,
+.open-questions li {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.open-questions input {
+  flex: 1;
+  min-width: 6rem;
+}
+
+.answered-questions li {
+  color: #6b7280;
+}
+
+/* The generated half, visually distinct from what a person typed. */
+.plan-generated {
+  background: #f9fafb;
+  border-radius: 4px;
+  padding: 0.4rem;
+}
+
+.plan-generated-head {
+  color: #6b7280;
+  font-size: 0.72rem;
+}
+
+.plan-generated pre {
+  margin: 0.2rem 0 0.4rem;
+  font-size: 0.72rem;
+  white-space: pre-wrap;
+  max-height: 12rem;
+  overflow: auto;
+}
+
+.ask-product {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.ask-product input {
+  flex: 1;
+}
+
+.plan-generate {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 /* One tab per open Solution: cross-repo work is one screen, not a sequence. */
 .solution-tabs {
   display: flex;

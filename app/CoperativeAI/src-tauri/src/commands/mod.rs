@@ -24,6 +24,7 @@ pub mod sprints;
 pub mod team_members;
 pub mod test_cases;
 pub mod windows;
+pub mod work_item_plans;
 pub mod work_items;
 pub mod workspace;
 

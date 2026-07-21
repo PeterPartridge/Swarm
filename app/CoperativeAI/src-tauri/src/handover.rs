@@ -36,6 +36,21 @@ pub struct HandoverInputs<'a> {
     pub clarifications: &'a [String],
     /// What this work must not break: other work that depends on it.
     pub depended_on_by: &'a [String],
+    /// The per-Solution plan: what changes, what proves it, which branch, and
+    /// the schemas generated from all of that.
+    pub solution_plans: &'a [SolutionPlanBrief<'a>],
+}
+
+/// One Solution's slice of the work, as it reaches the agent.
+pub struct SolutionPlanBrief<'a> {
+    pub name: &'a str,
+    pub changes_required: &'a str,
+    pub unit_tests: &'a str,
+    pub branch_name: &'a str,
+    pub clone_from: &'a str,
+    pub api_schema: &'a str,
+    pub page_schema: &'a str,
+    pub files_to_change: &'a str,
 }
 
 /// Builds the brief handed to the agent.
@@ -86,6 +101,44 @@ pub fn brief(inputs: &HandoverInputs<'_>) -> String {
                 "The developer chose this approach: **{option}**. Build that one; do not \
                  re-open the decision.\n\n"
             ));
+        }
+    }
+
+    if !inputs.solution_plans.is_empty() {
+        s.push_str("## What each Solution needs\n\n");
+        for plan in inputs.solution_plans {
+            s.push_str(&format!("### {}\n\n", plan.name));
+            if !plan.branch_name.trim().is_empty() {
+                s.push_str(&format!(
+                    "Work on branch `{}`{}.\n\n",
+                    plan.branch_name,
+                    if plan.clone_from.trim().is_empty() {
+                        String::new()
+                    } else {
+                        format!(", cut from `{}`", plan.clone_from)
+                    }
+                ));
+            }
+            if !plan.changes_required.trim().is_empty() {
+                s.push_str(&format!("{}\n\n", plan.changes_required.trim()));
+            }
+            for (heading, body) in [
+                ("API schema", plan.api_schema),
+                ("Page schema", plan.page_schema),
+                ("Files expected to change", plan.files_to_change),
+            ] {
+                if !body.trim().is_empty() {
+                    s.push_str(&format!("**{heading}:**\n\n```\n{}\n```\n\n", body.trim()));
+                }
+            }
+            // Last, and phrased as a requirement: tests written after the fact
+            // are tests written to pass.
+            if !plan.unit_tests.trim().is_empty() {
+                s.push_str(&format!(
+                    "**These must be proved by tests:** {}\n\n",
+                    plan.unit_tests.trim()
+                ));
+            }
         }
     }
 
@@ -176,7 +229,37 @@ mod tests {
             architecture: &[],
             clarifications: &[],
             depended_on_by: &[],
+            solution_plans: &[],
         }
+    }
+
+    /// The schemas are the point of the planning feature — if they do not reach
+    /// the agent, the questions were asked for nothing.
+    #[test]
+    fn the_per_solution_plan_reaches_the_brief() {
+        let r = rules();
+        let mut i = inputs(&r);
+        let plans = [SolutionPlanBrief {
+            name: "Shop API",
+            changes_required: "Add POST /checkout",
+            unit_tests: "It charges exactly once",
+            branch_name: "feature/12-add-checkout",
+            clone_from: "main",
+            api_schema: "POST /checkout -> 201",
+            page_schema: "",
+            files_to_change: "src/api/checkout.rs",
+        }];
+        i.solution_plans = &plans;
+        let brief = brief(&i);
+
+        assert!(brief.contains("### Shop API"));
+        assert!(brief.contains("branch `feature/12-add-checkout`"));
+        assert!(brief.contains("cut from `main`"));
+        assert!(brief.contains("POST /checkout -> 201"));
+        assert!(brief.contains("src/api/checkout.rs"));
+        assert!(brief.contains("must be proved by tests"));
+        // an empty schema half is left out rather than printed as a blank fence
+        assert!(!brief.contains("**Page schema:**"));
     }
 
     #[test]

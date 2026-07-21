@@ -27,6 +27,7 @@ pub const PURPOSES: &[&str] = &[
     "designStrategy",
     "architectureDoc",
     "codingPal",
+    "changePlan",
 ];
 
 /// How the call ended.

@@ -10,6 +10,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     ...original,
     listWorkItems: vi.fn(),
     listSprints: vi.fn(),
+    listSolutions: vi.fn(),
     listTeamMembers: vi.fn(),
     getSolutionStrategy: vi.fn(),
     generateSolutionStrategy: vi.fn(),
@@ -39,6 +40,7 @@ describe("WorkItemViews", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocked.listSprints.mockResolvedValue([sprint]);
+    mocked.listSolutions.mockResolvedValue([]);
     mocked.listTeamMembers.mockResolvedValue([ada, bob]);
     mocked.getSolutionStrategy.mockResolvedValue(null);
     mocked.listWorkItems.mockResolvedValue([

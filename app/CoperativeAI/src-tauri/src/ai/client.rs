@@ -1174,6 +1174,228 @@ pub async fn generate_pal(
     Ok((parse_pal(&json_text)?, usage))
 }
 
+/// What one Solution must change, as schemas rather than code.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct SolutionChange {
+    /// Which Solution this is for, by name — matched back to an id by the
+    /// caller, because a model cannot be trusted with a database key.
+    pub solution: String,
+    /// The API surface: endpoints, payloads, status codes.
+    pub api_schema: String,
+    /// The UI: pages, their fields, and what they call.
+    pub page_schema: String,
+    /// Paths the work is expected to touch.
+    pub files_to_change: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum GeneratedChangePlan {
+    Plan(Vec<SolutionChange>),
+    Blocked {
+        reason: String,
+        what_is_needed: String,
+    },
+}
+
+/// One Solution's written plan, borrowed for prompt building.
+pub struct SolutionPlanPrompt<'a> {
+    pub name: &'a str,
+    pub solution_type: &'a str,
+    pub changes_required: &'a str,
+    pub unit_tests: &'a str,
+    pub mockups: &'a [String],
+}
+
+/// Builds the prompt that turns a written work-item plan into schemas.
+///
+/// The whole point of the surrounding feature is that Product and the
+/// developers have already answered enough questions; this prompt is where
+/// that pays off, so the answers travel in the **context** half along with the
+/// rules and architecture, and the task half is only the ask.
+#[allow(clippy::too_many_arguments)]
+pub fn build_change_plan_prompt(
+    product_name: &str,
+    product_answers: &str,
+    strategy: &str,
+    item_title: &str,
+    item_description: Option<&str>,
+    rules: &DeveloperRulesPrompt<'_>,
+    architecture: &[(String, String)],
+    clarifications: &[String],
+    plans: &[SolutionPlanPrompt<'_>],
+) -> Prompt {
+    let mut context = product_context(product_name, product_answers, Some(strategy), &[]);
+
+    context.push_str("\nDeveloper rules — constraints, not preferences:\n");
+    for (label, value) in [
+        ("Coding standards", rules.coding_standards),
+        ("Architecture principles", rules.architecture_principles),
+        ("Maintainability", rules.maintainability),
+        ("Preferred frameworks", rules.preferred_frameworks),
+        ("Allowed technologies", rules.allowed_tech),
+        ("Constraints on AI", rules.ai_constraints),
+    ] {
+        if !value.trim().is_empty() {
+            context.push_str(&format!("- {label}: {value}\n"));
+        }
+    }
+    if !rules.disallowed_tech.trim().is_empty() {
+        context.push_str(&format!(
+            "- MUST NOT use, under any circumstances: {}\n",
+            rules.disallowed_tech
+        ));
+    }
+
+    if !architecture.is_empty() {
+        context.push_str("\nHow the system is put together:\n");
+        for (name, content) in architecture {
+            context.push_str(&format!("--- {name} ---\n{content}\n"));
+        }
+    }
+    append_clarifications(&mut context, clarifications);
+
+    let mut task = format!("Work item: {item_title}\n");
+    if let Some(description) = item_description {
+        if !description.trim().is_empty() {
+            task.push_str(&format!("Description: {description}\n"));
+        }
+    }
+    task.push_str("\nThe team has written what each affected Solution needs:\n\n");
+    for plan in plans {
+        task.push_str(&format!("### {} ({})\n", plan.name, plan.solution_type));
+        task.push_str(&format!(
+            "Changes required: {}\n",
+            if plan.changes_required.trim().is_empty() {
+                "(not written yet)"
+            } else {
+                plan.changes_required
+            }
+        ));
+        if !plan.unit_tests.trim().is_empty() {
+            task.push_str(&format!("Must be proved by: {}\n", plan.unit_tests));
+        }
+        // Named, never described: this platform sends text, so a mockup is a
+        // fact about the work rather than something the model can look at.
+        if !plan.mockups.is_empty() {
+            task.push_str(&format!(
+                "UI mockups exist for this Solution ({}). You cannot see them — \
+                 if the layout matters and the written changes do not describe it, \
+                 say so rather than inventing one.\n",
+                plan.mockups.join(", ")
+            ));
+        }
+        task.push('\n');
+    }
+    task.push_str(
+        "For EACH Solution above, give the schemas a developer would build from: \
+         \"apiSchema\" (endpoints, their payloads and status codes — empty if this \
+         Solution has no API), \"pageSchema\" (pages, their fields, and which \
+         endpoints they call — empty if it has no UI), and \"filesToChange\" (the \
+         paths you expect this work to touch). Name each Solution exactly as it is \
+         written above. Design only what this work item asks for.",
+    );
+    task.push_str(ESCAPE_HATCH_CHANGE_PLAN);
+    Prompt { context, task }
+}
+
+const ESCAPE_HATCH_CHANGE_PLAN: &str = "\n\nIf what the team has written is too \
+     vague or contradictory to design from, do NOT invent the missing half. Return \
+     an empty \"solutions\" list and fill in \"blocked\" with the reason and the \
+     single most useful question a person could answer.";
+
+fn change_plan_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "solutions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "solution": {"type": "string"},
+                        "apiSchema": {"type": "string"},
+                        "pageSchema": {"type": "string"},
+                        "filesToChange": {"type": "string"}
+                    },
+                    "required": ["solution", "apiSchema", "pageSchema", "filesToChange"],
+                    "additionalProperties": false
+                }
+            },
+            "blocked": blocked_schema()
+        },
+        "required": ["solutions"],
+        "additionalProperties": false
+    })
+}
+
+/// Parses a change-plan response (pure — unit tested).
+pub fn parse_change_plan(text: &str) -> Result<GeneratedChangePlan, String> {
+    let value: Value = serde_json::from_str(text)
+        .map_err(|e| format!("the AI response was not valid JSON: {e}"))?;
+
+    if let Some(blocked) = value.get("blocked").filter(|b| !b.is_null()) {
+        let reason = blocked
+            .get("reason")
+            .and_then(|r| r.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if !reason.is_empty() {
+            return Ok(GeneratedChangePlan::Blocked {
+                reason,
+                what_is_needed: blocked
+                    .get("whatIsNeeded")
+                    .and_then(|w| w.as_str())
+                    .unwrap_or("")
+                    .trim()
+                    .to_string(),
+            });
+        }
+    }
+
+    let solutions: Vec<SolutionChange> = value
+        .get("solutions")
+        .and_then(|s| s.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|s| {
+                    Some(SolutionChange {
+                        solution: s.get("solution")?.as_str()?.trim().to_string(),
+                        api_schema: strip_fence(s.get("apiSchema").and_then(|v| v.as_str()).unwrap_or("")),
+                        page_schema: strip_fence(s.get("pageSchema").and_then(|v| v.as_str()).unwrap_or("")),
+                        files_to_change: s
+                            .get("filesToChange")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .trim()
+                            .to_string(),
+                    })
+                })
+                .filter(|s| !s.solution.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if solutions.is_empty() {
+        return Err("the AI response contained no solution changes".into());
+    }
+    Ok(GeneratedChangePlan::Plan(solutions))
+}
+
+/// Calls the provider for a work item's change plan.
+pub async fn generate_change_plan(
+    api_base_url: &str,
+    api_key: &str,
+    model: &str,
+    effort: &str,
+    prompt: &Prompt,
+) -> Result<(GeneratedChangePlan, Usage), String> {
+    let (json_text, usage) =
+        post_structured(api_base_url, api_key, model, effort, prompt, change_plan_schema()).await?;
+    Ok((parse_change_plan(&json_text)?, usage))
+}
+
 /// Minimal connectivity check: one tiny Messages call.
 pub async fn test_connection(api_base_url: &str, api_key: &str, model: &str) -> Result<(), String> {
     let url = format!("{}/v1/messages", api_base_url.trim_end_matches('/'));
@@ -1305,6 +1527,93 @@ mod tests {
         assert!(prompt.task.contains("Draw the components"));
         assert!(prompt.task.contains("Mermaid"));
         assert!(!prompt.task.contains("How it fits"), "context, not task");
+    }
+
+    /// The point of the whole feature: the questions Product already answered
+    /// are clarifications on the item, so they reach the prompt without anyone
+    /// re-typing them — in the cacheable half, with the rules.
+    #[test]
+    fn a_change_plan_prompt_carries_the_answers_and_asks_per_solution() {
+        let rules = DeveloperRulesPrompt {
+            coding_standards: "",
+            architecture_principles: "",
+            maintainability: "",
+            preferred_frameworks: "",
+            allowed_tech: "",
+            disallowed_tech: "jQuery",
+            ai_constraints: "",
+        };
+        let plans = [
+            SolutionPlanPrompt {
+                name: "Shop API",
+                solution_type: "api",
+                changes_required: "Add POST /checkout",
+                unit_tests: "It charges once",
+                mockups: &[],
+            },
+            SolutionPlanPrompt {
+                name: "Shop Web",
+                solution_type: "website",
+                changes_required: "",
+                mockups: &["C:/shots/basket.png".to_string()],
+                unit_tests: "",
+            },
+        ];
+        let prompt = build_change_plan_prompt(
+            "Shop", "{}", "{}", "Add checkout", Some("Take payment"), &rules,
+            &[("How it fits".into(), "flowchart TD".into())],
+            &["Card payments only, no wallets.".to_string()],
+            &plans,
+        );
+
+        assert!(prompt.context.contains("Card payments only"), "answers travel");
+        assert!(prompt.context.contains("MUST NOT use"));
+        assert!(prompt.context.contains("How it fits"));
+        assert!(prompt.task.contains("Add POST /checkout"));
+        assert!(prompt.task.contains("It charges once"));
+        // a Solution with nothing written says so rather than looking complete
+        assert!(prompt.task.contains("(not written yet)"));
+        // and the mockup is named as a fact, with the model told it cannot see it
+        assert!(prompt.task.contains("basket.png"));
+        assert!(prompt.task.contains("You cannot see them"));
+    }
+
+    #[test]
+    fn a_change_plan_parses_per_solution_with_fences_stripped() {
+        let response = json!({
+            "solutions": [
+                {
+                    "solution": "Shop API",
+                    "apiSchema": "```json\n{\"POST /checkout\": {}}\n```",
+                    "pageSchema": "",
+                    "filesToChange": "src/api/checkout.rs"
+                },
+                { "solution": "  ", "apiSchema": "x", "pageSchema": "", "filesToChange": "" }
+            ]
+        })
+        .to_string();
+
+        let GeneratedChangePlan::Plan(changes) = parse_change_plan(&response).expect("parse") else {
+            panic!("expected a plan");
+        };
+        assert_eq!(changes.len(), 1, "a nameless entry cannot be matched to a Solution");
+        assert_eq!(changes[0].solution, "Shop API");
+        assert_eq!(changes[0].api_schema, "{\"POST /checkout\": {}}");
+    }
+
+    #[test]
+    fn an_empty_change_plan_is_an_error_and_a_refusal_is_a_question() {
+        assert!(parse_change_plan(&json!({ "solutions": [] }).to_string()).is_err());
+
+        let blocked = json!({
+            "solutions": [],
+            "blocked": { "reason": "No payment provider named.", "whatIsNeeded": "Which provider?" }
+        })
+        .to_string();
+        match parse_change_plan(&blocked).expect("parse") {
+            GeneratedChangePlan::Blocked { reason, .. } => assert!(reason.contains("payment")),
+            other => panic!("expected Blocked, got {other:?}"),
+        }
     }
 
     /// The file is the expensive, stable half of a pal prompt — several

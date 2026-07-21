@@ -8,8 +8,9 @@
 //! leaves the machine.
 
 use crate::ai::client::{
-    parse_design, parse_diagram, parse_generation, parse_pal, parse_solution_strategy, Generated,
-    GeneratedDesign, GeneratedDiagram, GeneratedPal, GeneratedStrategy, Prompt, Usage,
+    parse_change_plan, parse_design, parse_diagram, parse_generation, parse_pal,
+    parse_solution_strategy, Generated, GeneratedChangePlan, GeneratedDesign, GeneratedDiagram,
+    GeneratedPal, GeneratedStrategy, Prompt, Usage,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -275,6 +276,46 @@ fn pal_schema() -> serde_json::Value {
             }
         },
         "required": ["explanation", "replacement", "technologies"]
+    })
+}
+
+/// Generates a work item's change plan from a local model.
+pub async fn generate_change_plan(
+    api_base_url: &str,
+    model: &str,
+    prompt: &Prompt,
+) -> Result<(GeneratedChangePlan, Usage), String> {
+    let (content, usage) = chat(api_base_url, model, prompt, change_plan_schema()).await?;
+    Ok((parse_change_plan(&content)?, usage))
+}
+
+/// The change-plan shape, mirroring the Claude schema so one parser serves both.
+fn change_plan_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "solutions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "solution": {"type": "string"},
+                        "apiSchema": {"type": "string"},
+                        "pageSchema": {"type": "string"},
+                        "filesToChange": {"type": "string"}
+                    },
+                    "required": ["solution", "apiSchema", "pageSchema", "filesToChange"]
+                }
+            },
+            "blocked": {
+                "type": ["object", "null"],
+                "properties": {
+                    "reason": {"type": "string"},
+                    "whatIsNeeded": {"type": "string"}
+                }
+            }
+        },
+        "required": ["solutions"]
     })
 }
 

@@ -360,6 +360,39 @@ pub async fn prepare_handover(
             })
             .collect();
 
+        // The per-Solution plan, so what the team wrote and the AI drew from it
+        // travels with the work rather than staying in the app.
+        let plan_rows = crate::db::work_item_plan::list_for_item(&conn, work_item_id)
+            .await
+            .map_err(to_message)?;
+        let all_solutions = solution::list_by_product(&conn, item.product_id)
+            .await
+            .map_err(to_message)?;
+        let plan_names: Vec<String> = plan_rows
+            .iter()
+            .map(|p| {
+                all_solutions
+                    .iter()
+                    .find(|s| s.id == p.solution_id)
+                    .map(|s| s.name.clone())
+                    .unwrap_or_default()
+            })
+            .collect();
+        let solution_plans: Vec<handover::SolutionPlanBrief<'_>> = plan_rows
+            .iter()
+            .zip(plan_names.iter())
+            .map(|(p, name)| handover::SolutionPlanBrief {
+                name,
+                changes_required: &p.changes_required,
+                unit_tests: &p.unit_tests,
+                branch_name: &p.branch_name,
+                clone_from: &p.clone_from,
+                api_schema: &p.api_schema,
+                page_schema: &p.page_schema,
+                files_to_change: &p.files_to_change,
+            })
+            .collect();
+
         let brief = handover::brief(&HandoverInputs {
             product_name: &product_row.name,
             work_item_title: &item.title,
@@ -373,6 +406,7 @@ pub async fn prepare_handover(
             architecture: &architecture,
             clarifications: &clarifications,
             depended_on_by: &depended_on_by,
+            solution_plans: &solution_plans,
         });
         // Attempt number from the run history, so a second handover writes a
         // new file beside the first rather than over it.

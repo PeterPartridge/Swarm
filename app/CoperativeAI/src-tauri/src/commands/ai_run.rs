@@ -201,6 +201,7 @@ mod tests {
             "designStrategy",      // design::generate_design_strategy
             "architectureDoc",     // architecture::generate_architecture_doc
             "codingPal",           // workspace::ask_coding_pal
+            "changePlan",          // work_item_plans::generate_change_plan
         ];
         for purpose in used_by_commands {
             record(

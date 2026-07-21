@@ -13,7 +13,12 @@ use turso::Connection;
 /// `cantImplement` — the model will not attempt it as specified.
 /// `needsInformation` — it could, given a specific answer.
 /// `suggestion` — it proceeded, but flagged something.
-pub const KINDS: &[&str] = &["cantImplement", "needsInformation", "suggestion"];
+/// `productQuestion` is raised by a developer rather than the AI, but it uses
+/// this table on purpose: the answer becomes a clarification like any other,
+/// so what Product answered travels into every later prompt for that item.
+/// A second Q&A mechanism would answer the same questions into a different box.
+pub const KINDS: &[&str] =
+    &["cantImplement", "needsInformation", "suggestion", "productQuestion"];
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AiFeedback {

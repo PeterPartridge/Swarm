@@ -1,12 +1,15 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import SolutionStrategyPanel from "./SolutionStrategyPanel";
+import WorkItemBuildPlan from "./WorkItemBuildPlan";
 import {
+  listSolutions,
   listSprints,
   listTeamMembers,
   listWorkItems,
   DEV_VIEWS,
   STATUSES,
   TYPE_LABELS,
+  type Solution,
   type Sprint,
   type TeamMember,
   type WorkItem,
@@ -22,17 +25,23 @@ export default function WorkItemViews({ productId }: { productId: number }) {
   const [view, setView] = useState<(typeof DEV_VIEWS)[number]>("board");
   const [assignee, setAssignee] = useState<string>("all"); // "all" | "unassigned" | id
   const [strategyItem, setStrategyItem] = useState<number | null>(null);
+  const [planItem, setPlanItem] = useState<number | null>(null);
+  const [solutions, setSolutions] = useState<Solution[]>([]);
 
   const refresh = useCallback(async () => {
     try {
-      const [loadedItems, loadedSprints, loadedMembers] = await Promise.all([
-        listWorkItems(productId),
-        listSprints(productId),
-        listTeamMembers(),
-      ]);
+      const [loadedItems, loadedSprints, loadedMembers, loadedSolutions] =
+        await Promise.all([
+          listWorkItems(productId),
+          listSprints(productId),
+          listTeamMembers(),
+          listSolutions(),
+        ]);
       setItems(loadedItems);
       setSprints(loadedSprints);
       setMembers(loadedMembers);
+      // Work reaches a repository through a Solution of its own Product.
+      setSolutions(loadedSolutions.filter((s) => s.productId === productId));
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -158,12 +167,25 @@ export default function WorkItemViews({ productId }: { productId: number }) {
                     >
                       {strategyItem === i.id ? "Hide" : "How to build"}
                     </button>
+                    <button
+                      aria-label={`Open ${i.title}`}
+                      onClick={() => setPlanItem(planItem === i.id ? null : i.id)}
+                    >
+                      {planItem === i.id ? "Close" : "Open"}
+                    </button>
                   </td>
                 </tr>
                 {strategyItem === i.id && (
                   <tr>
                     <td colSpan={6}>
                       <SolutionStrategyPanel workItemId={i.id} itemTitle={i.title} />
+                    </td>
+                  </tr>
+                )}
+                {planItem === i.id && (
+                  <tr>
+                    <td colSpan={6}>
+                      <WorkItemBuildPlan item={i} solutions={solutions} />
                     </td>
                   </tr>
                 )}
