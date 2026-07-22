@@ -21,6 +21,7 @@ pub struct WorkItemChangeDto {
     pub action: String,
     pub name: String,
     pub detail: String,
+    pub mockup_path: Option<String>,
 }
 
 impl From<work_item_change::WorkItemChange> for WorkItemChangeDto {
@@ -33,6 +34,7 @@ impl From<work_item_change::WorkItemChange> for WorkItemChangeDto {
             action: c.action,
             name: c.name,
             detail: c.detail,
+            mockup_path: c.mockup_path,
         }
     }
 }
@@ -127,4 +129,20 @@ pub async fn change_kinds_for_solution(
         .iter()
         .map(|k| k.to_string())
         .collect())
+}
+
+/// Links a screen to the mockup that shows it, or clears the link.
+///
+/// Without this, screens and pictures were two lists side by side and the model
+/// got a pile of images with a list of names, left to guess the pairing.
+#[tauri::command]
+pub async fn set_change_mockup(
+    db: State<'_, AppDb>,
+    id: i64,
+    mockup_path: Option<String>,
+) -> Result<(), String> {
+    let conn = db.0.lock().await;
+    work_item_change::set_mockup(&conn, id, mockup_path.as_deref())
+        .await
+        .map_err(to_message)
 }

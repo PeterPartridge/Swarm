@@ -314,6 +314,47 @@ mod tests {
         let _ = std::fs::remove_dir_all(&parent);
     }
 
+    /// One offered starter, run for real. Every other test here drives `echo`,
+    /// which proves the plumbing and nothing about whether the commands work.
+    ///
+    /// Skipped rather than failed when cargo is absent: this asserts that *our*
+    /// template is right, not that every machine has Rust installed, and a test
+    /// that fails on a machine without a toolchain is a test people learn to
+    /// ignore.
+    #[test]
+    fn the_rust_starter_really_creates_a_project() {
+        let available = Command::new("cargo")
+            .arg("--version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !available {
+            eprintln!("skipped: cargo is not on PATH");
+            return;
+        }
+
+        let parent = scratch("real-rust");
+        let template = find("rust").expect("the rust starter").command;
+        let outcome = run(
+            parent.to_str().unwrap(),
+            "Shop Core",
+            &fill(&template, "Shop Core"),
+        )
+        .expect("should run");
+
+        assert!(outcome.succeeded, "cargo said: {}", outcome.output);
+        let manifest = parent.join("shop-core").join("Cargo.toml");
+        assert!(manifest.is_file(), "no Cargo.toml at {}", manifest.display());
+        let text = std::fs::read_to_string(&manifest).expect("read manifest");
+        assert!(
+            text.contains("shop-core"),
+            "the slugged name should be the package name: {text}"
+        );
+        let _ = std::fs::remove_dir_all(&parent);
+    }
+
     #[test]
     fn an_empty_command_is_refused() {
         let parent = scratch("empty-command");

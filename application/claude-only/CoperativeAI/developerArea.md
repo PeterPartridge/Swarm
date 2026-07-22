@@ -34,6 +34,42 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 15b — Paying off the debt
+
+### My Feedback
+
+You asked for the debt to be fixed, so this round builds nothing new and closes seven things.
+
+**The structured list now reaches the model.** This was the one I flagged myself and the largest of them: the team wrote screens, endpoints and tables, and the prompt was handed only the prose beside them — so the schemas came from a summary of the plan rather than from the plan. They now travel grouped by kind, each under **"this is the complete list"**, which is the load-bearing sentence: without it a model reads the names as examples and adds a few of its own. Add and change render differently, because they are different work.
+
+**Screens and pictures are one thing now.** A screen can name the mockup that shows it, and the prompt renders it as `Basket — now shows delivery (shown in basket.png)`. Previously the model got a pile of images and a list of names and had to guess the pairing. The reference is only written **when the picture was actually attached** — a "shown in basket.png" beside an image that was never sent is a reference to nothing.
+
+**Unassigned asks are reported, not dropped.** A screen Product asked for that reaches no Solution is exactly the thing that goes missing until somebody notices it was never built, so the run now names them: *"not assigned to any Solution, so not designed: Basket"*. Same rule as the skipped pictures.
+
+**Duplicates are refused**, case-insensitively and per Solution — two rows for the same endpoint is not a plan, it is a plan and a typo. The same name against a *different* Solution is still allowed, because an endpoint the API serves and a screen the web app shows are genuinely different work.
+
+**The terminal now kills the process tree.** Killing the shell alone left an `npm run dev` holding its port, which presents much later as "port already in use" with nothing visible using it. Done through `taskkill /T` on Windows and a negative PID on Unix — one command each, no new dependency. Best effort by design: a child that has already exited must not stop the panel from closing.
+
+**A failed starter is no longer a dead end.** It can be re-run against the Solution that was created anyway, so a missing toolchain is installed and retried rather than requiring the answers to be retyped.
+
+**The pragma spelling cannot come back quietly.** A test walks the source for `SELECT … pragma_table_info` and fails the build with the reason. That bug cost every Product anyone had ever created, and the fix was a convention — which is only as good as the next person who has not heard of it.
+
+### Your Feedback
+
+- **One starter is now run for real.** Every other starter test drove `echo`, which proves the plumbing and nothing about whether the commands are right. The Rust one really runs `cargo init` and asserts the slugged package name landed in `Cargo.toml` — and **skips rather than fails** when cargo is absent, because it asserts that *our template* is right, not that every machine has Rust.
+- **The empty case is tested too.** A Solution with nothing structured against it must not grow a "Screens — this is the complete list:" heading followed by nothing, which reads as a deliberate instruction to build no screens.
+- **The mockup is named by file, not by path.** The model is shown the picture, not the disk, so the folder is noise that costs tokens on every call.
+
+### Technical Debt
+
+Deliberately still open, with reasons:
+
+- **Nothing resizes an image.** A 4 MB screenshot is still sent at full resolution. Fixing it means an image-decoding dependency and a quality judgement about what a downscale loses; that is a decision, not a cleanup.
+- **The image limits, and `kinds_for`, are still constants rather than Admin policy.** Both are opinions that have not yet been wrong in practice, and moving them is a feature, not a debt payment.
+- **One shell per Solution tab**, and scrollback still dies with the panel — the latter is the page brief's own instruction.
+- **The Ollama half of the AI window is still a description, not a control.**
+- **Standing: the Claude path is unproven live.** `ANTHROPIC_API_KEY=sk-... cargo test -- --ignored caching_is_live`.
+
 ## Round 15 — What a work item changes, and starting a Solution from its own toolchain
 
 ### My Feedback

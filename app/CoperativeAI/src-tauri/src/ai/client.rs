@@ -1232,11 +1232,35 @@ pub enum GeneratedChangePlan {
 }
 
 /// One Solution's written plan, borrowed for prompt building.
+/// One screen, endpoint or table the plan names.
+///
+/// Passed structured rather than pre-rendered so the rendering is testable and
+/// happens in one place — a caller building this text itself would be a second
+/// wording of the same thing, and the two would drift.
+pub struct PlannedChange<'a> {
+    /// "screen" | "api" | "table"
+    pub kind: &'a str,
+    /// "add" | "change"
+    pub action: &'a str,
+    pub name: &'a str,
+    pub detail: &'a str,
+    /// The mockup this screen is a picture of, when one was linked.
+    pub mockup: Option<&'a str>,
+}
+
 pub struct SolutionPlanPrompt<'a> {
     pub name: &'a str,
     pub solution_type: &'a str,
     pub changes_required: &'a str,
     pub unit_tests: &'a str,
+    /// The screens, endpoints and tables recorded against this Solution.
+    ///
+    /// This is the half the prompt used to miss entirely: the team wrote a
+    /// structured list and the model was handed only the prose beside it, so
+    /// the schemas were derived from a summary of the plan rather than the
+    /// plan. Named explicitly, and named as *the* list, so a model does not
+    /// quietly invent a sixth endpoint.
+    pub changes: &'a [PlannedChange<'a>],
     pub mockups: &'a [String],
     /// True when the mockups are actually attached to this request. Changes
     /// what the prompt says about them from "you cannot see these" to "look at
@@ -1312,6 +1336,35 @@ pub fn build_change_plan_prompt(
         ));
         if !plan.unit_tests.trim().is_empty() {
             task.push_str(&format!("Must be proved by: {}\n", plan.unit_tests));
+        }
+        // The structured list, grouped so each kind reads as one instruction.
+        // "This is the complete list" is the load-bearing sentence: without it
+        // a model treats the names as examples and adds a few of its own.
+        for (kind, heading) in [
+            ("screen", "Screens"),
+            ("api", "APIs"),
+            ("table", "Database tables"),
+        ] {
+            let of_kind: Vec<&PlannedChange<'_>> =
+                plan.changes.iter().filter(|c| c.kind == kind).collect();
+            if of_kind.is_empty() {
+                continue;
+            }
+            task.push_str(&format!("{heading} — this is the complete list:\n"));
+            for change in of_kind {
+                let verb = if change.action == "add" { "new" } else { "change" };
+                task.push_str(&format!("- [{verb}] {}", change.name));
+                if !change.detail.trim().is_empty() {
+                    task.push_str(&format!(" — {}", change.detail.trim()));
+                }
+                // Which picture is which screen. Without this the model has a
+                // pile of images and a list of names and has to guess the
+                // pairing, which is exactly the guess worth removing.
+                if let Some(mockup) = change.mockup {
+                    task.push_str(&format!(" (shown in {mockup})"));
+                }
+                task.push('\n');
+            }
         }
         if !plan.mockups.is_empty() {
             if plan.mockups_attached {
@@ -1642,6 +1695,7 @@ mod tests {
             changes_required: "Rework the basket",
             unit_tests: "",
             mockups: &["C:/shots/basket.png".to_string()],
+            changes: &[],
             mockups_attached: true,
         }];
         let prompt = build_change_plan_prompt(
@@ -1655,6 +1709,102 @@ mod tests {
             "it can see them: {}",
             prompt.task
         );
+    }
+
+    /// The half the prompt used to miss entirely. The team wrote a structured
+    /// list of screens, endpoints and tables, and the model was handed only the
+    /// prose beside it — so the schemas came from a summary of the plan rather
+    /// than from the plan.
+    #[test]
+    fn the_screens_apis_and_tables_reach_the_prompt() {
+        let rules = DeveloperRulesPrompt {
+            coding_standards: "",
+            architecture_principles: "",
+            maintainability: "",
+            preferred_frameworks: "",
+            allowed_tech: "",
+            disallowed_tech: "",
+            ai_constraints: "",
+        };
+        let changes = [
+            PlannedChange {
+                kind: "api",
+                action: "add",
+                name: "POST /checkout",
+                detail: "takes the payment",
+                mockup: None,
+            },
+            PlannedChange {
+                kind: "table",
+                action: "add",
+                name: "orders",
+                detail: "",
+                mockup: None,
+            },
+            PlannedChange {
+                kind: "screen",
+                action: "change",
+                name: "Basket",
+                detail: "now shows delivery",
+                mockup: Some("basket.png"),
+            },
+        ];
+        let plans = [SolutionPlanPrompt {
+            name: "Shop API",
+            solution_type: "api",
+            changes_required: "wire up checkout",
+            unit_tests: "",
+            changes: &changes,
+            mockups: &["C:/shots/basket.png".to_string()],
+            mockups_attached: true,
+        }];
+        let prompt = build_change_plan_prompt(
+            "Shop", "{}", "{}", "Checkout", None, &rules, &[], &[], &plans,
+        );
+
+        assert!(prompt.task.contains("POST /checkout"), "the endpoint travels");
+        assert!(prompt.task.contains("takes the payment"), "and its detail");
+        assert!(prompt.task.contains("orders"), "the table travels");
+        assert!(prompt.task.contains("Basket"), "the screen travels");
+        // add and change are different work and must not read the same
+        assert!(prompt.task.contains("[new] POST /checkout"));
+        assert!(prompt.task.contains("[change] Basket"));
+        // grouped by kind, so each reads as one instruction
+        assert!(prompt.task.contains("APIs — this is the complete list"));
+        assert!(prompt.task.contains("Database tables — this is the complete list"));
+        // the sentence that stops a model treating the names as examples
+        assert!(prompt.task.matches("this is the complete list").count() == 3);
+        // which picture is which screen, so the pairing is not a guess
+        assert!(prompt.task.contains("Basket — now shows delivery (shown in basket.png)"));
+    }
+
+    /// A plan with nothing structured against it must not grow empty headings —
+    /// "Screens — this is the complete list:" followed by nothing reads as a
+    /// deliberate instruction to build no screens.
+    #[test]
+    fn a_solution_with_no_structured_changes_gets_no_headings() {
+        let rules = DeveloperRulesPrompt {
+            coding_standards: "",
+            architecture_principles: "",
+            maintainability: "",
+            preferred_frameworks: "",
+            allowed_tech: "",
+            disallowed_tech: "",
+            ai_constraints: "",
+        };
+        let plans = [SolutionPlanPrompt {
+            name: "Shop API",
+            solution_type: "api",
+            changes_required: "wire up checkout",
+            unit_tests: "",
+            changes: &[],
+            mockups: &[],
+            mockups_attached: false,
+        }];
+        let prompt = build_change_plan_prompt(
+            "Shop", "{}", "{}", "Checkout", None, &rules, &[], &[], &plans,
+        );
+        assert!(!prompt.task.contains("complete list"), "got: {}", prompt.task);
     }
 
     /// The point of the whole feature: the questions Product already answered
@@ -1678,6 +1828,7 @@ mod tests {
                 changes_required: "Add POST /checkout",
                 unit_tests: "It charges once",
                 mockups: &[],
+                changes: &[],
                 mockups_attached: false,
             },
             SolutionPlanPrompt {
@@ -1686,6 +1837,7 @@ mod tests {
                 changes_required: "",
                 mockups: &["C:/shots/basket.png".to_string()],
                 unit_tests: "",
+                changes: &[],
                 mockups_attached: false,
             },
         ];

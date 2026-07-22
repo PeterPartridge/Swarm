@@ -1437,6 +1437,8 @@ export interface WorkItemChange {
   action: ChangeAction;
   name: string;
   detail: string;
+  /** The mockup this screen is a picture of, when one was linked. */
+  mockupPath: string | null;
 }
 
 export const CHANGE_KIND_LABELS: Record<ChangeKind, string> = {
@@ -1512,3 +1514,21 @@ export const createSolutionWithStarter = (args: {
   command: string | null;
   parentDir: string | null;
 }): Promise<CreatedSolution> => invoke("create_solution_with_starter", args);
+
+/** Links a screen to the mockup that shows it, or clears the link. Without it
+ *  the model gets a pile of images and a list of names, left to guess which
+ *  picture is which screen. */
+export const setChangeMockup = (
+  id: number,
+  mockupPath: string | null,
+): Promise<void> => invoke("set_change_mockup", { id, mockupPath });
+
+/** Runs a starter against a Solution that already exists. Without this a failed
+ *  starter was a dead end — the only ways out were pointing at a folder by hand
+ *  or deleting and recreating the Solution. */
+export const startExistingSolution = (args: {
+  solutionId: number;
+  starterId: string;
+  command: string | null;
+  parentDir: string;
+}): Promise<StarterRun> => invoke("start_existing_solution", args);

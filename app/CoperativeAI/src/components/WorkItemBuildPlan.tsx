@@ -128,6 +128,10 @@ export default function WorkItemBuildPlan({
     }
   }
 
+  /// Every picture on this work item, across its Solutions — the candidates a
+  /// screen can point at. Deduped: the same shot is often attached to both the
+  /// API and the web app's plan.
+  const allMockups = [...new Set(plans.flatMap((p) => parseMockups(p.mockups)))];
   const unaffected = solutions.filter((s) => !plans.some((p) => p.solutionId === s.id));
   const openQuestions = questions.filter((q) => !q.resolved);
   const answered = questions.filter((q) => q.resolved);
@@ -140,7 +144,12 @@ export default function WorkItemBuildPlan({
       {/* Product's screens land here as unassigned rows; this is where they get
           pointed at a Solution, and where the APIs and tables behind them are
           added. */}
-      <WorkItemChanges workItemId={item.id} mode="developer" solutions={solutions} />
+      <WorkItemChanges
+        workItemId={item.id}
+        mode="developer"
+        solutions={solutions}
+        mockups={allMockups}
+      />
 
       <section aria-label="Affected solutions">
         <h4>Solutions affected</h4>

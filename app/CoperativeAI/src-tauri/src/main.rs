@@ -83,6 +83,8 @@ fn main() {
             commands::work_item_changes::update_work_item_change,
             commands::work_item_changes::delete_work_item_change,
             commands::work_item_changes::change_kinds_for_solution,
+            commands::work_item_changes::set_change_mockup,
+            commands::solutions::start_existing_solution,
             commands::solutions::delete_solution,
             commands::github::github_status,
             commands::github::set_github_token,

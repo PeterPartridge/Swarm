@@ -41,11 +41,15 @@ pub struct WorkItemChange {
     /// Free text: what the screen shows, what the endpoint does, what the
     /// table holds.
     pub detail: String,
+    /// The mockup this screen is a picture of. Screens and pictures were two
+    /// separate lists until this existed, so the model got a pile of images and
+    /// a list of names and had to guess the pairing.
+    pub mockup_path: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
-const SELECT: &str = "SELECT id, workItemId, solutionId, kind, action, name, detail, createdAt, updatedAt FROM work_item_changes";
+const SELECT: &str = "SELECT id, workItemId, solutionId, kind, action, name, detail, mockupPath, createdAt, updatedAt FROM work_item_changes";
 
 pub async fn create_table(conn: &Connection) -> Result<()> {
     conn.execute(
@@ -57,10 +61,33 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             action TEXT NOT NULL DEFAULT 'add',
             name TEXT NOT NULL,
             detail TEXT NOT NULL DEFAULT '',
+            mockupPath TEXT,
             createdAt INTEGER NOT NULL,
             updatedAt INTEGER NOT NULL
         )",
         (),
+    )
+    .await?;
+    let columns = crate::db::table_columns(conn, "work_item_changes").await?;
+    if !columns.is_empty() && !columns.iter().any(|c| c == "mockupPath") {
+        conn.execute(
+            "ALTER TABLE work_item_changes ADD COLUMN mockupPath TEXT",
+            (),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+/// Links a screen to the mockup that shows it, or clears the link.
+pub async fn set_mockup(conn: &Connection, id: i64, mockup_path: Option<&str>) -> Result<()> {
+    if find_by_id(conn, id).await?.is_none() {
+        return Err(DbError::Validation(format!("no change with id {id}")));
+    }
+    let cleaned = mockup_path.map(str::trim).filter(|p| !p.is_empty());
+    conn.execute(
+        "UPDATE work_item_changes SET mockupPath = ?1, updatedAt = ?2 WHERE id = ?3",
+        (cleaned, now_millis(), id),
     )
     .await?;
     Ok(())
@@ -137,6 +164,26 @@ pub async fn add(
                 allowed.join(", ")
             )));
         }
+    }
+
+    // Two rows for the same endpoint is not a plan, it is a plan and a typo.
+    // Compared case-insensitively and against the same Solution, because
+    // `POST /checkout` on the API and on the web app are genuinely different
+    // pieces of work.
+    let existing = list_for_item(conn, work_item_id).await?;
+    if existing.iter().any(|c| {
+        c.solution_id == solution_id
+            && c.kind == kind
+            && c.name.eq_ignore_ascii_case(name.trim())
+    }) {
+        return Err(DbError::Validation(format!(
+            "'{}' is already on this work item{}",
+            name.trim(),
+            match solution_id {
+                Some(_) => " for that Solution",
+                None => "",
+            }
+        )));
     }
 
     let now = now_millis();
@@ -276,8 +323,9 @@ fn row_to_change(row: turso::Row) -> Result<WorkItemChange> {
         action: row.get(4)?,
         name: row.get(5)?,
         detail: row.get(6)?,
-        created_at: row.get(7)?,
-        updated_at: row.get(8)?,
+        mockup_path: row.get(7)?,
+        created_at: row.get(8)?,
+        updated_at: row.get(9)?,
     })
 }
 
@@ -414,6 +462,52 @@ mod tests {
         assert!(add(&conn, item, Some(web), "screen", "destroy", "X", "").await.is_err());
         assert!(add(&conn, 9999, None, "screen", "add", "X", "").await.is_err());
         assert!(add(&conn, item, Some(9999), "screen", "add", "X", "").await.is_err());
+    }
+
+    /// Two rows for the same endpoint is not a plan, it is a plan and a typo.
+    #[tokio::test]
+    async fn the_same_thing_cannot_be_added_twice() {
+        let (conn, item, _web, api) = fixture().await;
+        add(&conn, item, Some(api), "api", "add", "POST /checkout", "")
+            .await
+            .expect("first");
+
+        let err = add(&conn, item, Some(api), "api", "add", "post /CHECKOUT", "")
+            .await
+            .expect_err("case is not a difference worth having two rows for");
+        assert!(err.to_string().contains("already on this work item"), "got: {err}");
+    }
+
+    /// The same name against a *different* Solution is genuinely different
+    /// work — an endpoint the API serves and one the web app calls.
+    #[tokio::test]
+    async fn the_same_name_against_another_solution_is_allowed() {
+        let (conn, item, web, api) = fixture().await;
+        add(&conn, item, Some(api), "api", "add", "Checkout", "")
+            .await
+            .expect("on the api");
+        add(&conn, item, Some(web), "screen", "add", "Checkout", "")
+            .await
+            .expect("a screen of the same name on the website is different work");
+    }
+
+    /// Screens and pictures were two separate lists, so the model got a pile of
+    /// images and a list of names and had to guess the pairing.
+    #[tokio::test]
+    async fn a_screen_can_name_the_mockup_that_shows_it() {
+        let (conn, item, web, _api) = fixture().await;
+        let id = add(&conn, item, Some(web), "screen", "add", "Basket", "")
+            .await
+            .expect("add");
+
+        set_mockup(&conn, id, Some("C:/shots/basket.png"))
+            .await
+            .expect("link");
+        let found = find_by_id(&conn, id).await.expect("find").expect("there");
+        assert_eq!(found.mockup_path.as_deref(), Some("C:/shots/basket.png"));
+
+        set_mockup(&conn, id, None).await.expect("unlink");
+        assert!(find_by_id(&conn, id).await.expect("f").expect("t").mockup_path.is_none());
     }
 
     #[tokio::test]

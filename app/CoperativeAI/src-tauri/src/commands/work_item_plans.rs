@@ -149,7 +149,7 @@ pub async fn generate_change_plan(
 
     const PURPOSE: &str = "changePlan";
 
-    let (routed, prompt, effort_tier, product_id, plans, solution_names, images, skipped) = {
+    let (routed, prompt, effort_tier, product_id, plans, solution_names, images, skipped, unassigned) = {
         let conn = db.0.lock().await;
         let Some(item) = work_item::find_by_id(&conn, work_item_id)
             .await
@@ -229,6 +229,28 @@ pub async fn generate_change_plan(
             .await
             .map_err(to_message)?;
 
+        // The structured screens/APIs/tables per Solution. Without these the
+        // model was handed only the prose beside them and derived schemas from
+        // a summary of the plan rather than the plan itself.
+        let mut planned: Vec<Vec<crate::db::work_item_change::WorkItemChange>> = Vec::new();
+        for p in &plans {
+            planned.push(
+                crate::db::work_item_change::list_for_solution(&conn, work_item_id, p.solution_id)
+                    .await
+                    .map_err(to_message)?,
+            );
+        }
+        // Asks nobody has assigned yet. Reported rather than silently dropped:
+        // a screen Product asked for that reaches no Solution is exactly the
+        // thing that goes missing until someone notices it was never built.
+        let unassigned: Vec<String> = crate::db::work_item_change::list_for_item(&conn, work_item_id)
+            .await
+            .map_err(to_message)?
+            .into_iter()
+            .filter(|c| c.solution_id.is_none())
+            .map(|c| c.name)
+            .collect();
+
         // Borrowed views for the prompt, and the names to match the reply back.
         let prompt_plans: Vec<(String, String, String, String, Vec<String>)> = plans
             .iter()
@@ -243,15 +265,41 @@ pub async fn generate_change_plan(
                 )
             })
             .collect();
+        let planned_borrowed: Vec<Vec<client::PlannedChange<'_>>> = planned
+            .iter()
+            .map(|per_solution| {
+                per_solution
+                    .iter()
+                    .map(|c| client::PlannedChange {
+                        kind: &c.kind,
+                        action: &c.action,
+                        name: &c.name,
+                        detail: &c.detail,
+                        // Only worth naming when the picture actually went: a
+                        // "shown in basket.png" beside an image the model was
+                        // never sent is a reference to nothing.
+                        mockup: c
+                            .mockup_path
+                            .as_deref()
+                            .filter(|_| mockups_attached)
+                            .map(file_name_of),
+                    })
+                    .collect()
+            })
+            .collect();
         let borrowed: Vec<client::SolutionPlanPrompt<'_>> = prompt_plans
             .iter()
-            .map(|(name, kind, changes, tests, mockups)| client::SolutionPlanPrompt {
-                name,
-                solution_type: kind,
-                changes_required: changes,
-                unit_tests: tests,
-                mockups,
-                mockups_attached,
+            .zip(planned_borrowed.iter())
+            .map(|((name, kind, changes, tests, mockups), changes_list)| {
+                client::SolutionPlanPrompt {
+                    name,
+                    solution_type: kind,
+                    changes_required: changes,
+                    unit_tests: tests,
+                    changes: changes_list,
+                    mockups,
+                    mockups_attached,
+                }
             })
             .collect();
 
@@ -287,7 +335,7 @@ pub async fn generate_change_plan(
                 )
             })
             .collect();
-        (routed, prompt, effort_tier, product_id, plans, names, images, skipped)
+        (routed, prompt, effort_tier, product_id, plans, names, images, skipped, unassigned)
     };
 
     let started = std::time::Instant::now();
@@ -341,6 +389,14 @@ pub async fn generate_change_plan(
             // looked at, so every omission is named.
             if !skipped.is_empty() {
                 reason.push_str(&format!(" — not sent: {}", skipped.join("; ")));
+            }
+            // A screen Product asked for that reaches no Solution is the thing
+            // that goes missing until someone notices it was never built.
+            if !unassigned.is_empty() {
+                reason.push_str(&format!(
+                    " — not assigned to any Solution, so not designed: {}",
+                    unassigned.join(", ")
+                ));
             }
             if !unmatched.is_empty() {
                 reason.push_str(&format!(
@@ -403,4 +459,11 @@ pub async fn generate_change_plan(
             Err(e)
         }
     }
+}
+
+/// The file name from a full path, for naming a mockup in the prompt.
+/// The model is shown the picture, not the disk, so the folder it lives in is
+/// noise that costs tokens.
+fn file_name_of(path: &str) -> &str {
+    path.rsplit(['/', '\\']).next().unwrap_or(path)
 }

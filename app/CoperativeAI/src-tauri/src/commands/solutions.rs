@@ -121,6 +121,52 @@ pub async fn create_solution_with_starter(
     Ok(CreatedSolution { solution_id, started: Some(started) })
 }
 
+/// Runs a starter against a Solution that already exists.
+///
+/// Without this a failed starter was a dead end: the only ways out were to
+/// point the Solution at a folder by hand or delete and recreate it, which
+/// meant retyping the answers to see whether a toolchain had been installed
+/// since. Same guards as creation — the command is the one shown in the form,
+/// and the folder must still be empty.
+#[tauri::command]
+pub async fn start_existing_solution(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+    starter_id: String,
+    command: Option<String>,
+    parent_dir: String,
+) -> Result<crate::starter::StarterRun, String> {
+    let name = {
+        let conn = db.0.lock().await;
+        let Some(row) = solution::find_by_id(&conn, solution_id)
+            .await
+            .map_err(to_message)?
+        else {
+            return Err("that Solution no longer exists".into());
+        };
+        row.name
+    };
+
+    let template = command
+        .filter(|c| !c.trim().is_empty())
+        .or_else(|| crate::starter::find(&starter_id).map(|s| s.command))
+        .unwrap_or_default();
+    let started = crate::starter::run(&parent_dir, &name, &crate::starter::fill(&template, &name))?;
+
+    {
+        let conn = db.0.lock().await;
+        solution::set_language(&conn, solution_id, Some(&starter_id))
+            .await
+            .map_err(to_message)?;
+        if started.succeeded {
+            solution::set_local_path(&conn, solution_id, Some(&started.directory))
+                .await
+                .map_err(to_message)?;
+        }
+    }
+    Ok(started)
+}
+
 #[tauri::command]
 pub async fn list_solutions(db: State<'_, AppDb>) -> Result<Vec<SolutionDto>, String> {
     let conn = db.0.lock().await;

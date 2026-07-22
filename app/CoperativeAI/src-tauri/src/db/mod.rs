@@ -311,3 +311,54 @@ mod durability_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+#[cfg(test)]
+mod spelling_guard {
+    /// The bad spelling must never come back.
+    ///
+    /// `SELECT ... FROM pragma_table_info(...)` leaves a read transaction open
+    /// and every write afterwards on that connection is discarded at process
+    /// exit. It cost this app every Product anyone had ever created. The fix
+    /// was `table_columns`, but that is a convention, and a convention is only
+    /// as good as the next person who does not know about it.
+    ///
+    /// This walks the source rather than the schema because the defect is in
+    /// how the question is *asked*, and nothing at runtime can see the
+    /// difference — that is exactly what made it so expensive.
+    #[test]
+    fn no_migration_reads_a_pragma_through_a_select() {
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut offenders = Vec::new();
+        walk(&src, &mut |path, text| {
+            // This file documents the spelling in order to forbid it.
+            if path.ends_with("mod.rs") && text.contains("no_migration_reads_a_pragma") {
+                return;
+            }
+            for (n, line) in text.lines().enumerate() {
+                let lower = line.to_lowercase();
+                if lower.contains("pragma_table_info") && lower.contains("select") {
+                    offenders.push(format!("{}:{}", path.display(), n + 1));
+                }
+            }
+        });
+        assert!(
+            offenders.is_empty(),
+            "use db::table_columns instead — a SELECT over pragma_table_info silently discards \
+             every later write on that connection. Found at: {offenders:?}"
+        );
+    }
+
+    fn walk(dir: &std::path::Path, f: &mut impl FnMut(&std::path::Path, &str)) {
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, f);
+            } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+                if let Ok(text) = std::fs::read_to_string(&path) {
+                    f(&path, &text);
+                }
+            }
+        }
+    }
+}

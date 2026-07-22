@@ -135,13 +135,26 @@ impl Session {
             .map_err(|e| format!("could not resize the terminal: {e}"))
     }
 
-    /// Ends the shell.
+    /// Ends the shell **and everything it started**.
     ///
-    /// Killing the shell does not reliably take its children with it — on
-    /// Windows especially, an `npm run dev` started in the panel outlives the
-    /// shell and keeps holding its port. Named in the debt rather than papered
-    /// over: this ends the shell, and a job started from it may survive.
+    /// Killing the shell alone does not take its children with it: an
+    /// `npm run dev` launched in the panel outlives it and keeps holding its
+    /// port, which is a leak that only shows up after an afternoon's work and
+    /// then presents as "port already in use" with nothing visible using it.
+    ///
+    /// The tree is ended through the platform's own tool rather than a crate,
+    /// because both spellings are one command and neither needs a dependency:
+    /// `taskkill /T` on Windows walks the child tree, and on Unix the shell is
+    /// a process-group leader so a negative PID signals the whole group.
+    ///
+    /// Best effort by design. A child that has already exited, or one this
+    /// process may not signal, must not stop the panel from closing — so the
+    /// tree kill is attempted, its failure ignored, and the shell itself is
+    /// then ended directly.
     pub fn kill(&mut self) -> Result<(), String> {
+        if let Some(pid) = self.child.process_id() {
+            let _ = kill_tree(pid);
+        }
         self.child
             .kill()
             .map_err(|e| format!("could not close the terminal: {e}"))?;
@@ -152,6 +165,27 @@ impl Session {
     /// Whether the shell has exited on its own — someone typed `exit`.
     pub fn finished(&mut self) -> bool {
         matches!(self.child.try_wait(), Ok(Some(_)))
+    }
+}
+
+/// Ends a process and its descendants, as far as the OS will allow.
+fn kill_tree(pid: u32) -> std::io::Result<()> {
+    if cfg!(windows) {
+        std::process::Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/T", "/F"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|_| ())
+    } else {
+        // A negative PID is the process group. The shell leads its own group,
+        // so this reaches everything it started.
+        std::process::Command::new("kill")
+            .args(["-TERM", &format!("-{pid}")])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|_| ())
     }
 }
 

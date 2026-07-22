@@ -13,6 +13,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     assignWorkItemChange: vi.fn(),
     deleteWorkItemChange: vi.fn(),
     changeKindsForSolution: vi.fn(),
+    setChangeMockup: vi.fn(),
   };
 });
 
@@ -43,6 +44,7 @@ const change = (over: Partial<WorkItemChange> = {}): WorkItemChange => ({
   action: "add",
   name: "Basket",
   detail: "shows what is in the basket",
+  mockupPath: null,
   ...over,
 });
 
@@ -159,6 +161,49 @@ describe("WorkItemChanges — the developer's half", () => {
     await user.selectOptions(screen.getByLabelText("Solution for Basket"), "5");
 
     await waitFor(() => expect(mocked.assignWorkItemChange).toHaveBeenCalledWith(1, 5));
+  });
+
+  /// Screens and pictures were two separate lists, so the model got a pile of
+  /// images with a list of names and had to guess the pairing.
+  it("links a screen to the picture that shows it", async () => {
+    const user = userEvent.setup();
+    mocked.listWorkItemChanges.mockResolvedValue([change({ solutionId: 5 })]);
+    mocked.setChangeMockup.mockResolvedValue(undefined);
+    render(
+      <WorkItemChanges
+        workItemId={9}
+        mode="developer"
+        solutions={[solution({ id: 5, name: "Shop Web", solutionType: "website" })]}
+        mockups={["C:/shots/basket.png", "C:/shots/checkout.png"]}
+      />,
+    );
+
+    // shown by file name, not by the folder it happens to live in
+    const picker = await screen.findByLabelText("Mockup for Basket");
+    expect(screen.getByRole("option", { name: "basket.png" })).toBeInTheDocument();
+
+    await user.selectOptions(picker, "C:/shots/basket.png");
+    await waitFor(() =>
+      expect(mocked.setChangeMockup).toHaveBeenCalledWith(1, "C:/shots/basket.png"),
+    );
+  });
+
+  /// Only screens have pictures. Offering one against a database table would be
+  /// asking a question with no sensible answer.
+  it("offers no picture against an API or a table", async () => {
+    mocked.listWorkItemChanges.mockResolvedValue([
+      change({ id: 2, kind: "api", name: "POST /checkout", solutionId: 3 }),
+    ]);
+    render(
+      <WorkItemChanges
+        workItemId={9}
+        mode="developer"
+        solutions={[solution()]}
+        mockups={["C:/shots/basket.png"]}
+      />,
+    );
+    await screen.findByText("POST /checkout");
+    expect(screen.queryByLabelText(/^Mockup for/)).not.toBeInTheDocument();
   });
 
   /// A screen cannot be dropped onto an API Solution, and the backend's refusal

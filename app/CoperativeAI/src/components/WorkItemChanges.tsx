@@ -5,6 +5,7 @@ import {
   changeKindsForSolution,
   deleteWorkItemChange,
   listWorkItemChanges,
+  setChangeMockup,
   CHANGE_KIND_LABELS,
   type ChangeAction,
   type ChangeKind,
@@ -31,11 +32,16 @@ export default function WorkItemChanges({
   workItemId,
   mode,
   solutions,
+  mockups = [],
 }: {
   workItemId: number;
   mode: "product" | "developer";
   /** The Product's Solutions, for assigning. Empty in Product mode. */
   solutions: Solution[];
+  /** The pictures already on this work item's plans, so a screen can say which
+   *  one shows it. Pairing them here means the model is told "this picture is
+   *  the Basket screen" rather than being handed a pile and a list. */
+  mockups?: string[];
 }) {
   const [changes, setChanges] = useState<WorkItemChange[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -104,6 +110,16 @@ export default function WorkItemChanges({
   async function assign(id: number, solutionId: number | null) {
     try {
       await assignWorkItemChange(id, solutionId);
+      setError(null);
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function linkMockup(id: number, path: string | null) {
+    try {
+      await setChangeMockup(id, path);
       setError(null);
       await refresh();
     } catch (e) {
@@ -255,6 +271,22 @@ export default function WorkItemChanges({
               change.solutionId !== null && (
                 <span className="change-assigned">→ {nameFor(change.solutionId)}</span>
               )
+            )}
+
+            {/* Only screens have pictures, and only once some exist. */}
+            {mode === "developer" && change.kind === "screen" && mockups.length > 0 && (
+              <select
+                aria-label={`Mockup for ${change.name}`}
+                value={change.mockupPath ?? ""}
+                onChange={(e) => linkMockup(change.id, e.target.value || null)}
+              >
+                <option value="">No picture</option>
+                {mockups.map((path) => (
+                  <option key={path} value={path}>
+                    {path.split(/[\\/]/).pop()}
+                  </option>
+                ))}
+              </select>
             )}
 
             <button aria-label={`Remove ${change.name}`} onClick={() => remove(change.id)}>

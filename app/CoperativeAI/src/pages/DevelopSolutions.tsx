@@ -19,6 +19,7 @@ import {
   listProducts,
   listSolutions,
   listStarters,
+  startExistingSolution,
   pickFolder,
   DEVELOP_STRATEGY_FIELDS,
   SOLUTION_QUESTIONS,
@@ -77,6 +78,9 @@ export default function DevelopSolutions() {
   const [starterCommand, setStarterCommand] = useState("");
   const [starterParent, setStarterParent] = useState("");
   const [starterRun, setStarterRun] = useState<StarterRun | null>(null);
+  /// Kept so a failed starter can be retried against the Solution that was
+  /// created anyway — the decision is worth more than the folder.
+  const [lastCreatedId, setLastCreatedId] = useState<number | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -138,6 +142,7 @@ export default function DevelopSolutions() {
       // Kept whether it worked or not: when a generator fails, its own words
       // are the only thing that says which toolchain is missing.
       setStarterRun(created.started);
+      setLastCreatedId(created.solutionId);
       setError(null);
       setSolutionName("");
       setAnswers({});
@@ -377,6 +382,33 @@ export default function DevelopSolutions() {
               </p>
               <code>{starterRun.command}</code>
               <pre>{starterRun.output}</pre>
+              {/* A failed starter used to be a dead end: the only ways out were
+                  pointing the Solution at a folder by hand or deleting and
+                  recreating it, which meant retyping the answers just to find
+                  out whether a toolchain had been installed since. */}
+              {!starterRun.succeeded && lastCreatedId !== null && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      setStarterRun(
+                        await startExistingSolution({
+                          solutionId: lastCreatedId,
+                          starterId,
+                          command: starterCommand || null,
+                          parentDir: starterParent,
+                        }),
+                      );
+                      setError(null);
+                      setSolutions(await listSolutions());
+                    } catch (e) {
+                      setError(String(e));
+                    }
+                  }}
+                >
+                  Try the starter again
+                </button>
+              )}
             </div>
           )}
           </>
