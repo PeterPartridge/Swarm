@@ -34,6 +34,7 @@ function sol(id: number, name: string, productId = 7): Solution {
     githubUrl: null,
     githubVisibility: null,
     localPath: null,
+    testCommand: null,
   };
 }
 

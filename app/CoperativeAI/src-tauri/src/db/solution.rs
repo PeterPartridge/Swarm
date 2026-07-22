@@ -23,11 +23,14 @@ pub struct Solution {
     /// Where the code lives on this machine. Null until someone points at it —
     /// a linked GitHub repository is not the same as a working copy.
     pub local_path: Option<String>,
+    /// How to run this Solution's tests, when detection gets it wrong or the
+    /// language is one nothing here recognises. Null means "work it out".
+    pub test_command: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
-const SELECT: &str = "SELECT id, name, productId, solutionType, answers, origin, githubUrl, githubVisibility, localPath, createdAt, updatedAt FROM solutions";
+const SELECT: &str = "SELECT id, name, productId, solutionType, answers, origin, githubUrl, githubVisibility, localPath, testCommand, createdAt, updatedAt FROM solutions";
 
 pub async fn create_table(conn: &Connection) -> Result<()> {
     // Round-2 migration: add GitHub link columns. Pre-release → drop & recreate
@@ -48,6 +51,7 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             githubUrl TEXT,
             githubVisibility TEXT,
             localPath TEXT,
+            testCommand TEXT,
             createdAt INTEGER NOT NULL,
             updatedAt INTEGER NOT NULL,
             UNIQUE(productId, name)
@@ -66,6 +70,29 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
         conn.execute("ALTER TABLE solutions ADD COLUMN localPath TEXT", ())
             .await?;
     }
+    // Same rule for the test command: someone typed it, so it is added rather
+    // than recreated around.
+    if has_table && !dropped && !columns.iter().any(|c| c == "testCommand") {
+        conn.execute("ALTER TABLE solutions ADD COLUMN testCommand TEXT", ())
+            .await?;
+    }
+    Ok(())
+}
+
+/// Records how to run this Solution's tests, replacing detection.
+///
+/// Blank clears it, which is how someone goes back to detection after trying a
+/// command that did not work — without that, a bad guess would be permanent.
+pub async fn set_test_command(conn: &Connection, id: i64, command: Option<&str>) -> Result<()> {
+    if find_by_id(conn, id).await?.is_none() {
+        return Err(DbError::Validation(format!("no Solution with id {id}")));
+    }
+    let cleaned = command.map(str::trim).filter(|c| !c.is_empty());
+    conn.execute(
+        "UPDATE solutions SET testCommand = ?1, updatedAt = ?2 WHERE id = ?3",
+        (cleaned, now_millis(), id),
+    )
+    .await?;
     Ok(())
 }
 
@@ -216,8 +243,9 @@ fn row_to_solution(row: turso::Row) -> Result<Solution> {
         github_url: row.get(6)?,
         github_visibility: row.get(7)?,
         local_path: row.get(8)?,
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
+        test_command: row.get(9)?,
+        created_at: row.get(10)?,
+        updated_at: row.get(11)?,
     })
 }
 

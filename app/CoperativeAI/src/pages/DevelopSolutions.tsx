@@ -4,11 +4,13 @@ import CodeEditor from "../components/CodeEditor";
 import DeveloperPlanning from "../components/DeveloperPlanning";
 import DeveloperRulesEditor from "../components/DeveloperRulesEditor";
 import FrameworkFiles from "../components/FrameworkFiles";
+import GitExplorer from "../components/GitExplorer";
 import GithubCard from "../components/GithubCard";
 import ModelInstalls from "../components/ModelInstalls";
 import SolutionBox from "../components/SolutionBox";
 import SolutionRepo from "../components/SolutionRepo";
 import StrategyEditor from "../components/StrategyEditor";
+import TestExplorer from "../components/TestExplorer";
 import WorkItemViews from "../components/WorkItemViews";
 import {
   createSolution,
@@ -27,13 +29,22 @@ import {
  *  column had stopped being a page, so they are grouped by what a developer is
  *  doing: thinking (Planning), executing (Work), writing code (Workspace), or
  *  wiring things up (Settings). */
-type DevelopView = "planning" | "work" | "workspace" | "code" | "settings";
+type DevelopView =
+  | "planning"
+  | "work"
+  | "workspace"
+  | "code"
+  | "tests"
+  | "git"
+  | "settings";
 
 const DEVELOP_TABS: { id: DevelopView; label: string }[] = [
   { id: "planning", label: "Planning" },
   { id: "work", label: "Work" },
   { id: "workspace", label: "Workspace" },
   { id: "code", label: "Code" },
+  { id: "tests", label: "Tests" },
+  { id: "git", label: "Git" },
   { id: "settings", label: "Settings" },
 ];
 
@@ -181,6 +192,14 @@ export default function DevelopSolutions() {
           }
           opened={openSolution}
         />
+      )}
+
+      {view === "tests" && activeProduct !== "" && (
+        <TestExplorer productId={Number(activeProduct)} />
+      )}
+
+      {view === "git" && activeProduct !== "" && (
+        <GitExplorer productId={Number(activeProduct)} />
       )}
 
       {view === "settings" && (

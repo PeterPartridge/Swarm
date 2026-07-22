@@ -13,6 +13,8 @@ mod pack;
 mod review;
 mod scaffold;
 mod terminal;
+mod test_runner;
+mod vcs;
 mod workspace;
 
 use std::path::PathBuf;
@@ -152,6 +154,14 @@ fn main() {
             commands::models::refresh_provider_models,
             commands::models::install_model,
             commands::models::set_model_vision,
+            commands::inspectors::product_git_overview,
+            commands::inspectors::product_changed_files,
+            commands::inspectors::read_conflict_sides,
+            commands::inspectors::mark_conflict_resolved,
+            commands::inspectors::list_test_suites,
+            commands::inspectors::run_solution_tests,
+            commands::inspectors::run_test_suite,
+            commands::inspectors::set_solution_test_command,
             commands::ai_settings::list_ai_providers,
             commands::ai_settings::add_ai_provider,
             commands::ai_settings::add_ollama_provider,

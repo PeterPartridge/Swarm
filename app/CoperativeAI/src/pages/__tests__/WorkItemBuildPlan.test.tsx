@@ -56,6 +56,7 @@ function solution(id: number, name: string): Solution {
     githubUrl: null,
     githubVisibility: null,
     localPath: null,
+    testCommand: null,
   };
 }
 

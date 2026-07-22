@@ -2018,3 +2018,242 @@ body {
   align-items: center;
   gap: 0.5rem;
 }
+
+/* ── Test explorer, git hub and the merge view ─────────────────────────── */
+
+.test-actions,
+.git-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.5rem 0;
+  flex-wrap: wrap;
+}
+
+.test-total {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.test-total.pass { color: #166534; }
+.test-total.fail { color: #991b1b; }
+
+.test-solutions,
+.git-repos {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.test-solution,
+.git-repo {
+  border-top: 1px solid #e5e7eb;
+  padding: 0.5rem 0;
+}
+
+.test-solution-head,
+.git-repo-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.test-custom,
+.git-staged {
+  font-size: 0.65rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 0.6rem;
+  background: #e0e7ff;
+  color: #3730a3;
+}
+
+.test-suites {
+  list-style: none;
+  padding: 0.3rem 0 0 0.9rem;
+  margin: 0;
+  font-size: 0.75rem;
+}
+
+.test-kind {
+  font-weight: 600;
+  font-size: 0.75rem;
+}
+
+.test-run {
+  margin: 0.4rem 0 0 0.9rem;
+  padding: 0.35rem 0.5rem;
+  border-left: 3px solid #d1d5db;
+  border-radius: 0 0.25rem 0.25rem 0;
+}
+.test-run.pass { border-left-color: #16a34a; background: #f0fdf4; }
+.test-run.fail { border-left-color: #dc2626; background: #fef2f2; }
+
+.test-run-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.test-counts { font-size: 0.75rem; font-weight: 600; }
+/* Nothing was read from the output, so this is deliberately not a number. */
+.test-counts.uncounted { font-weight: 400; font-style: italic; color: #6b7280; }
+
+.test-failures {
+  margin: 0.3rem 0 0 0.6rem;
+  padding-left: 0.9rem;
+  font-size: 0.75rem;
+  color: #991b1b;
+}
+
+.test-output {
+  margin: 0.4rem 0 0;
+  padding: 0.5rem;
+  max-height: 18rem;
+  overflow: auto;
+  background: #111827;
+  color: #e5e7eb;
+  font-size: 0.7rem;
+  border-radius: 0.25rem;
+  white-space: pre-wrap;
+}
+
+.test-command-editor {
+  margin: 0.4rem 0 0 0.9rem;
+  font-size: 0.8rem;
+}
+.test-command-editor input { width: 22rem; max-width: 100%; }
+
+.git-branch {
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+  padding: 0.05rem 0.4rem;
+  background: #f3f4f6;
+  border-radius: 0.6rem;
+}
+
+.git-drift { font-size: 0.75rem; color: #6b7280; }
+
+.git-merging,
+.git-conflict-count {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #9a3412;
+  background: #ffedd5;
+  padding: 0.05rem 0.4rem;
+  border-radius: 0.6rem;
+}
+
+.git-files {
+  list-style: none;
+  padding: 0.3rem 0 0 0.9rem;
+  margin: 0;
+  font-size: 0.78rem;
+}
+
+.git-file {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.1rem 0;
+}
+.git-file.conflicted { background: #fff7ed; }
+
+.git-status,
+.change-status {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  min-width: 4.5rem;
+  color: #6b7280;
+}
+.git-status.added, .change-status.added { color: #166534; }
+.git-status.deleted, .change-status.deleted { color: #991b1b; }
+.git-status.renamed, .change-status.renamed { color: #6d28d9; }
+
+.git-path { font-family: ui-monospace, monospace; }
+
+/* The three panes a merge is actually made of */
+.merge-view {
+  margin-top: 0.8rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.4rem;
+  padding: 0.6rem;
+}
+
+.merge-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.merge-head h3 { margin: 0; font-size: 0.9rem; font-family: ui-monospace, monospace; }
+
+.merge-state {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.05rem 0.4rem;
+  border-radius: 0.6rem;
+}
+.merge-state.unresolved { background: #fee2e2; color: #991b1b; }
+.merge-state.resolved { background: #dcfce7; color: #166534; }
+
+.merge-panes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+}
+
+@media (max-width: 60rem) {
+  .merge-panes { grid-template-columns: 1fr; }
+}
+
+.merge-pane h4 { margin: 0 0 0.2rem; font-size: 0.8rem; }
+.merge-pane textarea {
+  width: 100%;
+  font-family: ui-monospace, monospace;
+  font-size: 0.72rem;
+  resize: vertical;
+}
+.merge-pane textarea[readonly] { background: #f9fafb; color: #4b5563; }
+.merge-result textarea { border-color: #2563eb; }
+
+/* The Code explorer's git toggle and the diff beneath the editor */
+.explorer-git-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0;
+  font-size: 0.75rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.changed-tree {
+  list-style: none;
+  padding: 0.3rem 0 0;
+  margin: 0;
+  font-size: 0.78rem;
+}
+
+.change-lines { font-size: 0.7rem; color: #6b7280; }
+
+.file-diff {
+  border-top: 1px solid #e5e7eb;
+  margin-top: 0.5rem;
+  padding-top: 0.4rem;
+}
+.file-diff h4 { margin: 0 0 0.3rem; font-size: 0.8rem; }
+.file-diff pre {
+  margin: 0;
+  max-height: 16rem;
+  overflow: auto;
+  font-size: 0.72rem;
+  background: #f9fafb;
+  padding: 0.4rem;
+  border-radius: 0.25rem;
+}
+
+.diff-added { background: #dcfce7; color: #14532d; display: block; }
+.diff-removed { background: #fee2e2; color: #7f1d1d; display: block; }
+.diff-hunk { color: #6d28d9; display: block; }
+.diff-meta { color: #6b7280; display: block; }

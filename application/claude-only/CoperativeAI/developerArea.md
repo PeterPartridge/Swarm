@@ -34,6 +34,43 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 14a — The inspectors: tests in any language, and git across every Solution
+
+### My Feedback
+
+Two decisions were put to you first, because both changed what got built. You chose **inspectors before the workbench**, and a **real PTY** for the terminal when it comes. This round is the inspectors; the terminal, the Ollama/Claude Code selector that depends on it, and the explorer properties panel are the next one.
+
+**"Regardless of language" is made real by three things rather than claimed by one.**
+
+*Detection finds every suite, not the first.* A Tauri Solution has a `package.json` at the root and a `Cargo.toml` in `src-tauri`. Stopping at the first marker would run half the tests and report the Solution green — the worst possible outcome for a test explorer. Detection looks at the root and one level down and returns everything it recognises. One level, not a full walk: it covers the layouts this platform actually creates and stops well short of finding other people's fixtures in a large checkout.
+
+*A per-Solution command overrides detection entirely,* so a language nobody here has heard of is one text field away. Blank clears it, because a command that turned out wrong must not be permanent.
+
+*Counts are shown only when they were read.* Each parser returns nothing when the output is not the shape it expects, and the run falls back to the exit code with `counted: false` — the UI then says "passed — no test count could be read" rather than a number. **The summary line follows the same rule**: a run nobody could count is reported as "known only by exit code", never totalled into a truthful-looking `0 passed`. That flaw was in the first version and a test caught it. Five parsers ship — cargo, vitest/jest, pytest, dotnet, go — each a pure function over captured output, so all five are tested without those languages installed.
+
+**The git hub reads porcelain v2, not the v1 the review code uses.** v1 cannot report an upstream or how far a branch has drifted, and — the reason that actually mattered — it reports a merge conflict as an ordinary modification. v2 gives conflicts their own line type, which is the only thing that makes the three-pane view possible at all. A Solution with no folder reports why on its own row and the rest still work; a hub that blanks when one entry is unlinked is useless in exactly the situation it exists for.
+
+**The merge view takes mine and theirs from git's index, not from disk.** Once git writes markers into the working tree, the two original versions exist nowhere else — stages 2 and 3 are the only place they survive. The third pane is that working-tree file, and it is the only editable one, because it is the only one that becomes the result. Marking resolved saves first and stages second (staging reads from disk, so staging an unsaved buffer would mark a version nobody chose) and is **refused while markers remain**, in the UI and again in the backend. Committing `<<<<<<< HEAD` is a classic, and the check costs one read of a file already open in front of you.
+
+**The git toggle** swaps the explorer from the repository to the work in progress, across every Solution at once, with each file's diff rendered from git's own unified diff rather than recomputed — a second opinion from the app could only ever disagree with the git tab.
+
+### Your Feedback
+
+- **Two parser bugs, both caught by tests written from real captures.** The porcelain v2 path offset was wrong (ordinary entries put the path 8th, renames 9th), and the cargo summary scanner read fields positionally, so `test result: FAILED. 1 passed` lost that entire clause to the verdict token. Both would have shipped as quietly wrong numbers, which is the failure mode this whole feature is supposed to prevent.
+- **The database lock is dropped before anything slow runs.** A suite can take minutes; holding the connection across it would freeze every other part of the app behind a test run.
+- **Solutions run one at a time, deliberately.** Several runners at once compete for the same cores and disk and the wall-clock total is no better for it — and running them in sequence means results appear as each Solution finishes rather than after the slowest.
+- **A failing test run is an outcome, not an error.** `run` never returns `Err` for red tests; only a command that could not start at all fails, and that is reported through the exit code plus the raw output, which is what someone needs in order to fix the command.
+
+### Technical Debt
+
+- **No timeout on a test run.** A hung suite hangs that command. The lock is released so the rest of the app keeps working, but nothing kills the process.
+- **Commands run through the platform shell** (`cmd /C`, `sh -c`) so that a typed command line behaves the way it would in a terminal. That is the right behaviour for a local dev tool and it is also arbitrary local execution — worth stating plainly rather than leaving implied.
+- **Nothing streams.** Output arrives when the process exits, so a five-minute suite shows nothing for five minutes. The PTY round is the natural place to fix this.
+- **The three-pane view is plain textareas, not Monaco.** No syntax highlighting and no per-hunk "take mine / take theirs" — the panes show the versions and the middle one is edited by hand.
+- **`npm test` is the fallback for an unrecognised manifest**, and its output is unparseable by design, so those runs are exit-code only.
+- **The changed-files toggle fetches the whole Product at once** and does not refresh itself — there is a Refresh button, and a file saved in the editor does not update the diff until it is pressed.
+- **Detection stops one level down.** A monorepo with `packages/*/package.json` gets nothing without a custom command.
+
 ## Rounds 12–13 — The build plan, and letting the AI see the mockups
 
 ### My Feedback

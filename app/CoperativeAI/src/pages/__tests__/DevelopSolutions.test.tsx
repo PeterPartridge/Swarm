@@ -50,6 +50,7 @@ const solution: Solution = {
   githubUrl: null,
   githubVisibility: null,
   localPath: null,
+  testCommand: null,
 };
 
 /** The area is tabbed now: Planning is the default; everything else lives

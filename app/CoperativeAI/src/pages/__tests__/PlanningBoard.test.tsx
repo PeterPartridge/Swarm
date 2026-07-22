@@ -69,6 +69,7 @@ function solution(id: number, name: string, productId: number): Solution {
     githubUrl: null,
     githubVisibility: null,
     localPath: null,
+    testCommand: null,
   };
 }
 

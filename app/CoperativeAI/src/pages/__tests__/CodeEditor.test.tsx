@@ -13,6 +13,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     writeSolutionFile: vi.fn(),
     createSolutionFile: vi.fn(),
     askCodingPal: vi.fn(),
+    productChangedFiles: vi.fn(),
   };
 });
 
@@ -54,6 +55,7 @@ function solution(overrides: Partial<Solution> = {}): Solution {
     githubUrl: null,
     githubVisibility: null,
     localPath: "C:/repos/shop-api",
+    testCommand: null,
     ...overrides,
   };
 }
@@ -257,5 +259,71 @@ describe("CodeEditor", () => {
     render(<CodeEditor solutions={[solution()]} opened={solution()} />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("not there any more");
+  });
+
+  /// The git toggle: the explorer stops being the repository and becomes the
+  /// work in progress — which is the question actually being asked once a
+  /// change is under way.
+  it("swaps the tree for the changed files when git is toggled on", async () => {
+    const user = userEvent.setup();
+    mocked.productChangedFiles.mockResolvedValue([
+      {
+        solutionId: 3,
+        name: "Shop API",
+        changes: [
+          {
+            path: "src/basket.rs",
+            status: "modified",
+            addedLines: 12,
+            removedLines: 3,
+            diff: "@@ -1,2 +1,3 @@\n context\n+added line\n-removed line\n",
+          },
+        ],
+        unavailable: null,
+      },
+    ]);
+    render(<CodeEditor solutions={[solution()]} opened={solution()} />);
+
+    // the whole repository to begin with
+    expect(await screen.findByRole("list", { name: "Files in Shop API" })).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("Changed files only"));
+
+    const changed = await screen.findByRole("list", { name: "Changed files in Shop API" });
+    expect(within(changed).getByText(/src\/basket\.rs/)).toBeInTheDocument();
+    expect(within(changed).getByText(/\+12/)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("list", { name: "Files in Shop API" }),
+    ).not.toBeInTheDocument();
+  });
+
+  /// "What has changed" is the other half of the ask — the file list alone
+  /// says which files, not what happened in them.
+  it("shows the diff for a changed file that is open", async () => {
+    const user = userEvent.setup();
+    mocked.readSolutionFile.mockResolvedValue("fn main() {}");
+    mocked.productChangedFiles.mockResolvedValue([
+      {
+        solutionId: 3,
+        name: "Shop API",
+        changes: [
+          {
+            path: "src/main.rs",
+            status: "modified",
+            addedLines: 1,
+            removedLines: 1,
+            diff: "@@ -1 +1 @@\n-old line\n+new line\n",
+          },
+        ],
+        unavailable: null,
+      },
+    ]);
+    render(<CodeEditor solutions={[solution()]} opened={solution()} />);
+    await user.click(await screen.findByLabelText("Changed files only"));
+    await user.click(await screen.findByLabelText("Open src/main.rs"));
+
+    const diff = await screen.findByRole("region", { name: "Changes to src/main.rs" });
+    expect(within(diff).getByText(/\+new line/)).toBeInTheDocument();
+    expect(within(diff).getByText(/-old line/)).toBeInTheDocument();
   });
 });

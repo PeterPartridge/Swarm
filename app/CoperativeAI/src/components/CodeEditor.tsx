@@ -1,12 +1,54 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   createSolutionFile,
+  productChangedFiles,
   readSolutionFile,
   readSolutionTree,
+  type FileChange,
   type FileTree,
   type Solution,
 } from "../lib/backend";
 import CodeWindow from "./CodeWindow";
+
+/** The diff for the open file, coloured by line.
+ *
+ *  Rendered from the unified diff rather than recomputed: git already worked
+ *  out what changed, and a second opinion from the app would only ever be a
+ *  worse one that could disagree with the git tab. */
+function ChangedFileDiff({ change }: { change: FileChange | undefined }) {
+  if (!change) {
+    return <p className="hint">This file has no uncommitted changes.</p>;
+  }
+  return (
+    <section className="file-diff" aria-label={`Changes to ${change.path}`}>
+      <h4>
+        What changed{" "}
+        <span className="change-lines">
+          +{change.addedLines} −{change.removedLines}
+        </span>
+      </h4>
+      <pre>
+        {change.diff.split("\n").map((line, i) => {
+          const kind = line.startsWith("+++") || line.startsWith("---")
+            ? "diff-meta"
+            : line.startsWith("+")
+              ? "diff-added"
+              : line.startsWith("-")
+                ? "diff-removed"
+                : line.startsWith("@@")
+                  ? "diff-hunk"
+                  : "";
+          return (
+            <span key={i} className={kind}>
+              {line}
+              {"\n"}
+            </span>
+          );
+        })}
+      </pre>
+    </section>
+  );
+}
 
 /** One file the developer has open: the working buffer and what is on disk.
  *  Held here rather than in the editor so switching tabs keeps unsaved edits. */
@@ -57,6 +99,12 @@ export default function CodeEditor({
   const [activeId, setActiveId] = useState<number | null>(null);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
+  /// The git toggle: show the whole tree, or only what has changed.
+  const [changedOnly, setChangedOnly] = useState(false);
+  /// Changed files per Solution id, fetched once per toggle rather than per
+  /// keystroke — a git call per render would make typing in the editor crawl.
+  const [changed, setChanged] = useState<Record<number, FileChange[]>>({});
+  const [changedError, setChangedError] = useState<string | null>(null);
 
   const updateSession = useCallback(
     (id: number, change: (s: SolutionSession) => SolutionSession) =>
@@ -112,6 +160,31 @@ export default function CodeEditor({
       (entry) => ![...active.collapsed].some((dir) => entry.path.startsWith(`${dir}/`)),
     );
   }, [active]);
+
+  /** The changed files of whichever Solution is in front. Flat, not a tree:
+   *  when the question is "what did I touch", folder structure is noise. */
+  const activeChanges = active ? (changed[active.solution.id] ?? []) : [];
+
+  /** Loads the whole Product's changes at once. Per-Solution would be a git
+   *  call every time the explorer tab changed; the toggle is a deliberate act,
+   *  so paying for all of them once is the cheaper trade. */
+  const loadChanges = useCallback(async () => {
+    const productId = solutions[0]?.productId;
+    if (productId === undefined) return;
+    try {
+      const groups = await productChangedFiles(productId);
+      const byId: Record<number, FileChange[]> = {};
+      for (const group of groups) byId[group.solutionId] = group.changes;
+      setChanged(byId);
+      setChangedError(null);
+    } catch (e) {
+      setChangedError(String(e));
+    }
+  }, [solutions]);
+
+  useEffect(() => {
+    if (changedOnly) void loadChanges();
+  }, [changedOnly, loadChanges]);
 
   function closeSolution(id: number) {
     const remaining = sessions.filter((s) => s.solution.id !== id);
@@ -271,6 +344,54 @@ export default function CodeEditor({
               </button>
             </div>
 
+            {/* The git toggle. Off, this is the repository; on, it is the work
+                in progress — which is the question being asked far more often
+                once a change is under way. */}
+            <div className="explorer-git-toggle">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={changedOnly}
+                  onChange={(e) => setChangedOnly(e.target.checked)}
+                />{" "}
+                Changed files only
+              </label>
+              {changedOnly && (
+                <button aria-label="Refresh changed files" onClick={loadChanges}>
+                  Refresh
+                </button>
+              )}
+            </div>
+
+            {changedOnly && changedError && <p role="alert">{changedError}</p>}
+
+            {changedOnly ? (
+              <ul
+                className="changed-tree"
+                aria-label={`Changed files in ${active?.solution.name}`}
+              >
+                {activeChanges.length === 0 && !changedError && (
+                  <li className="hint">Nothing changed in this Solution.</li>
+                )}
+                {activeChanges.map((change) => (
+                  <li key={change.path}>
+                    <button
+                      className={`tree-file${active?.activePath === change.path ? " tree-file-open" : ""}`}
+                      aria-label={`Open ${change.path}`}
+                      onClick={() => onOpenFile(change.path)}
+                    >
+                      <span className={`change-status ${change.status}`}>
+                        {change.status.charAt(0).toUpperCase()}
+                      </span>{" "}
+                      {change.path}{" "}
+                      <span className="change-lines">
+                        +{change.addedLines} −{change.removedLines}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
             <ul className="file-tree" aria-label={`Files in ${active?.solution.name}`}>
               {visibleEntries.map((entry) => (
                 <li key={entry.path} style={{ paddingLeft: `${entry.depth * 0.75}rem` }}>
@@ -302,6 +423,7 @@ export default function CodeEditor({
                 <li className="hint">…more files not shown</li>
               )}
             </ul>
+            )}
           </div>
 
           <div className="file-view">
@@ -357,6 +479,15 @@ export default function CodeEditor({
               />
             ) : (
               <p className="hint">Pick a file from the explorer to edit it.</p>
+            )}
+
+            {/* What changed, beside the file itself. Only while the toggle is
+                on: a diff permanently under the editor would be noise for the
+                nine times out of ten someone is just reading code. */}
+            {changedOnly && activeFile && (
+              <ChangedFileDiff
+                change={activeChanges.find((c) => c.path === activeFile.path)}
+              />
             )}
           </div>
         </div>

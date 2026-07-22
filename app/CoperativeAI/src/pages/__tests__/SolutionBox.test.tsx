@@ -32,6 +32,7 @@ function solution(overrides: Partial<Solution> = {}): Solution {
     githubUrl: null,
     githubVisibility: null,
     localPath: "C:/repos/shop-api",
+    testCommand: null,
     ...overrides,
   };
 }

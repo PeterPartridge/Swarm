@@ -36,6 +36,9 @@ export interface Solution {
   /** Where the code lives on this machine. Null until someone points at it —
    *  a linked GitHub repository is not the same as a working copy. */
   localPath: string | null;
+  /** How to run this Solution's tests, when detection gets it wrong or the
+   *  language is one nothing here recognises. Null means "work it out". */
+  testCommand: string | null;
 }
 
 export interface GithubStatus {
@@ -1243,4 +1246,132 @@ export const TYPE_LABELS: Record<string, string> = {
   task: "Task",
   bug: "Bug",
   test: "Test",
+};
+
+/* ── The git hub and the test explorer ─────────────────────────────────── */
+
+export interface RepoFile {
+  path: string;
+  status: "added" | "modified" | "deleted" | "renamed" | "untracked";
+  /** git could not merge it — both sides changed it. */
+  conflicted: boolean;
+  staged: boolean;
+}
+
+export interface RepoStatus {
+  branch: string;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  files: RepoFile[];
+  /** A merge is in progress — there are conflicts to resolve. */
+  merging: boolean;
+}
+
+export interface SolutionRepo {
+  solutionId: number;
+  name: string;
+  status: RepoStatus | null;
+  /** Why there is no status. One Solution without a folder must not blank the
+   *  whole hub, so this is per-Solution rather than a thrown error. */
+  unavailable: string | null;
+}
+
+export interface SolutionChanges {
+  solutionId: number;
+  name: string;
+  changes: FileChange[];
+  unavailable: string | null;
+}
+
+/** The three versions a merge conflict is made of, plus git's attempt. */
+export interface ConflictSides {
+  path: string;
+  base: string;
+  /** Stage 2 — the branch being merged into. */
+  mine: string;
+  /** Stage 3 — the branch being merged in. */
+  theirs: string;
+  /** The working-tree file, markers and all. This is the editable one. */
+  merged: string;
+  unresolved: boolean;
+}
+
+export interface TestSuite {
+  kind: string; // cargo | vitest | jest | npm | pytest | dotnet | go | custom
+  directory: string;
+  commandLine: string;
+  foundBy: string;
+}
+
+export interface TestOutcome {
+  name: string;
+  state: "passed" | "failed" | "skipped";
+}
+
+export interface SuiteRun {
+  suite: TestSuite;
+  passed: number;
+  failed: number;
+  skipped: number;
+  /** **Whether the counts were actually read from the output.** False means
+   *  the run is known only by its exit code, and no numbers may be shown. */
+  counted: boolean;
+  exitOk: boolean;
+  tests: TestOutcome[];
+  output: string;
+  durationMs: number;
+}
+
+export interface SolutionSuites {
+  solutionId: number;
+  name: string;
+  suites: TestSuite[];
+  customCommand: string | null;
+  unavailable: string | null;
+}
+
+/** Every Solution in a Product with its branch, drift and working changes. */
+export const productGitOverview = (productId: number): Promise<SolutionRepo[]> =>
+  invoke("product_git_overview", { productId });
+/** What has changed across every Solution, with each file's diff attached. */
+export const productChangedFiles = (productId: number): Promise<SolutionChanges[]> =>
+  invoke("product_changed_files", { productId });
+export const readConflictSides = (
+  solutionId: number,
+  path: string,
+): Promise<ConflictSides> => invoke("read_conflict_sides", { solutionId, path });
+/** Stages a resolved file. Refuses while conflict markers remain. */
+export const markConflictResolved = (solutionId: number, path: string): Promise<void> =>
+  invoke("mark_conflict_resolved", { solutionId, path });
+
+export const listTestSuites = (productId: number): Promise<SolutionSuites[]> =>
+  invoke("list_test_suites", { productId });
+/** Runs every suite in one Solution. Called per Solution so results appear as
+ *  each finishes rather than after the slowest one in the Product. */
+export const runSolutionTests = (solutionId: number): Promise<SuiteRun[]> =>
+  invoke("run_solution_tests", { solutionId });
+export const runTestSuite = (
+  solutionId: number,
+  kind: string,
+  directory: string,
+  commandLine: string,
+): Promise<SuiteRun> =>
+  invoke("run_test_suite", { solutionId, kind, directory, commandLine });
+/** Replaces detection for this Solution. Blank clears it, so a command that
+ *  did not work is never permanent. */
+export const setSolutionTestCommand = (
+  solutionId: number,
+  command: string | null,
+): Promise<void> => invoke("set_solution_test_command", { solutionId, command });
+
+export const TEST_KIND_LABELS: Record<string, string> = {
+  cargo: "Rust (cargo)",
+  vitest: "TypeScript (vitest)",
+  jest: "JavaScript (jest)",
+  npm: "npm test",
+  pytest: "Python (pytest)",
+  dotnet: ".NET (dotnet test)",
+  go: "Go",
+  custom: "Custom command",
 };

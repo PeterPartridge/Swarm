@@ -10,6 +10,7 @@ pub mod design;
 pub mod emit;
 pub mod feedback;
 pub mod github;
+pub mod inspectors;
 pub mod models;
 pub mod policies;
 pub mod products;
