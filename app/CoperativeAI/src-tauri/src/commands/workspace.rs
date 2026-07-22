@@ -518,3 +518,17 @@ pub async fn review_solution_changes(
     };
     Ok(ChangeReviewDto { changes, report, no_rules, run_id, run_state })
 }
+
+/// Facts about the selected file, for the explorer's properties panel.
+#[tauri::command]
+pub async fn file_properties(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+    path: String,
+) -> Result<workspace::FileProperties, String> {
+    let root = {
+        let conn = db.0.lock().await;
+        root_for(&conn, solution_id).await?
+    };
+    workspace::properties(&root, &path)
+}

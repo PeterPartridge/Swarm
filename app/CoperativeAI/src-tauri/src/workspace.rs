@@ -253,6 +253,64 @@ pub fn create_file(root: &str, relative: &str) -> Result<(), String> {
     std::fs::write(&target, "").map_err(|e| format!("could not create {relative}: {e}"))
 }
 
+/// What the explorer shows about the selected file.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileProperties {
+    pub path: String,
+    pub name: String,
+    pub bytes: u64,
+    /// Unix millis, or 0 when the filesystem will not say.
+    pub modified: i64,
+    /// Extension, lowercased, empty when there is none.
+    pub extension: String,
+    /// Lines, when the file is text. `None` for something binary — counting
+    /// "lines" in a PNG is a number that means nothing.
+    pub lines: Option<i64>,
+    pub read_only: bool,
+}
+
+/// Facts about one file, for the explorer's properties panel.
+///
+/// Goes through the same containment rule as every other path into a working
+/// copy: the frontend sends a relative path, and a relative path is an
+/// untrusted string.
+pub fn properties(root: &str, relative: &str) -> Result<FileProperties, String> {
+    let target = resolve_within(root, relative)?;
+    let meta = std::fs::metadata(&target)
+        .map_err(|e| format!("could not read {relative}: {e}"))?;
+
+    // Read as text only to count lines, and only when it parses as UTF-8 —
+    // that is also how "is this binary" gets answered without a second guess.
+    let lines = std::fs::read(&target)
+        .ok()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .map(|text| text.lines().count() as i64);
+
+    Ok(FileProperties {
+        name: target
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(relative)
+            .to_string(),
+        path: relative.to_string(),
+        bytes: meta.len(),
+        modified: meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0),
+        extension: target
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase(),
+        lines,
+        read_only: meta.permissions().readonly(),
+    })
+}
+
 /// One file's worth of change.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]

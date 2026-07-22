@@ -43,6 +43,7 @@ fn main() {
                 conn
             });
             app.manage(commands::AppDb(tokio::sync::Mutex::new(conn)));
+            app.manage(commands::terminals::Terminals::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -162,6 +163,11 @@ fn main() {
             commands::inspectors::run_solution_tests,
             commands::inspectors::run_test_suite,
             commands::inspectors::set_solution_test_command,
+            commands::terminals::open_terminal,
+            commands::terminals::write_terminal,
+            commands::terminals::resize_terminal,
+            commands::terminals::close_terminal,
+            commands::workspace::file_properties,
             commands::ai_settings::list_ai_providers,
             commands::ai_settings::add_ai_provider,
             commands::ai_settings::add_ollama_provider,

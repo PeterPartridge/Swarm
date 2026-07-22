@@ -65,4 +65,4 @@ Most capable model, high effort.
 ## Part 4 — changes-over-time
 
 > Each time you come back to improve the page, add a bullet describing what you want to change. Keep changes small.
-> - Round 2: …
+- Round 2 (built): The terminal is built as a **real PTY** (portable-pty + xterm.js), opened from the Develop **Code** tab in the selected Solution's working copy. The Windows ConPTY spike the limits section asked for was done first, and found the thing that would otherwise have looked like a dead terminal: **ConPTY opens by sending `ESC [ 6 n` — "report your cursor position" — and says nothing at all until something answers.** xterm.js answers it automatically, which is why the panel works; anything that merely reads the PTY sees four bytes and silence. Resize is wired (without it the shell keeps wrapping at its startup width) and closing the panel ends the shell. **Known limit:** killing the shell does not reliably kill what the shell started.

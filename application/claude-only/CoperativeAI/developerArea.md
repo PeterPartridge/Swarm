@@ -34,6 +34,38 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 14b — The workbench: a real terminal, and who does the work
+
+### My Feedback
+
+The other half of round 14, and the part that carried the actual risk.
+
+**The ConPTY spike paid for itself in the first hour.** The shell spawned, resized and died correctly — and produced exactly four bytes, then nothing, forever. Those four bytes were `1b 5b 36 6e`: `ESC [ 6 n`, a Device Status Report. **ConPTY asks the terminal where its cursor is on startup and says nothing further until something answers.** A real emulator answers automatically — xterm.js does, which is why the panel works — but anything that merely *reads* the PTY sees four bytes and silence, which is indistinguishable from a shell that failed to launch. Without the spike this would have been debugged inside a Tauri window with no test harness around it.
+
+The second thing the spike found: **a PTY read blocks when the shell is quiet.** The obvious test loop — read, check a deadline, repeat — hangs the moment the shell reaches its prompt, which is most of the time. It hung for ten minutes before I killed it. The fix is the same in the test and in production: reading happens on its own thread, and in production that thread emits Tauri events, because a shell speaks when it feels like it and a request/response call cannot carry that.
+
+**Keystrokes travel as bytes, not lines.** Ctrl-C is `\x03` and the arrow keys are escape sequences; anything that assumed whole lines would break both, and Ctrl-C is half the reason to want a real terminal.
+
+**The AI window presents two different shapes of thing, not two engines.** Ollama answers inside the editor through the Product's policy, the budget router and the ledger, and never touches disk. Claude Code runs in the terminal and writes files itself; the app's contribution is the brief. **No cost is shown for a Claude Code run, and the panel says why** — it bills against its own subscription, so any figure would be one this app cannot see. Running it is a deliberate press, and the command is *typed into the shell* rather than executed behind it, so what ran is in the scrollback like anything else somebody typed.
+
+**Properties sit under the tree** because they describe the selection, not the buffer. A binary file reports "binary file" for its line count rather than 0 — a number that would be a lie about a PNG rather than a fact about it.
+
+### Your Feedback
+
+- **The Tauri event API cannot run in jsdom**, and it threw before any component could render. Stubbed in `test-setup.ts` globally rather than per test file, deliberately: a partial `vi.mock` with `...original` lets anything unlisted fall through to the real module, and this project has been bitten by that silence more than once. A global stub cannot be forgotten by the next test that renders a terminal.
+- **Terminal output is never logged or persisted**, per the page brief. It can contain anything somebody pastes. It goes from the PTY to the window and nowhere else, and scrollback dies with the widget.
+- **The shell is started in the Solution's folder or not at all.** A missing folder is refused with a message rather than falling back to somewhere else, because falling back is how a destructive command gets run in the wrong repository.
+- **xterm.js loads on demand, like Monaco.** An editor and a terminal in the startup bundle would be paid for by everyone who never opens either.
+
+### Technical Debt
+
+- **Killing the shell does not kill what the shell started.** An `npm run dev` launched in the panel outlives it and keeps holding its port. Named in the code where the kill happens.
+- **Scrollback is not persisted or searchable**, and closing the tab loses it. That is the brief's own instruction, but it does mean a long test run's output is gone once the panel closes.
+- **One shell per Solution tab.** No split panes, no second terminal on the same repository.
+- **The terminal is a local shell with the user's own permissions** — that is the entire point of the feature, and it is also arbitrary local execution reachable from the app's UI. Stated plainly rather than left implied.
+- **Nothing tests the panel end to end.** The PTY has real cargo tests; the React side is tested only up to the point where xterm would draw, because jsdom cannot host it — the same limit the Monaco work hit.
+- **The Ollama half of the AI window is a description, not a control.** It explains where the pal lives; the pal itself is still the one inside the editor.
+
 ## Round 14a — The inspectors: tests in any language, and git across every Solution
 
 ### My Feedback

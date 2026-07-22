@@ -1,14 +1,97 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   createSolutionFile,
+  fileProperties,
   productChangedFiles,
   readSolutionFile,
   readSolutionTree,
   type FileChange,
+  type FileProperties,
   type FileTree,
   type Solution,
 } from "../lib/backend";
+import AiPanel, { type AiChoice } from "./AiPanel";
 import CodeWindow from "./CodeWindow";
+import TerminalPanel from "./TerminalPanel";
+
+/** What the explorer knows about the selected file.
+ *
+ *  Sits under the tree because it describes the selection: moving it beside the
+ *  editor would make it look like a property of the buffer, which it is not —
+ *  these are facts about what is on disk. */
+function PropertiesPanel({
+  solutionId,
+  path,
+}: {
+  solutionId: number;
+  path: string | null;
+}) {
+  const [props, setProps] = useState<FileProperties | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!path) {
+      setProps(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const loaded = await fileProperties(solutionId, path);
+        if (!cancelled) {
+          setProps(loaded);
+          setError(null);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setProps(null);
+          setError(String(e));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [solutionId, path]);
+
+  return (
+    <section className="properties-panel" aria-label="Properties">
+      <h4>Properties</h4>
+      {!path && <p className="hint">No file selected.</p>}
+      {error && <p role="alert">{error}</p>}
+      {props && (
+        <dl>
+          <dt>Name</dt>
+          <dd>{props.name}</dd>
+          <dt>Path</dt>
+          <dd className="properties-path">{props.path}</dd>
+          <dt>Size</dt>
+          <dd>{formatBytes(props.bytes)}</dd>
+          <dt>Lines</dt>
+          {/* Null means the file is not text, and "0 lines" would be a lie
+              about a PNG rather than a fact about it. */}
+          <dd>{props.lines === null ? "binary file" : props.lines}</dd>
+          <dt>Type</dt>
+          <dd>{props.extension || "no extension"}</dd>
+          <dt>Modified</dt>
+          <dd>
+            {props.modified === 0
+              ? "not recorded"
+              : new Date(props.modified).toLocaleString()}
+          </dd>
+          {props.readOnly && <dt>Read-only</dt>}
+          {props.readOnly && <dd>saving will be refused</dd>}
+        </dl>
+      )}
+    </section>
+  );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} kB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 /** The diff for the open file, coloured by line.
  *
@@ -105,6 +188,10 @@ export default function CodeEditor({
   /// keystroke — a git call per render would make typing in the editor crawl.
   const [changed, setChanged] = useState<Record<number, FileChange[]>>({});
   const [changedError, setChangedError] = useState<string | null>(null);
+  const [aiChoice, setAiChoice] = useState<AiChoice>("ollama");
+  /// A command the AI panel wants the terminal to run, cleared once sent.
+  const [pendingCommand, setPendingCommand] = useState<string | null>(null);
+  const [terminalOpen, setTerminalOpen] = useState(false);
 
   const updateSession = useCallback(
     (id: number, change: (s: SolutionSession) => SolutionSession) =>
@@ -424,6 +511,26 @@ export default function CodeEditor({
               )}
             </ul>
             )}
+
+            {/* Under the tree, because it describes the selection. */}
+            {active && (
+              <PropertiesPanel
+                solutionId={active.solution.id}
+                path={active.activePath}
+              />
+            )}
+
+            {/* To the left, beside the code it is being asked about. */}
+            {active && (
+              <AiPanel
+                solution={active.solution}
+                productId={active.solution.productId}
+                choice={aiChoice}
+                onChoice={setAiChoice}
+                terminalReady={terminalOpen}
+                onRunInTerminal={setPendingCommand}
+              />
+            )}
           </div>
 
           <div className="file-view">
@@ -491,6 +598,19 @@ export default function CodeEditor({
             )}
           </div>
         </div>
+      )}
+
+      {/* At the bottom, spanning both panes: a shell belongs under the work,
+          not beside one half of it. Keyed by Solution so switching tabs gives
+          that repository its own shell rather than one pointed elsewhere. */}
+      {active && (
+        <TerminalPanel
+          key={active.solution.id}
+          solution={active.solution}
+          pendingCommand={pendingCommand}
+          onCommandSent={() => setPendingCommand(null)}
+          onOpenChange={setTerminalOpen}
+        />
       )}
     </section>
   );

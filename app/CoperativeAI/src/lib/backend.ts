@@ -1375,3 +1375,47 @@ export const TEST_KIND_LABELS: Record<string, string> = {
   go: "Go",
   custom: "Custom command",
 };
+
+/* ── The terminal panel ────────────────────────────────────────────────── */
+
+export interface OpenedTerminal {
+  id: string;
+  /** The shell that was started, so the panel can say what it is. */
+  shell: string;
+  cwd: string;
+}
+
+/** Opens a real shell in a Solution's working copy. Output does not come back
+ *  from this call — it arrives as `terminal-output` events, because a shell
+ *  speaks when it feels like it and a request/response cannot carry that. */
+export const openTerminal = (
+  solutionId: number,
+  cols: number,
+  rows: number,
+): Promise<OpenedTerminal> => invoke("open_terminal", { solutionId, cols, rows });
+/** Sends keystrokes. Bytes, not lines — Ctrl-C is \x03. */
+export const writeTerminal = (id: string, data: string): Promise<void> =>
+  invoke("write_terminal", { id, data });
+/** Tells the shell its new size, so it stops wrapping at the old width. */
+export const resizeTerminal = (id: string, cols: number, rows: number): Promise<void> =>
+  invoke("resize_terminal", { id, cols, rows });
+export const closeTerminal = (id: string): Promise<void> =>
+  invoke("close_terminal", { id });
+
+/** What the explorer's properties panel shows about the selected file. */
+export interface FileProperties {
+  path: string;
+  name: string;
+  bytes: number;
+  /** Unix millis, or 0 when the filesystem will not say. */
+  modified: number;
+  extension: string;
+  /** Null for a binary file — "lines" in a PNG is a number that means nothing. */
+  lines: number | null;
+  readOnly: boolean;
+}
+
+export const fileProperties = (
+  solutionId: number,
+  path: string,
+): Promise<FileProperties> => invoke("file_properties", { solutionId, path });

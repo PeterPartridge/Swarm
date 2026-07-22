@@ -2257,3 +2257,101 @@ body {
 .diff-removed { background: #fee2e2; color: #7f1d1d; display: block; }
 .diff-hunk { color: #6d28d9; display: block; }
 .diff-meta { color: #6b7280; display: block; }
+
+/* ── The workbench: terminal, AI panel, properties ─────────────────────── */
+
+.terminal-panel {
+  margin-top: 0.6rem;
+  border: 1px solid #d1d5db;
+  border-radius: 0.4rem;
+  overflow: hidden;
+}
+
+.terminal-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  background: #f3f4f6;
+  border-bottom: 1px solid #e5e7eb;
+  font-size: 0.8rem;
+  flex-wrap: wrap;
+}
+
+/* Dark whether or not the rest of the app is: a terminal that is not dark
+   reads as a text box, and people paste into text boxes without thinking. */
+.terminal-surface {
+  background: #111827;
+  min-height: 16rem;
+  padding: 0.3rem;
+}
+.terminal-surface:empty {
+  min-height: 0;
+  padding: 0;
+}
+
+.ai-panel {
+  border-top: 1px solid #e5e7eb;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  font-size: 0.8rem;
+}
+.ai-panel h3 {
+  margin: 0 0 0.3rem;
+  font-size: 0.85rem;
+}
+
+.ai-choice {
+  display: flex;
+  gap: 0.8rem;
+  margin-bottom: 0.35rem;
+}
+.ai-choice label {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.ai-handover {
+  margin-top: 0.4rem;
+  border-left: 3px solid var(--tab-develop, #2563eb);
+  padding-left: 0.4rem;
+}
+.ai-handover code {
+  display: block;
+  font-size: 0.68rem;
+  background: #f3f4f6;
+  padding: 0.25rem;
+  border-radius: 0.25rem;
+  margin: 0.25rem 0;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.properties-panel {
+  border-top: 1px solid #e5e7eb;
+  margin-top: 0.5rem;
+  padding-top: 0.4rem;
+  font-size: 0.75rem;
+}
+.properties-panel h4 {
+  margin: 0 0 0.25rem;
+  font-size: 0.8rem;
+}
+.properties-panel dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.1rem 0.5rem;
+  margin: 0;
+}
+.properties-panel dt {
+  color: #6b7280;
+}
+.properties-panel dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.properties-path {
+  font-family: ui-monospace, monospace;
+  font-size: 0.7rem;
+}
