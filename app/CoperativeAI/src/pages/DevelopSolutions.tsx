@@ -13,16 +13,20 @@ import StrategyEditor from "../components/StrategyEditor";
 import TestExplorer from "../components/TestExplorer";
 import WorkItemViews from "../components/WorkItemViews";
 import {
-  createSolution,
+  createSolutionWithStarter,
   deleteSolution,
   githubStatus,
   listProducts,
   listSolutions,
+  listStarters,
+  pickFolder,
   DEVELOP_STRATEGY_FIELDS,
   SOLUTION_QUESTIONS,
   SOLUTION_TYPES,
   type Product,
   type Solution,
+  type Starter,
+  type StarterRun,
 } from "../lib/backend";
 
 /** Which slice of the Develop area is showing. Ten sections in one scrolling
@@ -66,6 +70,13 @@ export default function DevelopSolutions() {
   const [solutionProduct, setSolutionProduct] = useState<number | "">("");
   const [solutionType, setSolutionType] = useState<string>("application");
   const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [starters, setStarters] = useState<Starter[]>([]);
+  const [starterId, setStarterId] = useState("");
+  /// The command is editable before it runs, so the button press is the
+  /// confirmation — nothing is run that could not be read first.
+  const [starterCommand, setStarterCommand] = useState("");
+  const [starterParent, setStarterParent] = useState("");
+  const [starterRun, setStarterRun] = useState<StarterRun | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -90,6 +101,17 @@ export default function DevelopSolutions() {
     void refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    void (async () => {
+      try {
+        setStarters(await listStarters());
+      } catch {
+        // Starters are an offer, not a requirement: a Solution can still be
+        // created without one, so a failure here must not block the form.
+      }
+    })();
+  }, []);
+
   async function run(action: () => Promise<unknown>) {
     try {
       await action();
@@ -102,16 +124,32 @@ export default function DevelopSolutions() {
   async function onCreateSolution(e: FormEvent) {
     e.preventDefault();
     if (!solutionName.trim() || solutionProduct === "") return;
-    await run(() =>
-      createSolution({
+    setStarterRun(null);
+    try {
+      const created = await createSolutionWithStarter({
         name: solutionName,
         productId: Number(solutionProduct),
         solutionType,
         answers: JSON.stringify(answers),
-      }),
-    );
-    setSolutionName("");
-    setAnswers({});
+        starterId: starterId || null,
+        command: starterCommand || null,
+        parentDir: starterParent || null,
+      });
+      // Kept whether it worked or not: when a generator fails, its own words
+      // are the only thing that says which toolchain is missing.
+      setStarterRun(created.started);
+      setError(null);
+      setSolutionName("");
+      setAnswers({});
+      setSolutions(await listSolutions());
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  function onStarterChange(id: string) {
+    setStarterId(id);
+    setStarterCommand(starters.find((s) => s.id === id)?.command ?? "");
   }
 
   const productName = (id: number) =>
@@ -223,6 +261,7 @@ export default function DevelopSolutions() {
         {products.length === 0 ? (
           <p>Solutions link to a Product — create a Product first (Product tab).</p>
         ) : (
+          <>
           <form onSubmit={onCreateSolution} aria-label="New Solution">
             <input
               aria-label="Solution name"
@@ -261,8 +300,86 @@ export default function DevelopSolutions() {
                 />
               </label>
             ))}
-            <button type="submit">Create Solution</button>
+            {/* Start it from the language's own generator. Every toolchain
+                ships one that stays current with its conventions; a template
+                written here would be out of date within a release. */}
+            <label>
+              Start from
+              <select
+                aria-label="Starter language"
+                value={starterId}
+                onChange={(e) => onStarterChange(e.target.value)}
+              >
+                <option value="">Nothing — I already have the code</option>
+                {starters.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {starterId !== "" && (
+              <div className="starter-detail">
+                <p className="hint">
+                  Needs {starters.find((s) => s.id === starterId)?.needs}.
+                </p>
+                <label>
+                  Command to run
+                  <input
+                    aria-label="Starter command"
+                    value={starterCommand}
+                    placeholder="the command that creates the project"
+                    onChange={(e) => setStarterCommand(e.target.value)}
+                  />
+                </label>
+                <p className="hint">
+                  This runs in a new folder named after the Solution. It is shown
+                  here so you can read it before pressing Create — and it is only
+                  ever run in an empty folder.
+                </p>
+                <label>
+                  Create it in
+                  <input
+                    aria-label="Folder to create the project in"
+                    value={starterParent}
+                    placeholder="where the new project folder goes"
+                    onChange={(e) => setStarterParent(e.target.value)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const chosen = await pickFolder();
+                    if (chosen) setStarterParent(chosen);
+                  }}
+                >
+                  Choose folder…
+                </button>
+              </div>
+            )}
+
+            <button type="submit">
+              {starterId === "" ? "Create Solution" : "Create Solution and start it"}
+            </button>
           </form>
+
+          {/* The generator's own words, kept whether it worked or not. */}
+          {starterRun && (
+            <div
+              className={starterRun.succeeded ? "starter-run pass" : "starter-run fail"}
+              role="status"
+            >
+              <p>
+                {starterRun.succeeded
+                  ? `Started in ${starterRun.directory}.`
+                  : `The starter did not finish. The Solution was still created — the folder can be pointed at or retried.`}
+              </p>
+              <code>{starterRun.command}</code>
+              <pre>{starterRun.output}</pre>
+            </div>
+          )}
+          </>
         )}
         <ul className="solution-list">
           {solutions.map((s) => (

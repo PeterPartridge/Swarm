@@ -34,6 +34,43 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 15 — What a work item changes, and starting a Solution from its own toolchain
+
+### My Feedback
+
+**One table, not three, and not two levels.** Product's ask and the developer's plan are the same row at different stages of its life: Product adds "a basket screen" with no Solution against it, and a developer points it at one and adds the endpoints and tables that serving it needs. Modelling those separately would mean copying the ask across and keeping two records in step, and they would drift the first time somebody renamed a screen.
+
+That also makes *unassigned* a first-class state rather than an oversight. Product genuinely does not know which repository grows a screen, and if the app insisted on one they could not record anything until a developer had done their part.
+
+**What a Solution can carry comes from its type, in exactly one place.** `kinds_for` decides it, and both the UI and the model ask that same function — a website has screens, an API has endpoints and the tables behind them, an application has screens and local storage, a database has tables only. Two copies of that rule would drift, and the drift would only ever show up as a save being rejected for reasons the form thought were fine. The check runs on **assignment as well as creation**, or it could be walked around by creating unassigned and then pointing it wherever.
+
+An unknown Solution type gets *everything* rather than nothing, so a type added later does not silently lose the ability to plan work against it.
+
+**Starter projects run the toolchain's own generator, and the platform does not write one.** Every one of these toolchains ships a generator that stays current with its own conventions; a template written here would be out of date within a release and wrong in ways nobody would notice for months. Three rules make running somebody else's command honest rather than magic:
+
+1. **The command is shown and editable before it runs** — so the button press *is* the confirmation, and nothing runs that could not be read first.
+2. **The folder must be empty.** Every one of these generators writes into the working directory, and running one over existing work is how a repository gets flattened. Refused before anything starts.
+3. **The output is reported whole.** These commands reach the network and depend on a toolchain being installed. When one is missing, its own words are the only thing that says which — so they are repeated rather than translated into a tidy failure that hides it.
+
+Every offered command is the **non-interactive** spelling. `npm create vite@latest` without a template flag stops to ask a question, and a generator waiting for an answer would hang with its prompt somewhere nobody can see it.
+
+**A failed starter keeps the Solution.** The record of what someone decided to build is worth more than the folder, and rolling it back would lose the decision along with the error — leaving them to retype everything to see the same message again. The folder is only recorded against the Solution when the run actually succeeded, because a path stored for a failed run is a working copy that is not one.
+
+### Your Feedback
+
+- **Names are slugged where they land in a command.** `cargo init --name Shop API` is two arguments, one of them nonsense, and most of these toolchains reject spaces and capitals in a package name anyway.
+- **The partial-mock trap caught me a third time.** Embedding the new component inside the build plan meant `WorkItemBuildPlan.test` had an unmocked call falling through to the real `invoke`, rendering an error alert that broke an unrelated assertion about what else was on screen. Fixed, with the reason written above the mock so the next person adding a child component sees it.
+- **`language` records what a Solution was *begun* as, not what it is.** Repositories grow other languages, and a field that claimed to track that would be wrong within a month. The test explorer already detects what is actually there.
+
+### Technical Debt
+
+- **Nothing connects a screen to a mockup.** Round 12 put pictures on the build plan and round 15 puts screens on the work item, and they are separate lists — a screen cannot yet point at the image of itself.
+- **The generation prompt does not carry the screens, APIs and tables yet.** They are recorded and shown, but the AI still works from the free-text "what has to change" rather than from the structured list beside it. That is the obvious next round and the reason the structure exists.
+- **Nothing checks a table or endpoint name for sense**, and nothing dedupes: two people can add `POST /checkout` twice.
+- **A starter cannot be re-run.** If it fails, the fix is to point the Solution at a folder by hand or delete and recreate it.
+- **The starter list is Windows-and-Unix generic and untested per toolchain.** Only `echo` is exercised in tests; whether `dotnet new webapi` works on a given machine is between that machine and .NET.
+- **`kinds_for` is a fixed opinion.** An API Solution that genuinely has no storage still gets offered tables.
+
 ## Round 14b — The workbench: a real terminal, and who does the work
 
 ### My Feedback

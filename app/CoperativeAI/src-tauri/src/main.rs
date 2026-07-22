@@ -12,6 +12,7 @@ mod github;
 mod pack;
 mod review;
 mod scaffold;
+mod starter;
 mod terminal;
 mod test_runner;
 mod vcs;
@@ -74,6 +75,14 @@ fn main() {
             commands::feedback::resolve_ai_feedback,
             commands::solutions::list_solutions,
             commands::solutions::create_solution,
+            commands::solutions::create_solution_with_starter,
+            commands::solutions::list_starters,
+            commands::work_item_changes::list_work_item_changes,
+            commands::work_item_changes::add_work_item_change,
+            commands::work_item_changes::assign_work_item_change,
+            commands::work_item_changes::update_work_item_change,
+            commands::work_item_changes::delete_work_item_change,
+            commands::work_item_changes::change_kinds_for_solution,
             commands::solutions::delete_solution,
             commands::github::github_status,
             commands::github::set_github_token,

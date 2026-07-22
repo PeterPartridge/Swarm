@@ -10,7 +10,8 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     ...original,
     listProducts: vi.fn(),
     listSolutions: vi.fn(),
-    createSolution: vi.fn(),
+    createSolutionWithStarter: vi.fn(),
+    listStarters: vi.fn(),
     deleteSolution: vi.fn(),
     listAiProviders: vi.fn(),
     getStrategy: vi.fn(),
@@ -51,6 +52,7 @@ const solution: Solution = {
   githubVisibility: null,
   localPath: null,
   testCommand: null,
+  language: null,
 };
 
 /** The area is tabbed now: Planning is the default; everything else lives
@@ -77,6 +79,14 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     mocked.listTeamMembers.mockResolvedValue([]);
     mocked.githubStatus.mockResolvedValue({ connected: false });
     mocked.listModelStatus.mockResolvedValue([]);
+    mocked.listStarters.mockResolvedValue([
+      {
+        id: "rust",
+        label: "Rust (cargo)",
+        command: "cargo init --name {name}",
+        needs: "the Rust toolchain (rustup)",
+      },
+    ]);
   });
 
   /// The area is tabbed: one section at a time, Planning first. Ten sections
@@ -135,7 +145,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
 
   it("creates a Solution linked to a Product with the spec questions", async () => {
     const user = userEvent.setup();
-    mocked.createSolution.mockResolvedValue(4);
+    mocked.createSolutionWithStarter.mockResolvedValue({ solutionId: 4, started: null });
     render(<DevelopSolutions />);
     await openSection(user, "Workspace");
 
@@ -148,13 +158,88 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     await user.click(screen.getByRole("button", { name: "Create Solution" }));
 
     await waitFor(() =>
-      expect(mocked.createSolution).toHaveBeenCalledWith({
+      expect(mocked.createSolutionWithStarter).toHaveBeenCalledWith({
         name: "Shop Website",
         productId: 1,
         solutionType: "website",
         answers: JSON.stringify({ purpose: "The storefront" }),
+        starterId: null,
+        command: null,
+        parentDir: null,
       }),
     );
+  });
+
+  /// The language dropdown. Picking one fills in that toolchain's own command
+  /// and shows it — the button press is the confirmation, so nothing runs that
+  /// could not be read first.
+  it("offers a starter language and shows the command before it runs", async () => {
+    const user = userEvent.setup();
+    mocked.createSolutionWithStarter.mockResolvedValue({
+      solutionId: 4,
+      started: {
+        command: "cargo init --name shop-core",
+        directory: "C:/repos/shop-core",
+        succeeded: true,
+        output: "Created binary (application) package",
+      },
+    });
+    render(<DevelopSolutions />);
+    await openSection(user, "Workspace");
+
+    await user.type(await screen.findByLabelText("Solution name"), "Shop Core");
+    await user.selectOptions(await screen.findByLabelText("Starter language"), "rust");
+
+    // the command is filled in from the starter and is editable
+    expect(await screen.findByLabelText("Starter command")).toHaveValue(
+      "cargo init --name {name}",
+    );
+    expect(screen.getByText(/Rust toolchain/)).toBeInTheDocument();
+
+    await user.type(
+      screen.getByLabelText("Folder to create the project in"),
+      "C:/repos",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Create Solution and start it" }),
+    );
+
+    await waitFor(() =>
+      expect(mocked.createSolutionWithStarter).toHaveBeenCalledWith(
+        expect.objectContaining({
+          starterId: "rust",
+          command: "cargo init --name {name}",
+          parentDir: "C:/repos",
+        }),
+      ),
+    );
+    expect(await screen.findByText(/Started in C:\/repos\/shop-core/)).toBeInTheDocument();
+  });
+
+  /// A generator that failed leaves the Solution behind and says so in the
+  /// toolchain's own words — which are the only thing that names the missing
+  /// toolchain.
+  it("keeps the Solution and reports the words when a starter fails", async () => {
+    const user = userEvent.setup();
+    mocked.createSolutionWithStarter.mockResolvedValue({
+      solutionId: 4,
+      started: {
+        command: "cargo init --name shop-core",
+        directory: "C:/repos/shop-core",
+        succeeded: false,
+        output: "'cargo' is not recognized as an internal or external command",
+      },
+    });
+    render(<DevelopSolutions />);
+    await openSection(user, "Workspace");
+
+    await user.type(await screen.findByLabelText("Solution name"), "Shop Core");
+    await user.selectOptions(await screen.findByLabelText("Starter language"), "rust");
+    await user.type(screen.getByLabelText("Folder to create the project in"), "C:/repos");
+    await user.click(screen.getByRole("button", { name: "Create Solution and start it" }));
+
+    expect(await screen.findByText(/The Solution was still created/)).toBeInTheDocument();
+    expect(screen.getByText(/is not recognized/)).toBeInTheDocument();
   });
 
   it("lists existing solutions under their product", async () => {

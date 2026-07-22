@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import AiQuestions from "./AiQuestions";
+import WorkItemChanges from "./WorkItemChanges";
 import PolicyEditor from "./PolicyEditor";
 import { usePermissions } from "../lib/permissions";
 import HandoverPanel from "./HandoverPanel";
@@ -216,6 +217,7 @@ export default function PlanningBoard({ productId }: PlanningBoardProps) {
   const [subTitle, setSubTitle] = useState("");
   const [subType, setSubType] = useState<string>("");
   const [policyItem, setPolicyItem] = useState<number | null>(null);
+  const [screensItem, setScreensItem] = useState<number | null>(null);
   const { canSeeField } = usePermissions();
 
   const refresh = useCallback(async () => {
@@ -587,6 +589,14 @@ export default function PlanningBoard({ productId }: PlanningBoardProps) {
                   >
                     Delete
                   </button>
+                  <button
+                    aria-label={`Screens for ${item.title}`}
+                    onClick={() =>
+                      setScreensItem(screensItem === item.id ? null : item.id)
+                    }
+                  >
+                    Screens
+                  </button>
                   {policyItem === item.id && (
                     <PolicyEditor
                       workItemId={item.id}
@@ -596,6 +606,11 @@ export default function PlanningBoard({ productId }: PlanningBoardProps) {
                   )}
                   {/* Renders nothing unless the AI has asked something. */}
                   <AiQuestions workItemId={item.id} />
+                  {/* Product's half: the screens this work needs, recorded
+                      before anyone knows which Solution grows them. */}
+                  {screensItem === item.id && (
+                    <WorkItemChanges workItemId={item.id} mode="product" solutions={[]} />
+                  )}
                   {subItemParent === item.id && (
                     <form onSubmit={(e) => onCreateSubItem(e, item)} aria-label={`New sub-item of ${item.title}`}>
                       <input

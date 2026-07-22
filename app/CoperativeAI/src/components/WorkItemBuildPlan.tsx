@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import WorkItemChanges from "./WorkItemChanges";
 import {
   askProductQuestion,
   attachSolutionToWorkItem,
@@ -135,6 +136,11 @@ export default function WorkItemBuildPlan({
     <section className="build-plan" aria-label={`Build plan for ${item.title}`}>
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
+
+      {/* Product's screens land here as unassigned rows; this is where they get
+          pointed at a Solution, and where the APIs and tables behind them are
+          added. */}
+      <WorkItemChanges workItemId={item.id} mode="developer" solutions={solutions} />
 
       <section aria-label="Affected solutions">
         <h4>Solutions affected</h4>

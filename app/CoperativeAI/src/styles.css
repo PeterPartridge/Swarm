@@ -2355,3 +2355,124 @@ body {
   font-family: ui-monospace, monospace;
   font-size: 0.7rem;
 }
+
+/* ── What a work item changes, and starting a Solution ─────────────────── */
+
+.work-item-changes {
+  border-top: 1px solid #e5e7eb;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+}
+.work-item-changes h3 {
+  margin: 0 0 0.2rem;
+  font-size: 0.9rem;
+}
+
+.change-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: flex-end;
+  margin-bottom: 0.4rem;
+}
+.change-form label {
+  font-size: 0.72rem;
+  gap: 0.15rem;
+}
+
+.change-waiting {
+  color: #92400e;
+}
+
+.change-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.change {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+  padding: 0.2rem 0.35rem;
+  border-radius: 0.25rem;
+  background: #f9fafb;
+}
+
+/* Kind is the first thing scanned for, so it carries the colour. */
+.change-kind {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.05rem 0.3rem;
+  border-radius: 0.2rem;
+  background: #e5e7eb;
+  color: #374151;
+}
+.change-screen .change-kind {
+  background: #dbeafe;
+  color: #1e40af;
+}
+.change-api .change-kind {
+  background: #dcfce7;
+  color: #166534;
+}
+.change-table .change-kind {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.change-action {
+  font-size: 0.65rem;
+  color: #6b7280;
+}
+.change-action.change {
+  color: #92400e;
+}
+
+.change-detail {
+  color: #6b7280;
+  font-size: 0.72rem;
+}
+.change-assigned {
+  color: #374151;
+  font-size: 0.72rem;
+}
+
+.starter-detail {
+  border-left: 3px solid var(--tab-develop, #2563eb);
+  padding-left: 0.5rem;
+  margin: 0.3rem 0;
+}
+
+.starter-run {
+  margin-top: 0.5rem;
+  padding: 0.4rem;
+  border-radius: 0.3rem;
+  font-size: 0.78rem;
+}
+.starter-run.pass {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+}
+.starter-run.fail {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+}
+.starter-run code {
+  display: block;
+  font-size: 0.7rem;
+  margin: 0.2rem 0;
+}
+.starter-run pre {
+  max-height: 12rem;
+  overflow: auto;
+  font-size: 0.68rem;
+  margin: 0;
+  white-space: pre-wrap;
+}

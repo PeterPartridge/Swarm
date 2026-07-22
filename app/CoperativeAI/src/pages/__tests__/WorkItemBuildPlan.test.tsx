@@ -9,6 +9,11 @@ vi.mock("../../lib/backend", async (importOriginal) => {
   return {
     ...original,
     listWorkItemPlans: vi.fn(),
+    // The build plan now embeds WorkItemChanges. Leaving these unmocked lets
+    // them fall through to the real invoke, which renders an error alert and
+    // quietly breaks assertions about what else is on screen.
+    listWorkItemChanges: vi.fn(),
+    changeKindsForSolution: vi.fn(),
     attachSolutionToWorkItem: vi.fn(),
     saveWorkItemPlan: vi.fn(),
     detachWorkItemPlan: vi.fn(),
@@ -57,6 +62,7 @@ function solution(id: number, name: string): Solution {
     githubVisibility: null,
     localPath: null,
     testCommand: null,
+    language: null,
   };
 }
 
@@ -85,6 +91,8 @@ describe("WorkItemBuildPlan", () => {
     vi.clearAllMocks();
     mocked.listWorkItemPlans.mockResolvedValue([]);
     mocked.listAiFeedback.mockResolvedValue([]);
+    mocked.listWorkItemChanges.mockResolvedValue([]);
+    mocked.changeKindsForSolution.mockResolvedValue(["screen"]);
   });
 
   it("says nothing is affected yet, and offers the Product's Solutions", async () => {

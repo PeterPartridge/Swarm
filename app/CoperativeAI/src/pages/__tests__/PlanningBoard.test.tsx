@@ -70,6 +70,7 @@ function solution(id: number, name: string, productId: number): Solution {
     githubVisibility: null,
     localPath: null,
     testCommand: null,
+    language: null,
   };
 }
 

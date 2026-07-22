@@ -31,6 +31,7 @@ pub mod system_setting;
 pub mod team_member;
 pub mod test_case;
 pub mod work_item;
+pub mod work_item_change;
 pub mod work_item_link;
 pub mod work_item_plan;
 pub mod work_item_policy;
@@ -122,6 +123,8 @@ pub async fn create_all_tables(conn: &Connection) -> Result<()> {
     work_item::create_table(conn).await?;
     // after work_item: links name two of them
     work_item_link::create_table(conn).await?;
+    // after work_item + solution: a change names one and may name the other
+    work_item_change::create_table(conn).await?;
     // after work_item + solution: a run hands one into the other
     change_run::create_table(conn).await?;
     // after work_item + solution: a plan is what one requires of the other

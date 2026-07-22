@@ -39,6 +39,9 @@ export interface Solution {
   /** How to run this Solution's tests, when detection gets it wrong or the
    *  language is one nothing here recognises. Null means "work it out". */
   testCommand: string | null;
+  /** The starter it was created from. A record of what it was begun as, not a
+   *  claim about what it is now — repositories grow other languages. */
+  language: string | null;
 }
 
 export interface GithubStatus {
@@ -1419,3 +1422,93 @@ export const fileProperties = (
   solutionId: number,
   path: string,
 ): Promise<FileProperties> => invoke("file_properties", { solutionId, path });
+
+/* ── What a work item changes: screens, APIs, tables ───────────────────── */
+
+export type ChangeKind = "screen" | "api" | "table";
+export type ChangeAction = "add" | "change";
+
+export interface WorkItemChange {
+  id: number;
+  workItemId: number;
+  /** Null while it is still Product's ask, unassigned to any Solution. */
+  solutionId: number | null;
+  kind: ChangeKind;
+  action: ChangeAction;
+  name: string;
+  detail: string;
+}
+
+export const CHANGE_KIND_LABELS: Record<ChangeKind, string> = {
+  screen: "Screen",
+  api: "API",
+  table: "Database table",
+};
+
+export const listWorkItemChanges = (workItemId: number): Promise<WorkItemChange[]> =>
+  invoke("list_work_item_changes", { workItemId });
+export const addWorkItemChange = (args: {
+  workItemId: number;
+  solutionId: number | null;
+  kind: ChangeKind;
+  action: ChangeAction;
+  name: string;
+  detail: string;
+}): Promise<number> => invoke("add_work_item_change", args);
+/** Points Product's ask at the Solution that will build it, or back at nobody. */
+export const assignWorkItemChange = (
+  id: number,
+  solutionId: number | null,
+): Promise<void> => invoke("assign_work_item_change", { id, solutionId });
+export const updateWorkItemChange = (
+  id: number,
+  action: ChangeAction,
+  name: string,
+  detail: string,
+): Promise<void> => invoke("update_work_item_change", { id, action, name, detail });
+export const deleteWorkItemChange = (id: number): Promise<void> =>
+  invoke("delete_work_item_change", { id });
+/** Which kinds this Solution's type can carry. Asked of the backend rather
+ *  than duplicated here — two copies of the rule would drift, and the drift
+ *  would only show as a rejected save. */
+export const changeKindsForSolution = (solutionId: number): Promise<ChangeKind[]> =>
+  invoke("change_kinds_for_solution", { solutionId });
+
+/* ── Starting a Solution from its language's own generator ─────────────── */
+
+export interface Starter {
+  id: string;
+  label: string;
+  /** The command, with {name} where the Solution's name goes. Editable in the
+   *  form before anything runs — the button press is the confirmation. */
+  command: string;
+  needs: string;
+}
+
+export interface StarterRun {
+  command: string;
+  directory: string;
+  succeeded: boolean;
+  /** The toolchain's own words, whole. When one is missing this is the only
+   *  thing that says which. */
+  output: string;
+}
+
+export interface CreatedSolution {
+  solutionId: number;
+  started: StarterRun | null;
+}
+
+export const listStarters = (): Promise<Starter[]> => invoke("list_starters");
+/** Creates the Solution and, when a starter was chosen, runs that language's
+ *  generator in a new folder. The Solution is kept even if the generator
+ *  fails — the decision is worth more than the folder. */
+export const createSolutionWithStarter = (args: {
+  name: string;
+  productId: number;
+  solutionType: string;
+  answers: string;
+  starterId: string | null;
+  command: string | null;
+  parentDir: string | null;
+}): Promise<CreatedSolution> => invoke("create_solution_with_starter", args);

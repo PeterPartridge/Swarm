@@ -26,11 +26,15 @@ pub struct Solution {
     /// How to run this Solution's tests, when detection gets it wrong or the
     /// language is one nothing here recognises. Null means "work it out".
     pub test_command: Option<String>,
+    /// The starter the project was created from ("rust", "react-ts", …). A
+    /// record of what it was begun as, not a claim about what it is now — a
+    /// repository grows other languages and this does not chase them.
+    pub language: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
-const SELECT: &str = "SELECT id, name, productId, solutionType, answers, origin, githubUrl, githubVisibility, localPath, testCommand, createdAt, updatedAt FROM solutions";
+const SELECT: &str = "SELECT id, name, productId, solutionType, answers, origin, githubUrl, githubVisibility, localPath, testCommand, language, createdAt, updatedAt FROM solutions";
 
 pub async fn create_table(conn: &Connection) -> Result<()> {
     // Round-2 migration: add GitHub link columns. Pre-release → drop & recreate
@@ -52,6 +56,7 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             githubVisibility TEXT,
             localPath TEXT,
             testCommand TEXT,
+            language TEXT,
             createdAt INTEGER NOT NULL,
             updatedAt INTEGER NOT NULL,
             UNIQUE(productId, name)
@@ -76,6 +81,24 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
         conn.execute("ALTER TABLE solutions ADD COLUMN testCommand TEXT", ())
             .await?;
     }
+    if has_table && !dropped && !columns.iter().any(|c| c == "language") {
+        conn.execute("ALTER TABLE solutions ADD COLUMN language TEXT", ())
+            .await?;
+    }
+    Ok(())
+}
+
+/// Records which starter this Solution was created from.
+pub async fn set_language(conn: &Connection, id: i64, language: Option<&str>) -> Result<()> {
+    if find_by_id(conn, id).await?.is_none() {
+        return Err(DbError::Validation(format!("no Solution with id {id}")));
+    }
+    let cleaned = language.map(str::trim).filter(|l| !l.is_empty());
+    conn.execute(
+        "UPDATE solutions SET language = ?1, updatedAt = ?2 WHERE id = ?3",
+        (cleaned, now_millis(), id),
+    )
+    .await?;
     Ok(())
 }
 
@@ -244,8 +267,9 @@ fn row_to_solution(row: turso::Row) -> Result<Solution> {
         github_visibility: row.get(7)?,
         local_path: row.get(8)?,
         test_command: row.get(9)?,
-        created_at: row.get(10)?,
-        updated_at: row.get(11)?,
+        language: row.get(10)?,
+        created_at: row.get(11)?,
+        updated_at: row.get(12)?,
     })
 }
 
