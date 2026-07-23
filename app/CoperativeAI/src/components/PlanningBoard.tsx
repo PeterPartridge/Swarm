@@ -72,6 +72,7 @@ function optimisticItem(
     customerCoverPct: null,
     risk: "",
     solutionId: null,
+    developmentDetails: "",
   };
 }
 
@@ -345,6 +346,7 @@ export default function PlanningBoard({ productId }: PlanningBoardProps) {
         customerCoverPct: m.customerCoverPct,
         risk: m.risk,
         solutionId: m.solutionId,
+        developmentDetails: m.developmentDetails,
       }),
     );
   }

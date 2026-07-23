@@ -42,6 +42,7 @@ const item: WorkItem = {
   customerCoverPct: null,
   risk: "",
   solutionId: null,
+  developmentDetails: "",
 };
 
 function perms(overrides: Partial<ActivePermissions>): ActivePermissions {

@@ -467,3 +467,127 @@ pub async fn generate_change_plan(
 fn file_name_of(path: &str) -> &str {
     path.rsplit(['/', '\\']).next().unwrap_or(path)
 }
+
+/// Writes the work item as `.md` and `.json` for an agent to work from.
+///
+/// Both, from one structure. The Markdown is for reading the intent; the JSON
+/// is for a tool that wants a list of endpoints rather than a paragraph to
+/// guess at. Generating one from the other would mean parsing prose or
+/// rendering a form, and either way they would drift.
+#[tauri::command]
+pub async fn write_work_item_files(
+    db: State<'_, AppDb>,
+    work_item_id: i64,
+) -> Result<Vec<String>, String> {
+    use crate::work_item_files as files;
+
+    let (doc, product_dir) = {
+        let conn = db.0.lock().await;
+        let Some(item) = work_item::find_by_id(&conn, work_item_id)
+            .await
+            .map_err(to_message)?
+        else {
+            return Err("that work item no longer exists".into());
+        };
+        let Some(product) = crate::db::product::find_by_id(&conn, item.product_id)
+            .await
+            .map_err(to_message)?
+        else {
+            return Err("this work item's Product no longer exists".into());
+        };
+        // Beside the Product's framework files, so the pair lives with the
+        // code it describes rather than in the app's data folder.
+        let dir = crate::db::solution_management::list_all(&conn)
+            .await
+            .map_err(to_message)?
+            .into_iter()
+            .find(|s| s.filename == product.name)
+            .map(|s| s.filepath)
+            .ok_or_else(|| {
+                format!(
+                    "'{}' has no folder yet — generate its framework files first, and these go \
+                     beside them",
+                    product.name
+                )
+            })?;
+
+        let solutions = solution::list_by_product(&conn, item.product_id)
+            .await
+            .map_err(to_message)?;
+        let plans = work_item_plan::list_for_item(&conn, work_item_id)
+            .await
+            .map_err(to_message)?;
+        let all_changes = crate::db::work_item_change::list_for_item(&conn, work_item_id)
+            .await
+            .map_err(to_message)?;
+        let clarifications = crate::db::ai_feedback::clarifications_for_item(&conn, work_item_id)
+            .await
+            .map_err(to_message)?;
+
+        let entry = |c: &crate::db::work_item_change::WorkItemChange| files::ChangeEntry {
+            kind: c.kind.clone(),
+            action: c.action.clone(),
+            name: c.name.clone(),
+            detail: c.detail.clone(),
+            mockup: c.mockup_path.clone(),
+        };
+
+        let parts: Vec<files::SolutionPart> = plans
+            .iter()
+            .map(|p| {
+                let sol = solutions.iter().find(|s| s.id == p.solution_id);
+                files::SolutionPart {
+                    name: sol.map(|s| s.name.clone()).unwrap_or_default(),
+                    solution_type: sol.map(|s| s.solution_type.clone()).unwrap_or_default(),
+                    changes_required: p.changes_required.clone(),
+                    unit_tests: p.unit_tests.clone(),
+                    branch_name: p.branch_name.clone(),
+                    clone_from: p.clone_from.clone(),
+                    changes: all_changes
+                        .iter()
+                        .filter(|c| c.solution_id == Some(p.solution_id))
+                        .map(entry)
+                        .collect(),
+                    api_schema: p.api_schema.clone(),
+                    page_schema: p.page_schema.clone(),
+                    files_to_change: p.files_to_change.clone(),
+                }
+            })
+            .collect();
+
+        let doc = files::WorkItemDoc {
+            id: item.id,
+            title: item.title.clone(),
+            item_type: item.item_type.clone(),
+            status: item.status.clone(),
+            description: item.description.clone().unwrap_or_default(),
+            risk: item.risk.clone(),
+            product: product.name.clone(),
+            development_details: item.development_details.clone(),
+            clarifications,
+            solutions: parts,
+            unassigned: all_changes
+                .iter()
+                .filter(|c| c.solution_id.is_none())
+                .map(entry)
+                .collect(),
+        };
+        (doc, dir)
+    };
+
+    let (md_path, json_path) = files::paths(doc.id, &doc.title);
+    let written = crate::emit::write_generated(
+        &product_dir,
+        &[
+            crate::emit::EmitFile {
+                rel_path: md_path,
+                contents: files::to_markdown(&doc),
+            },
+            crate::emit::EmitFile {
+                rel_path: json_path,
+                contents: files::to_json(&doc),
+            },
+        ],
+    )?;
+    Ok(written)
+}

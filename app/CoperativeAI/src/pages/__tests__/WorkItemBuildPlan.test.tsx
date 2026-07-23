@@ -48,6 +48,7 @@ const item: WorkItem = {
   customerCoverPct: null,
   risk: "",
   solutionId: null,
+  developmentDetails: "",
 };
 
 function solution(id: number, name: string): Solution {
@@ -95,17 +96,31 @@ describe("WorkItemBuildPlan", () => {
     mocked.changeKindsForSolution.mockResolvedValue(["screen"]);
   });
 
-  it("says nothing is affected yet, and offers the Product's Solutions", async () => {
+  /// The question is "which of these does this touch", and a checklist is that
+  /// question. Unticking detaches, so one control answers it both ways.
+  it("ticks a Solution to affect it and unticks to stop", async () => {
     const user = userEvent.setup();
     mocked.attachSolutionToWorkItem.mockResolvedValue(1);
+    mocked.detachWorkItemPlan.mockResolvedValue(undefined);
     render(<WorkItemBuildPlan item={item} solutions={solutions} />);
 
     expect(await screen.findByText(/Nothing affected yet/)).toBeInTheDocument();
-    await user.selectOptions(screen.getByLabelText("Add an affected solution"), "4");
+    const tick = screen.getByLabelText("Shop Web is affected");
+    expect(tick).not.toBeChecked();
 
+    await user.click(tick);
     await waitFor(() =>
       expect(mocked.attachSolutionToWorkItem).toHaveBeenCalledWith(12, 4),
     );
+
+    // an already-affected Solution shows ticked, and unticking removes it
+    mocked.listWorkItemPlans.mockResolvedValue([plan({ solutionId: 4 })]);
+    render(<WorkItemBuildPlan item={item} solutions={solutions} />);
+    const ticked = await screen.findAllByLabelText("Shop Web is affected");
+    expect(ticked[ticked.length - 1]).toBeChecked();
+
+    await user.click(ticked[ticked.length - 1]);
+    await waitFor(() => expect(mocked.detachWorkItemPlan).toHaveBeenCalled());
   });
 
   /// Each affected Solution gets its own changes, tests and branch — a work

@@ -282,6 +282,10 @@ export interface WorkItem {
   /** The Solution this work touches, and so the repository it lands in.
    *  Null for the plenty of work that is not code. */
   solutionId: number | null;
+  /** How this should be built, over and above the per-Solution notes — the
+   *  conventions and gotchas everyone knows and nobody wrote down. Travels
+   *  into the emitted .md and .json an agent works from. */
+  developmentDetails: string;
 }
 
 /** A dependency between two work items. When their Solutions differ this is a
@@ -949,6 +953,7 @@ export const updateWorkItem = (args: {
   customerCoverPct: number | null;
   risk: string;
   solutionId: number | null;
+  developmentDetails: string;
 }): Promise<void> => invoke("update_work_item", args);
 export const deleteWorkItem = (id: number): Promise<void> =>
   invoke("delete_work_item", { id });
@@ -1705,3 +1710,17 @@ export function diagramPosition(index: number): { x: number; y: number } {
     y: DIAGRAM_GRID.y0 + Math.floor(index / DIAGRAM_GRID.perRow) * DIAGRAM_GRID.dy,
   };
 }
+
+/** What is already recorded against a Solution — the list you tick from.
+ *  There is no separate catalogue of a Solution's endpoints; the union of every
+ *  change anybody recorded is it, and it grows as the team works. */
+export const solutionCatalogue = (
+  solutionId: number,
+): Promise<{ kind: ChangeKind; name: string }[]> =>
+  invoke("solution_catalogue", { solutionId });
+
+/** Writes the work item as .md and .json for an agent to work from. Both come
+ *  from one structure — generating one from the other would mean parsing prose
+ *  or rendering a form, and they would drift. */
+export const writeWorkItemFiles = (workItemId: number): Promise<string[]> =>
+  invoke("write_work_item_files", { workItemId });

@@ -34,6 +34,10 @@ pub struct WorkItem {
     /// The Solution this work touches, and so the repository it lands in.
     /// Nullable: plenty of work is not code.
     pub solution_id: Option<i64>,
+    /// How this should be built, over and above the per-Solution notes — the
+    /// conventions and gotchas everyone knows and nobody wrote down. Travels
+    /// into the emitted .md and .json an agent works from.
+    pub development_details: String,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -54,9 +58,13 @@ pub struct WorkItemFields {
     pub customer_cover_pct: Option<f64>,
     pub risk: String,
     pub solution_id: Option<i64>,
+    /// How this should be built, over and above the per-Solution notes — the
+    /// conventions and gotchas everyone knows and nobody wrote down. Travels
+    /// into the emitted .md and .json an agent works from.
+    pub development_details: String,
 }
 
-const SELECT_COLUMNS: &str = "SELECT id, title, itemType, status, description, productId, parentItemId, assigneeId, sprintId, startDate, endDate, deliverableId, expectedCost, estimatedProfit, chargeable, customerCoverPct, risk, solutionId, createdAt, updatedAt";
+const SELECT_COLUMNS: &str = "SELECT id, title, itemType, status, description, productId, parentItemId, assigneeId, sprintId, startDate, endDate, deliverableId, expectedCost, estimatedProfit, chargeable, customerCoverPct, risk, solutionId, developmentDetails, createdAt, updatedAt";
 
 pub async fn create_table(conn: &Connection) -> Result<()> {
     // Migration: drop & recreate if the table predates round 3 (legacy
@@ -89,6 +97,7 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             chargeable INTEGER NOT NULL DEFAULT 0,
             customerCoverPct REAL,
             risk TEXT NOT NULL DEFAULT '',
+            developmentDetails TEXT NOT NULL DEFAULT '',
             solutionId INTEGER,
             createdAt INTEGER NOT NULL,
             updatedAt INTEGER NOT NULL
@@ -104,6 +113,10 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
     for (name, ddl) in [
         ("risk", "ALTER TABLE work_items ADD COLUMN risk TEXT NOT NULL DEFAULT ''"),
         ("solutionId", "ALTER TABLE work_items ADD COLUMN solutionId INTEGER"),
+        (
+            "developmentDetails",
+            "ALTER TABLE work_items ADD COLUMN developmentDetails TEXT NOT NULL DEFAULT ''",
+        ),
     ] {
         if has_table && !stale && !columns.iter().any(|c| c == name) {
             conn.execute(ddl, ()).await?;
@@ -255,12 +268,12 @@ pub async fn update_item(conn: &Connection, id: i64, fields: WorkItemFields) -> 
         }
     }
     conn.execute(
-        "UPDATE work_items SET assigneeId=?1, sprintId=?2, startDate=?3, endDate=?4, deliverableId=?5, expectedCost=?6, estimatedProfit=?7, chargeable=?8, customerCoverPct=?9, risk=?10, solutionId=?11, updatedAt=?12 WHERE id=?13",
+        "UPDATE work_items SET assigneeId=?1, sprintId=?2, startDate=?3, endDate=?4, deliverableId=?5, expectedCost=?6, estimatedProfit=?7, chargeable=?8, customerCoverPct=?9, risk=?10, solutionId=?11, developmentDetails=?12, updatedAt=?13 WHERE id=?14",
         (
             fields.assignee_id, fields.sprint_id, fields.start_date, fields.end_date,
             fields.deliverable_id, fields.expected_cost, fields.estimated_profit,
             fields.chargeable as i64, fields.customer_cover_pct,
-            fields.risk.as_str(), fields.solution_id, now_millis(), id,
+            fields.risk.as_str(), fields.solution_id, fields.development_details.as_str(), now_millis(), id,
         ),
     )
     .await?;
@@ -326,8 +339,9 @@ fn row_to_item(row: turso::Row) -> Result<WorkItem> {
         customer_cover_pct: row.get(15)?,
         risk: row.get(16)?,
         solution_id: row.get(17)?,
-        created_at: row.get(18)?,
-        updated_at: row.get(19)?,
+        development_details: row.get(18)?,
+        created_at: row.get(19)?,
+        updated_at: row.get(20)?,
     })
 }
 

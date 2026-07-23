@@ -146,3 +146,29 @@ pub async fn set_change_mockup(
         .await
         .map_err(to_message)
 }
+
+/// What is already recorded against a Solution, to tick from.
+///
+/// There is no separate catalogue of a Solution's endpoints and screens, and
+/// inventing one would mean a second place to keep in step. The union of every
+/// change anybody has recorded is it, and it grows as the team works.
+#[tauri::command]
+pub async fn solution_catalogue(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+) -> Result<Vec<CatalogueEntry>, String> {
+    let conn = db.0.lock().await;
+    Ok(work_item_change::catalogue_for_solution(&conn, solution_id)
+        .await
+        .map_err(to_message)?
+        .into_iter()
+        .map(|(kind, name)| CatalogueEntry { kind, name })
+        .collect())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogueEntry {
+    pub kind: String,
+    pub name: String,
+}

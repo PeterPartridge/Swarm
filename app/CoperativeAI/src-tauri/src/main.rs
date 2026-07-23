@@ -18,6 +18,7 @@ mod starter;
 mod terminal;
 mod test_runner;
 mod vcs;
+mod work_item_files;
 mod workspace;
 
 use std::path::PathBuf;
@@ -86,6 +87,8 @@ fn main() {
             commands::work_item_changes::delete_work_item_change,
             commands::work_item_changes::change_kinds_for_solution,
             commands::work_item_changes::set_change_mockup,
+            commands::work_item_changes::solution_catalogue,
+            commands::work_item_plans::write_work_item_files,
             commands::solutions::start_existing_solution,
             commands::vcs_ops::branch_history,
             commands::vcs_ops::commit_solution,

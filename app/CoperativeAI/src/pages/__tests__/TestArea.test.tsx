@@ -51,6 +51,7 @@ const workItem: WorkItem = {
   customerCoverPct: null,
   risk: "",
   solutionId: null,
+  developmentDetails: "",
 };
 const testCase: TestCase = {
   id: 5,

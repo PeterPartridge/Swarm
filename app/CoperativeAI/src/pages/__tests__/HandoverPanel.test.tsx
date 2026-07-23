@@ -32,6 +32,7 @@ const item: WorkItem = {
   customerCoverPct: null,
   risk: "",
   solutionId: 11,
+  developmentDetails: "",
 };
 
 const handover = {

@@ -10,6 +10,8 @@ import {
   pickImages,
   resolveAiFeedback,
   saveWorkItemPlan,
+  updateWorkItem,
+  writeWorkItemFiles,
   type AiFeedback,
   type Solution,
   type WorkItem,
@@ -132,7 +134,6 @@ export default function WorkItemBuildPlan({
   /// screen can point at. Deduped: the same shot is often attached to both the
   /// API and the web app's plan.
   const allMockups = [...new Set(plans.flatMap((p) => parseMockups(p.mockups)))];
-  const unaffected = solutions.filter((s) => !plans.some((p) => p.solutionId === s.id));
   const openQuestions = questions.filter((q) => !q.resolved);
   const answered = questions.filter((q) => q.resolved);
 
@@ -151,23 +152,89 @@ export default function WorkItemBuildPlan({
         mockups={allMockups}
       />
 
+      {/* Above the per-Solution notes because it applies across all of them:
+          the conventions and gotchas everyone knows and nobody wrote down. */}
+      <div className="field">
+        <span>Development details — how this should be built</span>
+        <textarea
+          rows={3}
+          aria-label="Development details"
+          defaultValue={item.developmentDetails}
+          placeholder="conventions, gotchas, anything an agent would not work out"
+          onBlur={(e) =>
+            run(() =>
+              updateWorkItem({
+                id: item.id,
+                assigneeId: item.assigneeId,
+                sprintId: item.sprintId,
+                startDate: item.startDate,
+                endDate: item.endDate,
+                deliverableId: item.deliverableId,
+                expectedCost: item.expectedCost,
+                estimatedProfit: item.estimatedProfit,
+                chargeable: item.chargeable,
+                customerCoverPct: item.customerCoverPct,
+                risk: item.risk,
+                solutionId: item.solutionId,
+                developmentDetails: e.target.value,
+              }),
+            )
+          }
+        />
+      </div>
+
+      <div className="plan-files">
+        <button
+          aria-label={`Write the files for ${item.title}`}
+          onClick={() =>
+            void writeWorkItemFiles(item.id)
+              .then((written) =>
+                setNotice(`Written: ${written.join(", ")}`),
+              )
+              .catch((e) => setError(String(e)))
+          }
+        >
+          Write .md and .json for the AI
+        </button>
+        <p className="hint">
+          Both, from what is recorded here — the Markdown for reading the
+          intent, the JSON for a tool that wants a list of endpoints rather
+          than a paragraph to guess at.
+        </p>
+      </div>
+
       <section aria-label="Affected solutions">
         <h4>Solutions affected</h4>
-        {unaffected.length > 0 && (
-          <select
-            aria-label="Add an affected solution"
-            value=""
-            onChange={(e) =>
-              run(() => attachSolutionToWorkItem(item.id, Number(e.target.value)))
-            }
-          >
-            <option value="">Add a Solution…</option>
-            {unaffected.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
+        {/* Ticked rather than added one at a time from a dropdown: the
+            question is "which of these does this touch", and a checklist is
+            that question. Unticking detaches, so the same control answers it
+            in both directions. */}
+        <ul className="solution-ticks">
+          {solutions.map((s) => {
+            const plan = plans.find((p) => p.solutionId === s.id);
+            return (
+              <li key={s.id}>
+                <label>
+                  <input
+                    type="checkbox"
+                    aria-label={`${s.name} is affected`}
+                    checked={plan !== undefined}
+                    onChange={(e) =>
+                      run(() =>
+                        e.target.checked
+                          ? attachSolutionToWorkItem(item.id, s.id)
+                          : detachWorkItemPlan(plan!.id),
+                      )
+                    }
+                  />{" "}
+                  {s.name} <span className="hint">({s.solutionType})</span>
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+        {solutions.length === 0 && (
+          <p className="hint">This Product has no Solutions to tick yet.</p>
         )}
         {plans.length === 0 && (
           <p className="hint">

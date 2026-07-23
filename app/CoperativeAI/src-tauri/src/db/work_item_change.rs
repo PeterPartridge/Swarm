@@ -304,6 +304,40 @@ pub async fn list_for_solution(
     Ok(out)
 }
 
+/// Everything ever recorded against one Solution, by kind and name.
+///
+/// **This is the list you tick from.** The platform has no separate catalogue
+/// of a Solution's endpoints, screens and tables — and inventing one would mean
+/// a second place to keep in step. What it does have is every change anybody
+/// has recorded, so the union of those *is* the catalogue, and it grows as the
+/// team works rather than needing to be filled in first.
+///
+/// Deduplicated case-insensitively, keeping the spelling first used: the
+/// original is the one the code most likely matches.
+pub async fn catalogue_for_solution(
+    conn: &Connection,
+    solution_id: i64,
+) -> Result<Vec<(String, String)>> {
+    let mut rows = conn
+        .query(
+            "SELECT kind, name FROM work_item_changes WHERE solutionId = ?1 ORDER BY kind, id",
+            (solution_id,),
+        )
+        .await?;
+    let mut seen: Vec<(String, String)> = Vec::new();
+    while let Some(row) = rows.next().await? {
+        let kind: String = row.get(0)?;
+        let name: String = row.get(1)?;
+        if !seen
+            .iter()
+            .any(|(k, n)| *k == kind && n.eq_ignore_ascii_case(&name))
+        {
+            seen.push((kind, name));
+        }
+    }
+    Ok(seen)
+}
+
 pub async fn find_by_id(conn: &Connection, id: i64) -> Result<Option<WorkItemChange>> {
     let mut rows = conn
         .query(&format!("{SELECT} WHERE id = ?1"), (id,))
@@ -508,6 +542,46 @@ mod tests {
 
         set_mockup(&conn, id, None).await.expect("unlink");
         assert!(find_by_id(&conn, id).await.expect("f").expect("t").mockup_path.is_none());
+    }
+
+    /// The list someone ticks from. There is no separate catalogue of a
+    /// Solution's endpoints — inventing one would be a second place to keep in
+    /// step — so the union of what has been recorded is it, and it grows as
+    /// the team works.
+    #[tokio::test]
+    async fn a_solutions_catalogue_is_everything_recorded_against_it() {
+        let (conn, item, _web, api) = fixture().await;
+        let second = crate::db::work_item::create(&conn, "Refunds", "feature", 1, None, None)
+            .await
+            .expect("second item");
+
+        add(&conn, item, Some(api), "api", "add", "POST /checkout", "").await.expect("a");
+        add(&conn, item, Some(api), "table", "add", "orders", "").await.expect("b");
+        // a different work item touching the same Solution adds to the same list
+        add(&conn, second, Some(api), "api", "change", "POST /refund", "").await.expect("c");
+
+        let catalogue = catalogue_for_solution(&conn, api).await.expect("catalogue");
+        let names: Vec<&str> = catalogue.iter().map(|(_, n)| n.as_str()).collect();
+        assert!(names.contains(&"POST /checkout"));
+        assert!(names.contains(&"POST /refund"));
+        assert!(names.contains(&"orders"));
+    }
+
+    /// The same endpoint touched by two work items is one entry, spelled the
+    /// way it was first written — that spelling is what the code most likely
+    /// matches.
+    #[tokio::test]
+    async fn the_catalogue_lists_each_thing_once() {
+        let (conn, item, _web, api) = fixture().await;
+        let second = crate::db::work_item::create(&conn, "Refunds", "feature", 1, None, None)
+            .await
+            .expect("second item");
+        add(&conn, item, Some(api), "api", "add", "POST /checkout", "").await.expect("a");
+        add(&conn, second, Some(api), "api", "change", "post /CHECKOUT", "").await.expect("b");
+
+        let catalogue = catalogue_for_solution(&conn, api).await.expect("catalogue");
+        assert_eq!(catalogue.len(), 1);
+        assert_eq!(catalogue[0].1, "POST /checkout", "the first spelling wins");
     }
 
     #[tokio::test]

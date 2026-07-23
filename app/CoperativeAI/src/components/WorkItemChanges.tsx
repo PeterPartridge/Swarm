@@ -6,6 +6,7 @@ import {
   deleteWorkItemChange,
   listWorkItemChanges,
   setChangeMockup,
+  solutionCatalogue,
   CHANGE_KIND_LABELS,
   type ChangeAction,
   type ChangeKind,
@@ -51,6 +52,10 @@ export default function WorkItemChanges({
   const [detail, setDetail] = useState("");
   const [target, setTarget] = useState<number | "">("");
   const [allowed, setAllowed] = useState<ChangeKind[]>(["screen", "api", "table"]);
+  /// What is already recorded against the chosen Solution — the list to tick
+  /// from, so an endpoint that exists is not typed in again slightly
+  /// differently and treated as a second endpoint.
+  const [catalogue, setCatalogue] = useState<{ kind: ChangeKind; name: string }[]>([]);
 
   const refresh = useCallback(async () => {
     try {
@@ -71,8 +76,12 @@ export default function WorkItemChanges({
     if (mode === "product" || target === "") {
       setAllowed(["screen"]);
       setKind("screen");
+      setCatalogue([]);
       return;
     }
+    void solutionCatalogue(Number(target))
+      .then(setCatalogue)
+      .catch(() => setCatalogue([]));
     let cancelled = false;
     void (async () => {
       try {
@@ -232,6 +241,60 @@ export default function WorkItemChanges({
           Add
         </button>
       </div>
+
+      {/* Tick what already exists rather than retyping it. An endpoint typed
+          in again slightly differently becomes a second endpoint that nobody
+          notices until two of them are built. */}
+      {mode === "developer" && target !== "" && catalogue.length > 0 && (
+        <div className="change-catalogue">
+          <p className="hint">
+            Already in this Solution — tick what this work touches:
+          </p>
+          <ul>
+            {catalogue
+              .filter((entry) => allowed.includes(entry.kind))
+              .map((entry) => {
+                const already = changes.some(
+                  (c) =>
+                    c.solutionId === Number(target) &&
+                    c.kind === entry.kind &&
+                    c.name.toLowerCase() === entry.name.toLowerCase(),
+                );
+                return (
+                  <li key={`${entry.kind}-${entry.name}`}>
+                    <label>
+                      <input
+                        type="checkbox"
+                        aria-label={`${entry.name} is affected`}
+                        checked={already}
+                        disabled={already}
+                        onChange={() =>
+                          void addWorkItemChange({
+                            workItemId,
+                            solutionId: Number(target),
+                            kind: entry.kind,
+                            // Ticking something that exists is a change to it,
+                            // not an addition — that is what makes it worth
+                            // ticking rather than adding.
+                            action: "change",
+                            name: entry.name,
+                            detail: "",
+                          })
+                            .then(refresh)
+                            .catch((e) => setError(String(e)))
+                        }
+                      />{" "}
+                      <span className="change-kind">
+                        {CHANGE_KIND_LABELS[entry.kind]}
+                      </span>{" "}
+                      {entry.name}
+                    </label>
+                  </li>
+                );
+              })}
+          </ul>
+        </div>
+      )}
 
       {mode === "developer" && unassigned.length > 0 && (
         <p className="hint change-waiting">
