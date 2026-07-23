@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  autoCommitSolution,
   createSolutionFile,
   fileProperties,
+  getCommitPolicy,
   productChangedFiles,
   readSolutionFile,
   readSolutionTree,
@@ -12,6 +14,7 @@ import {
 } from "../lib/backend";
 import AiPanel, { type AiChoice } from "./AiPanel";
 import CodeWindow from "./CodeWindow";
+import GitPanel from "./GitPanel";
 import TerminalPanel from "./TerminalPanel";
 
 /** What the explorer knows about the selected file.
@@ -189,6 +192,10 @@ export default function CodeEditor({
   const [changed, setChanged] = useState<Record<number, FileChange[]>>({});
   const [changedError, setChangedError] = useState<string | null>(null);
   const [aiChoice, setAiChoice] = useState<AiChoice>("ollama");
+  /// The left pane is tabbed: the files, or what is about to be committed.
+  const [explorerTab, setExplorerTab] = useState<"files" | "git">("files");
+  /// Bumped after a save or a commit so the Git tab reloads without polling.
+  const [gitEpoch, setGitEpoch] = useState(0);
   /// A command the AI panel wants the terminal to run, cleared once sent.
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
   const [terminalOpen, setTerminalOpen] = useState(false);
@@ -273,6 +280,41 @@ export default function CodeEditor({
     if (changedOnly) void loadChanges();
   }, [changedOnly, loadChanges]);
 
+  /** The timer half of auto-commit.
+   *
+   *  The interval is read from the policy rather than hard-coded, and the
+   *  backend still refuses if the mode is not `interval` — so a timer left
+   *  running by a stale closure cannot commit for someone who turned it off.
+   *  One timer per open Solution, cleared when it closes. */
+  useEffect(() => {
+    if (!active) return;
+    const solutionId = active.solution.id;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const policy = await getCommitPolicy(solutionId);
+        if (cancelled || policy.mode !== "interval") return;
+        timer = setInterval(
+          () => {
+            void autoCommitSolution(solutionId, "timer")
+              .then((r) => r.committed && setGitEpoch((n) => n + 1))
+              .catch(() => {});
+          },
+          Math.max(2, policy.intervalMinutes) * 60_000,
+        );
+      } catch {
+        // No policy readable means no timer, which is the safe direction.
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [active?.solution.id, gitEpoch]);
+
   function closeSolution(id: number) {
     const remaining = sessions.filter((s) => s.solution.id !== id);
     setSessions(remaining);
@@ -346,11 +388,45 @@ export default function CodeEditor({
     }
   }
 
+  // Nothing open is the ordinary state on arriving here, so it offers the way
+  // forward rather than sending someone to another tab to press a button. The
+  // explorer frame stays, with the picker where the tree will be — the shape
+  // of the page does not change out from under you when you choose.
   if (sessions.length === 0) {
     return (
-      <p className="hint">
-        No Solution open. Pick one on the Workspace tab and press Open.
-      </p>
+      <section className="code-editor" aria-label="Code">
+        <div className="code-editor-panes">
+          <div className="explorer">
+            <label className="explorer-picker">
+              Open a Solution
+              <select
+                aria-label="Solution to open"
+                value=""
+                onChange={(e) => {
+                  const chosen = solutions.find((s) => s.id === Number(e.target.value));
+                  if (chosen) addSolution(chosen);
+                }}
+              >
+                <option value="">Choose a Solution…</option>
+                {solutions.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} ({s.solutionType})
+                  </option>
+                ))}
+              </select>
+            </label>
+            {solutions.length === 0 && (
+              <p className="hint">
+                This Product has no Solutions yet — create one on the Planning
+                and Architecture tab.
+              </p>
+            )}
+          </div>
+          <div className="file-view">
+            <p className="hint">Pick a Solution on the left to start editing.</p>
+          </div>
+        </div>
+      </section>
     );
   }
 
@@ -415,6 +491,37 @@ export default function CodeEditor({
       ) : (
         <div className="code-editor-panes">
           <div className="explorer">
+            {/* Committing is part of writing code, not a separate errand, so
+                it sits beside the files rather than in another tab of the
+                app. The Git tab up in Develop answers "where does everything
+                stand"; this one answers "ship what I just did". */}
+            <nav className="explorer-tabs" aria-label="Explorer sections">
+              <button
+                aria-pressed={explorerTab === "files"}
+                className={explorerTab === "files" ? "explorer-tab-active" : ""}
+                onClick={() => setExplorerTab("files")}
+              >
+                Files
+              </button>
+              <button
+                aria-pressed={explorerTab === "git"}
+                className={explorerTab === "git" ? "explorer-tab-active" : ""}
+                onClick={() => setExplorerTab("git")}
+              >
+                Git
+              </button>
+            </nav>
+
+            {explorerTab === "git" && active && (
+              <GitPanel
+                key={`${active.solution.id}-${gitEpoch}`}
+                solution={active.solution}
+                onCommitted={() => setGitEpoch((n) => n + 1)}
+              />
+            )}
+
+            {explorerTab === "files" && (
+            <>
             <div className="new-file">
               <input
                 aria-label="New file path"
@@ -511,6 +618,8 @@ export default function CodeEditor({
               )}
             </ul>
             )}
+            </>
+            )}
 
             {/* Under the tree, because it describes the selection. */}
             {active && (
@@ -582,6 +691,15 @@ export default function CodeEditor({
                     ),
                   }));
                   void loadTree(active.solution);
+                  // The backend refuses unless the policy says onSave, so this
+                  // asks unconditionally rather than keeping a second copy of
+                  // the setting here that could disagree with it.
+                  void autoCommitSolution(active.solution.id, "save")
+                    .then((r) => r.committed && setGitEpoch((n) => n + 1))
+                    .catch(() => {
+                      // A failed automatic commit must not interrupt someone
+                      // mid-edit; the Git tab shows the real state on demand.
+                    });
                 }}
               />
             ) : (

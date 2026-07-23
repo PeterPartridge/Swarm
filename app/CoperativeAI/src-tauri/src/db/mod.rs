@@ -8,6 +8,7 @@ pub mod ai_provider;
 pub mod ai_usage;
 pub mod architecture_doc;
 pub mod change_run;
+pub mod commit_policy;
 pub mod deliverable;
 pub mod design_asset;
 pub mod developer_rules;
@@ -127,6 +128,8 @@ pub async fn create_all_tables(conn: &Connection) -> Result<()> {
     work_item_change::create_table(conn).await?;
     // after work_item + solution: a run hands one into the other
     change_run::create_table(conn).await?;
+    // after solution: a commit policy belongs to one
+    commit_policy::create_table(conn).await?;
     // after work_item + solution: a plan is what one requires of the other
     work_item_plan::create_table(conn).await?;
     ai_provider::create_table(conn).await?;

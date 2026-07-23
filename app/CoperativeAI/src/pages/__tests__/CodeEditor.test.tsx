@@ -153,9 +153,31 @@ describe("CodeEditor", () => {
     expect(within(picker).queryByRole("option", { name: "Shop API" })).not.toBeInTheDocument();
   });
 
-  it("says where to start when nothing is open", async () => {
-    render(<CodeEditor solutions={[solution()]} opened={null} />);
-    expect(await screen.findByText(/No Solution open/)).toBeInTheDocument();
+  /// Nothing open is the ordinary state on arriving here, so the tab offers
+  /// the way forward itself rather than sending someone to another tab to
+  /// press a button.
+  it("offers a Solution to open when nothing is", async () => {
+    const user = userEvent.setup();
+    render(
+      <CodeEditor
+        solutions={[solution(), solution({ id: 4, name: "Shop Web" })]}
+        opened={null}
+      />,
+    );
+
+    const picker = await screen.findByLabelText("Solution to open");
+    expect(within(picker).getByRole("option", { name: /Shop Web/ })).toBeInTheDocument();
+
+    await user.selectOptions(picker, "4");
+    // …and choosing one opens it, without leaving the tab
+    expect(
+      await screen.findByRole("list", { name: "Files in Shop Web" }),
+    ).toBeInTheDocument();
+  });
+
+  it("says so when the Product has no Solutions at all", async () => {
+    render(<CodeEditor solutions={[]} opened={null} />);
+    expect(await screen.findByText(/no Solutions yet/)).toBeInTheDocument();
   });
 
   /// The reason the buffer lives in this component rather than the editor:

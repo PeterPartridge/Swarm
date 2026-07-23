@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { productGitOverview, type SolutionRepo } from "../lib/backend";
+import { productGitOverview, useSshRemote, type SolutionRepo } from "../lib/backend";
+import BranchHistory from "./BranchHistory";
 import MergeConflictView from "./MergeConflictView";
 
 /** Every Solution's repository at once: branch, drift from its upstream, what
@@ -14,6 +15,7 @@ export default function GitExplorer({ productId }: { productId: number }) {
   const [conflict, setConflict] = useState<{ solutionId: number; path: string } | null>(
     null,
   );
+  const [showing, setShowing] = useState<number | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -73,9 +75,39 @@ export default function GitExplorer({ productId }: { productId: number }) {
                   {repo.status.merging && (
                     <span className="git-merging">merge in progress</span>
                   )}
+                  <button
+                    aria-label={`Branch history for ${repo.name}`}
+                    onClick={() =>
+                      setShowing(showing === repo.solutionId ? null : repo.solutionId)
+                    }
+                  >
+                    {showing === repo.solutionId ? "Hide history" : "History"}
+                  </button>
+                  {/* Only offered where it would change something: a remote
+                      already on SSH has nothing to switch. */}
+                  {repo.status.upstream && (
+                    <button
+                      aria-label={`Use SSH for ${repo.name}`}
+                      onClick={async () => {
+                        try {
+                          const url = await useSshRemote(repo.solutionId);
+                          setError(null);
+                          alert(`origin is now ${url}`);
+                        } catch (e) {
+                          setError(String(e));
+                        }
+                      }}
+                    >
+                      Use SSH
+                    </button>
+                  )}
                 </>
               )}
             </div>
+
+            {showing === repo.solutionId && (
+              <BranchHistory solutionId={repo.solutionId} solutionName={repo.name} />
+            )}
 
             {repo.unavailable && <p className="hint">{repo.unavailable}</p>}
 

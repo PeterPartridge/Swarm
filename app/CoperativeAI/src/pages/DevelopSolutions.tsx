@@ -5,10 +5,12 @@ import DeveloperPlanning from "../components/DeveloperPlanning";
 import DeveloperRulesEditor from "../components/DeveloperRulesEditor";
 import FrameworkFiles from "../components/FrameworkFiles";
 import GitExplorer from "../components/GitExplorer";
+import InfrastructureDiagrams from "../components/InfrastructureDiagrams";
 import GithubCard from "../components/GithubCard";
 import ModelInstalls from "../components/ModelInstalls";
 import SolutionBox from "../components/SolutionBox";
 import SolutionRepo from "../components/SolutionRepo";
+import SshCard from "../components/SshCard";
 import StrategyEditor from "../components/StrategyEditor";
 import TestExplorer from "../components/TestExplorer";
 import WorkItemViews from "../components/WorkItemViews";
@@ -35,18 +37,18 @@ import {
  *  doing: thinking (Planning), executing (Work), writing code (Workspace), or
  *  wiring things up (Settings). */
 type DevelopView =
-  | "planning"
+  | "strategy"
   | "work"
-  | "workspace"
+  | "architecture"
   | "code"
   | "tests"
   | "git"
   | "settings";
 
 const DEVELOP_TABS: { id: DevelopView; label: string }[] = [
-  { id: "planning", label: "Planning" },
+  { id: "strategy", label: "Strategy and Rules" },
   { id: "work", label: "Work" },
-  { id: "workspace", label: "Workspace" },
+  { id: "architecture", label: "Planning and Architecture" },
   { id: "code", label: "Code" },
   { id: "tests", label: "Tests" },
   { id: "git", label: "Git" },
@@ -60,7 +62,7 @@ export default function DevelopSolutions() {
   const [products, setProducts] = useState<Product[]>([]);
   const [solutions, setSolutions] = useState<Solution[]>([]);
   const [activeProduct, setActiveProduct] = useState<number | "">("");
-  const [view, setView] = useState<DevelopView>("planning");
+  const [view, setView] = useState<DevelopView>("strategy");
   /** Which Solution the Code tab is editing — set by "Open" on the Workspace
    *  tab, so the two tabs are one flow rather than two disconnected screens. */
   const [openSolution, setOpenSolution] = useState<Solution | null>(null);
@@ -199,7 +201,7 @@ export default function DevelopSolutions() {
         ))}
       </nav>
 
-      {view === "planning" && activeProduct !== "" && (
+      {view === "strategy" && activeProduct !== "" && (
         <>
           <StrategyEditor
             productId={Number(activeProduct)}
@@ -211,7 +213,6 @@ export default function DevelopSolutions() {
               set of rules would drift, and the drift would be invisible
               until the AI obeyed the wrong copy. */}
           <DeveloperRulesEditor productId={Number(activeProduct)} readOnly />
-          <DeveloperPlanning productId={Number(activeProduct)} />
         </>
       )}
 
@@ -222,7 +223,7 @@ export default function DevelopSolutions() {
       {/* A plain function call, not a <Component> — an inner component gets a
           new identity every render, and React would remount the whole subtree
           on each keystroke, dropping the editor's open file and input focus. */}
-      {view === "workspace" && workspaceSection()}
+      {view === "architecture" && workspaceSection()}
 
       {/* The explorer can hold several of this Product's Solutions at once —
           a change spanning an API and the app in front of it is one job. */}
@@ -248,6 +249,7 @@ export default function DevelopSolutions() {
       {view === "settings" && (
         <>
           <GithubCard onChange={refresh} />
+          <SshCard />
           <ModelInstalls productId={activeProduct === "" ? null : Number(activeProduct)} />
           <AiSettings />
         </>
@@ -260,6 +262,11 @@ export default function DevelopSolutions() {
   function workspaceSection() {
     return (
       <>
+      {/* Architecture and infrastructure sit at the top of this tab, because
+          they are what someone comes here to think about — the Solution list
+          below is where that thinking gets built. */}
+      {activeProduct !== "" && <DeveloperPlanning productId={Number(activeProduct)} />}
+      {activeProduct !== "" && <InfrastructureDiagrams productId={Number(activeProduct)} />}
       {activeProduct !== "" && <FrameworkFiles productId={Number(activeProduct)} />}
       <section className="develop-card" aria-label="Create a Solution">
         <h2>Create a Solution</h2>

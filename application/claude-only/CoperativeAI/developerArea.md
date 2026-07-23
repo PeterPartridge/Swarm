@@ -34,6 +34,45 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 16 — Renamed tabs, draw.io, and commits that happen by themselves
+
+### My Feedback
+
+**The tabs now say what they hold.** Planning → **Strategy and Rules**; Workspace → **Planning and Architecture**, with Developer Planning moved into it and put at the top, because architecture is what someone comes to that tab to think about and the Solution list below is where the thinking gets built.
+
+**draw.io: this app writes the file, draw.io edits it.** You took the recommendation, and it is the honest shape. Embedding the real editor means loading app.diagrams.net over the network on every open — which breaks offline and sends your infrastructure to a third party — and building a substitute would be a worse draw.io that could not open anything anyone else made. So `.drawio` mxGraph XML is the contract: what this writes opens in the desktop app or the VS Code extension, and what they save comes back as a diff. The files land in the Product's folder rather than app data, because a diagram that is not versioned with the code it describes goes stale without anybody seeing it happen.
+
+Boxes are laid out four to a row rather than left at the origin — draw.io opens everything-at-0,0 as one unreadable pile, and the first thing anyone would do is drag them apart. Kinds get real shapes, so a database is a cylinder rather than another rectangle.
+
+**Auto-commit asks committing and pushing as two questions**, which was your correction to mine — I had offered it as one choice with three answers, and you were right that it is two. The consequence of each is written under the toggle rather than left to be discovered: local commits stay on the machine until you push and a bad one is a `git reset` nobody saw; pushed ones are on the branch other people pull, where undoing means rewriting history everyone has.
+
+**The automatic commit message is only ever the list of files**, as you asked. A generated sentence explaining the change would be worse than the list, because whoever read it later would trust it. Ten files then "and N more", since a hundred-file subject is unusable in every git tool there is.
+
+**Auto-commit refuses during a merge.** A conflicted tree staged wholesale is how `<<<<<<< HEAD` gets committed, and an automatic commit is precisely when nobody is watching.
+
+**The Code tab now offers a Solution rather than sending you elsewhere.** Nothing open is the ordinary state on arriving, so the explorer frame stays with the picker where the tree will be — the page does not change shape under you when you choose.
+
+**Manual commits sit beside the files**, as a tab of the explorer: committing is part of writing code, not a separate errand. The Git tab up in Develop answers "where does everything stand"; this one answers "ship what I just did".
+
+**Branch history is drawn from `git log --all --date-order`**, with lanes assigned the way every git viewer does it. A merge's *second* parent is what opens a new lane, which is the entire reason the picture beats a list.
+
+### Your Feedback
+
+- **The SSH private key never reaches the frontend, the database or a log.** `ssh-keygen` writes it with the permissions ssh expects and this app only ever handles the public half — a test serialises the status and asserts no private key can be in it. It matters more here than for the API keys: a leaked private key is push access to every repository the account can reach.
+- **The key gets its own name**, `id_ed25519_coperativeai`. Generating one must never overwrite a key somebody already relies on, which would lock them out of every host that trusts it with no way back.
+- **The app does not add the key to your GitHub account.** It shows the public half and copies it; you add it in GitHub's own settings. Reaching into someone's account settings is not a thing a desktop tool should do quietly on their behalf.
+- **`ssh -T git@github.com` exits 1 on success**, because GitHub offers no shell. Treating that as failure is the classic mistake, so the greeting is what is checked.
+- **The timer reads its interval from the policy and the backend still refuses if the mode is not `interval`.** A timer left running by a stale closure cannot commit for someone who turned it off.
+
+### Technical Debt
+
+- **Nothing generates a diagram from the architecture the app already knows.** The Solutions, their types and the repo links are all recorded, and the draw.io builder is hand-fed — that is the obvious next round.
+- **No diagram preview.** The file list says what exists and opens it; seeing it means opening draw.io.
+- **Auto-commit is per Solution and only runs while its tab is open in the Code editor.** Close the tab and the timer stops, which is defensible but is not what "every 5 minutes" sounds like.
+- **`.gitignore` is the only thing standing between auto-commit and a committed secret.** Nothing here scans for keys before committing.
+- **The branch graph is 120 commits and has no way to load more**, and lanes are recomputed on every render rather than memoised.
+- **Nothing tests the SSH or draw.io paths end to end** — the pure parts are tested, but generating a key and opening a file both need a machine.
+
 ## Round 15b — Paying off the debt
 
 ### My Feedback

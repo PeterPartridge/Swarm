@@ -27,6 +27,7 @@ pub mod terminals;
 pub mod test_cases;
 pub mod windows;
 pub mod work_item_plans;
+pub mod vcs_ops;
 pub mod work_item_changes;
 pub mod work_items;
 pub mod workspace;

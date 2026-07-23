@@ -1532,3 +1532,115 @@ export const startExistingSolution = (args: {
   command: string | null;
   parentDir: string;
 }): Promise<StarterRun> => invoke("start_existing_solution", args);
+
+/* ── Commits, branches, SSH and draw.io ────────────────────────────────── */
+
+export interface Commit {
+  id: string;
+  shortId: string;
+  /** Two or more parents is a merge — the reason the graph is worth drawing. */
+  parents: string[];
+  refs: string[];
+  subject: string;
+  author: string;
+  /** Unix seconds. */
+  when: number;
+}
+
+export interface CommitResult {
+  /** False when there was nothing to commit — ordinary on a timer, and not a
+   *  failure. */
+  committed: boolean;
+  message: string;
+  files: string[];
+  /** Null when no push was asked for. A commit that landed locally with a push
+   *  that did not is a real state, reported as itself. */
+  pushed: { Ok: null } | { Err: string } | null;
+}
+
+/** off — nothing automatic. onSave — on every save. interval — on a timer. */
+export type CommitMode = "off" | "onSave" | "interval";
+
+export interface CommitPolicy {
+  mode: CommitMode;
+  /** Whether each automatic commit is also pushed. Asked separately, because a
+   *  local commit is a restore point and a pushed one is on the branch
+   *  everyone pulls. */
+  push: boolean;
+  intervalMinutes: number;
+}
+
+export const branchHistory = (
+  solutionId: number,
+  limit?: number,
+): Promise<Commit[]> => invoke("branch_history", { solutionId, limit });
+export const commitSolution = (
+  solutionId: number,
+  message: string,
+  push: boolean,
+): Promise<CommitResult> => invoke("commit_solution", { solutionId, message, push });
+/** The automatic commit. Refuses unless the policy is on, so a stray timer
+ *  cannot commit for someone who turned it off. */
+export const autoCommitSolution = (
+  solutionId: number,
+  trigger: "save" | "timer",
+): Promise<CommitResult> => invoke("auto_commit_solution", { solutionId, trigger });
+export const pushSolution = (solutionId: number): Promise<string> =>
+  invoke("push_solution", { solutionId });
+export const getCommitPolicy = (solutionId: number): Promise<CommitPolicy> =>
+  invoke("get_commit_policy", { solutionId });
+export const setCommitPolicy = (
+  solutionId: number,
+  mode: CommitMode,
+  push: boolean,
+  intervalMinutes: number,
+): Promise<void> =>
+  invoke("set_commit_policy", { solutionId, mode, push, intervalMinutes });
+
+export interface SshStatus {
+  hasKey: boolean;
+  keyPath: string;
+  /** The public half — the only part that ever leaves the machine. */
+  publicKey: string | null;
+  canGenerate: boolean;
+}
+
+export const sshStatus = (): Promise<SshStatus> => invoke("ssh_status");
+/** Generates a key pair. Only the public half comes back. */
+export const generateSshKey = (comment: string): Promise<string> =>
+  invoke("generate_ssh_key", { comment });
+export const testGithubSsh = (): Promise<string> => invoke("test_github_ssh");
+/** Points a Solution's origin at SSH. A repository cloned over HTTPS keeps
+ *  asking for a token however well the key is set up. */
+export const useSshRemote = (solutionId: number): Promise<string> =>
+  invoke("use_ssh_remote", { solutionId });
+
+export interface DiagramNode {
+  id: string;
+  label: string;
+  kind: string; // service | database | queue | external | store
+}
+
+export interface DiagramEdge {
+  from: string;
+  to: string;
+  label: string;
+}
+
+export interface DiagramFile {
+  path: string;
+  name: string;
+}
+
+export const listDiagrams = (productId: number): Promise<DiagramFile[]> =>
+  invoke("list_diagrams", { productId });
+/** Writes a real .drawio file into the Product's folder, so it versions with
+ *  the code it describes and opens in whatever draw.io you have. */
+export const saveDiagram = (
+  productId: number,
+  name: string,
+  nodes: DiagramNode[],
+  edges: DiagramEdge[],
+): Promise<string> => invoke("save_diagram", { productId, name, nodes, edges });
+export const openDiagram = (path: string): Promise<void> =>
+  invoke("open_diagram", { path });

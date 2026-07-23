@@ -2476,3 +2476,217 @@ body {
   margin: 0;
   white-space: pre-wrap;
 }
+
+/* ── Git panel, branch graph, diagrams, SSH ────────────────────────────── */
+
+.explorer-tabs {
+  display: flex;
+  gap: 0.2rem;
+  margin-bottom: 0.35rem;
+}
+.explorer-tabs button {
+  font-size: 0.72rem;
+  padding: 0.2rem 0.5rem;
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.25rem 0.25rem 0 0;
+}
+.explorer-tab-active {
+  background: var(--tab-develop, #2563eb) !important;
+  color: #fff;
+}
+
+.explorer-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.78rem;
+}
+
+.git-panel {
+  font-size: 0.76rem;
+}
+.git-panel-head {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  margin-bottom: 0.3rem;
+  flex-wrap: wrap;
+}
+.git-panel-files {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.4rem;
+  max-height: 12rem;
+  overflow: auto;
+}
+.git-panel-files li {
+  padding: 0.1rem 0;
+  overflow-wrap: anywhere;
+}
+.commit-message textarea {
+  width: 100%;
+  font-size: 0.75rem;
+}
+.commit-actions {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 0.3rem;
+}
+.commit-policy {
+  border-left: 3px solid var(--tab-develop, #2563eb);
+  padding-left: 0.4rem;
+  margin-bottom: 0.4rem;
+}
+.commit-policy label {
+  font-size: 0.74rem;
+}
+
+/* The branch graph: one lane per line of development. */
+.branch-history {
+  margin-top: 0.4rem;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 0.3rem;
+}
+.branch-head {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.commit-rows {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 22rem;
+  overflow: auto;
+  font-size: 0.74rem;
+}
+.commit-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.12rem 0;
+  white-space: nowrap;
+}
+.commit-lanes {
+  position: relative;
+  display: inline-block;
+  height: 1.1rem;
+  flex: none;
+}
+.lane-line,
+.lane-dot {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  opacity: 0.35;
+}
+.lane-dot {
+  width: 8px;
+  height: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-radius: 50%;
+  opacity: 1;
+}
+.commit-id {
+  color: #6b7280;
+  font-size: 0.7rem;
+}
+.commit-ref {
+  background: #dbeafe;
+  color: #1e40af;
+  font-size: 0.66rem;
+  padding: 0.02rem 0.28rem;
+  border-radius: 0.2rem;
+}
+.commit-merge {
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 0.66rem;
+  padding: 0.02rem 0.28rem;
+  border-radius: 0.2rem;
+}
+.commit-subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.commit-meta {
+  color: #9ca3af;
+  font-size: 0.68rem;
+  margin-left: auto;
+}
+
+.diagram-builder {
+  border-left: 3px solid var(--tab-develop, #2563eb);
+  padding-left: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+.diagram-add {
+  display: flex;
+  gap: 0.4rem;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin: 0.3rem 0;
+}
+.diagram-parts {
+  list-style: none;
+  padding: 0;
+  margin: 0.3rem 0;
+  font-size: 0.78rem;
+}
+.diagram-parts li {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.1rem 0;
+}
+.diagram-kind {
+  font-size: 0.64rem;
+  text-transform: uppercase;
+  padding: 0.02rem 0.3rem;
+  border-radius: 0.2rem;
+  background: #e5e7eb;
+  color: #374151;
+}
+.diagram-kind.database {
+  background: #dae8fc;
+  color: #1e3a8a;
+}
+.diagram-kind.queue {
+  background: #fff2cc;
+  color: #92400e;
+}
+.diagram-edge {
+  color: #6b7280;
+}
+.diagram-files {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-size: 0.8rem;
+}
+.diagram-files li {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 0.15rem 0;
+}
+
+.ssh-public-key {
+  background: #f3f4f6;
+  padding: 0.4rem;
+  border-radius: 0.3rem;
+  font-size: 0.68rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ssh-actions {
+  display: flex;
+  gap: 0.4rem;
+}

@@ -227,6 +227,186 @@ pub fn conflict_sides(root: &str, relative: &str) -> Result<ConflictSides, Strin
     })
 }
 
+/// One commit in the history, with enough to draw the graph.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Commit {
+    pub id: String,
+    pub short_id: String,
+    /// Parent ids. Two or more means a merge — that is what makes the picture
+    /// worth drawing rather than a list.
+    pub parents: Vec<String>,
+    /// Branch and tag names pointing here, already tidied of git's decoration
+    /// syntax.
+    pub refs: Vec<String>,
+    pub subject: String,
+    pub author: String,
+    /// Unix seconds.
+    pub when: i64,
+}
+
+/// Reads `git log` in the fixed format below.
+///
+/// Pure, so the graph is tested against a real capture without a repository.
+/// The separator is a unit character rather than a pipe or a tab, because a
+/// commit subject can and does contain both — and a subject that split a row
+/// in half would corrupt the graph rather than merely look wrong.
+pub fn parse_log(text: &str) -> Vec<Commit> {
+    let mut commits = Vec::new();
+    for line in text.lines() {
+        let fields: Vec<&str> = line.split('\u{1f}').collect();
+        if fields.len() < 6 {
+            continue;
+        }
+        let id = fields[0].trim().to_string();
+        if id.is_empty() {
+            continue;
+        }
+        commits.push(Commit {
+            short_id: id.chars().take(7).collect(),
+            id,
+            parents: fields[1]
+                .split_whitespace()
+                .map(str::to_string)
+                .collect(),
+            refs: parse_refs(fields[2]),
+            subject: fields[3].to_string(),
+            author: fields[4].to_string(),
+            when: fields[5].trim().parse().unwrap_or(0),
+        });
+    }
+    commits
+}
+
+/// `%D` gives "HEAD -> main, origin/main, tag: v1". The arrow and the tag
+/// prefix are git's presentation, not names, so they are stripped here rather
+/// than in every place that shows a ref.
+fn parse_refs(decoration: &str) -> Vec<String> {
+    decoration
+        .split(',')
+        .map(str::trim)
+        .filter(|r| !r.is_empty())
+        .map(|r| {
+            r.strip_prefix("HEAD -> ")
+                .or_else(|| r.strip_prefix("tag: "))
+                .unwrap_or(r)
+                .to_string()
+        })
+        .collect()
+}
+
+/// The recent history across every branch.
+///
+/// `--all` because the point is seeing how branches relate; `--date-order` so
+/// the rows are in the order things happened rather than the order git walked
+/// them, which is what makes the lanes readable.
+pub fn history(root: &str, limit: usize) -> Result<Vec<Commit>, String> {
+    let root_path = canonical(root)?;
+    if !root_path.join(".git").exists() {
+        return Err(format!("{root} is not a git repository"));
+    }
+    let text = git(
+        &root_path,
+        &[
+            "log",
+            "--all",
+            "--date-order",
+            &format!("--max-count={limit}"),
+            "--pretty=format:%H\u{1f}%P\u{1f}%D\u{1f}%s\u{1f}%an\u{1f}%at",
+        ],
+    )?;
+    Ok(parse_log(&text))
+}
+
+/// A commit message that is just the files that changed.
+///
+/// What an auto-commit is for: a restore point, not a story. A generated
+/// sentence pretending to explain the change would be worse than the list,
+/// because someone reading history later would trust it.
+pub fn file_list_message(files: &[String]) -> String {
+    if files.is_empty() {
+        return "no files".into();
+    }
+    // A hundred changed files is a real thing after a merge or a formatter run,
+    // and a commit subject that long is unusable in every git tool there is.
+    const SHOWN: usize = 10;
+    let head: Vec<&str> = files.iter().take(SHOWN).map(String::as_str).collect();
+    if files.len() <= SHOWN {
+        head.join(", ")
+    } else {
+        format!("{}, and {} more", head.join(", "), files.len() - SHOWN)
+    }
+}
+
+/// What a commit attempt did.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitResult {
+    /// False when there was nothing to commit — which is the ordinary case on
+    /// a timer, and must not read as a failure.
+    pub committed: bool,
+    pub message: String,
+    pub files: Vec<String>,
+    /// None when no push was asked for. Some(Err) is a commit that landed
+    /// locally and a push that did not — a real state that must be reported as
+    /// itself rather than as total failure.
+    pub pushed: Option<Result<(), String>>,
+}
+
+/// Stages everything and commits it.
+///
+/// **Refused during a merge.** A conflicted working tree staged wholesale is
+/// how `<<<<<<< HEAD` gets committed, and an automatic commit is exactly when
+/// nobody is watching for it.
+pub fn commit_all(root: &str, message: &str, push: bool) -> Result<CommitResult, String> {
+    let root_path = canonical(root)?;
+    let status = status(root)?;
+    if status.merging {
+        return Err(
+            "a merge is in progress — resolve it before committing, or the conflict markers go \
+             into the commit"
+                .into(),
+        );
+    }
+    let files: Vec<String> = status.files.iter().map(|f| f.path.clone()).collect();
+    if files.is_empty() {
+        return Ok(CommitResult {
+            committed: false,
+            message: String::new(),
+            files,
+            pushed: None,
+        });
+    }
+
+    git(&root_path, &["add", "--all"])?;
+    let message = if message.trim().is_empty() {
+        file_list_message(&files)
+    } else {
+        message.trim().to_string()
+    };
+    git(&root_path, &["commit", "-m", &message])?;
+
+    let pushed = push.then(|| {
+        // `-u` so a branch nobody has pushed before gets its upstream set —
+        // otherwise the first automatic push of every new branch fails with
+        // advice nobody is there to read.
+        git(&root_path, &["push", "-u", "origin", "HEAD"]).map(|_| ())
+    });
+
+    Ok(CommitResult {
+        committed: true,
+        message,
+        files,
+        pushed,
+    })
+}
+
+/// Pushes the current branch.
+pub fn push(root: &str) -> Result<String, String> {
+    let root_path = canonical(root)?;
+    git(&root_path, &["push", "-u", "origin", "HEAD"])
+}
+
 /// Marks a conflicted file resolved by staging it.
 ///
 /// Refuses while conflict markers remain. Staging a file with markers still in
@@ -370,6 +550,70 @@ u UU N... 100644 100644 100644 100644 aaaa bbbb cccc src/conflicted.rs
         let text = "# branch.head main\n? \"a file with spaces.txt\"\n";
         let s = parse_status(text);
         assert_eq!(s.files[0].path, "a file with spaces.txt");
+    }
+
+    /// A real `git log --all --date-order` capture: a merge, a branch tip and
+    /// an ordinary commit.
+    const LOG: &str = "\
+aaa1\u{1f}bbb2 ccc3\u{1f}HEAD -> main, origin/main\u{1f}Merge branch 'checkout'\u{1f}Ada\u{1f}1700000300
+bbb2\u{1f}ddd4\u{1f}feature/checkout\u{1f}Add the basket screen\u{1f}Grace\u{1f}1700000200
+ddd4\u{1f}\u{1f}tag: v1\u{1f}First commit\u{1f}Ada\u{1f}1700000100
+";
+
+    #[test]
+    fn the_history_carries_what_the_graph_needs() {
+        let commits = parse_log(LOG);
+        assert_eq!(commits.len(), 3);
+        // two parents is a merge, and is the whole reason to draw this
+        assert_eq!(commits[0].parents, vec!["bbb2", "ccc3"]);
+        assert_eq!(commits[0].subject, "Merge branch 'checkout'");
+        assert_eq!(commits[0].short_id, "aaa1");
+        assert_eq!(commits[1].author, "Grace");
+        assert_eq!(commits[1].when, 1_700_000_200);
+        // the first commit has no parents
+        assert!(commits[2].parents.is_empty());
+    }
+
+    /// `HEAD -> main` and `tag: v1` are git's presentation, not names.
+    #[test]
+    fn ref_names_lose_gits_decoration() {
+        let commits = parse_log(LOG);
+        assert_eq!(commits[0].refs, vec!["main", "origin/main"]);
+        assert_eq!(commits[1].refs, vec!["feature/checkout"]);
+        assert_eq!(commits[2].refs, vec!["v1"]);
+    }
+
+    /// The separator is a unit character because a commit subject can contain
+    /// a pipe or a tab, and a subject that split a row would corrupt the graph
+    /// rather than merely look wrong.
+    #[test]
+    fn a_subject_containing_punctuation_does_not_split_the_row() {
+        let line = "aaa1\u{1f}bbb2\u{1f}\u{1f}fix: a|b\tc — all one subject\u{1f}Ada\u{1f}1700000000\n";
+        let commits = parse_log(line);
+        assert_eq!(commits.len(), 1);
+        assert_eq!(commits[0].subject, "fix: a|b\tc — all one subject");
+    }
+
+    /// What an auto-commit message is for: a restore point, not a story. A
+    /// generated sentence would be trusted by whoever read it later.
+    #[test]
+    fn an_auto_commit_message_is_the_files_that_changed() {
+        assert_eq!(
+            file_list_message(&["src/basket.rs".into(), "src/main.rs".into()]),
+            "src/basket.rs, src/main.rs"
+        );
+        assert_eq!(file_list_message(&[]), "no files");
+    }
+
+    /// A hundred files after a formatter run is real, and a subject that long
+    /// is unusable in every git tool there is.
+    #[test]
+    fn a_very_large_change_is_summarised_rather_than_listed_in_full() {
+        let files: Vec<String> = (0..25).map(|n| format!("src/file{n}.rs")).collect();
+        let message = file_list_message(&files);
+        assert!(message.contains("src/file0.rs"));
+        assert!(message.contains("and 15 more"), "got: {message}");
+        assert!(message.len() < 200, "still a usable subject: {message}");
     }
 
     /// Markers are only markers at the start of a line. A file that merely

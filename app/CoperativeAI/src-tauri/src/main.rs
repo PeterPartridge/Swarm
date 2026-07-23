@@ -12,6 +12,8 @@ mod github;
 mod pack;
 mod review;
 mod scaffold;
+mod drawio;
+mod ssh;
 mod starter;
 mod terminal;
 mod test_runner;
@@ -85,6 +87,19 @@ fn main() {
             commands::work_item_changes::change_kinds_for_solution,
             commands::work_item_changes::set_change_mockup,
             commands::solutions::start_existing_solution,
+            commands::vcs_ops::branch_history,
+            commands::vcs_ops::commit_solution,
+            commands::vcs_ops::auto_commit_solution,
+            commands::vcs_ops::push_solution,
+            commands::vcs_ops::get_commit_policy,
+            commands::vcs_ops::set_commit_policy,
+            commands::vcs_ops::ssh_status,
+            commands::vcs_ops::generate_ssh_key,
+            commands::vcs_ops::test_github_ssh,
+            commands::vcs_ops::use_ssh_remote,
+            commands::vcs_ops::list_diagrams,
+            commands::vcs_ops::save_diagram,
+            commands::vcs_ops::open_diagram,
             commands::solutions::delete_solution,
             commands::github::github_status,
             commands::github::set_github_token,
