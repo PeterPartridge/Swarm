@@ -78,6 +78,9 @@ export default function DevelopSolutions() {
   /// The command is editable before it runs, so the button press is the
   /// confirmation — nothing is run that could not be read first.
   const [starterCommand, setStarterCommand] = useState("");
+  /// The name for "something else" — recorded as the Solution's language, so a
+  /// year later it says "Elixir" rather than "custom".
+  const [customLanguage, setCustomLanguage] = useState("");
   const [starterParent, setStarterParent] = useState("");
   const [starterRun, setStarterRun] = useState<StarterRun | null>(null);
   /// Kept so a failed starter can be retried against the Solution that was
@@ -131,15 +134,23 @@ export default function DevelopSolutions() {
     e.preventDefault();
     if (!solutionName.trim() || solutionProduct === "") return;
     setStarterRun(null);
+    // The picked language is the answer to the language question, so it is
+    // stored with the other answers rather than only as a starter id — the
+    // brief that reaches the AI reads "Rust (cargo)", not "rust".
+    const languageAnswer =
+      starterId === "custom"
+        ? customLanguage.trim()
+        : (starters.find((s) => s.id === starterId)?.label ?? "");
     try {
       const created = await createSolutionWithStarter({
         name: solutionName,
         productId: Number(solutionProduct),
         solutionType,
-        answers: JSON.stringify(answers),
+        answers: JSON.stringify({ ...answers, language: languageAnswer }),
         starterId: starterId || null,
         command: starterCommand || null,
         parentDir: starterParent || null,
+        languageName: starterId === "custom" ? customLanguage.trim() : null,
       });
       // Kept whether it worked or not: when a generator fails, its own words
       // are the only thing that says which toolchain is missing.
@@ -303,39 +314,57 @@ export default function DevelopSolutions() {
                 </option>
               ))}
             </select>
-            {SOLUTION_QUESTIONS.map((q) => (
-              <label key={q.id}>
-                {q.label}
-                <textarea
-                  value={answers[q.id] ?? ""}
-                  onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
-                />
-              </label>
-            ))}
-            {/* Start it from the language's own generator. Every toolchain
-                ships one that stays current with its conventions; a template
-                written here would be out of date within a release. */}
-            <label>
-              Start from
-              <select
-                aria-label="Starter language"
-                value={starterId}
-                onChange={(e) => onStarterChange(e.target.value)}
-              >
-                <option value="">Nothing — I already have the code</option>
-                {starters.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
+            {SOLUTION_QUESTIONS.map((q) =>
+              // The language question *is* the starter picker. Asking it twice
+              // — once as prose and once as a dropdown — invites two different
+              // answers, and the one the generator uses would not be the one
+              // anybody read.
+              q.id === "language" ? (
+                <label key={q.id}>
+                  {q.label}
+                  <select
+                    aria-label="Starter language"
+                    value={starterId}
+                    onChange={(e) => onStarterChange(e.target.value)}
+                  >
+                    <option value="">Not sure yet / already have the code</option>
+                    {starters.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : (
+                <label key={q.id}>
+                  {q.label}
+                  <textarea
+                    value={answers[q.id] ?? ""}
+                    onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
+                  />
+                </label>
+              ),
+            )}
             {starterId !== "" && (
               <div className="starter-detail">
                 <p className="hint">
                   Needs {starters.find((s) => s.id === starterId)?.needs}.
                 </p>
+                {/* "Something else" has no name and no command of its own, so
+                    both are asked for. Without the name the Solution would be
+                    recorded as having been started in "custom", which tells
+                    nobody anything a year later. */}
+                {starterId === "custom" && (
+                  <label>
+                    Language name
+                    <input
+                      aria-label="Language name"
+                      value={customLanguage}
+                      placeholder="Elixir, Kotlin, Zig…"
+                      onChange={(e) => setCustomLanguage(e.target.value)}
+                    />
+                  </label>
+                )}
                 <label>
                   Command to run
                   <input

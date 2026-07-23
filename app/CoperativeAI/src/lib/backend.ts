@@ -1513,6 +1513,8 @@ export const createSolutionWithStarter = (args: {
   starterId: string | null;
   command: string | null;
   parentDir: string | null;
+  /** The typed name when the starter is "custom" — "Elixir", not "custom". */
+  languageName: string | null;
 }): Promise<CreatedSolution> => invoke("create_solution_with_starter", args);
 
 /** Links a screen to the mockup that shows it, or clears the link. Without it
@@ -1644,3 +1646,33 @@ export const saveDiagram = (
 ): Promise<string> => invoke("save_diagram", { productId, name, nodes, edges });
 export const openDiagram = (path: string): Promise<void> =>
   invoke("open_diagram", { path });
+/** Drafts a diagram from the Solutions and links already recorded. Returned
+ *  rather than written: it is a first draft to correct, and writing straight
+ *  to a file would overwrite one somebody had arranged in draw.io. */
+export const diagramFromSolutions = (
+  productId: number,
+): Promise<{ nodes: DiagramNode[]; edges: DiagramEdge[] }> =>
+  invoke("diagram_from_solutions", { productId });
+
+/** The grid the boxes sit on.
+ *
+ *  **Mirrored from `drawio.rs`.** A preview laid out differently from the file
+ *  would be a picture of a diagram nobody is about to get, so both sides carry
+ *  a test asserting the same coordinates for the same input. */
+export const DIAGRAM_GRID = {
+  perRow: 4,
+  x0: 40,
+  y0: 40,
+  dx: 200,
+  dy: 140,
+  w: 160,
+  h: 60,
+} as const;
+
+/** Where the nth box goes. */
+export function diagramPosition(index: number): { x: number; y: number } {
+  return {
+    x: DIAGRAM_GRID.x0 + (index % DIAGRAM_GRID.perRow) * DIAGRAM_GRID.dx,
+    y: DIAGRAM_GRID.y0 + Math.floor(index / DIAGRAM_GRID.perRow) * DIAGRAM_GRID.dy,
+  };
+}

@@ -163,10 +163,13 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
         name: "Shop Website",
         productId: 1,
         solutionType: "website",
-        answers: JSON.stringify({ purpose: "The storefront" }),
+        // The language question is answered by the starter picker, so it is
+        // always present — empty when nobody chose one.
+        answers: JSON.stringify({ purpose: "The storefront", language: "" }),
         starterId: null,
         command: null,
         parentDir: null,
+        languageName: null,
       }),
     );
   });
@@ -215,6 +218,65 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
       ),
     );
     expect(await screen.findByText(/Started in C:\/repos\/shop-core/)).toBeInTheDocument();
+  });
+
+  /// The language question *is* the starter picker — asking it twice, once as
+  /// prose and once as a dropdown, invites two different answers, and the one
+  /// the generator uses would not be the one anybody read.
+  it("answers the language question with the starter picker", async () => {
+    const user = userEvent.setup();
+    render(<DevelopSolutions />);
+    await openSection(user, "Planning and Architecture");
+
+    const picker = await screen.findByLabelText("Starter language");
+    expect(picker.tagName).toBe("SELECT");
+    // and there is no separate free-text box asking the same thing
+    expect(screen.queryByRole("textbox", { name: /language/i })).not.toBeInTheDocument();
+
+    await user.selectOptions(picker, "rust");
+    expect(await screen.findByLabelText("Starter command")).toHaveValue(
+      "cargo init --name {name}",
+    );
+  });
+
+  /// "Something else" carries neither a name nor a command of its own, so both
+  /// are asked for — a Solution recorded as started in "custom" tells nobody
+  /// anything a year later.
+  it("asks for a name as well as a command when the language is something else", async () => {
+    const user = userEvent.setup();
+    mocked.listStarters.mockResolvedValue([
+      {
+        id: "custom",
+        label: "Something else — I'll type the command",
+        command: "",
+        needs: "whatever the command needs",
+      },
+    ]);
+    mocked.createSolutionWithStarter.mockResolvedValue({ solutionId: 4, started: null });
+    render(<DevelopSolutions />);
+    await openSection(user, "Planning and Architecture");
+
+    await user.type(await screen.findByLabelText("Solution name"), "Shop Core");
+    await user.selectOptions(await screen.findByLabelText("Starter language"), "custom");
+
+    await user.type(await screen.findByLabelText("Language name"), "Elixir");
+    await user.type(screen.getByLabelText("Starter command"), "mix new .");
+    await user.type(screen.getByLabelText("Folder to create the project in"), "C:/repos");
+    await user.click(
+      screen.getByRole("button", { name: "Create Solution and start it" }),
+    );
+
+    await waitFor(() =>
+      expect(mocked.createSolutionWithStarter).toHaveBeenCalledWith(
+        expect.objectContaining({
+          starterId: "custom",
+          command: "mix new .",
+          // recorded as the language someone named, not as "custom"
+          languageName: "Elixir",
+          answers: JSON.stringify({ language: "Elixir" }),
+        }),
+      ),
+    );
   });
 
   /// A generator that failed leaves the Solution behind and says so in the

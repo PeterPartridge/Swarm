@@ -15,7 +15,7 @@
 use std::path::{Path, PathBuf};
 
 /// One node in a generated diagram.
-#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Node {
     pub id: String,
@@ -26,7 +26,7 @@ pub struct Node {
 }
 
 /// One arrow.
-#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Edge {
     pub from: String,
@@ -58,6 +58,29 @@ fn style_for(kind: &str) -> &'static str {
     }
 }
 
+/// The grid every box is placed on.
+///
+/// **The preview in the app draws from these same numbers.** A preview that
+/// laid things out differently from the file would be a picture of a diagram
+/// nobody is about to get, which is worse than no preview — so the constants
+/// are stated once here, mirrored in `InfrastructureDiagrams.tsx`, and both
+/// sides have a test asserting the same coordinates for the same input.
+pub const GRID_PER_ROW: usize = 4;
+pub const GRID_X0: usize = 40;
+pub const GRID_Y0: usize = 40;
+pub const GRID_DX: usize = 200;
+pub const GRID_DY: usize = 140;
+pub const BOX_W: usize = 160;
+pub const BOX_H: usize = 60;
+
+/// Where the nth box goes.
+pub fn position(index: usize) -> (usize, usize) {
+    (
+        GRID_X0 + (index % GRID_PER_ROW) * GRID_DX,
+        GRID_Y0 + (index / GRID_PER_ROW) * GRID_DY,
+    )
+}
+
 /// Builds a `.drawio` document.
 ///
 /// Laid out in a grid rather than left at the origin: draw.io opens a file with
@@ -68,11 +91,10 @@ pub fn build(title: &str, nodes: &[Node], edges: &[Edge]) -> String {
     let mut cells = String::new();
 
     for (index, node) in nodes.iter().enumerate() {
-        let x = 40 + (index % 4) * 200;
-        let y = 40 + (index / 4) * 140;
+        let (x, y) = position(index);
         cells.push_str(&format!(
             "        <mxCell id=\"{}\" value=\"{}\" style=\"{}\" vertex=\"1\" parent=\"1\">\n\
-             \x20         <mxGeometry x=\"{x}\" y=\"{y}\" width=\"160\" height=\"60\" as=\"geometry\" />\n\
+             \x20         <mxGeometry x=\"{x}\" y=\"{y}\" width=\"{BOX_W}\" height=\"{BOX_H}\" as=\"geometry\" />\n\
              \x20       </mxCell>\n",
             escape(&node.id),
             escape(&node.label),
@@ -105,6 +127,57 @@ pub fn build(title: &str, nodes: &[Node], edges: &[Edge]) -> String {
          </mxfile>\n",
         escape(title)
     )
+}
+
+/// The shape a Solution takes on a diagram.
+///
+/// A database Solution is a store; everything else is a service. Deliberately
+/// not clever about it: guessing that a website is "external" because it faces
+/// users would be an opinion about somebody's architecture rather than a fact
+/// about their Solutions, and the boxes are theirs to re-kind afterwards.
+pub fn kind_for_solution(solution_type: &str) -> &'static str {
+    match solution_type {
+        "database" => "database",
+        _ => "service",
+    }
+}
+
+/// Builds a diagram from Solutions and the links between them.
+///
+/// This is the point of having recorded any of it: the Solutions, their types
+/// and the links are already in the app, so the first draft of the diagram
+/// should not be typed in again by hand.
+///
+/// **A first draft, not the answer.** It draws what the app knows — which is
+/// the Solutions, not the load balancer, the queue or the third party they all
+/// depend on. Those get added afterwards, which is why the builder stays.
+pub fn from_solutions(solutions: &[(i64, String, String)], links: &[(i64, i64, String)]) -> (Vec<Node>, Vec<Edge>) {
+    let nodes: Vec<Node> = solutions
+        .iter()
+        .map(|(id, name, solution_type)| Node {
+            // Keyed by id rather than by name: two Products can hold Solutions
+            // with the same name, and an edge that matched on name would join
+            // the wrong pair.
+            id: format!("solution-{id}"),
+            label: name.clone(),
+            kind: kind_for_solution(solution_type).to_string(),
+        })
+        .collect();
+
+    let known: std::collections::HashSet<i64> = solutions.iter().map(|(id, _, _)| *id).collect();
+    let edges: Vec<Edge> = links
+        .iter()
+        // A link to a Solution in another Product would draw an arrow to a box
+        // that is not on this diagram, which draw.io opens as a dangling edge.
+        .filter(|(from, to, _)| known.contains(from) && known.contains(to))
+        .map(|(from, to, label)| Edge {
+            from: format!("solution-{from}"),
+            to: format!("solution-{to}"),
+            label: label.clone(),
+        })
+        .collect();
+
+    (nodes, edges)
 }
 
 /// Whether text is a draw.io document.
@@ -273,6 +346,68 @@ mod tests {
         assert!(xml.contains("x=\"40\" y=\"40\""), "first on the first row");
         assert!(xml.contains("x=\"640\" y=\"40\""), "fourth still on it");
         assert!(xml.contains("x=\"40\" y=\"180\""), "fifth wraps to the next");
+    }
+
+    /// The point of having recorded the Solutions: the first draft of the
+    /// diagram is not typed in again by hand.
+    #[test]
+    fn a_diagram_is_drafted_from_the_solutions_and_their_links() {
+        let solutions = vec![
+            (3, "Shop API".to_string(), "api".to_string()),
+            (5, "Shop Web".to_string(), "website".to_string()),
+            (7, "Orders".to_string(), "database".to_string()),
+        ];
+        let links = vec![
+            (5, 3, "calls the API of".to_string()),
+            (3, 7, "shares a schema with".to_string()),
+        ];
+        let (nodes, edges) = from_solutions(&solutions, &links);
+
+        assert_eq!(nodes.len(), 3);
+        assert_eq!(nodes[0].label, "Shop API");
+        // a database Solution draws as a store; everything else is a service
+        assert_eq!(nodes[2].kind, "database");
+        assert_eq!(nodes[1].kind, "service");
+
+        assert_eq!(edges.len(), 2);
+        assert_eq!(edges[0].from, "solution-5");
+        assert_eq!(edges[0].to, "solution-3");
+        assert_eq!(edges[0].label, "calls the API of");
+    }
+
+    /// Ids, not names: two Products can hold Solutions called the same thing,
+    /// and an edge matched on name would join the wrong pair.
+    #[test]
+    fn boxes_are_keyed_by_id_so_two_solutions_of_one_name_stay_apart() {
+        let solutions = vec![
+            (3, "API".to_string(), "api".to_string()),
+            (9, "API".to_string(), "api".to_string()),
+        ];
+        let (nodes, _) = from_solutions(&solutions, &[]);
+        assert_ne!(nodes[0].id, nodes[1].id);
+    }
+
+    /// An arrow to a Solution that is not on this diagram opens in draw.io as a
+    /// dangling edge, which looks like a corrupt file rather than a missing box.
+    #[test]
+    fn a_link_to_something_not_on_the_diagram_is_left_out() {
+        let solutions = vec![(3, "Shop API".to_string(), "api".to_string())];
+        let links = vec![(3, 99, "calls the API of".to_string())];
+        let (_, edges) = from_solutions(&solutions, &links);
+        assert!(edges.is_empty(), "the other end is in another Product");
+    }
+
+    /// The preview in the app draws from these same numbers. A preview laid out
+    /// differently from the file would be a picture of a diagram nobody is
+    /// about to get — the mirrored test in InfrastructureDiagrams.test.tsx
+    /// asserts the identical coordinates.
+    #[test]
+    fn the_grid_positions_are_the_ones_the_preview_mirrors() {
+        assert_eq!(position(0), (40, 40));
+        assert_eq!(position(3), (640, 40));
+        assert_eq!(position(4), (40, 180));
+        assert_eq!(position(5), (240, 180));
+        assert_eq!((BOX_W, BOX_H), (160, 60));
     }
 
     #[test]

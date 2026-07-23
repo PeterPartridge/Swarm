@@ -227,3 +227,53 @@ pub async fn save_diagram(
 pub async fn open_diagram(path: String) -> Result<(), String> {
     drawio::open(&path)
 }
+
+/// The arrow label for a link kind, in the same words the Develop area uses.
+/// An arrow reading `callsApi` would be the database's word for it rather than
+/// a person's.
+fn label_for(kind: &str) -> String {
+    match kind {
+        "callsApi" => "calls the API of",
+        "sharesSchema" => "shares a schema with",
+        "publishesEvent" => "publishes events to",
+        "buildsOn" => "builds on",
+        other => other,
+    }
+    .to_string()
+}
+
+/// The nodes and edges of a diagram drafted from a Product's Solutions.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftedDiagram {
+    pub nodes: Vec<drawio::Node>,
+    pub edges: Vec<drawio::Edge>,
+}
+
+/// Drafts a diagram from the Solutions and the links already recorded.
+///
+/// Returned rather than written: it is a first draft to look at and correct,
+/// and writing straight to a file would overwrite a diagram somebody had
+/// already arranged in draw.io.
+#[tauri::command]
+pub async fn diagram_from_solutions(
+    db: State<'_, AppDb>,
+    product_id: i64,
+) -> Result<DraftedDiagram, String> {
+    let conn = db.0.lock().await;
+    let solutions: Vec<(i64, String, String)> = solution::list_by_product(&conn, product_id)
+        .await
+        .map_err(to_message)?
+        .into_iter()
+        .map(|s| (s.id, s.name, s.solution_type))
+        .collect();
+    let links: Vec<(i64, i64, String)> = crate::db::repo_link::list_for_product(&conn, product_id)
+        .await
+        .map_err(to_message)?
+        .into_iter()
+        .map(|l| (l.from_solution_id, l.to_solution_id, label_for(&l.kind)))
+        .collect();
+
+    let (nodes, edges) = drawio::from_solutions(&solutions, &links);
+    Ok(DraftedDiagram { nodes, edges })
+}

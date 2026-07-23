@@ -2690,3 +2690,20 @@ body {
   display: flex;
   gap: 0.4rem;
 }
+
+/* The diagram preview — the same grid the .drawio file is written on. */
+.diagram-preview-section {
+  margin: 0.5rem 0;
+}
+.diagram-preview-section h3 {
+  margin: 0 0 0.2rem;
+  font-size: 0.85rem;
+}
+.diagram-preview {
+  width: 100%;
+  max-height: 22rem;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.3rem;
+  padding: 0.3rem;
+}

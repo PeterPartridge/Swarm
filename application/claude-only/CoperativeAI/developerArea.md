@@ -34,6 +34,38 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 16b — Drafting from what the app already knows, and a preview that agrees with the file
+
+### My Feedback
+
+**The diagram drafts itself from the Solutions.** This was the debt I flagged at the end of the last round and you went straight for it: the Solutions, their types and the links between them are already recorded, so the first draft should not be typed in again. Database Solutions draw as stores, everything else as services, and the recorded links become the arrows in the same words the Develop area uses — an arrow reading `callsApi` would be the database's word for it rather than a person's.
+
+Deliberately **a first draft, not the answer**. It draws what the app knows, which is the Solutions — not the queue, the load balancer or the third party they all depend on. The builder stays for exactly that, and the button says so.
+
+**Boxes are keyed by Solution id, not name.** Two Products can hold Solutions called the same thing, and an edge matched on name would join the wrong pair. A link whose other end is in another Product is left out rather than drawn, because draw.io opens a dangling edge as something that looks like a corrupt file.
+
+**The preview draws from the same grid as the file.** That is the part worth being careful about: a preview laid out differently from what gets written would be a picture of a diagram nobody is about to get, which is worse than showing none. The constants live once in `drawio.rs`, are mirrored in the component, and **both sides carry a test asserting identical coordinates for the same input** — so the two cannot drift without something going red.
+
+It renders from the nodes in hand rather than by parsing the XML back, which is what lets it update as boxes are added, before there is a file at all — and again after a save.
+
+**The language question is now the starter picker.** You were right that this is where it should start. Asking it twice — once as prose, once as a dropdown — invites two different answers, and the one the generator acts on would not be the one anybody read. The picked label is stored as the answer, so the brief that reaches the AI reads "Rust (cargo)" rather than `rust`.
+
+**"Something else" asks for the language name as well as the command**, and the backend refuses without either. A Solution recorded as having been started in "custom" tells nobody anything a year later; recorded as "Elixir" it does.
+
+### Your Feedback
+
+- **Drafting replaces the builder's contents rather than merging into them.** A merge would silently duplicate every box on a second press, and a draft is meant to be a starting point you then correct.
+- **Drafting from a Product with no Solutions says so** rather than blanking a diagram somebody was part-way through.
+- **Removing a box takes its arrows with it** — already true, now tested, because the alternative writes a file that opens as a dangling edge.
+
+### Technical Debt
+
+- **The draft cannot know about infrastructure that is not a Solution.** Queues, load balancers, third parties and environments are all invisible to it, which is stated in the UI but does mean the draft is never the whole picture.
+- **A second draft discards hand-added boxes.** The warning is that it replaces; there is no merge that keeps what you added.
+- **The preview lays out on a fixed grid and does not route arrows** — lines go centre to centre and cross each other freely. draw.io does that properly, which is the argument for the preview being a preview.
+- **Nothing re-reads an existing `.drawio` back into the builder.** Save, open in draw.io, rearrange — and the builder still holds the version it wrote, not the version on disk.
+- **`kind_for_solution` is two cases.** A website that is genuinely third-party still draws as a service.
+
 ## Round 16 — Renamed tabs, draw.io, and commits that happen by themselves
 
 ### My Feedback

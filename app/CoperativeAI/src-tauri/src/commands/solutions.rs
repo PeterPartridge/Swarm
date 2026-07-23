@@ -76,7 +76,20 @@ pub async fn create_solution_with_starter(
     starter_id: Option<String>,
     command: Option<String>,
     parent_dir: Option<String>,
+    language_name: Option<String>,
 ) -> Result<CreatedSolution, String> {
+    // "Something else" carries neither a name nor a command of its own, so
+    // both are required. Recording it as having been started in "custom" would
+    // tell nobody anything a year later.
+    if starter_id.as_deref() == Some("custom") {
+        if language_name.as_deref().map(str::trim).unwrap_or("").is_empty() {
+            return Err("name the language — 'something else' is not one".into());
+        }
+        if command.as_deref().map(str::trim).unwrap_or("").is_empty() {
+            return Err("give the command that creates the project".into());
+        }
+    }
+
     let solution_id = {
         let conn = db.0.lock().await;
         solution::create(&conn, &name, product_id, &solution_type, &answers)
@@ -105,7 +118,14 @@ pub async fn create_solution_with_starter(
 
     {
         let conn = db.0.lock().await;
-        solution::set_language(&conn, solution_id, Some(&starter_id))
+        // The language someone named beats the starter's id: "Elixir" is what
+        // they answered, and "custom" is only how this app filed it.
+        let recorded = language_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .unwrap_or(&starter_id);
+        solution::set_language(&conn, solution_id, Some(recorded))
             .await
             .map_err(to_message)?;
         // Only point the Solution at the folder if something was actually
