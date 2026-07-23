@@ -10,7 +10,11 @@
 //! "is this a diagram", rather than two that drift apart.
 
 /// The formats a stored diagram may be in.
-pub const FORMATS: &[&str] = &["mermaid", "plantuml", "jsonGraph"];
+/// `drawio` sits beside the text notations because an infrastructure diagram is
+/// an architecture document like any other — the notation is a rendering
+/// choice, not a different kind of thing. It is stored here *and* written as a
+/// `.drawio` file, so draw.io can open it.
+pub const FORMATS: &[&str] = &["mermaid", "plantuml", "jsonGraph", "drawio"];
 
 const MERMAID_STARTERS: &[&str] = &[
     "flowchart",
@@ -38,6 +42,16 @@ pub fn check(format: &str, content: &str) -> Result<(), String> {
         "mermaid" => check_mermaid(content),
         "plantuml" => check_plantuml(content),
         "jsonGraph" => check_json_graph(content),
+        // The same standard as the others: plausibly the notation it claims to
+        // be. `drawio::looks_like_drawio` is the one place that judges it, so
+        // the file writer and this check cannot disagree.
+        "drawio" => {
+            if crate::drawio::looks_like_drawio(content) {
+                Ok(())
+            } else {
+                Err("a draw.io diagram starts with <mxfile> — this does not".into())
+            }
+        }
         other => Err(format!(
             "unknown diagram format '{other}' — expected one of {FORMATS:?}"
         )),

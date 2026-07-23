@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
+import DiagramBuilder from "./DiagramBuilder";
 import DiagramView from "./DiagramView";
 import {
   ARCHITECTURE_KIND_LABELS,
   DIAGRAM_FORMATS,
+  DIAGRAM_FORMAT_LABELS,
   REPO_LINK_LABELS,
   deleteArchitectureDoc,
   generateArchitectureDoc,
@@ -253,7 +255,7 @@ export default function DeveloperPlanning({ productId }: { productId: number }) 
           >
             {DIAGRAM_FORMATS.map((f) => (
               <option key={f} value={f}>
-                {f}
+                {DIAGRAM_FORMAT_LABELS[f] ?? f}
               </option>
             ))}
           </select>
@@ -272,18 +274,41 @@ export default function DeveloperPlanning({ productId }: { productId: number }) 
             ))}
           </select>
         </div>
-        <div className="field">
-          <span>What should it show?</span>
-          <textarea
-            rows={2}
-            aria-label="Architecture brief"
-            value={brief}
-            onChange={(e) => setBrief(e.target.value)}
-          />
-        </div>
-        <button aria-label="Generate architecture document" onClick={onGenerate} disabled={busy}>
-          {busy ? "Drawing…" : "AI: draw it"}
-        </button>
+        {/* Drafting comes first whichever notation is chosen: the app already
+            knows the Solutions and the links between them, and the AI should
+            not be paid to rediscover what is in the database. */}
+        <DiagramBuilder
+          productId={productId}
+          kind={kind}
+          format={format}
+          solutionId={solutionId}
+          onSaved={refresh}
+          onError={setError}
+        />
+
+        {/* The AI half stays for the notations it can write. draw.io is drafted
+            from the Solutions and then arranged by hand in draw.io, which is
+            better at it than any prompt. */}
+        {format !== "drawio" && (
+          <>
+            <div className="field">
+              <span>What should it show?</span>
+              <textarea
+                rows={2}
+                aria-label="Architecture brief"
+                value={brief}
+                onChange={(e) => setBrief(e.target.value)}
+              />
+            </div>
+            <button
+              aria-label="Generate architecture document"
+              onClick={onGenerate}
+              disabled={busy}
+            >
+              {busy ? "Drawing…" : "AI: draw it"}
+            </button>
+          </>
+        )}
 
         {docs.length > 0 && (
           <ul className="doc-list">

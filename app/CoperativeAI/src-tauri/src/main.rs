@@ -101,6 +101,7 @@ fn main() {
             commands::vcs_ops::save_diagram,
             commands::vcs_ops::open_diagram,
             commands::vcs_ops::diagram_from_solutions,
+            commands::vcs_ops::draft_architecture,
             commands::solutions::delete_solution,
             commands::github::github_status,
             commands::github::set_github_token,

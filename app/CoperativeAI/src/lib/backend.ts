@@ -764,7 +764,7 @@ export type ArchitectureDocKind =
   | "eventFlow"
   | "infrastructure";
 
-export type DiagramFormat = "mermaid" | "plantuml" | "jsonGraph";
+export type DiagramFormat = "mermaid" | "drawio" | "plantuml" | "jsonGraph";
 
 export const ARCHITECTURE_KIND_LABELS: Record<ArchitectureDocKind, string> = {
   systemInteraction: "System interaction",
@@ -774,7 +774,23 @@ export const ARCHITECTURE_KIND_LABELS: Record<ArchitectureDocKind, string> = {
   infrastructure: "Infrastructure",
 };
 
-export const DIAGRAM_FORMATS: DiagramFormat[] = ["mermaid", "plantuml", "jsonGraph"];
+/** `drawio` sits beside the text notations because an infrastructure diagram is
+ *  an architecture document like any other — the notation is a rendering choice,
+ *  not a different kind of thing. Mermaid renders inline; draw.io is stored and
+ *  also written as a `.drawio` file the real editor can open. */
+export const DIAGRAM_FORMATS: DiagramFormat[] = [
+  "mermaid",
+  "drawio",
+  "plantuml",
+  "jsonGraph",
+];
+
+export const DIAGRAM_FORMAT_LABELS: Record<string, string> = {
+  mermaid: "Mermaid (renders here)",
+  drawio: "draw.io (opens in draw.io)",
+  plantuml: "PlantUML",
+  jsonGraph: "JSON graph",
+};
 
 /** How two of a Product's Solutions — and so two repositories — depend on
  *  each other. `buildsOn` orders work and must stay acyclic; the rest describe
@@ -1653,6 +1669,19 @@ export const diagramFromSolutions = (
   productId: number,
 ): Promise<{ nodes: DiagramNode[]; edges: DiagramEdge[] }> =>
   invoke("diagram_from_solutions", { productId });
+
+/** One draft, either notation. Which one a diagram is written in is a choice
+ *  made after deciding what is in it, so the boxes are worked out once and the
+ *  format applied at the end. */
+export const draftArchitecture = (
+  productId: number,
+  format: string,
+): Promise<{
+  format: string;
+  content: string;
+  nodes: DiagramNode[];
+  edges: DiagramEdge[];
+}> => invoke("draft_architecture", { productId, format });
 
 /** The grid the boxes sit on.
  *

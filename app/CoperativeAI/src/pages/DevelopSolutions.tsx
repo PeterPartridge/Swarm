@@ -5,7 +5,6 @@ import DeveloperPlanning from "../components/DeveloperPlanning";
 import DeveloperRulesEditor from "../components/DeveloperRulesEditor";
 import FrameworkFiles from "../components/FrameworkFiles";
 import GitExplorer from "../components/GitExplorer";
-import InfrastructureDiagrams from "../components/InfrastructureDiagrams";
 import GithubCard from "../components/GithubCard";
 import ModelInstalls from "../components/ModelInstalls";
 import SolutionBox from "../components/SolutionBox";
@@ -277,7 +276,6 @@ export default function DevelopSolutions() {
           they are what someone comes here to think about — the Solution list
           below is where that thinking gets built. */}
       {activeProduct !== "" && <DeveloperPlanning productId={Number(activeProduct)} />}
-      {activeProduct !== "" && <InfrastructureDiagrams productId={Number(activeProduct)} />}
       {activeProduct !== "" && <FrameworkFiles productId={Number(activeProduct)} />}
       <section className="develop-card" aria-label="Create a Solution">
         <h2>Create a Solution</h2>

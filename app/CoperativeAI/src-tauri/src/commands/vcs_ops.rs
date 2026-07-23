@@ -250,6 +250,48 @@ pub struct DraftedDiagram {
     pub edges: Vec<drawio::Edge>,
 }
 
+/// A draft in whichever notation was asked for.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftedContent {
+    pub format: String,
+    pub content: String,
+    /// The boxes behind it, so the draw.io builder can go on editing them
+    /// rather than parsing its own output back.
+    pub nodes: Vec<drawio::Node>,
+    pub edges: Vec<drawio::Edge>,
+}
+
+/// Drafts an architecture diagram from the Solutions, in either notation.
+///
+/// One draft, two renderings. Which notation a diagram is written in is a
+/// choice made after deciding what is in it — so the boxes are worked out once
+/// and the format is applied at the end, and the draw.io and Mermaid halves
+/// cannot disagree about what the architecture is.
+#[tauri::command]
+pub async fn draft_architecture(
+    db: State<'_, AppDb>,
+    product_id: i64,
+    format: String,
+) -> Result<DraftedContent, String> {
+    let drafted = diagram_from_solutions(db, product_id).await?;
+    let content = match format.as_str() {
+        "drawio" => drawio::build("Architecture", &drafted.nodes, &drafted.edges),
+        "mermaid" => drawio::to_mermaid(&drafted.nodes, &drafted.edges),
+        other => {
+            return Err(format!(
+                "nothing can be drafted as '{other}' yet — choose Mermaid or draw.io"
+            ))
+        }
+    };
+    Ok(DraftedContent {
+        format,
+        content,
+        nodes: drafted.nodes,
+        edges: drafted.edges,
+    })
+}
+
 /// Drafts a diagram from the Solutions and the links already recorded.
 ///
 /// Returned rather than written: it is a first draft to look at and correct,

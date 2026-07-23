@@ -49,7 +49,7 @@ export default function DiagramView({
 
   useEffect(() => {
     let cancelled = false;
-    if (format === "plantuml") {
+    if (format === "plantuml" || format === "drawio") {
       setSvg(null);
       setFailed(null);
       return;
@@ -100,14 +100,17 @@ export default function DiagramView({
     };
   }, [content, format]);
 
-  if (format === "plantuml") {
+  if (format === "plantuml" || format === "drawio") {
     return (
       <div className="diagram-view">
         <pre className="diagram-source" aria-label={`${label} source`}>{content}</pre>
+        {/* Both are shown as source rather than drawn, but for different
+            reasons — saying "not drawn here" without which reason would leave
+            someone thinking either could be fixed the same way. */}
         <p className="hint">
-          PlantUML is not drawn here. Rendering it in a browser means sending the
-          diagram to a third-party server, and a private architecture diagram is
-          not worth posting elsewhere to get a picture.
+          {format === "plantuml"
+            ? "PlantUML is not drawn here. Rendering it in a browser means sending the diagram to a third-party server, and a private architecture diagram is not worth posting elsewhere to get a picture."
+            : "draw.io documents are drawn by draw.io — open the file to see and rearrange it. The builder above previews the boxes before they are written."}
         </p>
       </div>
     );

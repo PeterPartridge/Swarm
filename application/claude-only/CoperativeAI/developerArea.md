@@ -34,6 +34,38 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 16c — One section, two notations
+
+### My Feedback
+
+You were right that they were the same thing. `infrastructure` was **already an architecture-document kind** — the two sections were the same feature filed twice, one storing Mermaid in the database and the other writing draw.io to disk, with two builders, two previews and two ways to say "this is the system".
+
+They are one now, and the merge is real rather than cosmetic:
+
+**draw.io became a *format*, not a section.** It sits beside `mermaid`, `plantuml` and `jsonGraph` in `diagram::FORMATS`, and the same validator judges it — `looks_like_drawio` is the one place that decides, so the file writer and the document check cannot disagree about what a draw.io file is.
+
+**One draft, two renderings.** `draft_architecture(product, format)` works the boxes out once from the Solutions and applies the notation at the end. That is the load-bearing part: which notation a diagram is written in is a choice made *after* deciding what is in it, so the two halves cannot disagree about what the architecture is.
+
+**What differs is only what happens on save.** Mermaid is text: it goes in the document and renders inline. draw.io is a file as well: it goes in the document *and* is written beside the Product's framework files, so the real editor can open and rearrange it. Everything before that — drafting, adding boxes, connecting them, the preview — is identical.
+
+**The preview is the boxes**, so it is the same picture either way. That falls out of the merge rather than being built twice.
+
+**The dead component is gone.** `InfrastructureDiagrams.tsx` is deleted and its preview extracted to its own module. Leaving it as a file imported only for one export would have been the same duplication you asked me to remove, one level down.
+
+### Your Feedback
+
+- **Two renderers now exist in two languages**, and they are pinned to each other: the Rust `to_mermaid` renders the draft, the TypeScript `buildMermaid` renders later edits, and both suites assert the same output for the same input. Without that a diagram would change notation halfway through being built.
+- **A dash ends a Mermaid id** and our own ids are `solution-3`, so they are sanitised — and a pipe inside an arrow label closes it early and takes the rest of the line. Both are tested on both sides.
+- **`DiagramView` explains draw.io and PlantUML differently.** Both show source rather than a picture, but for unrelated reasons — one because rendering it would post a private architecture diagram to a third party, the other because draw.io draws its own files. Saying "not drawn here" for both would suggest either could be fixed the same way.
+- **The AI half is offered only for the notations it can write.** draw.io is drafted from the Solutions and then arranged in draw.io, which is better at layout than any prompt.
+
+### Technical Debt
+
+- **The Rust and TypeScript renderers are still two implementations.** Tests hold them together; nothing stops a third being written.
+- **A draw.io document saved twice writes the file twice** and the second overwrites the first, including any arrangement done in draw.io between. The round trip is still one-way — the debt named last round, now more visible because the two paths share a save button.
+- **`plantuml` and `jsonGraph` get no builder**, which is honest but means the section is two-speed: two notations you can draw, two you must write.
+- **Nothing migrates the diagrams written before this round** into architecture documents — the files are still on disk and still listed by the old command, but they are not documents.
+
 ## Round 16b — Drafting from what the app already knows, and a preview that agrees with the file
 
 ### My Feedback

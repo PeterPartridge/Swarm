@@ -180,6 +180,56 @@ pub fn from_solutions(solutions: &[(i64, String, String)], links: &[(i64, i64, S
     (nodes, edges)
 }
 
+/// The same nodes and edges as a Mermaid flowchart.
+///
+/// **This is what makes merging the two sections real rather than cosmetic.**
+/// A draft from the Solutions is a set of boxes and arrows; which notation it
+/// is written in is a rendering choice made afterwards, not a different
+/// feature. One source, two outputs — so the draw.io and Mermaid halves cannot
+/// disagree about what the architecture is.
+pub fn to_mermaid(nodes: &[Node], edges: &[Edge]) -> String {
+    let mut out = String::from("flowchart TD\n");
+    for node in nodes {
+        // Mermaid ids are bare words: a dash or a space ends the id and the
+        // rest becomes a parse error nobody can read.
+        let id = mermaid_id(&node.id);
+        let label = node.label.replace('"', "'");
+        out.push_str(&match node.kind.as_str() {
+            "database" => format!("    {id}[(\"{label}\")]\n"),
+            "queue" => format!("    {id}[/\"{label}\"/]\n"),
+            "store" => format!("    {id}[[\"{label}\"]]\n"),
+            "external" => format!("    {id}([\"{label}\"])\n"),
+            _ => format!("    {id}[\"{label}\"]\n"),
+        });
+    }
+    for edge in edges {
+        let from = mermaid_id(&edge.from);
+        let to = mermaid_id(&edge.to);
+        if edge.label.trim().is_empty() {
+            out.push_str(&format!("    {from} --> {to}\n"));
+        } else {
+            // A pipe inside a label closes it early, taking the rest of the
+            // line with it.
+            let label = edge.label.replace('|', "/");
+            out.push_str(&format!("    {from} -->|{label}| {to}\n"));
+        }
+    }
+    out
+}
+
+fn mermaid_id(id: &str) -> String {
+    let cleaned: String = id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    // An id starting with a digit is read as a number.
+    if cleaned.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+        format!("n{cleaned}")
+    } else {
+        cleaned
+    }
+}
+
 /// Whether text is a draw.io document.
 ///
 /// Checked before a file is offered for opening, because a `.drawio` extension
@@ -408,6 +458,68 @@ mod tests {
         assert_eq!(position(4), (40, 180));
         assert_eq!(position(5), (240, 180));
         assert_eq!((BOX_W, BOX_H), (160, 60));
+    }
+
+    /// One draft, two notations. This is what makes merging the Infrastructure
+    /// and Architecture sections real rather than cosmetic: which notation a
+    /// diagram is written in is a rendering choice made afterwards, not a
+    /// different feature.
+    #[test]
+    fn the_same_draft_renders_as_mermaid() {
+        let nodes = vec![
+            Node { id: "solution-3".into(), label: "Shop API".into(), kind: "service".into() },
+            Node { id: "solution-7".into(), label: "Orders".into(), kind: "database".into() },
+        ];
+        let edges = vec![Edge {
+            from: "solution-3".into(),
+            to: "solution-7".into(),
+            label: "shares a schema with".into(),
+        }];
+        let mermaid = to_mermaid(&nodes, &edges);
+
+        assert!(mermaid.starts_with("flowchart TD"));
+        assert!(mermaid.contains("solution_3[\"Shop API\"]"));
+        // a database keeps its shape in either notation
+        assert!(mermaid.contains("solution_7[(\"Orders\")]"));
+        assert!(mermaid.contains("solution_3 -->|shares a schema with| solution_7"));
+        // and the structural check agrees it is Mermaid
+        assert!(crate::diagram::check("mermaid", &mermaid).is_ok());
+    }
+
+    /// A dash ends a Mermaid id and the rest becomes a parse error nobody can
+    /// read — and our own ids are `solution-3`.
+    #[test]
+    fn ids_are_made_safe_for_mermaid() {
+        assert_eq!(mermaid_id("solution-3"), "solution_3");
+        assert_eq!(mermaid_id("a b c"), "a_b_c");
+        // a leading digit reads as a number
+        assert_eq!(mermaid_id("3rd"), "n3rd");
+    }
+
+    /// A pipe inside an arrow label closes it early and takes the rest of the
+    /// line with it.
+    #[test]
+    fn punctuation_in_a_label_does_not_break_the_flowchart() {
+        let nodes = vec![
+            Node { id: "a".into(), label: "A \"quoted\" box".into(), kind: "service".into() },
+            Node { id: "b".into(), label: "B".into(), kind: "service".into() },
+        ];
+        let edges = vec![Edge { from: "a".into(), to: "b".into(), label: "reads|writes".into() }];
+        let mermaid = to_mermaid(&nodes, &edges);
+
+        assert!(!mermaid.contains("\"quoted\""), "double quotes are swapped out");
+        assert!(mermaid.contains("reads/writes"), "the pipe is swapped out");
+        assert!(crate::diagram::check("mermaid", &mermaid).is_ok());
+    }
+
+    /// draw.io is an architecture format like the others, so the same validator
+    /// judges it — one place decides, and the file writer cannot disagree.
+    #[test]
+    fn drawio_is_checked_as_an_architecture_format() {
+        let xml = build("Infra", &[Node { id: "a".into(), label: "A".into(), kind: "service".into() }], &[]);
+        assert!(crate::diagram::check("drawio", &xml).is_ok());
+        assert!(crate::diagram::check("drawio", "flowchart TD\n  a --> b").is_err());
+        assert!(crate::diagram::FORMATS.contains(&"drawio"));
     }
 
     #[test]
