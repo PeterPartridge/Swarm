@@ -50,8 +50,11 @@ export default function WorkspaceShell() {
 
   return (
     <div className="workspace-shell">
+      {/* The rail is a sibling of the whole main column now, not a bar above
+          it — so the areas stay put while the content beside them changes. */}
+      <TabBar active={active} colors={colors} onSelect={setActive} tabs={visibleTabs} />
+      <div className="shell-main">
       <div className="shell-topbar">
-        <TabBar active={active} colors={colors} onSelect={setActive} tabs={visibleTabs} />
         <ActiveUserPicker />
       </div>
       <main
@@ -85,6 +88,7 @@ export default function WorkspaceShell() {
           </label>
         ))}
       </footer>
+      </div>
     </div>
   );
 }

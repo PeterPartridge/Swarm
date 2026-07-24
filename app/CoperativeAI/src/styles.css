@@ -1,10 +1,45 @@
+/* The workspace, in the shape of the tool it sits beside all day.
+ *
+ * Dark, because this is an editor: it runs next to VS Code and a terminal, and
+ * a white panel between two dark ones is the thing you squint at. The palette
+ * is the redesign's — one near-black for the rail, one for the page, one for
+ * anything raised off it, and a single blue accent.
+ *
+ * **Everything below is expressed in these variables.** The environment colours
+ * a person picks in Admin still tint their own area, but the surfaces, text and
+ * borders come from here, so the whole app moves together rather than one card
+ * at a time.
+ */
 :root {
   --tab-product: #7c3aed;
   --tab-develop: #2563eb;
   --tab-test: #16a34a;
-  --bg: #ffffff;
-  --fg: #1f2937;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  /* Surfaces, darkest first: the rail, the page, anything raised. */
+  --rail: #181818;
+  --bg: #1e1e1e;
+  --raised: #232325;
+  --sunken: #141416;
+
+  /* Text, brightest first. Three steps is enough: what you read, what labels
+     it, and what is merely present. */
+  --fg: #d4d4d4;
+  --fg-bright: #f2f2f3;
+  --fg-muted: #8a8a8e;
+  --fg-dim: #6e6e72;
+
+  --line: rgba(255, 255, 255, 0.08);
+  --line-soft: rgba(255, 255, 255, 0.06);
+
+  --accent: #0a84ff;
+  --ok: #89d185;
+  --warn: #d7ba7d;
+  --bad: #f14c4c;
+
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+    system-ui, sans-serif;
+  font-size: 14px;
+  color-scheme: dark;
 }
 
 * {
@@ -17,48 +52,169 @@ body {
   color: var(--fg);
 }
 
+/* The rail sits beside the page, not above it — so the shell is a row. */
 .workspace-shell {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   height: 100vh;
+  overflow: hidden;
 }
 
 .tab-bar {
+  width: 60px;
+  flex: none;
   display: flex;
-  gap: 0.25rem;
-  padding: 0.5rem 0.75rem 0;
-  border-bottom: 3px solid var(--env-color, #e5e7eb);
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.9rem 0;
+  background: var(--rail);
+  border-right: 1px solid var(--line-soft);
 }
 
 .tab {
+  width: 44px;
   border: none;
   background: transparent;
-  color: var(--tab-color);
-  font-size: 1rem;
-  font-weight: 600;
-  padding: 0.5rem 1.25rem;
-  border-radius: 0.5rem 0.5rem 0 0;
+  color: var(--fg-dim);
+  font-size: 0.58rem;
+  font-weight: 500;
+  padding: 0.35rem 0;
+  border-radius: 10px;
   cursor: pointer;
-  border-bottom: 3px solid transparent;
-  margin-bottom: -3px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  line-height: 1.1;
 }
 
+.tab:hover {
+  color: var(--fg);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* The active area keeps its own colour — that is the one thing about the old
+   scheme worth carrying over, because it tells you where you are at a glance. */
 .tab-active {
-  background: var(--tab-color);
-  color: #ffffff;
-  border-bottom-color: var(--tab-color);
+  background: color-mix(in srgb, var(--tab-color) 22%, transparent);
+  color: var(--tab-color);
+}
+
+.tab-label {
+  font-size: 0.58rem;
+}
+
+/* Everything to the right of the rail: the topbar and the page under it. */
+.shell-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .environment {
   flex: 1;
-  padding: 1.5rem;
-  border-top: 4px solid var(--env-color);
+  padding: 1.25rem 1.5rem;
   overflow: auto;
+  background: var(--bg);
 }
 
 .environment h1 {
-  margin-top: 0;
-  color: var(--env-color);
+  margin: 0 0 1rem;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--fg-bright);
+  /* The area's own colour as a rule under its name, rather than a slab of it. */
+  border-bottom: 2px solid var(--env-color);
+  padding-bottom: 0.4rem;
+}
+
+/* ── Surfaces and controls, so every existing panel follows the theme ──── */
+
+.product-card,
+.develop-card,
+.admin-card,
+.card,
+.board-column,
+.roadmap-lane {
+  background: var(--raised);
+  border: 1px solid var(--line-soft);
+  color: var(--fg);
+}
+
+.card {
+  border-left: 4px solid var(--env-color, var(--accent));
+}
+
+input,
+select,
+textarea {
+  background: var(--sunken);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.3rem 0.45rem;
+  font: inherit;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+button {
+  background: var(--raised);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.3rem 0.7rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--fg-bright);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.hint {
+  color: var(--fg-muted);
+}
+
+pre,
+code {
+  background: var(--sunken);
+  color: var(--fg);
+}
+
+[role="alert"] {
+  color: var(--bad);
+}
+
+[role="status"] {
+  color: var(--fg-muted);
+}
+
+/* Scrollbars, so they do not arrive as two white stripes down a dark page. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .product-planning form {
@@ -92,7 +248,7 @@ body {
 }
 
 .board-column {
-  background: #f3f4f6;
+  background: var(--sunken);
   border-radius: 0.5rem;
   padding: 0.5rem;
   min-height: 8rem;
@@ -103,11 +259,11 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin: 0.25rem 0 0.5rem;
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 
 .card {
-  background: #fff;
+  background: var(--raised);
   border-left: 4px solid var(--env-color, #7c3aed);
   border-radius: 0.375rem;
   padding: 0.5rem;
@@ -120,7 +276,7 @@ body {
 
 .card-type {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 
 .product-home,
@@ -151,7 +307,7 @@ body {
 
 .product-card,
 .develop-card {
-  background: #f9fafb;
+  background: var(--raised);
   border: 1px solid #e5e7eb;
   border-left: 4px solid var(--env-color, #7c3aed);
   border-radius: 0.5rem;
@@ -198,7 +354,7 @@ body {
 .card-parent,
 .card-dates {
   font-size: 0.7rem;
-  color: #9ca3af;
+  color: var(--fg-dim);
 }
 
 .roadmap {
@@ -208,7 +364,7 @@ body {
 }
 
 .roadmap-lane {
-  background: #f3f4f6;
+  background: var(--sunken);
   border-radius: 0.5rem;
   padding: 0.5rem 0.75rem;
 }
@@ -223,13 +379,13 @@ body {
   font-size: 0.85rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #6b7280;
+  color: var(--fg-muted);
   margin: 0.25rem 0;
 }
 
 .lane-dates {
   font-size: 0.75rem;
-  color: #9ca3af;
+  color: var(--fg-dim);
 }
 
 .lane-items {
@@ -244,7 +400,7 @@ body {
 
 .lane-empty {
   font-size: 0.8rem;
-  color: #9ca3af;
+  color: var(--fg-dim);
   margin: 0.25rem 0;
 }
 
@@ -271,7 +427,7 @@ body {
 }
 
 .admin-card {
-  background: #f9fafb;
+  background: var(--raised);
   border: 1px solid #e5e7eb;
   border-left: 4px solid var(--env-color, #475569);
   border-radius: 0.5rem;
@@ -329,7 +485,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0.3rem;
-  background: #f9fafb;
+  background: var(--raised);
   border-radius: 4px;
   padding: 0.3rem;
   margin: 0.3rem 0;
@@ -344,7 +500,7 @@ body {
 .handover-brief {
   max-height: 18rem;
   overflow: auto;
-  background: #f9fafb;
+  background: var(--raised);
   border-radius: 4px;
   padding: 0.4rem;
   font-size: 0.72rem;
@@ -357,7 +513,7 @@ body {
 }
 
 .diagram-svg {
-  background: #fff;
+  background: var(--raised);
   border: 1px solid #e5e7eb;
   border-radius: 4px;
   padding: 0.4rem;
@@ -372,7 +528,7 @@ body {
 .diagram-source {
   max-height: 14rem;
   overflow: auto;
-  background: #f9fafb;
+  background: var(--raised);
   border-radius: 4px;
   padding: 0.4rem;
   font-size: 0.72rem;
@@ -393,7 +549,7 @@ body {
   background: none;
   border: 0;
   padding: 0;
-  color: #6b7280;
+  color: var(--fg-muted);
   cursor: pointer;
   text-decoration: underline;
 }
@@ -417,16 +573,16 @@ body {
 }
 
 .diff-removed {
-  background: #fef2f2;
+  background: rgba(241, 76, 76, 0.14);
   color: #991b1b;
 }
 
 .diff-hunk {
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 
 .diff-header {
-  color: #9ca3af;
+  color: var(--fg-dim);
 }
 
 .build-plan {
@@ -449,7 +605,7 @@ body {
 }
 
 .build-plan .field span {
-  color: #6b7280;
+  color: var(--fg-muted);
   font-size: 0.75rem;
 }
 
@@ -499,18 +655,18 @@ body {
 }
 
 .answered-questions li {
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 
 /* The generated half, visually distinct from what a person typed. */
 .plan-generated {
-  background: #f9fafb;
+  background: var(--raised);
   border-radius: 4px;
   padding: 0.4rem;
 }
 
 .plan-generated-head {
-  color: #6b7280;
+  color: var(--fg-muted);
   font-size: 0.72rem;
 }
 
@@ -559,7 +715,7 @@ body {
 }
 
 .solution-tab-active {
-  background: #f3f4f6;
+  background: var(--sunken);
   font-weight: 600;
 }
 
@@ -590,7 +746,7 @@ body {
 }
 
 .editor-tab-active {
-  background: #f9fafb;
+  background: var(--raised);
   font-weight: 600;
 }
 
@@ -619,7 +775,7 @@ body {
   border: 0;
   padding: 0;
   font: inherit;
-  color: #6b7280;
+  color: var(--fg-muted);
   cursor: pointer;
   text-align: left;
 }
@@ -665,7 +821,7 @@ body {
 }
 
 .tree-dir {
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 
 .tree-file {
@@ -686,7 +842,7 @@ body {
 .change-diff {
   max-height: 16rem;
   overflow: auto;
-  background: #f9fafb;
+  background: var(--raised);
   border-radius: 4px;
   padding: 0.4rem;
   font-size: 0.72rem;
@@ -696,7 +852,7 @@ body {
 
 .file-path {
   margin: 0 0 0.2rem;
-  color: #6b7280;
+  color: var(--fg-muted);
   font-size: 0.72rem;
 }
 
@@ -733,12 +889,12 @@ body {
 
 .review-violations {
   border-left: 3px solid #dc2626;
-  background: #fef2f2;
+  background: rgba(241, 76, 76, 0.14);
 }
 
 .review-notices {
   border-left: 3px solid #f59e0b;
-  background: #fffbeb;
+  background: rgba(215, 186, 125, 0.14);
 }
 
 .coding-pal {
@@ -762,7 +918,7 @@ body {
 .pal-explanation {
   max-height: 12rem;
   overflow: auto;
-  background: #f9fafb;
+  background: var(--raised);
   border-radius: 4px;
   padding: 0.4rem;
   font-size: 0.72rem;
@@ -820,7 +976,7 @@ body {
   border-radius: 999px;
   padding: 0 0.4rem;
   border: 1px solid #e5e7eb;
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 
 .change-status.added {
@@ -834,7 +990,7 @@ body {
 }
 
 .change-counts {
-  color: #6b7280;
+  color: var(--fg-muted);
   font-size: 0.7rem;
 }
 
@@ -855,7 +1011,7 @@ body {
   padding: 0.35rem 0.7rem;
   cursor: pointer;
   font: inherit;
-  color: #6b7280;
+  color: var(--fg-muted);
   border-bottom: 2px solid transparent;
 }
 
@@ -918,7 +1074,7 @@ body {
 }
 
 .sprint-dates {
-  color: #6b7280;
+  color: var(--fg-muted);
   font-size: 0.75rem;
 }
 
@@ -941,7 +1097,7 @@ body {
 }
 
 .developer-planning .field span {
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 
 .repo-map,
@@ -1010,7 +1166,7 @@ body {
 .doc-kind,
 .doc-scope {
   font-size: 0.7rem;
-  color: #6b7280;
+  color: var(--fg-muted);
   border: 1px solid #e5e7eb;
   border-radius: 999px;
   padding: 0 0.4rem;
@@ -1019,7 +1175,7 @@ body {
 .doc-content {
   max-height: 14rem;
   overflow: auto;
-  background: #f9fafb;
+  background: var(--raised);
   border-radius: 4px;
   padding: 0.4rem;
   font-size: 0.72rem;
@@ -1041,7 +1197,7 @@ body {
 }
 
 .marketing-design .field span {
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 
 .figma-link {
@@ -1066,7 +1222,7 @@ body {
 }
 
 .figma-link .field span {
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 
 /* Stating the plan limits plainly is cheaper than a 403 nobody can act on. */
@@ -1106,7 +1262,7 @@ body {
 .asset-kind,
 .asset-pushed {
   font-size: 0.7rem;
-  color: #6b7280;
+  color: var(--fg-muted);
   border: 1px solid #e5e7eb;
   border-radius: 999px;
   padding: 0 0.4rem;
@@ -1115,7 +1271,7 @@ body {
 .asset-content {
   max-height: 12rem;
   overflow: auto;
-  background: #f9fafb;
+  background: var(--raised);
   border-radius: 4px;
   padding: 0.4rem;
   font-size: 0.72rem;
@@ -1137,7 +1293,7 @@ body {
 }
 
 .card-risk span {
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 
 .card-risk textarea {
@@ -1170,7 +1326,7 @@ body {
 /* What waits on you is context, not something you own — so it reads quieter
    and carries no remove button. */
 .card-dependencies .incoming {
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 
 /* A dependency that crosses a repository is the one worth spotting. */
@@ -1219,7 +1375,7 @@ body {
 }
 
 .deliverable-group .empty {
-  color: #9ca3af;
+  color: var(--fg-dim);
   font-size: 0.8rem;
 }
 
@@ -1259,7 +1415,7 @@ body {
 
 .view-controls button {
   border: 1px solid #d1d5db;
-  background: #fff;
+  background: var(--raised);
   border-radius: 0.375rem;
   padding: 0.25rem 0.75rem;
   cursor: pointer;
@@ -1273,7 +1429,7 @@ body {
 
 .card-meta {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 
 .sprint-lane {
@@ -1302,7 +1458,7 @@ body {
   padding: 0.15rem 0.5rem;
   border: 1px dashed #cbd5e1;
   border-radius: 0.375rem;
-  color: #6b7280;
+  color: var(--fg-muted);
   touch-action: none;
 }
 
@@ -1346,7 +1502,7 @@ body {
   font-size: 0.9rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 
 .workspace-panel .board {
@@ -1371,7 +1527,7 @@ body {
 /* GitHub connection + per-Solution repository controls (Develop tab) */
 .hint {
   font-size: 0.78rem;
-  color: #6b7280;
+  color: var(--fg-muted);
   margin: 0;
 }
 
@@ -1413,7 +1569,7 @@ body {
 }
 
 .repo-none {
-  color: #9ca3af;
+  color: var(--fg-dim);
   font-style: italic;
 }
 
@@ -1445,12 +1601,12 @@ body {
 
 .model.state-failed {
   border-left-color: #dc2626;
-  background: #fef2f2;
+  background: rgba(241, 76, 76, 0.14);
 }
 
 .model.state-detected {
   border-left-color: #f59e0b;
-  background: #fffbeb;
+  background: rgba(215, 186, 125, 0.14);
 }
 
 .model-head {
@@ -1461,7 +1617,7 @@ body {
 }
 
 .model-provider {
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 
 .model-state {
@@ -1501,7 +1657,7 @@ body {
 }
 
 .probe-detail {
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 
 .fix-list {
@@ -1514,7 +1670,7 @@ body {
 .pack-path {
   margin: 0.3rem 0 0;
   font-size: 0.7rem;
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 
 /* Whether a model may be shown mockups — a person's answer, not a guess */
@@ -1569,7 +1725,7 @@ body {
 }
 
 .capacity-assigned {
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 
 .capacity-list li.over-capacity .capacity-assigned {
@@ -1595,12 +1751,12 @@ body {
   border-left: 3px solid #6366f1;
   border-radius: 0.25rem;
   padding: 0.4rem 0.5rem;
-  background: #fff;
+  background: var(--raised);
 }
 
 .cost-option.unaffordable {
   border-left-color: #dc2626;
-  background: #fef2f2;
+  background: rgba(241, 76, 76, 0.14);
 }
 
 .cost-option p {
@@ -1609,7 +1765,7 @@ body {
 
 .option-source {
   font-size: 0.7rem;
-  color: #6b7280;
+  color: var(--fg-muted);
   font-style: italic;
 }
 
@@ -1622,7 +1778,7 @@ body {
   flex-basis: 100%;
   margin: 0.2rem 0 0;
   font-size: 0.72rem;
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 
 /* Solution strategy: how the AI proposes to build a work item */
@@ -1652,7 +1808,7 @@ body {
 }
 
 .rule-violation {
-  background: #fef2f2;
+  background: rgba(241, 76, 76, 0.14);
   border: 1px solid #fca5a5;
   border-radius: 0.25rem;
   padding: 0.4rem 0.5rem;
@@ -1661,7 +1817,7 @@ body {
 
 /* Quieter than a violation on purpose — a notice, not a breach. */
 .rule-unlisted {
-  background: #fffbeb;
+  background: rgba(215, 186, 125, 0.14);
   border: 1px solid #fcd34d;
   border-radius: 0.25rem;
   padding: 0.4rem 0.5rem;
@@ -1682,12 +1838,12 @@ body {
   border-left: 3px solid #9ca3af;
   border-radius: 0.25rem;
   padding: 0.4rem 0.5rem;
-  background: #fff;
+  background: var(--raised);
 }
 
 .architecture-options li.chosen {
   border-left-color: #16a34a;
-  background: #f0fdf4;
+  background: rgba(137, 209, 133, 0.14);
 }
 
 .architecture-options p {
@@ -1698,11 +1854,11 @@ body {
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 
 .tradeoffs {
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 
 /* AI questions raised against a work item instead of guessing */
@@ -1715,7 +1871,7 @@ body {
 }
 
 .ai-question.open {
-  background: #fffbeb;
+  background: rgba(215, 186, 125, 0.14);
   border: 1px solid #fcd34d;
   border-radius: 0.375rem;
   padding: 0.4rem 0.5rem;
@@ -1744,12 +1900,12 @@ body {
 }
 
 .answered-questions {
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 
 /* AI budget: spend bar + limits (Product Strategy) */
 .budget-panel {
-  background: #fff;
+  background: var(--raised);
   border: 1px solid #e5e7eb;
   border-radius: 0.375rem;
   padding: 0.5rem 0.6rem;
@@ -1786,7 +1942,7 @@ body {
 
 .spend-track {
   height: 0.5rem;
-  background: #e5e7eb;
+  background: rgba(255, 255, 255, 0.10);
   border-radius: 999px;
   overflow: hidden;
 }
@@ -1815,7 +1971,7 @@ body {
 }
 
 .spend-reason {
-  color: #6b7280;
+  color: var(--fg-muted);
   font-size: 0.75rem;
 }
 
@@ -1828,7 +1984,7 @@ body {
 
 .provider-chain legend {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 
 .chain-option {
@@ -1844,7 +2000,7 @@ body {
 }
 
 .product-ai-policy {
-  background: #fff;
+  background: var(--raised);
   border: 1px solid #e5e7eb;
   border-radius: 0.375rem;
   padding: 0.5rem 0.6rem;
@@ -1914,7 +2070,7 @@ body {
 }
 
 .test-case {
-  background: #fff;
+  background: var(--raised);
   border: 1px solid #e5e7eb;
   border-left: 3px solid #9ca3af;
   border-radius: 0.375rem;
@@ -1936,7 +2092,7 @@ body {
   font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 
 .test-scenario {
@@ -1948,7 +2104,7 @@ body {
 
 .test-link {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 
 .test-case-controls {
@@ -1967,7 +2123,7 @@ body {
 }
 
 .test-case-controls .field span {
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 
 .folder-field {
@@ -1984,7 +2140,7 @@ body {
 }
 
 .folder-field-value {
-  color: #6b7280;
+  color: var(--fg-muted);
   font-size: 0.8rem;
   overflow-wrap: anywhere;
 }
@@ -2085,8 +2241,8 @@ body {
   border-left: 3px solid #d1d5db;
   border-radius: 0 0.25rem 0.25rem 0;
 }
-.test-run.pass { border-left-color: #16a34a; background: #f0fdf4; }
-.test-run.fail { border-left-color: #dc2626; background: #fef2f2; }
+.test-run.pass { border-left-color: #16a34a; background: rgba(137, 209, 133, 0.14); }
+.test-run.fail { border-left-color: #dc2626; background: rgba(241, 76, 76, 0.14); }
 
 .test-run-head {
   display: flex;
@@ -2097,7 +2253,7 @@ body {
 
 .test-counts { font-size: 0.75rem; font-weight: 600; }
 /* Nothing was read from the output, so this is deliberately not a number. */
-.test-counts.uncounted { font-weight: 400; font-style: italic; color: #6b7280; }
+.test-counts.uncounted { font-weight: 400; font-style: italic; color: var(--fg-muted); }
 
 .test-failures {
   margin: 0.3rem 0 0 0.6rem;
@@ -2128,11 +2284,11 @@ body {
   font-family: ui-monospace, monospace;
   font-size: 0.75rem;
   padding: 0.05rem 0.4rem;
-  background: #f3f4f6;
+  background: var(--sunken);
   border-radius: 0.6rem;
 }
 
-.git-drift { font-size: 0.75rem; color: #6b7280; }
+.git-drift { font-size: 0.75rem; color: var(--fg-muted); }
 
 .git-merging,
 .git-conflict-count {
@@ -2157,14 +2313,14 @@ body {
   gap: 0.4rem;
   padding: 0.1rem 0;
 }
-.git-file.conflicted { background: #fff7ed; }
+.git-file.conflicted { background: rgba(215, 186, 125, 0.18); }
 
 .git-status,
 .change-status {
   font-size: 0.65rem;
   text-transform: uppercase;
   min-width: 4.5rem;
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 .git-status.added, .change-status.added { color: #166534; }
 .git-status.deleted, .change-status.deleted { color: #991b1b; }
@@ -2195,7 +2351,7 @@ body {
   border-radius: 0.6rem;
 }
 .merge-state.unresolved { background: #fee2e2; color: #991b1b; }
-.merge-state.resolved { background: #dcfce7; color: #166534; }
+.merge-state.resolved { background: rgba(137, 209, 133, 0.18); color: #166534; }
 
 .merge-panes {
   display: grid;
@@ -2215,7 +2371,7 @@ body {
   font-size: 0.72rem;
   resize: vertical;
 }
-.merge-pane textarea[readonly] { background: #f9fafb; color: #4b5563; }
+.merge-pane textarea[readonly] { background: var(--raised); color: #4b5563; }
 .merge-result textarea { border-color: #2563eb; }
 
 /* The Code explorer's git toggle and the diff beneath the editor */
@@ -2235,7 +2391,7 @@ body {
   font-size: 0.78rem;
 }
 
-.change-lines { font-size: 0.7rem; color: #6b7280; }
+.change-lines { font-size: 0.7rem; color: var(--fg-muted); }
 
 .file-diff {
   border-top: 1px solid #e5e7eb;
@@ -2248,15 +2404,15 @@ body {
   max-height: 16rem;
   overflow: auto;
   font-size: 0.72rem;
-  background: #f9fafb;
+  background: var(--raised);
   padding: 0.4rem;
   border-radius: 0.25rem;
 }
 
-.diff-added { background: #dcfce7; color: #14532d; display: block; }
+.diff-added { background: rgba(137, 209, 133, 0.18); color: #14532d; display: block; }
 .diff-removed { background: #fee2e2; color: #7f1d1d; display: block; }
 .diff-hunk { color: #6d28d9; display: block; }
-.diff-meta { color: #6b7280; display: block; }
+.diff-meta { color: var(--fg-muted); display: block; }
 
 /* ── The workbench: terminal, AI panel, properties ─────────────────────── */
 
@@ -2272,7 +2428,7 @@ body {
   align-items: center;
   gap: 0.5rem;
   padding: 0.35rem 0.5rem;
-  background: #f3f4f6;
+  background: var(--sunken);
   border-bottom: 1px solid #e5e7eb;
   font-size: 0.8rem;
   flex-wrap: wrap;
@@ -2320,7 +2476,7 @@ body {
 .ai-handover code {
   display: block;
   font-size: 0.68rem;
-  background: #f3f4f6;
+  background: var(--sunken);
   padding: 0.25rem;
   border-radius: 0.25rem;
   margin: 0.25rem 0;
@@ -2345,7 +2501,7 @@ body {
   margin: 0;
 }
 .properties-panel dt {
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 .properties-panel dd {
   margin: 0;
@@ -2401,7 +2557,7 @@ body {
   font-size: 0.78rem;
   padding: 0.2rem 0.35rem;
   border-radius: 0.25rem;
-  background: #f9fafb;
+  background: var(--raised);
 }
 
 /* Kind is the first thing scanned for, so it carries the colour. */
@@ -2411,36 +2567,36 @@ body {
   letter-spacing: 0.03em;
   padding: 0.05rem 0.3rem;
   border-radius: 0.2rem;
-  background: #e5e7eb;
-  color: #374151;
+  background: rgba(255, 255, 255, 0.10);
+  color: var(--fg);
 }
 .change-screen .change-kind {
-  background: #dbeafe;
+  background: rgba(10, 132, 255, 0.18);
   color: #1e40af;
 }
 .change-api .change-kind {
-  background: #dcfce7;
+  background: rgba(137, 209, 133, 0.18);
   color: #166534;
 }
 .change-table .change-kind {
-  background: #fef3c7;
+  background: rgba(215, 186, 125, 0.18);
   color: #92400e;
 }
 
 .change-action {
   font-size: 0.65rem;
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 .change-action.change {
   color: #92400e;
 }
 
 .change-detail {
-  color: #6b7280;
+  color: var(--fg-muted);
   font-size: 0.72rem;
 }
 .change-assigned {
-  color: #374151;
+  color: var(--fg);
   font-size: 0.72rem;
 }
 
@@ -2457,11 +2613,11 @@ body {
   font-size: 0.78rem;
 }
 .starter-run.pass {
-  background: #f0fdf4;
+  background: rgba(137, 209, 133, 0.14);
   border: 1px solid #bbf7d0;
 }
 .starter-run.fail {
-  background: #fef2f2;
+  background: rgba(241, 76, 76, 0.14);
   border: 1px solid #fecaca;
 }
 .starter-run code {
@@ -2487,7 +2643,7 @@ body {
 .explorer-tabs button {
   font-size: 0.72rem;
   padding: 0.2rem 0.5rem;
-  background: #f3f4f6;
+  background: var(--sunken);
   border: 1px solid #e5e7eb;
   border-radius: 0.25rem 0.25rem 0 0;
 }
@@ -2593,18 +2749,18 @@ body {
   opacity: 1;
 }
 .commit-id {
-  color: #6b7280;
+  color: var(--fg-muted);
   font-size: 0.7rem;
 }
 .commit-ref {
-  background: #dbeafe;
+  background: rgba(10, 132, 255, 0.18);
   color: #1e40af;
   font-size: 0.66rem;
   padding: 0.02rem 0.28rem;
   border-radius: 0.2rem;
 }
 .commit-merge {
-  background: #fef3c7;
+  background: rgba(215, 186, 125, 0.18);
   color: #92400e;
   font-size: 0.66rem;
   padding: 0.02rem 0.28rem;
@@ -2615,7 +2771,7 @@ body {
   text-overflow: ellipsis;
 }
 .commit-meta {
-  color: #9ca3af;
+  color: var(--fg-dim);
   font-size: 0.68rem;
   margin-left: auto;
 }
@@ -2649,19 +2805,19 @@ body {
   text-transform: uppercase;
   padding: 0.02rem 0.3rem;
   border-radius: 0.2rem;
-  background: #e5e7eb;
-  color: #374151;
+  background: rgba(255, 255, 255, 0.10);
+  color: var(--fg);
 }
 .diagram-kind.database {
   background: #dae8fc;
   color: #1e3a8a;
 }
 .diagram-kind.queue {
-  background: #fff2cc;
+  background: rgba(215, 186, 125, 0.18);
   color: #92400e;
 }
 .diagram-edge {
-  color: #6b7280;
+  color: var(--fg-muted);
 }
 .diagram-files {
   list-style: none;
@@ -2678,7 +2834,7 @@ body {
 }
 
 .ssh-public-key {
-  background: #f3f4f6;
+  background: var(--sunken);
   padding: 0.4rem;
   border-radius: 0.3rem;
   font-size: 0.68rem;
@@ -2702,7 +2858,7 @@ body {
 .diagram-preview {
   width: 100%;
   max-height: 22rem;
-  background: #fff;
+  background: var(--raised);
   border: 1px solid #e5e7eb;
   border-radius: 0.3rem;
   padding: 0.3rem;
