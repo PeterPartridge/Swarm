@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import HandoverPanel from "./HandoverPanel";
 import WorkItemChanges from "./WorkItemChanges";
 import {
   askProductQuestion,
@@ -79,6 +80,32 @@ export default function WorkItemBuildPlan({
     }
   }
 
+  /** Saves a change to the work item itself, keeping its other fields.
+   *
+   *  The technical ones live here rather than on Product's board: which
+   *  repository the work lands in, and how it should be built, are decisions
+   *  a developer makes. */
+  async function saveItem(changes: Partial<WorkItem>) {
+    const next = { ...item, ...changes };
+    await run(() =>
+      updateWorkItem({
+        id: item.id,
+        assigneeId: next.assigneeId,
+        sprintId: next.sprintId,
+        startDate: next.startDate,
+        endDate: next.endDate,
+        deliverableId: next.deliverableId,
+        expectedCost: next.expectedCost,
+        estimatedProfit: next.estimatedProfit,
+        chargeable: next.chargeable,
+        customerCoverPct: next.customerCoverPct,
+        risk: next.risk,
+        solutionId: next.solutionId,
+        developmentDetails: next.developmentDetails,
+      }),
+    );
+  }
+
   async function onSave(plan: WorkItemPlan, changes: Partial<WorkItemPlan>) {
     const next = { ...plan, ...changes };
     await run(() =>
@@ -152,6 +179,36 @@ export default function WorkItemBuildPlan({
         mockups={allMockups}
       />
 
+      {/* Which repository this lands in is a technical decision, so it is made
+          here rather than on Product's board. It sat there until somebody
+          pointed out that Product was being asked to choose a repository. */}
+      {solutions.length > 0 && (
+        <label className="plan-solution-picker">
+          Lands in
+          <select
+            aria-label={`Solution of ${item.title}`}
+            value={item.solutionId ?? ""}
+            onChange={(e) =>
+              saveItem({
+                solutionId: e.target.value === "" ? null : Number(e.target.value),
+              })
+            }
+          >
+            {/* Plenty of work is not code, so no Solution is a real answer. */}
+            <option value="">No Solution</option>
+            {solutions.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
+      {/* Only work that has somewhere to land can be handed over — and handing
+          work to a coding agent is a developer's call, not Product's. */}
+      {item.solutionId !== null && <HandoverPanel item={item} />}
+
       {/* Above the per-Solution notes because it applies across all of them:
           the conventions and gotchas everyone knows and nobody wrote down. */}
       <div className="field">
@@ -161,25 +218,7 @@ export default function WorkItemBuildPlan({
           aria-label="Development details"
           defaultValue={item.developmentDetails}
           placeholder="conventions, gotchas, anything an agent would not work out"
-          onBlur={(e) =>
-            run(() =>
-              updateWorkItem({
-                id: item.id,
-                assigneeId: item.assigneeId,
-                sprintId: item.sprintId,
-                startDate: item.startDate,
-                endDate: item.endDate,
-                deliverableId: item.deliverableId,
-                expectedCost: item.expectedCost,
-                estimatedProfit: item.estimatedProfit,
-                chargeable: item.chargeable,
-                customerCoverPct: item.customerCoverPct,
-                risk: item.risk,
-                solutionId: item.solutionId,
-                developmentDetails: e.target.value,
-              }),
-            )
-          }
+          onBlur={(e) => saveItem({ developmentDetails: e.target.value })}
         />
       </div>
 

@@ -3,7 +3,6 @@ import AiQuestions from "./AiQuestions";
 import WorkItemChanges from "./WorkItemChanges";
 import PolicyEditor from "./PolicyEditor";
 import { usePermissions } from "../lib/permissions";
-import HandoverPanel from "./HandoverPanel";
 import {
   createWorkItem,
   deleteWorkItem,
@@ -460,25 +459,11 @@ export default function PlanningBoard({ productId }: PlanningBoardProps) {
                       </option>
                     ))}
                   </select>
-                  {solutions.length > 0 && (
-                    <select
-                      aria-label={`Solution of ${item.title}`}
-                      value={item.solutionId ?? ""}
-                      onChange={(e) =>
-                        commit(item, {
-                          solutionId: e.target.value === "" ? null : Number(e.target.value),
-                        })
-                      }
-                    >
-                      {/* Plenty of work is not code, so no Solution is a real answer. */}
-                      <option value="">No Solution</option>
-                      {solutions.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name}
-                        </option>
-                      ))}
-                    </select>
-                  )}
+                  {/* The Solution picker and the handover moved to Develop:
+                      choosing a repository and handing work to a coding agent
+                      are technical decisions, and asking Product to make them
+                      was the wrong split. Solutions are still read here, to
+                      label cross-repo dependencies below. */}
 
                   <div className="field card-risk">
                     <span>Risk</span>
@@ -491,8 +476,6 @@ export default function PlanningBoard({ productId }: PlanningBoardProps) {
                     />
                   </div>
 
-                  {/* Only work that has somewhere to land can be handed over. */}
-                  {item.solutionId !== null && <HandoverPanel item={item} />}
 
                   <WorkItemDependencies
                     item={item}

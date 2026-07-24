@@ -245,28 +245,38 @@ describe("PlanningBoard", () => {
   /// Work can only land in its own Product's Solution — the backend refuses
   /// anything else, so the board must not offer it. "No Solution" stays a real
   /// answer: plenty of work is not code.
-  it("offers this Product's Solutions only", async () => {
-    const user = userEvent.setup();
-    mocked.updateWorkItem.mockResolvedValue();
+  /// Product does not choose a repository, and does not hand work to a coding
+  /// agent. Both were on this board and both were the wrong side of the line —
+  /// they live in Develop's build plan now.
+  it("leaves the technical decisions to Develop", async () => {
+    mocked.listSolutions.mockResolvedValue([solution(11, "API", 7)]);
+    render(<PlanningBoard productId={7} />);
+    await screen.findByLabelText("Checkout");
+
+    expect(screen.queryByLabelText("Solution of Checkout")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Prepare the handover/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  /// Solutions are still read here, though — a dependency between two items in
+  /// different repositories is the one worth spotting, and naming the other
+  /// repository is what makes it visible.
+  it("still names the other repository on a cross-repo dependency", async () => {
     mocked.listSolutions.mockResolvedValue([
       solution(11, "API", 7),
-      solution(12, "Someone else's", 99),
+      solution(12, "Web", 7),
+    ]);
+    mocked.listWorkItems.mockResolvedValue([
+      item({ id: 1, title: "Checkout", solutionId: 11 }),
+      item({ id: 2, title: "Basket", solutionId: 12 }),
+    ]);
+    mocked.listWorkItemLinks.mockResolvedValue([
+      { id: 1, fromWorkItemId: 1, toWorkItemId: 2, kind: "blocks" },
     ]);
     render(<PlanningBoard productId={7} />);
 
-    const select = await screen.findByLabelText("Solution of Checkout");
-    expect(within(select).getByRole("option", { name: "API" })).toBeInTheDocument();
-    expect(
-      within(select).queryByRole("option", { name: "Someone else's" }),
-    ).not.toBeInTheDocument();
-    expect(within(select).getByRole("option", { name: "No Solution" })).toBeInTheDocument();
-
-    await user.selectOptions(select, "11");
-    await waitFor(() =>
-      expect(mocked.updateWorkItem).toHaveBeenLastCalledWith(
-        expect.objectContaining({ id: 1, solutionId: 11 }),
-      ),
-    );
+    expect(await screen.findByText(/\(in Web\)/)).toBeInTheDocument();
   });
 
   it("links one work item to another", async () => {
