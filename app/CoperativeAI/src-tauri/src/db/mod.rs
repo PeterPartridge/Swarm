@@ -4,6 +4,7 @@
 #![allow(dead_code)]
 
 pub mod ai_feedback;
+pub mod ai_job;
 pub mod ai_provider;
 pub mod ai_usage;
 pub mod architecture_doc;
@@ -143,6 +144,8 @@ pub async fn create_all_tables(conn: &Connection) -> Result<()> {
     emitted_file::create_table(conn).await?;
     // after work_item: feedback hangs off an item
     ai_feedback::create_table(conn).await?;
+    // after work_item: a job is queued against one
+    ai_job::create_table(conn).await?;
     developer_rules::create_table(conn).await?;
     solution_strategy::create_table(conn).await?;
     feature_design::create_table(conn).await?;

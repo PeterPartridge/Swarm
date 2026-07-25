@@ -25,11 +25,16 @@ pub struct ChangeRun {
     /// Findings from the review, as JSON. Empty until reviewed.
     pub findings: String,
     pub files_changed: i64,
+    /// This run's own checkout, so two agents on one Solution never share a
+    /// folder. Empty until the run is started.
+    pub worktree_path: String,
+    /// The terminal it is running in, so its output can be found again.
+    pub terminal_id: String,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
-const SELECT: &str = "SELECT id, workItemId, solutionId, state, briefPath, findings, filesChanged, createdAt, updatedAt FROM change_runs";
+const SELECT: &str = "SELECT id, workItemId, solutionId, state, briefPath, findings, filesChanged, worktreePath, terminalId, createdAt, updatedAt FROM change_runs";
 
 pub async fn create_table(conn: &Connection) -> Result<()> {
     conn.execute(
@@ -41,13 +46,66 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             briefPath TEXT NOT NULL DEFAULT '',
             findings TEXT NOT NULL DEFAULT '[]',
             filesChanged INTEGER NOT NULL DEFAULT 0,
+            worktreePath TEXT NOT NULL DEFAULT '',
+            terminalId TEXT NOT NULL DEFAULT '',
             createdAt INTEGER NOT NULL,
             updatedAt INTEGER NOT NULL
         )",
         (),
     )
     .await?;
+    // Added rather than recreated around: a run is a record of what an agent
+    // was asked to do and what came back, which nobody could reconstruct.
+    let columns = crate::db::table_columns(conn, "change_runs").await?;
+    let has_table = !columns.is_empty();
+    for (name, ddl) in [
+        (
+            "worktreePath",
+            "ALTER TABLE change_runs ADD COLUMN worktreePath TEXT NOT NULL DEFAULT ''",
+        ),
+        (
+            "terminalId",
+            "ALTER TABLE change_runs ADD COLUMN terminalId TEXT NOT NULL DEFAULT ''",
+        ),
+    ] {
+        if has_table && !columns.iter().any(|c| c == name) {
+            conn.execute(ddl, ()).await?;
+        }
+    }
     Ok(())
+}
+
+/// Records where this run's own checkout is, and which terminal it runs in.
+pub async fn set_workspace(
+    conn: &Connection,
+    id: i64,
+    worktree_path: &str,
+    terminal_id: &str,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE change_runs SET worktreePath = ?1, terminalId = ?2, updatedAt = ?3 WHERE id = ?4",
+        (worktree_path, terminal_id, crate::db::now_millis(), id),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Every run in a Product, newest first — the list the runs panel shows.
+pub async fn list_for_product(conn: &Connection, product_id: i64) -> Result<Vec<ChangeRun>> {
+    let mut rows = conn
+        .query(
+            &format!(
+                "{SELECT} WHERE workItemId IN (SELECT id FROM work_items WHERE productId = ?1) \
+                 ORDER BY createdAt DESC, id DESC LIMIT 100"
+            ),
+            (product_id,),
+        )
+        .await?;
+    let mut runs = Vec::new();
+    while let Some(row) = rows.next().await? {
+        runs.push(row_to_run(row)?);
+    }
+    Ok(runs)
 }
 
 /// Records that a work item was prepared for an agent.
@@ -186,8 +244,10 @@ fn row_to_run(row: turso::Row) -> Result<ChangeRun> {
         brief_path: row.get(4)?,
         findings: row.get(5)?,
         files_changed: row.get(6)?,
-        created_at: row.get(7)?,
-        updated_at: row.get(8)?,
+        worktree_path: row.get(7)?,
+        terminal_id: row.get(8)?,
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
     })
 }
 

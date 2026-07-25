@@ -78,6 +78,38 @@ pub async fn set_planning_hierarchy(conn: &Connection, hierarchy: &[String]) -> 
     set(conn, PLANNING_HIERARCHY_KEY, &json).await
 }
 
+/// How many AI calls may be in flight at once.
+///
+/// One by default: the safe answer, and the one that keeps a local Ollama model
+/// from thrashing — it serves a request at a time regardless. Raising it is a
+/// deliberate decision about spend and load, which is why it sits in Admin
+/// beside the budget rather than being guessed from the hardware.
+pub const AI_CONCURRENCY_KEY: &str = "aiConcurrency";
+pub const AI_CONCURRENCY_DEFAULT: i64 = 1;
+/// Eight is past the point where any provider stays happy, and far past where a
+/// budget is still meaningfully checked between calls.
+pub const AI_CONCURRENCY_MAX: i64 = 8;
+
+pub async fn get_ai_concurrency(conn: &Connection) -> Result<i64> {
+    let raw = match get(conn, AI_CONCURRENCY_KEY).await? {
+        Some(json) => serde_json::from_str::<i64>(&json).unwrap_or(AI_CONCURRENCY_DEFAULT),
+        None => AI_CONCURRENCY_DEFAULT,
+    };
+    // Clamped on read as well as write: a value edited into the database by
+    // hand must not be able to open a hundred connections.
+    Ok(raw.clamp(1, AI_CONCURRENCY_MAX))
+}
+
+pub async fn set_ai_concurrency(conn: &Connection, limit: i64) -> Result<()> {
+    if !(1..=AI_CONCURRENCY_MAX).contains(&limit) {
+        return Err(DbError::Validation(format!(
+            "how many at once must be between 1 and {AI_CONCURRENCY_MAX}, got {limit}"
+        )));
+    }
+    let json = serde_json::to_string(&limit).expect("limit serialize");
+    set(conn, AI_CONCURRENCY_KEY, &json).await
+}
+
 pub async fn get_roadmap_mode(conn: &Connection) -> Result<String> {
     match get(conn, ROADMAP_MODE_KEY).await? {
         Some(json) => Ok(serde_json::from_str(&json).unwrap_or_else(|_| "sprints".to_string())),

@@ -15,7 +15,7 @@
 //! v2 gives conflicts their own line type, which is what makes the three-pane
 //! merge view possible at all.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// One file in a working copy, as git sees it.
@@ -427,6 +427,142 @@ pub fn mark_resolved(root: &str, relative: &str) -> Result<(), String> {
     Ok(())
 }
 
+/* ── Worktrees: one checkout per run, so agents do not share a folder ──── */
+
+/// Where a run's own checkout goes.
+///
+/// **Beside the repository, never inside it.** A worktree under the repo would
+/// be a git checkout inside a git checkout — the outer one tracks it, the
+/// containment rule in `workspace.rs` would have to be relaxed to reach it, and
+/// every file listing would show one repository's files inside another's.
+pub fn worktree_dir(root: &str, branch: &str) -> Result<PathBuf, String> {
+    let root_path = canonical(root)?;
+    let parent = root_path
+        .parent()
+        .ok_or_else(|| format!("{root} has no parent folder to put a worktree beside"))?;
+    Ok(parent.join(".coperativeai-worktrees").join(slug(branch)))
+}
+
+/// A path in the form git will accept.
+///
+/// `canonicalize` on Windows returns an extended-length path — `\\?\C:\…` —
+/// and git rejects it outright: *"could not create leading directories …
+/// Invalid argument"*. Everything else in this app hands canonicalised paths to
+/// `Command::current_dir`, which is fine with the prefix; passing one as an
+/// *argument* is not. So it is stripped at the boundary rather than avoiding
+/// canonicalisation, which is what makes the containment checks work.
+fn for_git(path: &Path) -> String {
+    let text = path.to_string_lossy().to_string();
+    text.strip_prefix(r"\\?\").unwrap_or(&text).to_string()
+}
+
+/// A branch name as a folder name. `feature/9-add-checkout` is a perfectly good
+/// branch and a nested path — flattened, or the worktree lands two folders deep
+/// and `worktree remove` is given a path that does not match what was created.
+fn slug(branch: &str) -> String {
+    let mut out = String::new();
+    let mut last_dash = true;
+    for ch in branch.trim().chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+            last_dash = false;
+        } else if !last_dash {
+            out.push('-');
+            last_dash = true;
+        }
+    }
+    while out.ends_with('-') {
+        out.pop();
+    }
+    if out.is_empty() {
+        "run".into()
+    } else {
+        out
+    }
+}
+
+/// Creates a checkout of `branch` for this run, cut from `base`.
+///
+/// This is what makes "run several agents at once" safe: two work items on one
+/// Solution get two folders and two branches, so neither can overwrite the
+/// other's edits or interleave its commits.
+///
+/// An existing branch is checked out rather than re-created — re-running a
+/// prepared run must not fail because the branch it already made is still
+/// there.
+pub fn add_worktree(root: &str, branch: &str, base: &str) -> Result<String, String> {
+    let root_path = canonical(root)?;
+    if !root_path.join(".git").exists() {
+        return Err(format!("{root} is not a git repository"));
+    }
+    if branch.trim().is_empty() {
+        return Err("a run needs a branch name — set one on the build plan".into());
+    }
+    let target = worktree_dir(root, branch)?;
+    // Same form either way: the caller stores this and hands it back to git
+    // later, so the already-exists path must not return the `\\?\` spelling
+    // that the freshly-created one strips.
+    if target.exists() {
+        return Ok(for_git(&target));
+    }
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("could not create {}: {e}", parent.display()))?;
+    }
+
+    let path = for_git(&target);
+    let base = if base.trim().is_empty() { "HEAD" } else { base.trim() };
+    let exists = git(&root_path, &["rev-parse", "--verify", branch]).is_ok();
+    if exists {
+        git(&root_path, &["worktree", "add", &path, branch])?;
+    } else {
+        git(&root_path, &["worktree", "add", "-b", branch, &path, base])?;
+    }
+    Ok(path)
+}
+
+/// Removes a run's checkout.
+///
+/// **Refused while it holds uncommitted work.** Pulling a worktree out from
+/// under an agent that is still writing, or one whose output nobody has kept
+/// yet, destroys the thing the run was for. `--force` is only reached once the
+/// caller has established there is nothing to lose.
+pub fn remove_worktree(root: &str, path: &str) -> Result<(), String> {
+    let root_path = canonical(root)?;
+    if !Path::new(path).exists() {
+        // Already gone is the outcome asked for.
+        let _ = git(&root_path, &["worktree", "prune"]);
+        return Ok(());
+    }
+    if let Ok(status) = status(path) {
+        if !status.files.is_empty() {
+            return Err(format!(
+                "{path} still has {} uncommitted file{} in it — commit or discard them first",
+                status.files.len(),
+                if status.files.len() == 1 { "" } else { "s" }
+            ));
+        }
+    }
+    git(&root_path, &["worktree", "remove", path])?;
+    Ok(())
+}
+
+/// The checkouts this repository has, main one included.
+pub fn list_worktrees(root: &str) -> Result<Vec<String>, String> {
+    let root_path = canonical(root)?;
+    let text = git(&root_path, &["worktree", "list", "--porcelain"])?;
+    Ok(parse_worktree_list(&text))
+}
+
+/// Reads `git worktree list --porcelain` — records separated by a blank line,
+/// each starting `worktree <path>`.
+pub fn parse_worktree_list(text: &str) -> Vec<String> {
+    text.lines()
+        .filter_map(|l| l.strip_prefix("worktree "))
+        .map(|p| p.trim().to_string())
+        .collect()
+}
+
 fn canonical(root: &str) -> Result<std::path::PathBuf, String> {
     Path::new(root)
         .canonicalize()
@@ -614,6 +750,143 @@ ddd4\u{1f}\u{1f}tag: v1\u{1f}First commit\u{1f}Ada\u{1f}1700000100
         assert!(message.contains("src/file0.rs"));
         assert!(message.contains("and 15 more"), "got: {message}");
         assert!(message.len() < 200, "still a usable subject: {message}");
+    }
+
+    /// A real repository with one commit, for the worktree tests.
+    ///
+    /// Nested one level deeper than the usual scratch dir on purpose:
+    /// worktrees are created in the repository's **parent**, so two tests whose
+    /// repos share a parent would fight over `.coperativeai-worktrees`. Each
+    /// gets its own enclosing folder, which is also what the real layout looks
+    /// like — a repo in a projects folder, not loose in temp.
+    fn temp_repo_with_commit(name: &str) -> Option<std::path::PathBuf> {
+        let enclosing = std::env::temp_dir().join(format!(
+            "coperativeai-wt-{}-{name}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&enclosing);
+        let dir = enclosing.join("repo");
+        std::fs::create_dir_all(&dir).ok()?;
+        let run = |args: &[&str]| {
+            std::process::Command::new("git")
+                .current_dir(&dir)
+                .args(args)
+                .output()
+                .ok()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        };
+        if !run(&["init", "-b", "main"]) {
+            return None;
+        }
+        run(&["config", "user.email", "t@example.invalid"]);
+        run(&["config", "user.name", "Test"]);
+        std::fs::write(dir.join("README.md"), "hello").ok()?;
+        run(&["add", "-A"]);
+        run(&["commit", "-m", "first"]);
+        Some(dir)
+    }
+
+    /// The whole point of the feature: two work items on one Solution get two
+    /// folders and two branches, so neither can overwrite the other's edits.
+    #[test]
+    fn two_runs_on_one_repository_get_their_own_checkouts() {
+        let Some(dir) = temp_repo_with_commit("two") else {
+            eprintln!("skipped: git is not usable here");
+            return;
+        };
+        let root = dir.to_str().expect("utf-8");
+
+        let a = add_worktree(root, "feature/9-checkout", "main").expect("first worktree");
+        let b = add_worktree(root, "feature/10-refunds", "main").expect("second worktree");
+        assert_ne!(a, b, "each run needs its own folder");
+        assert!(Path::new(&a).join("README.md").is_file(), "a is a real checkout");
+        assert!(Path::new(&b).join("README.md").is_file(), "b is a real checkout");
+
+        // Beside the repository, never inside it.
+        assert!(!a.starts_with(root), "a worktree inside the repo would be tracked by it");
+
+        let listed = list_worktrees(root).expect("list");
+        assert_eq!(listed.len(), 3, "the main checkout plus two: {listed:?}");
+
+        // Each is on its own branch, so commits cannot interleave.
+        let branch_of = |p: &str| status(p).expect("status").branch;
+        assert_eq!(branch_of(&a), "feature/9-checkout");
+        assert_eq!(branch_of(&b), "feature/10-refunds");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Pulling a worktree out from under work nobody has kept destroys the
+    /// thing the run was for.
+    #[test]
+    fn a_worktree_with_uncommitted_work_is_not_removed() {
+        let Some(dir) = temp_repo_with_commit("dirty") else {
+            eprintln!("skipped: git is not usable here");
+            return;
+        };
+        let root = dir.to_str().expect("utf-8");
+        let path = add_worktree(root, "feature/dirty", "main").expect("worktree");
+
+        std::fs::write(Path::new(&path).join("new.txt"), "unsaved work").expect("write");
+        let err = remove_worktree(root, &path).expect_err("must refuse");
+        assert!(err.contains("uncommitted"), "got: {err}");
+        assert!(Path::new(&path).is_dir(), "it must still be there");
+
+        // Clean, and it goes.
+        std::fs::remove_file(Path::new(&path).join("new.txt")).expect("tidy");
+        remove_worktree(root, &path).expect("remove when clean");
+        assert!(!Path::new(&path).exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Re-preparing a run must not fail because the branch it already made is
+    /// still there.
+    #[test]
+    fn asking_twice_returns_the_same_checkout() {
+        let Some(dir) = temp_repo_with_commit("twice") else {
+            eprintln!("skipped: git is not usable here");
+            return;
+        };
+        let root = dir.to_str().expect("utf-8");
+        let first = add_worktree(root, "feature/same", "main").expect("first");
+        let second = add_worktree(root, "feature/same", "main").expect("again");
+        assert_eq!(first, second);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_run_without_a_branch_name_is_refused() {
+        let Some(dir) = temp_repo_with_commit("nobranch") else {
+            eprintln!("skipped: git is not usable here");
+            return;
+        };
+        let root = dir.to_str().expect("utf-8");
+        let err = add_worktree(root, "   ", "main").expect_err("must refuse");
+        assert!(err.contains("branch name"), "got: {err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `feature/9-add-checkout` is a good branch and a nested path. Flattened,
+    /// or the folder lands two deep and `worktree remove` is handed a path that
+    /// does not match what was created.
+    #[test]
+    fn a_branch_name_becomes_one_folder_not_a_tree() {
+        assert_eq!(slug("feature/9-add-checkout"), "feature-9-add-checkout");
+        assert_eq!(slug("a/b/c"), "a-b-c");
+        assert_eq!(slug("///"), "run");
+    }
+
+    #[test]
+    fn the_worktree_list_is_read_from_porcelain() {
+        let text = "worktree /repos/shop\nHEAD aaa\nbranch refs/heads/main\n\n\
+                    worktree /repos/.coperativeai-worktrees/feature-9\nHEAD bbb\n";
+        assert_eq!(
+            parse_worktree_list(text),
+            vec!["/repos/shop", "/repos/.coperativeai-worktrees/feature-9"]
+        );
     }
 
     /// Markers are only markers at the start of a line. A file that merely

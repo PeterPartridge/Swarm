@@ -143,6 +143,18 @@ pub async fn generate_change_plan(
     db: State<'_, AppDb>,
     work_item_id: i64,
 ) -> Result<super::work_items::GenerationResult, String> {
+    run_change_plan(&db, work_item_id).await
+}
+
+/// The same work, callable without a Tauri command context.
+///
+/// Split from the command rather than copied so that "run it now" and "run it
+/// from the queue" cannot drift apart — the queue would otherwise grow its own
+/// slightly different version of the gates, the ledger and the prompt.
+pub(crate) async fn run_change_plan(
+    db: &AppDb,
+    work_item_id: i64,
+) -> Result<super::work_items::GenerationResult, String> {
     use crate::ai::{backend, client};
     use crate::commands::ai_run;
     use crate::db::{ai_feedback, architecture_doc, developer_rules, product, strategy};

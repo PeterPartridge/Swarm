@@ -8,6 +8,7 @@ mod diagram;
 mod emit;
 mod figma;
 mod handover;
+mod jobs;
 mod github;
 mod pack;
 mod review;
@@ -48,6 +49,19 @@ fn main() {
             });
             app.manage(commands::AppDb(tokio::sync::Mutex::new(conn)));
             app.manage(commands::terminals::Terminals::default());
+            // The queue is sized once, from the setting, and any job left
+            // "running" by a previous launch is failed here: a process that is
+            // gone is not still working, and the row would block its work item
+            // from ever being submitted again.
+            let limit = tauri::async_runtime::block_on(async {
+                let db = app.state::<commands::AppDb>();
+                let conn = db.0.lock().await;
+                let _ = db::ai_job::fail_interrupted(&conn).await;
+                db::system_setting::get_ai_concurrency(&conn)
+                    .await
+                    .unwrap_or(db::system_setting::AI_CONCURRENCY_DEFAULT)
+            });
+            app.manage(std::sync::Arc::new(jobs::JobRunner::new(limit)));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -89,6 +103,10 @@ fn main() {
             commands::work_item_changes::set_change_mockup,
             commands::work_item_changes::solution_catalogue,
             commands::work_item_plans::write_work_item_files,
+            commands::jobs::submit_for_planning,
+            commands::jobs::list_ai_jobs,
+            commands::jobs::get_ai_concurrency,
+            commands::jobs::set_ai_concurrency,
             commands::solutions::start_existing_solution,
             commands::vcs_ops::branch_history,
             commands::vcs_ops::commit_solution,
