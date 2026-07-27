@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import HandoverPanel from "../../components/HandoverPanel";
+import HandoverPanel from "../../components/planning/HandoverPanel";
 import type { WorkItem } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {

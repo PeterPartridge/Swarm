@@ -1,10 +1,8 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import DiagramBuilder, {
-  buildDrawio,
-  buildMermaid,
-} from "../../components/DiagramBuilder";
+import DiagramBuilder from "../../components/diagram/DiagramBuilder";
+import { buildDrawio, buildMermaid } from "../../lib/diagram";
 
 vi.mock("../../lib/backend", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../lib/backend")>();

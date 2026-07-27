@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import SolutionBox from "../../components/SolutionBox";
+import SolutionBox from "../../components/product/SolutionBox";
 import type { ChangeReview, Solution } from "../../lib/backend";
 
 // No editor mock here: the explorer and editor moved to the Code tab, so this

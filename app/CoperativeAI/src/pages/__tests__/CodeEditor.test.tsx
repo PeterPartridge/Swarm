@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import CodeEditor from "../../components/CodeEditor";
+import CodeEditor from "../../components/code/CodeEditor";
 import type { FileTree, Solution } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {

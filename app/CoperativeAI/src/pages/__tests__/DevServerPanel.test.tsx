@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import DevServerPanel from "../../components/DevServerPanel";
+import DevServerPanel from "../../components/code/DevServerPanel";
 import type { DevCommand, Solution } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {

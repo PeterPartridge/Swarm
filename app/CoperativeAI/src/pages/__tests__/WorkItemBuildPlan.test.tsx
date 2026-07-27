@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import WorkItemBuildPlan from "../../components/WorkItemBuildPlan";
+import WorkItemBuildPlan from "../../components/planning/WorkItemBuildPlan";
 import type { Solution, WorkItem, WorkItemPlan } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {

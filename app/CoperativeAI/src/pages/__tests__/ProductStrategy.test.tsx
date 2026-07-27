@@ -1,7 +1,7 @@
 ﻿import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import ProductStrategy from "../../components/ProductStrategy";
+import ProductStrategy from "../../components/planning/ProductStrategy";
 import { PermissionProvider } from "../../lib/permissions";
 import type { Deliverable, ProductPolicy, WorkItem } from "../../lib/backend";
 

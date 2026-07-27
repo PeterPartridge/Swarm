@@ -1,18 +1,18 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import AiSettings from "../components/AiSettings";
-import CodeEditor from "../components/CodeEditor";
-import DeveloperPlanning from "../components/DeveloperPlanning";
-import DeveloperRulesEditor from "../components/DeveloperRulesEditor";
-import FrameworkFiles from "../components/FrameworkFiles";
-import GitExplorer from "../components/GitExplorer";
-import GithubCard from "../components/GithubCard";
-import ModelInstalls from "../components/ModelInstalls";
-import SolutionBox from "../components/SolutionBox";
-import SolutionRepo from "../components/SolutionRepo";
-import SshCard from "../components/SshCard";
-import StrategyEditor from "../components/StrategyEditor";
-import TestExplorer from "../components/TestExplorer";
-import WorkItemViews from "../components/WorkItemViews";
+import AiSettings from "../components/ai/AiSettings";
+import CodeEditor from "../components/code/CodeEditor";
+import DeveloperPlanning from "../components/planning/DeveloperPlanning";
+import DeveloperRulesEditor from "../components/ai/DeveloperRulesEditor";
+import FrameworkFiles from "../components/product/FrameworkFiles";
+import GitExplorer from "../components/vcs/GitExplorer";
+import GithubCard from "../components/product/GithubCard";
+import ModelInstalls from "../components/ai/ModelInstalls";
+import SolutionBox from "../components/product/SolutionBox";
+import SolutionRepo from "../components/vcs/SolutionRepo";
+import SshCard from "../components/product/SshCard";
+import StrategyEditor from "../components/planning/StrategyEditor";
+import TestExplorer from "../components/testing/TestExplorer";
+import WorkItemViews from "../components/planning/WorkItemViews";
 import {
   createSolutionWithStarter,
   deleteSolution,

@@ -1,8 +1,8 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import GitExplorer from "../../components/GitExplorer";
-import TestExplorer from "../../components/TestExplorer";
+import GitExplorer from "../../components/vcs/GitExplorer";
+import TestExplorer from "../../components/testing/TestExplorer";
 import type { RepoStatus, SuiteRun, TestSuite } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {

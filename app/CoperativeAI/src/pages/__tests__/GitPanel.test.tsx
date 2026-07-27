@@ -1,8 +1,8 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import BranchHistory, { assignLanes } from "../../components/BranchHistory";
-import GitPanel from "../../components/GitPanel";
+import BranchHistory, { assignLanes } from "../../components/vcs/BranchHistory";
+import GitPanel from "../../components/vcs/GitPanel";
 import type { Commit, Solution } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {

@@ -1,7 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import RoadMap from "../../components/RoadMap";
+import RoadMap from "../../components/planning/RoadMap";
 import type { Sprint, WorkItem } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {

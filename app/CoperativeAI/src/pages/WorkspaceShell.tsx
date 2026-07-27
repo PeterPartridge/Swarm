@@ -1,10 +1,10 @@
 import { useEffect, useState, type CSSProperties } from "react";
-import TabBar, { ENVIRONMENTS } from "../components/TabBar";
+import TabBar, { ENVIRONMENTS } from "../components/common/TabBar";
 import ProductPlanning from "./ProductPlanning";
 import DevelopSolutions from "./DevelopSolutions";
 import TestArea from "./TestArea";
 import AdminArea from "./AdminArea";
-import ActiveUserPicker from "../components/ActiveUserPicker";
+import ActiveUserPicker from "../components/common/ActiveUserPicker";
 import { usePermissions, type Area } from "../lib/permissions";
 import {
   applyTabColors,

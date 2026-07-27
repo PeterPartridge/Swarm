@@ -1,10 +1,8 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import DiagramView, {
-  clearDiagramCache,
-  jsonGraphToMermaid,
-} from "../../components/DiagramView";
+import DiagramView, { clearDiagramCache } from "../../components/diagram/DiagramView";
+import { jsonGraphToMermaid } from "../../lib/diagram";
 
 const renderMock = vi.fn();
 const initializeMock = vi.fn();

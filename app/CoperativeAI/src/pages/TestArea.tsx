@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import StrategyEditor from "../components/StrategyEditor";
-import TestCases from "../components/TestCases";
+import StrategyEditor from "../components/planning/StrategyEditor";
+import TestCases from "../components/testing/TestCases";
 import { listProducts, TEST_STRATEGY_FIELDS, type Product } from "../lib/backend";
 
 /** The Test environment: pick a Product to see its Testing Strategy and the

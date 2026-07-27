@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import SprintManager from "../../components/SprintManager";
+import SprintManager from "../../components/planning/SprintManager";
 import type { Sprint } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {

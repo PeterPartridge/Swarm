@@ -1,0 +1,150 @@
+import { useEffect, useRef, useState } from "react";
+import type { DiagramFormat } from "../../lib/backend";
+import { jsonGraphToMermaid } from "../../lib/diagram";
+
+/** Renders a stored diagram, or explains why it cannot.
+ *
+ *  **Mermaid** is rendered by Mermaid itself. The project already chose Mermaid
+ *  as the notation, so drawing it any other way would produce pictures that
+ *  disagree with every other Mermaid renderer — worse than not drawing it.
+ *
+ *  **jsonGraph** is nodes and edges, which maps onto a Mermaid flowchart
+ *  exactly, so it is converted and rendered the same way.
+ *
+ *  **PlantUML cannot be rendered here, and is deliberately not sent anywhere.**
+ *  Its renderer is a Java program; the usual browser route is to post the
+ *  diagram to plantuml.com. That would send a private architecture diagram to a
+ *  third party, silently, to draw a picture — so this shows the source and says
+ *  why instead.
+ *
+ *  Mermaid is loaded on demand rather than imported at the top. It is by far
+ *  the largest dependency in this app, and a workspace that only sometimes
+ *  shows a diagram should not pay for it on every start. */
+/** Rendered SVG by diagram source. Mermaid re-renders cost real time on a page
+ *  of diagrams, and a diagram's source is its own identity — the same source
+ *  always draws the same picture, so the result is worth keeping across mounts.
+ *  Module-level on purpose: it should survive a component unmounting, which is
+ *  exactly when a tab switch throws the DOM away. */
+const rendered = new Map<string, string>();
+
+/** Empties the render cache. Only for tests: the cache is deliberately global
+ *  and long-lived, which is right in the app and would otherwise leak results
+ *  between test cases. */
+export function clearDiagramCache(): void {
+  rendered.clear();
+}
+
+export default function DiagramView({
+  content,
+  format,
+  label,
+}: {
+  content: string;
+  format: DiagramFormat;
+  label: string;
+}) {
+  const [svg, setSvg] = useState<string | null>(null);
+  const [failed, setFailed] = useState<string | null>(null);
+  const [showSource, setShowSource] = useState(false);
+  const idRef = useRef(`diagram-${Math.random().toString(36).slice(2)}`);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (format === "plantuml" || format === "drawio") {
+      setSvg(null);
+      setFailed(null);
+      return;
+    }
+    const source = format === "jsonGraph" ? jsonGraphToMermaid(content) : content;
+    if (source === null) {
+      setFailed("this graph could not be turned into a diagram");
+      return;
+    }
+
+    // Already drawn this exact source: reuse it rather than paying Mermaid
+    // again for a picture that cannot have changed.
+    const cached = rendered.get(source);
+    if (cached !== undefined) {
+      setSvg(cached);
+      setFailed(null);
+      return;
+    }
+
+    void (async () => {
+      try {
+        const mermaid = (await import("mermaid")).default;
+        mermaid.initialize({
+          startOnLoad: false,
+          // The stored diagram is data, and Mermaid's own directives can change
+          // how it renders. "strict" keeps a diagram from reconfiguring the app.
+          securityLevel: "strict",
+          theme: "neutral",
+        });
+        const { svg: drawn } = await mermaid.render(idRef.current, source);
+        rendered.set(source, drawn);
+        if (!cancelled) {
+          setSvg(drawn);
+          setFailed(null);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setSvg(null);
+          // The structural check that let this be stored is not a parser, so a
+          // diagram can pass it and still fail to render. Saying so beats a
+          // blank space.
+          setFailed(String(e instanceof Error ? e.message : e));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [content, format]);
+
+  if (format === "plantuml" || format === "drawio") {
+    return (
+      <div className="diagram-view">
+        <pre className="diagram-source" aria-label={`${label} source`}>{content}</pre>
+        {/* Both are shown as source rather than drawn, but for different
+            reasons — saying "not drawn here" without which reason would leave
+            someone thinking either could be fixed the same way. */}
+        <p className="hint">
+          {format === "plantuml"
+            ? "PlantUML is not drawn here. Rendering it in a browser means sending the diagram to a third-party server, and a private architecture diagram is not worth posting elsewhere to get a picture."
+            : "draw.io documents are drawn by draw.io — open the file to see and rearrange it. The builder above previews the boxes before they are written."}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="diagram-view">
+      {svg && (
+        <div
+          className="diagram-svg"
+          role="img"
+          aria-label={label}
+          // Mermaid's own output, rendered with securityLevel "strict".
+          dangerouslySetInnerHTML={{ __html: svg }}
+        />
+      )}
+      {failed && (
+        <p role="status" className="diagram-failed">
+          This diagram did not render: {failed}
+        </p>
+      )}
+      {(failed || showSource) && (
+        <pre className="diagram-source" aria-label={`${label} source`}>{content}</pre>
+      )}
+      {svg && !failed && (
+        <button
+          className="diagram-toggle"
+          aria-label={`${showSource ? "Hide" : "Show"} source of ${label}`}
+          onClick={() => setShowSource((s) => !s)}
+        >
+          {showSource ? "Hide source" : "Show source"}
+        </button>
+      )}
+    </div>
+  );
+}

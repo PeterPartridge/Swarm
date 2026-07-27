@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import PlanningBoard from "../../components/PlanningBoard";
+import PlanningBoard from "../../components/planning/PlanningBoard";
 import { PermissionProvider } from "../../lib/permissions";
 import type { ActivePermissions, WorkItem } from "../../lib/backend";
 

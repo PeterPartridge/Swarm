@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import ProductWorkspace from "../components/ProductWorkspace";
-import PlanningMethodSetting from "../components/PlanningMethodSetting";
-import FolderField from "../components/FolderField";
+import ProductWorkspace from "../components/product/ProductWorkspace";
+import PlanningMethodSetting from "../components/planning/PlanningMethodSetting";
+import FolderField from "../components/common/FolderField";
 import {
   createProduct,
   deleteProduct,

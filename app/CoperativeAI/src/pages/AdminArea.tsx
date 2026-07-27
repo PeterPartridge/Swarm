@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import AiConcurrencySetting from "../components/AiConcurrencySetting";
-import DeveloperRulesEditor from "../components/DeveloperRulesEditor";
-import ProductAiPolicy from "../components/ProductAiPolicy";
+import AiConcurrencySetting from "../components/ai/AiConcurrencySetting";
+import DeveloperRulesEditor from "../components/ai/DeveloperRulesEditor";
+import ProductAiPolicy from "../components/ai/ProductAiPolicy";
 import {
   addTeamMember,
   createRole,

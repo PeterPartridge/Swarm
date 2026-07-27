@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import MarketingDesign from "../../components/MarketingDesign";
+import MarketingDesign from "../../components/product/MarketingDesign";
 import type { DesignAsset, FigmaFile } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {

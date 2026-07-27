@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import DeveloperPlanning from "../../components/DeveloperPlanning";
+import DeveloperPlanning from "../../components/planning/DeveloperPlanning";
 import type { ArchitectureDoc, RepoLink, Solution } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {

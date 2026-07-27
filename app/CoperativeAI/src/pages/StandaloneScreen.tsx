@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { WorkspaceScreen, type ScreenId } from "../components/ProductWorkspace";
+import { WorkspaceScreen, type ScreenId } from "../components/product/ProductWorkspace";
 import { getProduct, type Product } from "../lib/backend";
 import { PermissionProvider, usePermissions } from "../lib/permissions";
 

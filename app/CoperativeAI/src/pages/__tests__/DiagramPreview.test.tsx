@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { DiagramPreview } from "../../components/DiagramPreview";
+import { DiagramPreview } from "../../components/diagram/DiagramPreview";
 import { diagramPosition, DIAGRAM_GRID } from "../../lib/backend";
 
 

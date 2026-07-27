@@ -1,8 +1,8 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import AiPanel from "../../components/AiPanel";
-import TerminalPanel from "../../components/TerminalPanel";
+import AiPanel from "../../components/ai/AiPanel";
+import TerminalPanel from "../../components/code/TerminalPanel";
 import type { Solution, WorkItem } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {

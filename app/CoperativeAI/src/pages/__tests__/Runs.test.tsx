@@ -1,8 +1,8 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import JobsPanel from "../../components/JobsPanel";
-import RunsPanel from "../../components/RunsPanel";
+import JobsPanel from "../../components/ai/JobsPanel";
+import RunsPanel from "../../components/ai/RunsPanel";
 import type { AiJob, Run } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {
@@ -21,7 +21,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
 // RunTerminal reaches for xterm and the Tauri event API, neither of which runs
 // in jsdom. It is not what these tests are about — the panel's behaviour is —
 // so it stands in as a marker.
-vi.mock("../../components/RunTerminal", () => ({
+vi.mock("../../components/code/RunTerminal", () => ({
   default: ({ title }: { title: string }) => <div data-testid="run-terminal">{title}</div>,
 }));
 

@@ -1,18 +1,18 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import ProductWorkspace from "../../components/ProductWorkspace";
+import ProductWorkspace from "../../components/product/ProductWorkspace";
 import { PermissionProvider } from "../../lib/permissions";
 import type { ActivePermissions } from "../../lib/backend";
 
 // The workspace's own job is which panels exist; the panels' insides are
 // tested in their own files, so they are stubbed here rather than letting
 // their backend calls fall through to the real invoke and error out quietly.
-vi.mock("../../components/ProductStrategy", () => ({ default: () => <div>strategy-stub</div> }));
-vi.mock("../../components/PlanningScreen", () => ({ default: () => <div>planning-stub</div> }));
-vi.mock("../../components/RoadMap", () => ({ default: () => <div>roadmap-stub</div> }));
-vi.mock("../../components/ProductOverview", () => ({ default: () => <div>overview-stub</div> }));
-vi.mock("../../components/MarketingDesign", () => ({ default: () => <div>md-stub</div> }));
+vi.mock("../../components/planning/ProductStrategy", () => ({ default: () => <div>strategy-stub</div> }));
+vi.mock("../../components/planning/PlanningScreen", () => ({ default: () => <div>planning-stub</div> }));
+vi.mock("../../components/planning/RoadMap", () => ({ default: () => <div>roadmap-stub</div> }));
+vi.mock("../../components/product/ProductOverview", () => ({ default: () => <div>overview-stub</div> }));
+vi.mock("../../components/product/MarketingDesign", () => ({ default: () => <div>md-stub</div> }));
 
 vi.mock("../../lib/backend", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../lib/backend")>();

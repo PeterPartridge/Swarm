@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import WorkItemChanges from "../../components/WorkItemChanges";
+import WorkItemChanges from "../../components/code/WorkItemChanges";
 import type { Solution, WorkItemChange } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {
