@@ -1724,3 +1724,75 @@ export const solutionCatalogue = (
  *  or rendering a form, and they would drift. */
 export const writeWorkItemFiles = (workItemId: number): Promise<string[]> =>
   invoke("write_work_item_files", { workItemId });
+
+/* ── Submitting to the AI, and running agents in parallel ──────────────── */
+
+export interface AiJob {
+  id: number;
+  workItemId: number;
+  workItemTitle: string;
+  purpose: string;
+  state: "queued" | "running" | "done" | "blocked" | "failed";
+  message: string;
+  submittedAt: number;
+  startedAt: number | null;
+  finishedAt: number | null;
+}
+
+/** Queues a work item for planning and returns at once — the whole point, so
+ *  the next work item can be written up and submitted while this one runs. */
+export const submitForPlanning = (workItemId: number): Promise<number> =>
+  invoke("submit_for_planning", { workItemId });
+export const listAiJobs = (productId: number): Promise<AiJob[]> =>
+  invoke("list_ai_jobs", { productId });
+
+export interface Concurrency {
+  limit: number;
+  /** Free slots right now. */
+  available: number;
+}
+
+export const getAiConcurrency = (): Promise<Concurrency> =>
+  invoke("get_ai_concurrency");
+/** Takes effect next launch — resizing the limit under running work is a way
+ *  to exceed the number someone just lowered. */
+export const setAiConcurrency = (limit: number): Promise<void> =>
+  invoke("set_ai_concurrency", { limit });
+
+export interface Run {
+  /** Zero means "not started yet" — a planned pair the panel offers Start for. */
+  id: number;
+  workItemId: number;
+  workItemTitle: string;
+  solutionId: number;
+  solutionName: string;
+  state: string; // notStarted | prepared | reviewed | kept | discarded
+  branch: string;
+  worktreePath: string;
+  terminalId: string;
+  briefPath: string;
+  filesChanged: number;
+}
+
+export interface StartedRun {
+  runId: number;
+  worktreePath: string;
+  branch: string;
+  briefPath: string;
+  /** Shown, never executed by the app — the terminal runs it. */
+  command: string;
+}
+
+export const listRuns = (productId: number): Promise<Run[]> =>
+  invoke("list_runs", { productId });
+/** Prepares one run: its own checkout, branch and brief. Stops short of
+ *  running the agent — the command comes back to be typed into a terminal. */
+export const startRun = (
+  workItemId: number,
+  solutionId: number,
+): Promise<StartedRun> => invoke("start_run", { workItemId, solutionId });
+/** Removes a finished run's checkout. Refused while it holds uncommitted work. */
+export const discardRunWorktree = (runId: number): Promise<void> =>
+  invoke("discard_run_worktree", { runId });
+export const listRunWorktrees = (solutionId: number): Promise<string[]> =>
+  invoke("list_run_worktrees", { solutionId });

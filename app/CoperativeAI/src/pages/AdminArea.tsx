@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import AiConcurrencySetting from "../components/AiConcurrencySetting";
 import DeveloperRulesEditor from "../components/DeveloperRulesEditor";
 import ProductAiPolicy from "../components/ProductAiPolicy";
 import {
@@ -107,6 +108,8 @@ export default function AdminArea() {
           people who set what developers and the AI may do are not the same
           people it constrains. Product, Develop and Test all read these; only
           Admin edits them. */}
+      <AiConcurrencySetting />
+
       <section className="admin-card" aria-label="Product and development policies">
         <h2>Policies</h2>
         {products.length === 0 ? (

@@ -204,6 +204,36 @@ pub async fn start_run(
     })
 }
 
+/// The worktrees that exist for a Solution's repository, main checkout aside.
+///
+/// So the panel can show a run's own checkout is really there — and, for the
+/// debt the plan flagged, surface a worktree left behind by a run somebody
+/// walked away from, which is otherwise invisible until the disk fills.
+#[tauri::command]
+pub async fn list_run_worktrees(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+) -> Result<Vec<String>, String> {
+    let root = {
+        let conn = db.0.lock().await;
+        let Some(row) = solution::find_by_id(&conn, solution_id)
+            .await
+            .map_err(to_message)?
+        else {
+            return Err("that Solution no longer exists".into());
+        };
+        row.local_path
+            .filter(|p| !p.trim().is_empty())
+            .ok_or("that Solution has no folder on this machine")?
+    };
+    // Only the run checkouts, never the main one — offering to remove the
+    // repository itself is not a thing this button should do.
+    Ok(vcs::list_worktrees(&root)?
+        .into_iter()
+        .filter(|p| p.contains(".coperativeai-worktrees"))
+        .collect())
+}
+
 /// Removes a finished run's checkout.
 ///
 /// Refused while it holds uncommitted work — pulling a worktree from under an

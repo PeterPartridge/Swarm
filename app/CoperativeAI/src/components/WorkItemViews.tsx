@@ -1,4 +1,6 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
+import JobsPanel from "./JobsPanel";
+import RunsPanel from "./RunsPanel";
 import SolutionStrategyPanel from "./SolutionStrategyPanel";
 import WorkItemBuildPlan from "./WorkItemBuildPlan";
 import {
@@ -65,6 +67,12 @@ export default function WorkItemViews({ productId }: { productId: number }) {
 
   return (
     <section className="work-views" aria-label="Work views">
+      {/* The queue and the runs sit above the board: submit an item for
+          planning here, watch it and the next one queue, then start their
+          agents — each in its own worktree — from the runs panel. */}
+      <JobsPanel productId={productId} />
+      <RunsPanel productId={productId} />
+
       <div className="view-controls">
         <div role="tablist" aria-label="View">
           {DEV_VIEWS.map((v) => (

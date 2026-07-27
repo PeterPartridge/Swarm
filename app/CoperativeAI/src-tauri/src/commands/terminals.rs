@@ -70,17 +70,66 @@ pub async fn open_terminal(
                 )
             })?
     };
+    spawn_terminal(&app, &terminals, solution_id, &cwd, cols, rows)
+}
 
+/// Opens a shell in a run's worktree.
+///
+/// A run's agent must start in its own checkout, not the main one — that is the
+/// isolation the whole feature rests on. The path is **checked to be one of the
+/// Solution's own worktrees** before a shell is opened in it: an arbitrary path
+/// from the frontend is an untrusted string, and a terminal is arbitrary
+/// execution, so it is never opened somewhere the app did not create.
+#[tauri::command]
+pub async fn open_terminal_at(
+    app: AppHandle,
+    db: State<'_, super::AppDb>,
+    terminals: State<'_, Terminals>,
+    solution_id: i64,
+    path: String,
+    cols: u16,
+    rows: u16,
+) -> Result<OpenedTerminal, String> {
+    let root = {
+        let conn = db.0.lock().await;
+        let Some(row) = crate::db::solution::find_by_id(&conn, solution_id)
+            .await
+            .map_err(super::to_message)?
+        else {
+            return Err("that Solution no longer exists".into());
+        };
+        row.local_path
+            .filter(|p| !p.trim().is_empty())
+            .ok_or("that Solution has no folder on this machine")?
+    };
+    // Only somewhere the app made: a worktree of this Solution's repository.
+    let known = crate::vcs::list_worktrees(&root)?;
+    if !known.iter().any(|w| same_path(w, &path)) {
+        return Err("that folder is not one of this run's worktrees".into());
+    }
+    spawn_terminal(&app, &terminals, solution_id, &path, cols, rows)
+}
+
+fn same_path(a: &str, b: &str) -> bool {
+    let norm = |p: &str| p.replace('\\', "/").trim_end_matches('/').to_lowercase();
+    norm(a) == norm(b)
+}
+
+/// Starts a shell in `cwd` and streams it, shared by both open commands.
+fn spawn_terminal(
+    app: &AppHandle,
+    terminals: &Terminals,
+    solution_id: i64,
+    cwd: &str,
+    cols: u16,
+    rows: u16,
+) -> Result<OpenedTerminal, String> {
     let shell = default_shell();
     // A fresh id per panel, not per Solution: two terminals on one repository is
-    // an ordinary thing to want.
+    // an ordinary thing to want, and one worktree per run makes it the norm.
     let id = format!("term-{}-{}", solution_id, crate::db::now_millis());
-    let (session, mut reader) = Session::spawn(
-        &shell,
-        std::path::Path::new(&cwd),
-        cols.max(20),
-        rows.max(5),
-    )?;
+    let (session, mut reader) =
+        Session::spawn(&shell, std::path::Path::new(cwd), cols.max(20), rows.max(5))?;
 
     let emitter = app.clone();
     let stream_id = id.clone();
@@ -120,7 +169,7 @@ pub async fn open_terminal(
         .map_err(|_| "the terminal list is in a bad state".to_string())?
         .insert(id.clone(), session);
 
-    Ok(OpenedTerminal { id, shell, cwd })
+    Ok(OpenedTerminal { id, shell, cwd: cwd.to_string() })
 }
 
 /// Sends keystrokes to a panel.

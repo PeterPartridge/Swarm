@@ -16,6 +16,7 @@ pub mod models;
 pub mod policies;
 pub mod products;
 pub mod recommendations;
+pub mod runs;
 pub mod repositories;
 pub mod roles;
 pub mod strategies;

@@ -6,6 +6,7 @@ import {
   attachSolutionToWorkItem,
   detachWorkItemPlan,
   generateChangePlan,
+  submitForPlanning,
   listAiFeedback,
   listWorkItemPlans,
   pickImages,
@@ -127,6 +128,17 @@ export default function WorkItemBuildPlan({
       const merged = [...new Set([...parseMockups(plan.mockups), ...picked])];
       await onSave(plan, { mockups: JSON.stringify(merged) });
     } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function onSubmit() {
+    try {
+      await submitForPlanning(item.id);
+      setNotice("Submitted for planning — follow it in the AI queue on the Work tab.");
+      setError(null);
+    } catch (e) {
+      setNotice(null);
       setError(String(e));
     }
   }
@@ -450,16 +462,27 @@ export default function WorkItemBuildPlan({
       </section>
 
       <div className="plan-generate">
+        {/* Submit is the one the queue was built for: it returns at once, so
+            the next work item can be written up and submitted while this one
+            plans. Generate-now stays for a single item you want to watch. */}
+        <button
+          aria-label={`Submit ${item.title} for planning`}
+          onClick={onSubmit}
+          disabled={busy || plans.length === 0}
+        >
+          Submit for planning
+        </button>
         <button
           aria-label={`Generate the code changes for ${item.title}`}
           onClick={onGenerate}
           disabled={busy || plans.length === 0}
         >
-          {busy ? "Working…" : "AI: generate the code changes"}
+          {busy ? "Working…" : "Generate now"}
         </button>
         <span className="hint">
-          Writes an API and page schema per Solution from everything above. The
-          brief handed to a coding agent carries them.
+          Writes an API and page schema per Solution from everything above.
+          Submit and carry on — the AI queue is in the Work tab — or generate
+          now and watch. The brief handed to a coding agent carries the schemas.
         </span>
       </div>
     </section>

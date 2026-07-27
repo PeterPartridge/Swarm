@@ -16,6 +16,12 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     generateSolutionStrategy: vi.fn(),
     chooseArchitectureOption: vi.fn(),
     recommendForWorkItem: vi.fn(),
+    // WorkItemViews now embeds the queue and the runs panels. Left unmocked,
+    // these fall through to the real invoke and each renders an error alert —
+    // which is how a second `role="alert"` sneaks into an unrelated assertion.
+    listAiJobs: vi.fn(),
+    getAiConcurrency: vi.fn(),
+    listRuns: vi.fn(),
   };
 });
 
@@ -43,6 +49,9 @@ describe("WorkItemViews", () => {
     mocked.listSolutions.mockResolvedValue([]);
     mocked.listTeamMembers.mockResolvedValue([ada, bob]);
     mocked.getSolutionStrategy.mockResolvedValue(null);
+    mocked.listAiJobs.mockResolvedValue([]);
+    mocked.getAiConcurrency.mockResolvedValue({ limit: 1, available: 1 });
+    mocked.listRuns.mockResolvedValue([]);
     mocked.listWorkItems.mockResolvedValue([
       item({ id: 1, title: "Checkout", status: "planned", assigneeId: 5, sprintId: 9 }),
       item({ id: 2, title: "Search", status: "building", assigneeId: 6, sprintId: null }),

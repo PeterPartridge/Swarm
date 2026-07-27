@@ -277,14 +277,139 @@ pub struct HandoverDto {
 /// the tokens are actually saved, because the expensive failure is an agent
 /// told too little that builds the wrong thing.
 #[tauri::command]
-pub async fn prepare_handover(
-    db: State<'_, AppDb>,
-    work_item_id: i64,
-) -> Result<HandoverDto, String> {
+/// Assembles the brief for a (work item, Solution).
+///
+/// Shared by `prepare_handover` (single run) and `start_run` (one of several,
+/// each in its own worktree). One assembler rather than two, so an agent
+/// started from the runs panel reads exactly what one started from the build
+/// plan does — everything the team wrote, the chosen architecture, the answers
+/// already given, and what waits on this work.
+pub(crate) async fn build_handover_brief(
+    conn: &turso::Connection,
+    item: &crate::db::work_item::WorkItem,
+    solution_id: i64,
+) -> Result<String, String> {
     use crate::db::{
         ai_feedback, architecture_doc, product, solution_strategy, work_item, work_item_link,
     };
     use crate::handover::{self, HandoverInputs};
+
+    let Some(product_row) = product::find_by_id(conn, item.product_id)
+        .await
+        .map_err(to_message)?
+    else {
+        return Err("this work item's Product no longer exists".into());
+    };
+    let solution_row = solution::find_by_id(conn, solution_id)
+        .await
+        .map_err(to_message)?;
+    let rules = developer_rules::get_for_product(conn, item.product_id)
+        .await
+        .map_err(to_message)?
+        .unwrap_or_default();
+
+    // The build strategy, and which option the developer settled on — so the
+    // agent does not re-open a decision that has already been made.
+    let strategy = solution_strategy::get_for_item(conn, item.id)
+        .await
+        .map_err(to_message)?;
+    let chosen = strategy.as_ref().and_then(|s| {
+        let options: Vec<serde_json::Value> =
+            serde_json::from_str(&s.architecture_options).unwrap_or_default();
+        s.chosen_option_index
+            .and_then(|i| options.get(i as usize).cloned())
+            .and_then(|o| o.get("name").and_then(|n| n.as_str()).map(str::to_string))
+    });
+
+    // Only this Solution's architecture: a brief carrying every diagram in the
+    // Product buries the request underneath them.
+    let architecture: Vec<(String, String, String)> =
+        architecture_doc::list_by_product(conn, item.product_id)
+            .await
+            .map_err(to_message)?
+            .into_iter()
+            .filter(|d| d.solution_id == Some(solution_id) || d.solution_id.is_none())
+            .map(|d| (d.name, d.format, d.content))
+            .collect();
+
+    let clarifications = ai_feedback::clarifications_for_item(conn, item.id)
+        .await
+        .map_err(to_message)?;
+
+    // What waits on this work — the shape it must not break.
+    let all_items = work_item::list_by_product(conn, item.product_id)
+        .await
+        .map_err(to_message)?;
+    let depended_on_by: Vec<String> = work_item_link::list_for_item(conn, item.id)
+        .await
+        .map_err(to_message)?
+        .into_iter()
+        .filter(|l| l.to_work_item_id == item.id && l.kind == "blocks")
+        .filter_map(|l| {
+            all_items
+                .iter()
+                .find(|i| i.id == l.from_work_item_id)
+                .map(|i| i.title.clone())
+        })
+        .collect();
+
+    // The per-Solution plan, so what the team wrote and the AI drew from it
+    // travels with the work rather than staying in the app.
+    let plan_rows = crate::db::work_item_plan::list_for_item(conn, item.id)
+        .await
+        .map_err(to_message)?;
+    let all_solutions = solution::list_by_product(conn, item.product_id)
+        .await
+        .map_err(to_message)?;
+    let plan_names: Vec<String> = plan_rows
+        .iter()
+        .map(|p| {
+            all_solutions
+                .iter()
+                .find(|s| s.id == p.solution_id)
+                .map(|s| s.name.clone())
+                .unwrap_or_default()
+        })
+        .collect();
+    let solution_plans: Vec<handover::SolutionPlanBrief<'_>> = plan_rows
+        .iter()
+        .zip(plan_names.iter())
+        .map(|(p, name)| handover::SolutionPlanBrief {
+            name,
+            changes_required: &p.changes_required,
+            unit_tests: &p.unit_tests,
+            branch_name: &p.branch_name,
+            clone_from: &p.clone_from,
+            api_schema: &p.api_schema,
+            page_schema: &p.page_schema,
+            files_to_change: &p.files_to_change,
+        })
+        .collect();
+
+    Ok(handover::brief(&HandoverInputs {
+        product_name: &product_row.name,
+        work_item_title: &item.title,
+        work_item_type: &item.item_type,
+        work_item_description: item.description.as_deref(),
+        risk: &item.risk,
+        solution_name: solution_row.as_ref().map(|s| s.name.as_str()),
+        strategy: strategy.as_ref().map(|s| s.strategy.as_str()),
+        chosen_option: chosen.as_deref(),
+        rules: &rules,
+        architecture: &architecture,
+        clarifications: &clarifications,
+        depended_on_by: &depended_on_by,
+        solution_plans: &solution_plans,
+    }))
+}
+
+#[tauri::command]
+pub async fn prepare_handover(
+    db: State<'_, AppDb>,
+    work_item_id: i64,
+) -> Result<HandoverDto, String> {
+    use crate::db::work_item;
+    use crate::handover;
 
     let (brief, brief_path, root, solution_id) = {
         let conn = db.0.lock().await;
@@ -296,118 +421,13 @@ pub async fn prepare_handover(
         };
         let Some(solution_id) = item.solution_id else {
             return Err(format!(
-                "'{}' is not linked to a Solution, so there is nowhere to hand it over to. Set its Solution on the planning board.",
+                "'{}' is not linked to a Solution, so there is nowhere to hand it over to. Set the \
+                 Solution it lands in on its build plan, in Develop.",
                 item.title
             ));
         };
         let root = root_for(&conn, solution_id).await?;
-        let Some(product_row) = product::find_by_id(&conn, item.product_id)
-            .await
-            .map_err(to_message)?
-        else {
-            return Err("this work item's Product no longer exists".into());
-        };
-        let solution_row = solution::find_by_id(&conn, solution_id)
-            .await
-            .map_err(to_message)?;
-        let rules = developer_rules::get_for_product(&conn, item.product_id)
-            .await
-            .map_err(to_message)?
-            .unwrap_or_default();
-
-        // The build strategy, and which option the developer settled on — so
-        // the agent does not re-open a decision that has already been made.
-        let strategy = solution_strategy::get_for_item(&conn, work_item_id)
-            .await
-            .map_err(to_message)?;
-        let chosen = strategy.as_ref().and_then(|s| {
-            let options: Vec<serde_json::Value> =
-                serde_json::from_str(&s.architecture_options).unwrap_or_default();
-            s.chosen_option_index
-                .and_then(|i| options.get(i as usize).cloned())
-                .and_then(|o| o.get("name").and_then(|n| n.as_str()).map(str::to_string))
-        });
-
-        // Only this Solution's architecture: a brief carrying every diagram in
-        // the Product buries the request underneath them.
-        let architecture: Vec<(String, String, String)> =
-            architecture_doc::list_by_product(&conn, item.product_id)
-                .await
-                .map_err(to_message)?
-                .into_iter()
-                .filter(|d| d.solution_id == Some(solution_id) || d.solution_id.is_none())
-                .map(|d| (d.name, d.format, d.content))
-                .collect();
-
-        let clarifications = ai_feedback::clarifications_for_item(&conn, work_item_id)
-            .await
-            .map_err(to_message)?;
-
-        // What waits on this work — the shape it must not break.
-        let all_items = work_item::list_by_product(&conn, item.product_id)
-            .await
-            .map_err(to_message)?;
-        let depended_on_by: Vec<String> = work_item_link::list_for_item(&conn, work_item_id)
-            .await
-            .map_err(to_message)?
-            .into_iter()
-            .filter(|l| l.to_work_item_id == work_item_id && l.kind == "blocks")
-            .filter_map(|l| {
-                all_items
-                    .iter()
-                    .find(|i| i.id == l.from_work_item_id)
-                    .map(|i| i.title.clone())
-            })
-            .collect();
-
-        // The per-Solution plan, so what the team wrote and the AI drew from it
-        // travels with the work rather than staying in the app.
-        let plan_rows = crate::db::work_item_plan::list_for_item(&conn, work_item_id)
-            .await
-            .map_err(to_message)?;
-        let all_solutions = solution::list_by_product(&conn, item.product_id)
-            .await
-            .map_err(to_message)?;
-        let plan_names: Vec<String> = plan_rows
-            .iter()
-            .map(|p| {
-                all_solutions
-                    .iter()
-                    .find(|s| s.id == p.solution_id)
-                    .map(|s| s.name.clone())
-                    .unwrap_or_default()
-            })
-            .collect();
-        let solution_plans: Vec<handover::SolutionPlanBrief<'_>> = plan_rows
-            .iter()
-            .zip(plan_names.iter())
-            .map(|(p, name)| handover::SolutionPlanBrief {
-                name,
-                changes_required: &p.changes_required,
-                unit_tests: &p.unit_tests,
-                branch_name: &p.branch_name,
-                clone_from: &p.clone_from,
-                api_schema: &p.api_schema,
-                page_schema: &p.page_schema,
-                files_to_change: &p.files_to_change,
-            })
-            .collect();
-
-        let brief = handover::brief(&HandoverInputs {
-            product_name: &product_row.name,
-            work_item_title: &item.title,
-            work_item_type: &item.item_type,
-            work_item_description: item.description.as_deref(),
-            risk: &item.risk,
-            solution_name: solution_row.as_ref().map(|s| s.name.as_str()),
-            strategy: strategy.as_ref().map(|s| s.strategy.as_str()),
-            chosen_option: chosen.as_deref(),
-            rules: &rules,
-            architecture: &architecture,
-            clarifications: &clarifications,
-            depended_on_by: &depended_on_by,
-            solution_plans: &solution_plans,
-        });
+        let brief = build_handover_brief(&conn, &item, solution_id).await?;
         // Attempt number from the run history, so a second handover writes a
         // new file beside the first rather than over it.
         let attempt = crate::db::change_run::list_for_item(&conn, work_item_id)

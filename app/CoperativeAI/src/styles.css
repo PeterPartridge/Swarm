@@ -2863,3 +2863,120 @@ code {
   border-radius: 0.3rem;
   padding: 0.3rem;
 }
+
+/* ── The AI queue and the runs ─────────────────────────────────────────── */
+
+.job-list,
+.run-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.4rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.job {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.82rem;
+  padding: 0.3rem 0.45rem;
+  border-radius: 6px;
+  background: var(--sunken);
+}
+.job-message {
+  color: var(--fg-muted);
+  font-size: 0.78rem;
+}
+
+.job-state,
+.run-state {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 0.08rem 0.4rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--fg-muted);
+}
+.job-state.running,
+.run-state.prepared {
+  background: rgba(10, 132, 255, 0.2);
+  color: #7cc0ff;
+}
+.job-state.done,
+.run-state.kept {
+  background: rgba(137, 209, 133, 0.2);
+  color: var(--ok);
+}
+.job-state.blocked {
+  background: rgba(215, 186, 125, 0.2);
+  color: var(--warn);
+}
+.job-state.failed {
+  background: rgba(241, 76, 76, 0.18);
+  color: var(--bad);
+}
+
+.runs-actions,
+.run-buttons {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.runs-actions {
+  margin-bottom: 0.4rem;
+}
+
+.run {
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  background: var(--sunken);
+  border-left: 3px solid var(--tab-develop, #2563eb);
+}
+.run-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.run-solution {
+  color: var(--fg-muted);
+}
+.run-branch {
+  font-family: ui-monospace, monospace;
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+}
+.run-path {
+  font-family: ui-monospace, monospace;
+  font-size: 0.68rem;
+  overflow-wrap: anywhere;
+}
+
+.run-terminals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+}
+.run-terminal {
+  flex: 1 1 420px;
+  min-width: 320px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.run-terminal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  background: var(--raised);
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 0.78rem;
+}

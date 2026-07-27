@@ -77,12 +77,28 @@ pub async fn list_ai_jobs(
         .collect())
 }
 
+/// The limit, and how many slots are free right now.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Concurrency {
+    pub limit: i64,
+    /// Free slots — so the panel can say "2 running, 1 free" rather than
+    /// leaving someone to count.
+    pub available: i64,
+}
+
 #[tauri::command]
-pub async fn get_ai_concurrency(db: State<'_, AppDb>) -> Result<i64, String> {
+pub async fn get_ai_concurrency(
+    db: State<'_, AppDb>,
+    runner: State<'_, Arc<JobRunner>>,
+) -> Result<Concurrency, String> {
     let conn = db.0.lock().await;
-    system_setting::get_ai_concurrency(&conn)
-        .await
-        .map_err(to_message)
+    Ok(Concurrency {
+        limit: system_setting::get_ai_concurrency(&conn)
+            .await
+            .map_err(to_message)?,
+        available: runner.available() as i64,
+    })
 }
 
 /// Sets how many AI calls may run at once.
