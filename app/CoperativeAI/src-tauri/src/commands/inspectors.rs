@@ -276,3 +276,85 @@ async fn root_for(db: &State<'_, AppDb>, solution_id: i64) -> Result<String, Str
         .filter(|p| !p.trim().is_empty())
         .ok_or_else(|| format!("'{}' has no folder on this machine yet", row.name))
 }
+
+/// How to run one Solution while working on it — its own command if it has one,
+/// otherwise what detection recognises.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DevCommandDto {
+    pub kind: String,
+    pub start: String,
+    pub watch: String,
+    pub watch_needs: String,
+    pub found_by: String,
+    /// True when the start command is the Solution's own override.
+    pub custom: bool,
+    pub unavailable: Option<String>,
+}
+
+#[tauri::command]
+pub async fn suggest_dev_command(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+) -> Result<DevCommandDto, String> {
+    let (root, custom) = {
+        let conn = db.0.lock().await;
+        let Some(row) = solution::find_by_id(&conn, solution_id)
+            .await
+            .map_err(to_message)?
+        else {
+            return Err("that Solution no longer exists".into());
+        };
+        (
+            row.local_path.filter(|p| !p.trim().is_empty()),
+            row.run_command.filter(|c| !c.trim().is_empty()),
+        )
+    };
+    let Some(root) = root else {
+        return Ok(DevCommandDto {
+            kind: String::new(),
+            start: String::new(),
+            watch: String::new(),
+            watch_needs: String::new(),
+            found_by: String::new(),
+            custom: false,
+            unavailable: Some("no folder on this machine yet".into()),
+        });
+    };
+    // The Solution's own command wins over detection, exactly like the test one.
+    let dev = match &custom {
+        Some(command) => crate::dev_runner::custom(command),
+        None => crate::dev_runner::detect(std::path::Path::new(&root)).unwrap_or_else(|| {
+            crate::dev_runner::DevCommand {
+                kind: "custom".into(),
+                start: String::new(),
+                watch: String::new(),
+                watch_needs: String::new(),
+                found_by: String::new(),
+            }
+        }),
+    };
+    let unavailable = (dev.start.is_empty() && custom.is_none())
+        .then(|| "nothing recognisable to run — set a run command on this Solution".to_string());
+    Ok(DevCommandDto {
+        kind: dev.kind,
+        start: dev.start,
+        watch: dev.watch,
+        watch_needs: dev.watch_needs,
+        found_by: dev.found_by,
+        custom: custom.is_some(),
+        unavailable,
+    })
+}
+
+#[tauri::command]
+pub async fn set_solution_run_command(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+    command: Option<String>,
+) -> Result<(), String> {
+    let conn = db.0.lock().await;
+    solution::set_run_command(&conn, solution_id, command.as_deref())
+        .await
+        .map_err(to_message)
+}

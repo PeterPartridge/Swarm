@@ -42,6 +42,9 @@ export interface Solution {
   /** The starter it was created from. A record of what it was begun as, not a
    *  claim about what it is now — repositories grow other languages. */
   language: string | null;
+  /** How to start this Solution running, when detection gets it wrong. Null
+   *  means "work it out". */
+  runCommand: string | null;
 }
 
 export interface GithubStatus {
@@ -1388,6 +1391,30 @@ export const setSolutionTestCommand = (
   solutionId: number,
   command: string | null,
 ): Promise<void> => invoke("set_solution_test_command", { solutionId, command });
+
+/** How to run a Solution while working on it: `start` spins it up (a front end
+ *  reloads itself), and `watch` keeps a compiled backend refreshing on change —
+ *  empty when `start` already reloads. */
+export interface DevCommand {
+  kind: string;
+  start: string;
+  watch: string;
+  watchNeeds: string;
+  foundBy: string;
+  /** True when `start` is the Solution's own override, not detection. */
+  custom: boolean;
+  unavailable: string | null;
+}
+
+/** The run command for one Solution — its own if set, otherwise detected. */
+export const suggestDevCommand = (solutionId: number): Promise<DevCommand> =>
+  invoke("suggest_dev_command", { solutionId });
+/** Replaces run detection for this Solution. Blank clears it, so a command that
+ *  did not work is never permanent — the same escape hatch as the test one. */
+export const setSolutionRunCommand = (
+  solutionId: number,
+  command: string | null,
+): Promise<void> => invoke("set_solution_run_command", { solutionId, command });
 
 export const TEST_KIND_LABELS: Record<string, string> = {
   cargo: "Rust (cargo)",

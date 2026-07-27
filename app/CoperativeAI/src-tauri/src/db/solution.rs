@@ -30,11 +30,14 @@ pub struct Solution {
     /// record of what it was begun as, not a claim about what it is now — a
     /// repository grows other languages and this does not chase them.
     pub language: Option<String>,
+    /// How to start this Solution running, when detection gets it wrong. Null
+    /// means "work it out".
+    pub run_command: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
-const SELECT: &str = "SELECT id, name, productId, solutionType, answers, origin, githubUrl, githubVisibility, localPath, testCommand, language, createdAt, updatedAt FROM solutions";
+const SELECT: &str = "SELECT id, name, productId, solutionType, answers, origin, githubUrl, githubVisibility, localPath, testCommand, language, runCommand, createdAt, updatedAt FROM solutions";
 
 pub async fn create_table(conn: &Connection) -> Result<()> {
     // Round-2 migration: add GitHub link columns. Pre-release → drop & recreate
@@ -57,6 +60,7 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             localPath TEXT,
             testCommand TEXT,
             language TEXT,
+            runCommand TEXT,
             createdAt INTEGER NOT NULL,
             updatedAt INTEGER NOT NULL,
             UNIQUE(productId, name)
@@ -85,6 +89,25 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
         conn.execute("ALTER TABLE solutions ADD COLUMN language TEXT", ())
             .await?;
     }
+    if has_table && !dropped && !columns.iter().any(|c| c == "runCommand") {
+        conn.execute("ALTER TABLE solutions ADD COLUMN runCommand TEXT", ())
+            .await?;
+    }
+    Ok(())
+}
+
+/// Records how to start this Solution running, replacing detection. Blank
+/// clears it, the same escape hatch as the test command.
+pub async fn set_run_command(conn: &Connection, id: i64, command: Option<&str>) -> Result<()> {
+    if find_by_id(conn, id).await?.is_none() {
+        return Err(DbError::Validation(format!("no Solution with id {id}")));
+    }
+    let cleaned = command.map(str::trim).filter(|c| !c.is_empty());
+    conn.execute(
+        "UPDATE solutions SET runCommand = ?1, updatedAt = ?2 WHERE id = ?3",
+        (cleaned, now_millis(), id),
+    )
+    .await?;
     Ok(())
 }
 
@@ -268,8 +291,9 @@ fn row_to_solution(row: turso::Row) -> Result<Solution> {
         local_path: row.get(8)?,
         test_command: row.get(9)?,
         language: row.get(10)?,
-        created_at: row.get(11)?,
-        updated_at: row.get(12)?,
+        run_command: row.get(11)?,
+        created_at: row.get(12)?,
+        updated_at: row.get(13)?,
     })
 }
 
@@ -400,5 +424,23 @@ mod tests {
 
         assert!(set_github(&conn, id, None, None, "bogus").await.is_err());
         assert!(set_github(&conn, 999, None, None, "created").await.is_err());
+    }
+
+    /// The run command is a per-Solution override, and blank clears it — the
+    /// escape hatch back to detection after a command that did not work.
+    #[tokio::test]
+    async fn run_command_is_set_and_cleared_by_blank() {
+        let (conn, product_id) = db_with_product().await;
+        let id = create(&conn, "API", product_id, "api", "{}").await.expect("create");
+
+        set_run_command(&conn, id, Some("  cargo run --release  ")).await.expect("set");
+        let sol = find_by_id(&conn, id).await.expect("find").expect("exists");
+        assert_eq!(sol.run_command.as_deref(), Some("cargo run --release"));
+
+        set_run_command(&conn, id, Some("   ")).await.expect("clear");
+        let sol = find_by_id(&conn, id).await.expect("find").expect("exists");
+        assert_eq!(sol.run_command, None, "blank returns to detection");
+
+        assert!(set_run_command(&conn, 999, Some("x")).await.is_err());
     }
 }

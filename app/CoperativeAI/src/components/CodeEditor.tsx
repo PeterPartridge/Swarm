@@ -14,6 +14,7 @@ import {
 } from "../lib/backend";
 import AiPanel, { type AiChoice } from "./AiPanel";
 import CodeWindow from "./CodeWindow";
+import DevServerPanel from "./DevServerPanel";
 import GitPanel from "./GitPanel";
 import TerminalPanel from "./TerminalPanel";
 
@@ -626,6 +627,17 @@ export default function CodeEditor({
               <PropertiesPanel
                 solutionId={active.solution.id}
                 path={active.activePath}
+              />
+            )}
+
+            {/* Run the Solution up, and keep a backend refreshing, into the
+                same shell the AI uses — the "spin the front end up each time"
+                and "hot refresh" half of the work sits beside the code too. */}
+            {active && (
+              <DevServerPanel
+                solution={active.solution}
+                terminalReady={terminalOpen}
+                onRunInTerminal={setPendingCommand}
               />
             )}
 

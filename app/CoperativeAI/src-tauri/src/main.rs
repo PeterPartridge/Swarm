@@ -4,6 +4,7 @@
 mod ai;
 mod commands;
 mod db;
+mod dev_runner;
 mod diagram;
 mod emit;
 mod figma;
@@ -216,6 +217,8 @@ fn main() {
             commands::inspectors::run_solution_tests,
             commands::inspectors::run_test_suite,
             commands::inspectors::set_solution_test_command,
+            commands::inspectors::suggest_dev_command,
+            commands::inspectors::set_solution_run_command,
             commands::terminals::open_terminal,
             commands::terminals::open_terminal_at,
             commands::terminals::write_terminal,

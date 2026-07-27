@@ -72,6 +72,7 @@ function solution(id: number, name: string, productId: number): Solution {
     localPath: null,
     testCommand: null,
     language: null,
+    runCommand: null,
   };
 }
 

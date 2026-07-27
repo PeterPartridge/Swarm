@@ -14,6 +14,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     createSolutionFile: vi.fn(),
     askCodingPal: vi.fn(),
     productChangedFiles: vi.fn(),
+    suggestDevCommand: vi.fn(),
   };
 });
 
@@ -57,6 +58,7 @@ function solution(overrides: Partial<Solution> = {}): Solution {
     localPath: "C:/repos/shop-api",
     testCommand: null,
     language: null,
+    runCommand: null,
     ...overrides,
   };
 }
@@ -74,6 +76,18 @@ describe("CodeEditor", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocked.readSolutionTree.mockResolvedValue(tree);
+    // CodeEditor now renders DevServerPanel, which asks how to run the Solution
+    // on mount. Left unmocked it falls through to the real invoke and shows an
+    // error alert that collides with the alerts these tests assert on.
+    mocked.suggestDevCommand.mockResolvedValue({
+      kind: "vite",
+      start: "npm run dev",
+      watch: "",
+      watchNeeds: "",
+      foundBy: "package.json",
+      custom: false,
+      unavailable: null,
+    });
   });
 
   it("shows the file explorer beside the editor", async () => {

@@ -53,6 +53,7 @@ const solution: Solution = {
   localPath: null,
   testCommand: null,
   language: null,
+  runCommand: null,
 };
 
 /** The area is tabbed now: Planning is the default; everything else lives

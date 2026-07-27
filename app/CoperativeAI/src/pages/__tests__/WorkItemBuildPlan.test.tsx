@@ -64,6 +64,7 @@ function solution(id: number, name: string): Solution {
     localPath: null,
     testCommand: null,
     language: null,
+    runCommand: null,
   };
 }
 

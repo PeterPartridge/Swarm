@@ -34,6 +34,7 @@ const solution: Solution = {
   localPath: "C:/repos/shop-api",
   testCommand: null,
   language: null,
+  runCommand: null,
 };
 
 const commit = (over: Partial<Commit> = {}): Commit => ({

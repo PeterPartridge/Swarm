@@ -34,6 +34,7 @@ const solution = (over: Partial<Solution> = {}): Solution => ({
   localPath: "C:/repos/shop-api",
   testCommand: null,
   language: null,
+  runCommand: null,
   ...over,
 });
 

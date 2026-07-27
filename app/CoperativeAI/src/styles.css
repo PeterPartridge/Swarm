@@ -2484,6 +2484,46 @@ code {
   white-space: nowrap;
 }
 
+.dev-server-panel {
+  border-top: 1px solid #e5e7eb;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  font-size: 0.8rem;
+}
+.dev-server-panel h3 {
+  margin: 0 0 0.3rem;
+  font-size: 0.85rem;
+}
+.dev-command {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.25rem 0;
+}
+.dev-command code {
+  flex: 1;
+  font-size: 0.68rem;
+  background: var(--sunken);
+  padding: 0.25rem;
+  border-radius: 0.25rem;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.dev-override {
+  margin-top: 0.4rem;
+  border-left: 3px solid var(--tab-develop, #2563eb);
+  padding-left: 0.4rem;
+}
+.dev-override-actions {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.3rem;
+  flex-wrap: wrap;
+}
+.dev-override-open {
+  margin-top: 0.35rem;
+}
+
 .properties-panel {
   border-top: 1px solid #e5e7eb;
   margin-top: 0.5rem;
