@@ -39,6 +39,13 @@ pub struct HandoverInputs<'a> {
     /// The per-Solution plan: what changes, what proves it, which branch, and
     /// the schemas generated from all of that.
     pub solution_plans: &'a [SolutionPlanBrief<'a>],
+    /// How to start the Solution running, so the agent can spin it up itself
+    /// rather than describing a change it never watched run. Empty when there is
+    /// no working copy or nothing detection recognises.
+    pub run_start: Option<&'a str>,
+    /// How to keep a compiled backend refreshing on change. Empty when the start
+    /// command already reloads — a front end needs no separate watcher.
+    pub run_watch: Option<&'a str>,
 }
 
 /// One Solution's slice of the work, as it reaches the agent.
@@ -142,6 +149,24 @@ pub fn brief(inputs: &HandoverInputs<'_>) -> String {
         }
     }
 
+    // How to run it, so the agent can spin the Solution up and watch its own
+    // change work rather than describing one it never ran. The two commands are
+    // the same distinction the Run panel draws: start reloads a front end,
+    // watch keeps a compiled backend refreshing.
+    if let Some(start) = inputs.run_start.map(str::trim).filter(|v| !v.is_empty()) {
+        s.push_str("## Running it while you work\n\n");
+        s.push_str(&format!(
+            "Start it with:\n\n```\n{start}\n```\n\nA front-end dev server reloads itself on \
+             save; run this and check your change in the browser.\n\n"
+        ));
+        if let Some(watch) = inputs.run_watch.map(str::trim).filter(|v| !v.is_empty()) {
+            s.push_str(&format!(
+                "This backend does not reload on its own — keep it refreshing with:\n\n```\n{watch}\
+                 \n```\n\n"
+            ));
+        }
+    }
+
     if !inputs.architecture.is_empty() {
         s.push_str("## How the system is put together\n\n");
         for (name, format, content) in inputs.architecture {
@@ -230,7 +255,37 @@ mod tests {
             clarifications: &[],
             depended_on_by: &[],
             solution_plans: &[],
+            run_start: None,
+            run_watch: None,
         }
+    }
+
+    /// The agent is told how to run the Solution, and a compiled backend gets
+    /// its watcher so "hot refresh" reaches the agent, not just the panel.
+    #[test]
+    fn how_to_run_it_reaches_the_brief() {
+        let r = rules();
+        let mut i = inputs(&r);
+        i.run_start = Some("cargo run");
+        i.run_watch = Some("cargo watch -x run");
+        let brief = brief(&i);
+
+        assert!(brief.contains("## Running it while you work"));
+        assert!(brief.contains("cargo run"));
+        assert!(brief.contains("cargo watch -x run"));
+    }
+
+    /// A front end reloads itself, so no watcher line is invented for it.
+    #[test]
+    fn a_front_end_gets_no_watcher_line() {
+        let r = rules();
+        let mut i = inputs(&r);
+        i.run_start = Some("npm run dev");
+        i.run_watch = None;
+        let brief = brief(&i);
+
+        assert!(brief.contains("npm run dev"));
+        assert!(!brief.contains("does not reload on its own"));
     }
 
     /// The schemas are the point of the planning feature — if they do not reach

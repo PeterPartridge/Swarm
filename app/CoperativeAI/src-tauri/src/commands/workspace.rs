@@ -336,6 +336,20 @@ pub(crate) async fn build_handover_brief(
         .await
         .map_err(to_message)?;
 
+    // How to run the Solution this work lands in: its own command if it has one,
+    // otherwise what detection recognises. Written into the brief so the agent
+    // can spin the front end up and hot-refresh the backend itself — the run
+    // window's commands, travelling with the work.
+    let dev = solution_row.as_ref().and_then(|row| {
+        let root = row.local_path.as_deref().filter(|p| !p.trim().is_empty())?;
+        match row.run_command.as_deref().filter(|c| !c.trim().is_empty()) {
+            Some(command) => Some(crate::dev_runner::custom(command)),
+            None => crate::dev_runner::detect(std::path::Path::new(root)),
+        }
+    });
+    let run_start = dev.as_ref().map(|d| d.start.as_str()).filter(|s| !s.is_empty());
+    let run_watch = dev.as_ref().map(|d| d.watch.as_str()).filter(|s| !s.is_empty());
+
     // What waits on this work — the shape it must not break.
     let all_items = work_item::list_by_product(conn, item.product_id)
         .await
@@ -400,6 +414,8 @@ pub(crate) async fn build_handover_brief(
         clarifications: &clarifications,
         depended_on_by: &depended_on_by,
         solution_plans: &solution_plans,
+        run_start,
+        run_watch,
     }))
 }
 
