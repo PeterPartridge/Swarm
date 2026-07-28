@@ -109,7 +109,7 @@ pub async fn remove_ai_provider(db: State<'_, AppDb>, id: i64) -> Result<(), Str
 
 #[tauri::command]
 pub async fn test_ai_provider(db: State<'_, AppDb>, id: i64) -> Result<String, String> {
-    let (base_url, key, model) = {
+    let (kind, base_url, key_alias, model) = {
         let conn = db.0.lock().await;
         let Some(provider) = ai_provider::find_by_id(&conn, id).await.map_err(to_message)?
         else {
@@ -120,9 +120,26 @@ pub async fn test_ai_provider(db: State<'_, AppDb>, id: i64) -> Result<String, S
             .first()
             .cloned()
             .ok_or_else(|| "this provider has no models configured".to_string())?;
-        let key = keys::get_key(&provider.key_alias)?;
-        (provider.api_base_url, key, model)
+        (provider.kind, provider.api_base_url, provider.key_alias, model)
     };
+
+    // A local provider has no key and speaks a different protocol. Testing it
+    // through the Anthropic client fetches a key that was never stored and
+    // fails demanding one — which reads as "Ollama wants an API key" when it
+    // does not. Reaching its model list is the honest test: it proves the
+    // server is up and the chosen model is actually pulled.
+    if kind == "ollama" {
+        let installed = crate::ai::ollama::list_models(&base_url).await?;
+        return if installed.iter().any(|m| m == &model) {
+            Ok(format!("Connection OK — {model} is pulled and ready"))
+        } else {
+            Err(format!(
+                "Reached Ollama at {base_url}, but '{model}' is not pulled. Run `ollama pull {model}`."
+            ))
+        };
+    }
+
+    let key = keys::get_key(&key_alias)?;
     client::test_connection(&base_url, &key, &model).await?;
     Ok(format!("Connection OK ({model})"))
 }
