@@ -36,10 +36,51 @@
   --warn: #d7ba7d;
   --bad: #f14c4c;
 
+  /* Interaction washes, flipped per theme so a hover is a lightening on dark
+     and a darkening on light rather than always a white film. */
+  --hover: var(--hover);
+  --scrollbar: var(--scrollbar);
+
+  /* Semantic tints for badges, diffs and state rows. color-mix keeps them a
+     wash over whatever surface they sit on, so they read on either theme and
+     resolve `--ok`/`--warn`/`--bad`/`--accent` at their light or dark value. */
+  --ok-tint: color-mix(in srgb, var(--ok) 20%, transparent);
+  --warn-tint: color-mix(in srgb, var(--warn) 22%, transparent);
+  --bad-tint: color-mix(in srgb, var(--bad) 20%, transparent);
+  --info-tint: color-mix(in srgb, var(--accent) 18%, transparent);
+
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
     system-ui, sans-serif;
   font-size: 14px;
   color-scheme: dark;
+}
+
+/* The light theme is the same shapes with the surfaces inverted: a soft
+   off-white page, white raised panels, dark text, and status colours darkened
+   so they hold their meaning against a light background rather than glowing.
+   Chosen in Admin; applied by `data-theme` on the root. */
+:root[data-theme="light"] {
+  --rail: #ececee;
+  --bg: #f6f6f7;
+  --raised: #ffffff;
+  --sunken: #eceef1;
+
+  --fg: #1f1f22;
+  --fg-bright: #0a0a0b;
+  --fg-muted: #63636b;
+  --fg-dim: #8a8a92;
+
+  --line: rgba(0, 0, 0, 0.14);
+  --line-soft: rgba(0, 0, 0, 0.09);
+
+  --ok: #1a7f37;
+  --warn: #9a6700;
+  --bad: #cf222e;
+
+  --hover: rgba(0, 0, 0, 0.06);
+  --scrollbar: rgba(0, 0, 0, 0.22);
+
+  color-scheme: light;
 }
 
 * {
@@ -91,7 +132,7 @@ body {
 
 .tab:hover {
   color: var(--fg);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--hover);
 }
 
 /* The active area keeps its own colour — that is the one thing about the old
@@ -177,7 +218,7 @@ button {
 }
 
 button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--hover);
   color: var(--fg-bright);
 }
 
@@ -188,6 +229,17 @@ button:disabled {
 
 .hint {
   color: var(--fg-muted);
+}
+
+.theme-choice {
+  display: flex;
+  gap: 1rem;
+  margin: 0.3rem 0 0.4rem;
+}
+.theme-choice label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
 }
 
 pre,
@@ -210,7 +262,7 @@ code {
   height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.14);
+  background: var(--scrollbar);
   border-radius: 5px;
 }
 ::-webkit-scrollbar-track {
@@ -228,7 +280,7 @@ code {
 .product-planning input,
 .product-planning select {
   padding: 0.35rem 0.5rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--line);
   border-radius: 0.375rem;
 }
 
@@ -369,7 +421,7 @@ code {
 .product-card,
 .develop-card {
   background: var(--raised);
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--line);
   border-left: 4px solid var(--env-color, #7c3aed);
   border-radius: 0.5rem;
   padding: 0.75rem;
@@ -389,7 +441,7 @@ code {
 .product-card textarea,
 .develop-card textarea {
   min-height: 2.2rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--line);
   border-radius: 0.375rem;
   padding: 0.3rem;
 }
@@ -489,7 +541,7 @@ code {
 
 .admin-card {
   background: var(--raised);
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--line);
   border-left: 4px solid var(--env-color, #475569);
   border-radius: 0.5rem;
   padding: 0.75rem;
@@ -503,7 +555,7 @@ code {
 
 .roles-table th,
 .roles-table td {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--line);
   padding: 0.3rem 0.5rem;
   text-align: center;
 }
@@ -517,7 +569,7 @@ code {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
-  border-top: 1px dashed #e5e7eb;
+  border-top: 1px dashed var(--line);
   padding-top: 0.35rem;
   font-size: 0.75rem;
 }
@@ -533,7 +585,7 @@ code {
 }
 
 .handover {
-  border-top: 1px dashed #e5e7eb;
+  border-top: 1px dashed var(--line);
   padding-top: 0.35rem;
   font-size: 0.75rem;
 }
@@ -575,7 +627,7 @@ code {
 
 .diagram-svg {
   background: var(--raised);
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--line);
   border-radius: 4px;
   padding: 0.4rem;
   overflow-x: auto;
@@ -600,7 +652,7 @@ code {
 /* A diagram that passed the structural check can still fail to render — the
    check is not a parser. Saying so beats a blank space. */
 .diagram-failed {
-  color: #92400e;
+  color: var(--warn);
   font-size: 0.75rem;
   margin: 0.2rem 0;
 }
@@ -616,7 +668,7 @@ code {
 }
 
 .solution-box {
-  border-top: 1px dashed #e5e7eb;
+  border-top: 1px dashed var(--line);
   margin-top: 0.5rem;
   padding-top: 0.5rem;
   font-size: 0.8rem;
@@ -629,13 +681,13 @@ code {
 
 /* A reviewer needs which lines arrived and which left before anything else. */
 .diff-added {
-  background: #ecfdf5;
-  color: #065f46;
+  background: var(--ok-tint);
+  color: var(--ok);
 }
 
 .diff-removed {
-  background: rgba(241, 76, 76, 0.14);
-  color: #991b1b;
+  background: var(--bad-tint);
+  color: var(--bad);
 }
 
 .diff-hunk {
@@ -671,7 +723,7 @@ code {
 }
 
 .plan-solution {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--line);
   border-radius: 6px;
   padding: 0.5rem;
   display: flex;
@@ -763,13 +815,13 @@ code {
   gap: 0.3rem;
   margin-bottom: 0.5rem;
   padding-bottom: 0.3rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--line);
 }
 
 .solution-tab {
   display: inline-flex;
   align-items: center;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--line);
   border-radius: 4px;
   padding: 0 0.2rem;
   font-size: 0.78rem;
@@ -792,14 +844,14 @@ code {
   display: flex;
   flex-wrap: wrap;
   gap: 0.2rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--line);
   margin-bottom: 0.3rem;
 }
 
 .editor-tab {
   display: inline-flex;
   align-items: center;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--line);
   border-bottom: 0;
   border-radius: 4px 4px 0 0;
   padding: 0 0.2rem;
@@ -842,7 +894,7 @@ code {
 }
 
 .tree-dirty {
-  color: #b45309;
+  color: var(--warn);
 }
 
 /* The Code tab: explorer on the left, editor in the middle. Taller than the
@@ -876,7 +928,7 @@ code {
   padding: 0.3rem;
   max-height: 16rem;
   overflow: auto;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--line);
   border-radius: 4px;
   font-size: 0.75rem;
 }
@@ -918,7 +970,7 @@ code {
 }
 
 .change-review {
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--line);
   margin-top: 0.5rem;
   padding-top: 0.4rem;
 }
@@ -949,17 +1001,17 @@ code {
 }
 
 .review-violations {
-  border-left: 3px solid #dc2626;
-  background: rgba(241, 76, 76, 0.14);
+  border-left: 3px solid var(--bad);
+  background: var(--bad-tint);
 }
 
 .review-notices {
-  border-left: 3px solid #f59e0b;
-  background: rgba(215, 186, 125, 0.14);
+  border-left: 3px solid var(--warn);
+  background: var(--warn-tint);
 }
 
 .coding-pal {
-  border-top: 1px dashed #e5e7eb;
+  border-top: 1px dashed var(--line);
   margin-top: 0.3rem;
   padding-top: 0.3rem;
   font-size: 0.75rem;
@@ -996,13 +1048,13 @@ code {
 }
 
 .code-dirty {
-  color: #b45309;
+  color: var(--warn);
   font-style: normal;
   font-size: 0.7rem;
 }
 
 .code-window {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--line);
   border-radius: 4px;
   padding: 0.3rem;
 }
@@ -1036,7 +1088,7 @@ code {
   font-size: 0.68rem;
   border-radius: 999px;
   padding: 0 0.4rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--line);
   color: var(--fg-muted);
 }
 
@@ -1046,8 +1098,8 @@ code {
 }
 
 .change-status.deleted {
-  border-color: #dc2626;
-  color: #dc2626;
+  border-color: var(--bad);
+  color: var(--bad);
 }
 
 .change-counts {
@@ -1061,7 +1113,7 @@ code {
   display: flex;
   gap: 0.25rem;
   margin: 0.5rem 0 0.75rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--line);
 }
 
 .develop-tabs button,
@@ -1095,7 +1147,7 @@ code {
 
 .roadmap-month {
   flex: 0 0 12rem;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--line);
   border-radius: 6px;
   padding: 0.4rem;
 }
@@ -1163,7 +1215,7 @@ code {
 
 .repo-map,
 .architecture-docs {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--line);
   border-radius: 6px;
   padding: 0.6rem;
   font-size: 0.8rem;
@@ -1188,7 +1240,7 @@ code {
 /* buildsOn is the only kind that orders anything, so it is the only one that
    can deadlock — worth seeing at a glance. */
 .repo-links li.ordering {
-  border-left: 2px solid #f59e0b;
+  border-left: 2px solid var(--warn);
   padding-left: 0.3rem;
 }
 
@@ -1212,7 +1264,7 @@ code {
 }
 
 .doc-list li {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--line);
   border-radius: 6px;
   padding: 0.5rem;
 }
@@ -1228,7 +1280,7 @@ code {
 .doc-scope {
   font-size: 0.7rem;
   color: var(--fg-muted);
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--line);
   border-radius: 999px;
   padding: 0 0.4rem;
 }
@@ -1262,7 +1314,7 @@ code {
 }
 
 .figma-link {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--line);
   border-radius: 6px;
   padding: 0.6rem;
   font-size: 0.8rem;
@@ -1288,7 +1340,7 @@ code {
 
 /* Stating the plan limits plainly is cheaper than a 403 nobody can act on. */
 .figma-limits {
-  border-left: 2px solid #f59e0b;
+  border-left: 2px solid var(--warn);
   padding-left: 0.4rem;
 }
 
@@ -1308,7 +1360,7 @@ code {
 }
 
 .design-assets li {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--line);
   border-radius: 6px;
   padding: 0.5rem;
 }
@@ -1324,7 +1376,7 @@ code {
 .asset-pushed {
   font-size: 0.7rem;
   color: var(--fg-muted);
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--line);
   border-radius: 999px;
   padding: 0 0.4rem;
 }
@@ -1363,7 +1415,7 @@ code {
 }
 
 .card-dependencies {
-  border-top: 1px dashed #e5e7eb;
+  border-top: 1px dashed var(--line);
   padding-top: 0.35rem;
   font-size: 0.75rem;
 }
@@ -1392,7 +1444,7 @@ code {
 
 /* A dependency that crosses a repository is the one worth spotting. */
 .card-dependencies li.cross-repo {
-  border-left: 2px solid #f59e0b;
+  border-left: 2px solid var(--warn);
   padding-left: 0.3rem;
 }
 
@@ -1410,8 +1462,8 @@ code {
 }
 
 .product-strategy {
-  background: #fafafa;
-  border: 1px solid #e5e7eb;
+  background: var(--raised);
+  border: 1px solid var(--line);
   border-radius: 0.5rem;
   padding: 0.6rem;
 }
@@ -1448,14 +1500,14 @@ code {
 }
 
 .strategy-editor {
-  background: #fafafa;
-  border: 1px solid #e5e7eb;
+  background: var(--raised);
+  border: 1px solid var(--line);
   border-radius: 0.5rem;
   padding: 0.6rem;
 }
 
 .work-views {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--line);
   border-radius: 0.5rem;
   padding: 0.6rem;
 }
@@ -1475,7 +1527,7 @@ code {
 }
 
 .view-controls button {
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--line);
   background: var(--raised);
   border-radius: 0.375rem;
   padding: 0.25rem 0.75rem;
@@ -1507,7 +1559,7 @@ code {
 
 .list-view th,
 .list-view td {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--line);
   padding: 0.3rem 0.5rem;
   text-align: left;
 }
@@ -1517,7 +1569,7 @@ code {
   user-select: none;
   font-size: 0.75rem;
   padding: 0.15rem 0.5rem;
-  border: 1px dashed #cbd5e1;
+  border: 1px dashed var(--line);
   border-radius: 0.375rem;
   color: var(--fg-muted);
   touch-action: none;
@@ -1543,8 +1595,8 @@ code {
 }
 
 .workspace-panel {
-  background: #fbfbfc;
-  border: 1px solid #e5e7eb;
+  background: var(--raised);
+  border: 1px solid var(--line);
   border-top: 3px solid var(--env-color, #7c3aed);
   border-radius: 0.5rem;
   padding: 0.6rem;
@@ -1582,7 +1634,7 @@ code {
 .product-overview dd {
   margin: 0 0 0.25rem;
   font-size: 0.85rem;
-  color: #4b5563;
+  color: var(--fg-muted);
 }
 
 /* GitHub connection + per-Solution repository controls (Develop tab) */
@@ -1611,7 +1663,7 @@ code {
   gap: 0.5rem;
   margin-top: 0.25rem;
   font-size: 0.8rem;
-  color: #4b5563;
+  color: var(--fg-muted);
 }
 
 .solution-repo form {
@@ -1649,8 +1701,8 @@ code {
 }
 
 .model {
-  border: 1px solid #e5e7eb;
-  border-left: 3px solid #9ca3af;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--fg-dim);
   border-radius: 0.375rem;
   padding: 0.45rem 0.6rem;
   font-size: 0.8rem;
@@ -1661,13 +1713,13 @@ code {
 }
 
 .model.state-failed {
-  border-left-color: #dc2626;
-  background: rgba(241, 76, 76, 0.14);
+  border-left-color: var(--bad);
+  background: var(--bad-tint);
 }
 
 .model.state-detected {
-  border-left-color: #f59e0b;
-  background: rgba(215, 186, 125, 0.14);
+  border-left-color: var(--warn);
+  background: var(--warn-tint);
 }
 
 .model-head {
@@ -1693,11 +1745,11 @@ code {
 }
 
 .model-state.failed {
-  color: #991b1b;
+  color: var(--bad);
 }
 
 .model-state.detected {
-  color: #92400e;
+  color: var(--warn);
 }
 
 .probe-list,
@@ -1713,7 +1765,7 @@ code {
 }
 
 .probe-list li.fail .probe-mark {
-  color: #dc2626;
+  color: var(--bad);
   font-weight: 700;
 }
 
@@ -1725,7 +1777,7 @@ code {
   margin-top: 0.3rem;
   padding-left: 0.9rem;
   list-style: disc;
-  color: #991b1b;
+  color: var(--bad);
 }
 
 .pack-path {
@@ -1748,7 +1800,7 @@ code {
 
 /* Sprint capacity: what people have, beside what they have been given */
 .sprint-capacity {
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--line);
   margin-top: 0.5rem;
   padding-top: 0.4rem;
   font-size: 0.75rem;
@@ -1776,7 +1828,7 @@ code {
 
 .capacity-list input {
   width: 4rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--line);
   border-radius: 0.25rem;
   padding: 0.15rem 0.25rem;
 }
@@ -1790,7 +1842,7 @@ code {
 }
 
 .capacity-list li.over-capacity .capacity-assigned {
-  color: #991b1b;
+  color: var(--bad);
   font-weight: 600;
 }
 
@@ -1808,16 +1860,16 @@ code {
 
 .cost-option {
   flex: 1 1 14rem;
-  border: 1px solid #e5e7eb;
-  border-left: 3px solid #6366f1;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
   border-radius: 0.25rem;
   padding: 0.4rem 0.5rem;
   background: var(--raised);
 }
 
 .cost-option.unaffordable {
-  border-left-color: #dc2626;
-  background: rgba(241, 76, 76, 0.14);
+  border-left-color: var(--bad);
+  background: var(--bad-tint);
 }
 
 .cost-option p {
@@ -1831,7 +1883,7 @@ code {
 }
 
 .option-warning {
-  color: #991b1b;
+  color: var(--bad);
   font-size: 0.72rem;
 }
 
@@ -1844,8 +1896,8 @@ code {
 
 /* Solution strategy: how the AI proposes to build a work item */
 .solution-strategy {
-  background: #fafafa;
-  border: 1px solid #e5e7eb;
+  background: var(--raised);
+  border: 1px solid var(--line);
   border-radius: 0.375rem;
   padding: 0.5rem 0.6rem;
   font-size: 0.8rem;
@@ -1869,20 +1921,20 @@ code {
 }
 
 .rule-violation {
-  background: rgba(241, 76, 76, 0.14);
-  border: 1px solid #fca5a5;
+  background: var(--bad-tint);
+  border: 1px solid var(--bad);
   border-radius: 0.25rem;
   padding: 0.4rem 0.5rem;
-  color: #991b1b;
+  color: var(--bad);
 }
 
 /* Quieter than a violation on purpose — a notice, not a breach. */
 .rule-unlisted {
-  background: rgba(215, 186, 125, 0.14);
-  border: 1px solid #fcd34d;
+  background: var(--warn-tint);
+  border: 1px solid var(--warn);
   border-radius: 0.25rem;
   padding: 0.4rem 0.5rem;
-  color: #92400e;
+  color: var(--warn);
 }
 
 .architecture-options {
@@ -1895,8 +1947,8 @@ code {
 }
 
 .architecture-options li {
-  border: 1px solid #e5e7eb;
-  border-left: 3px solid #9ca3af;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--fg-dim);
   border-radius: 0.25rem;
   padding: 0.4rem 0.5rem;
   background: var(--raised);
@@ -1904,7 +1956,7 @@ code {
 
 .architecture-options li.chosen {
   border-left-color: #16a34a;
-  background: rgba(137, 209, 133, 0.14);
+  background: var(--ok-tint);
 }
 
 .architecture-options p {
@@ -1932,8 +1984,8 @@ code {
 }
 
 .ai-question.open {
-  background: rgba(215, 186, 125, 0.14);
-  border: 1px solid #fcd34d;
+  background: var(--warn-tint);
+  border: 1px solid var(--warn);
   border-radius: 0.375rem;
   padding: 0.4rem 0.5rem;
 }
@@ -1944,7 +1996,7 @@ code {
 }
 
 .question-needed {
-  color: #92400e;
+  color: var(--warn);
   font-style: italic;
 }
 
@@ -1955,7 +2007,7 @@ code {
 
 .question-answer input {
   flex: 1;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--line);
   border-radius: 0.25rem;
   padding: 0.25rem;
 }
@@ -1967,7 +2019,7 @@ code {
 /* AI budget: spend bar + limits (Product Strategy) */
 .budget-panel {
   background: var(--raised);
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--line);
   border-radius: 0.375rem;
   padding: 0.5rem 0.6rem;
   display: flex;
@@ -1996,14 +2048,14 @@ code {
 }
 
 .budget-panel input {
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--line);
   border-radius: 0.25rem;
   padding: 0.25rem;
 }
 
 .spend-track {
   height: 0.5rem;
-  background: rgba(255, 255, 255, 0.10);
+  background: var(--hover);
   border-radius: 999px;
   overflow: hidden;
 }
@@ -2015,15 +2067,15 @@ code {
 }
 
 .state-warn .spend-fill {
-  background: #f59e0b;
+  background: var(--warn);
 }
 
 .state-handover .spend-fill {
-  background: #6366f1;
+  background: var(--accent);
 }
 
 .state-blocked .spend-fill {
-  background: #dc2626;
+  background: var(--bad);
 }
 
 .spend-figures,
@@ -2038,7 +2090,7 @@ code {
 
 .provider-chain {
   flex-basis: 100%;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--line);
   border-radius: 0.375rem;
   padding: 0.4rem 0.6rem;
 }
@@ -2062,7 +2114,7 @@ code {
 
 .product-ai-policy {
   background: var(--raised);
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--line);
   border-radius: 0.375rem;
   padding: 0.5rem 0.6rem;
   display: flex;
@@ -2091,8 +2143,8 @@ code {
 }
 
 .test-cases {
-  background: #fafafa;
-  border: 1px solid #e5e7eb;
+  background: var(--raised);
+  border: 1px solid var(--line);
   border-left: 4px solid var(--env-color, #7c3aed);
   border-radius: 0.5rem;
   padding: 0.75rem;
@@ -2116,7 +2168,7 @@ code {
 .test-cases form textarea {
   min-height: 2.2rem;
   flex: 1 1 18rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--line);
   border-radius: 0.375rem;
   padding: 0.3rem;
 }
@@ -2132,8 +2184,8 @@ code {
 
 .test-case {
   background: var(--raised);
-  border: 1px solid #e5e7eb;
-  border-left: 3px solid #9ca3af;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--fg-dim);
   border-radius: 0.375rem;
   padding: 0.5rem;
 }
@@ -2159,7 +2211,7 @@ code {
 .test-scenario {
   margin: 0.25rem 0;
   font-size: 0.85rem;
-  color: #4b5563;
+  color: var(--fg-muted);
   white-space: pre-wrap;
 }
 
@@ -2207,7 +2259,7 @@ code {
 }
 
 .policy-editor {
-  border-top: 1px dashed #d1d5db;
+  border-top: 1px dashed var(--line);
   margin-top: 0.35rem;
   padding-top: 0.35rem;
   display: flex;
@@ -2226,7 +2278,7 @@ code {
   display: flex;
   gap: 1.5rem;
   padding: 0.5rem 1.5rem;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--line);
   font-size: 0.85rem;
 }
 
@@ -2251,8 +2303,8 @@ code {
   font-size: 0.8rem;
   font-weight: 600;
 }
-.test-total.pass { color: #166534; }
-.test-total.fail { color: #991b1b; }
+.test-total.pass { color: var(--ok); }
+.test-total.fail { color: var(--bad); }
 
 .test-solutions,
 .git-repos {
@@ -2263,7 +2315,7 @@ code {
 
 .test-solution,
 .git-repo {
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--line);
   padding: 0.5rem 0;
 }
 
@@ -2280,8 +2332,8 @@ code {
   font-size: 0.65rem;
   padding: 0.05rem 0.35rem;
   border-radius: 0.6rem;
-  background: #e0e7ff;
-  color: #3730a3;
+  background: var(--info-tint);
+  color: var(--accent);
 }
 
 .test-suites {
@@ -2299,11 +2351,11 @@ code {
 .test-run {
   margin: 0.4rem 0 0 0.9rem;
   padding: 0.35rem 0.5rem;
-  border-left: 3px solid #d1d5db;
+  border-left: 3px solid var(--line);
   border-radius: 0 0.25rem 0.25rem 0;
 }
-.test-run.pass { border-left-color: #16a34a; background: rgba(137, 209, 133, 0.14); }
-.test-run.fail { border-left-color: #dc2626; background: rgba(241, 76, 76, 0.14); }
+.test-run.pass { border-left-color: #16a34a; background: var(--ok-tint); }
+.test-run.fail { border-left-color: var(--bad); background: var(--bad-tint); }
 
 .test-run-head {
   display: flex;
@@ -2320,7 +2372,7 @@ code {
   margin: 0.3rem 0 0 0.6rem;
   padding-left: 0.9rem;
   font-size: 0.75rem;
-  color: #991b1b;
+  color: var(--bad);
 }
 
 .test-output {
@@ -2328,8 +2380,10 @@ code {
   padding: 0.5rem;
   max-height: 18rem;
   overflow: auto;
-  background: #111827;
-  color: #e5e7eb;
+  /* Raw test output — dark like a console whatever the theme, same as the
+     terminal surface, because it is program output not app chrome. */
+  background: #141416;
+  color: #d4d4d4;
   font-size: 0.7rem;
   border-radius: 0.25rem;
   white-space: pre-wrap;
@@ -2355,8 +2409,8 @@ code {
 .git-conflict-count {
   font-size: 0.7rem;
   font-weight: 600;
-  color: #9a3412;
-  background: #ffedd5;
+  color: var(--warn);
+  background: var(--warn-tint);
   padding: 0.05rem 0.4rem;
   border-radius: 0.6rem;
 }
@@ -2374,7 +2428,7 @@ code {
   gap: 0.4rem;
   padding: 0.1rem 0;
 }
-.git-file.conflicted { background: rgba(215, 186, 125, 0.18); }
+.git-file.conflicted { background: var(--warn-tint); }
 
 .git-status,
 .change-status {
@@ -2383,16 +2437,16 @@ code {
   min-width: 4.5rem;
   color: var(--fg-muted);
 }
-.git-status.added, .change-status.added { color: #166534; }
-.git-status.deleted, .change-status.deleted { color: #991b1b; }
-.git-status.renamed, .change-status.renamed { color: #6d28d9; }
+.git-status.added, .change-status.added { color: var(--ok); }
+.git-status.deleted, .change-status.deleted { color: var(--bad); }
+.git-status.renamed, .change-status.renamed { color: var(--accent); }
 
 .git-path { font-family: ui-monospace, monospace; }
 
 /* The three panes a merge is actually made of */
 .merge-view {
   margin-top: 0.8rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--line);
   border-radius: 0.4rem;
   padding: 0.6rem;
 }
@@ -2411,8 +2465,8 @@ code {
   padding: 0.05rem 0.4rem;
   border-radius: 0.6rem;
 }
-.merge-state.unresolved { background: #fee2e2; color: #991b1b; }
-.merge-state.resolved { background: rgba(137, 209, 133, 0.18); color: #166534; }
+.merge-state.unresolved { background: var(--bad-tint); color: var(--bad); }
+.merge-state.resolved { background: var(--ok-tint); color: var(--ok); }
 
 .merge-panes {
   display: grid;
@@ -2432,7 +2486,7 @@ code {
   font-size: 0.72rem;
   resize: vertical;
 }
-.merge-pane textarea[readonly] { background: var(--raised); color: #4b5563; }
+.merge-pane textarea[readonly] { background: var(--raised); color: var(--fg-muted); }
 .merge-result textarea { border-color: #2563eb; }
 
 /* The Code explorer's git toggle and the diff beneath the editor */
@@ -2442,7 +2496,7 @@ code {
   gap: 0.4rem;
   padding: 0.3rem 0;
   font-size: 0.75rem;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--line);
 }
 
 .changed-tree {
@@ -2455,7 +2509,7 @@ code {
 .change-lines { font-size: 0.7rem; color: var(--fg-muted); }
 
 .file-diff {
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--line);
   margin-top: 0.5rem;
   padding-top: 0.4rem;
 }
@@ -2470,16 +2524,16 @@ code {
   border-radius: 0.25rem;
 }
 
-.diff-added { background: rgba(137, 209, 133, 0.18); color: #14532d; display: block; }
-.diff-removed { background: #fee2e2; color: #7f1d1d; display: block; }
-.diff-hunk { color: #6d28d9; display: block; }
+.diff-added { background: var(--ok-tint); color: var(--ok); display: block; }
+.diff-removed { background: var(--bad-tint); color: var(--bad); display: block; }
+.diff-hunk { color: var(--accent); display: block; }
 .diff-meta { color: var(--fg-muted); display: block; }
 
 /* ── The workbench: terminal, AI panel, properties ─────────────────────── */
 
 .terminal-panel {
   margin-top: 0.6rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--line);
   border-radius: 0.4rem;
   overflow: hidden;
 }
@@ -2490,7 +2544,7 @@ code {
   gap: 0.5rem;
   padding: 0.35rem 0.5rem;
   background: var(--sunken);
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--line);
   font-size: 0.8rem;
   flex-wrap: wrap;
 }
@@ -2508,7 +2562,7 @@ code {
 }
 
 .ai-panel {
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--line);
   margin-top: 0.5rem;
   padding-top: 0.5rem;
   font-size: 0.8rem;
@@ -2546,7 +2600,7 @@ code {
 }
 
 .dev-server-panel {
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--line);
   margin-top: 0.5rem;
   padding-top: 0.5rem;
   font-size: 0.8rem;
@@ -2586,7 +2640,7 @@ code {
 }
 
 .properties-panel {
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--line);
   margin-top: 0.5rem;
   padding-top: 0.4rem;
   font-size: 0.75rem;
@@ -2616,7 +2670,7 @@ code {
 /* ── What a work item changes, and starting a Solution ─────────────────── */
 
 .work-item-changes {
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--line);
   margin-top: 0.5rem;
   padding-top: 0.5rem;
 }
@@ -2638,7 +2692,7 @@ code {
 }
 
 .change-waiting {
-  color: #92400e;
+  color: var(--warn);
 }
 
 .change-list {
@@ -2668,20 +2722,20 @@ code {
   letter-spacing: 0.03em;
   padding: 0.05rem 0.3rem;
   border-radius: 0.2rem;
-  background: rgba(255, 255, 255, 0.10);
+  background: var(--hover);
   color: var(--fg);
 }
 .change-screen .change-kind {
   background: rgba(10, 132, 255, 0.18);
-  color: #1e40af;
+  color: var(--accent);
 }
 .change-api .change-kind {
-  background: rgba(137, 209, 133, 0.18);
-  color: #166534;
+  background: var(--ok-tint);
+  color: var(--ok);
 }
 .change-table .change-kind {
-  background: rgba(215, 186, 125, 0.18);
-  color: #92400e;
+  background: var(--warn-tint);
+  color: var(--warn);
 }
 
 .change-action {
@@ -2689,7 +2743,7 @@ code {
   color: var(--fg-muted);
 }
 .change-action.change {
-  color: #92400e;
+  color: var(--warn);
 }
 
 .change-detail {
@@ -2714,12 +2768,12 @@ code {
   font-size: 0.78rem;
 }
 .starter-run.pass {
-  background: rgba(137, 209, 133, 0.14);
-  border: 1px solid #bbf7d0;
+  background: var(--ok-tint);
+  border: 1px solid var(--ok);
 }
 .starter-run.fail {
-  background: rgba(241, 76, 76, 0.14);
-  border: 1px solid #fecaca;
+  background: var(--bad-tint);
+  border: 1px solid var(--bad);
 }
 .starter-run code {
   display: block;
@@ -2745,7 +2799,7 @@ code {
   font-size: 0.72rem;
   padding: 0.2rem 0.5rem;
   background: var(--sunken);
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--line);
   border-radius: 0.25rem 0.25rem 0 0;
 }
 .explorer-tab-active {
@@ -2804,7 +2858,7 @@ code {
 /* The branch graph: one lane per line of development. */
 .branch-history {
   margin-top: 0.4rem;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--line);
   padding-top: 0.3rem;
 }
 .branch-head {
@@ -2855,14 +2909,14 @@ code {
 }
 .commit-ref {
   background: rgba(10, 132, 255, 0.18);
-  color: #1e40af;
+  color: var(--accent);
   font-size: 0.66rem;
   padding: 0.02rem 0.28rem;
   border-radius: 0.2rem;
 }
 .commit-merge {
-  background: rgba(215, 186, 125, 0.18);
-  color: #92400e;
+  background: var(--warn-tint);
+  color: var(--warn);
   font-size: 0.66rem;
   padding: 0.02rem 0.28rem;
   border-radius: 0.2rem;
@@ -2906,16 +2960,16 @@ code {
   text-transform: uppercase;
   padding: 0.02rem 0.3rem;
   border-radius: 0.2rem;
-  background: rgba(255, 255, 255, 0.10);
+  background: var(--hover);
   color: var(--fg);
 }
 .diagram-kind.database {
-  background: #dae8fc;
-  color: #1e3a8a;
+  background: var(--info-tint);
+  color: var(--accent);
 }
 .diagram-kind.queue {
-  background: rgba(215, 186, 125, 0.18);
-  color: #92400e;
+  background: var(--warn-tint);
+  color: var(--warn);
 }
 .diagram-edge {
   color: var(--fg-muted);
@@ -2960,7 +3014,7 @@ code {
   width: 100%;
   max-height: 22rem;
   background: var(--raised);
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--line);
   border-radius: 0.3rem;
   padding: 0.3rem;
 }
@@ -3005,19 +3059,19 @@ code {
 .job-state.running,
 .run-state.prepared {
   background: rgba(10, 132, 255, 0.2);
-  color: #7cc0ff;
+  color: var(--accent);
 }
 .job-state.done,
 .run-state.kept {
-  background: rgba(137, 209, 133, 0.2);
+  background: var(--ok-tint);
   color: var(--ok);
 }
 .job-state.blocked {
-  background: rgba(215, 186, 125, 0.2);
+  background: var(--warn-tint);
   color: var(--warn);
 }
 .job-state.failed {
-  background: rgba(241, 76, 76, 0.18);
+  background: var(--bad-tint);
   color: var(--bad);
 }
 

@@ -8,7 +8,9 @@ import ActiveUserPicker from "../components/common/ActiveUserPicker";
 import { usePermissions, type Area } from "../lib/permissions";
 import {
   applyTabColors,
+  applyThemeMode,
   loadTabColors,
+  loadThemeMode,
   saveTabColors,
   type EnvironmentId,
   type TabColors,
@@ -29,6 +31,12 @@ export default function WorkspaceShell() {
   useEffect(() => {
     applyTabColors(colors);
   }, [colors]);
+
+  // The saved light/dark choice, stamped on the root before anything is read,
+  // so the app opens in the theme that was chosen rather than flashing dark.
+  useEffect(() => {
+    applyThemeMode(loadThemeMode());
+  }, []);
 
   const visibleTabs = ENVIRONMENTS.filter((e) => canAccess(e.id as Area));
 
