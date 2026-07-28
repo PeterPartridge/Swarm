@@ -1,62 +1,52 @@
 import { useCallback, useEffect, useState } from "react";
 import DiagramBuilder from "../diagram/DiagramBuilder";
 import DiagramView from "../diagram/DiagramView";
+import SolutionMap from "../diagram/SolutionMap";
 import {
   ARCHITECTURE_KIND_LABELS,
   DIAGRAM_FORMATS,
   DIAGRAM_FORMAT_LABELS,
-  REPO_LINK_LABELS,
   deleteArchitectureDoc,
   generateArchitectureDoc,
-  linkSolutions,
   listArchitectureDocs,
-  listRepoLinks,
   listSolutions,
-  solutionsReachedBy,
-  unlinkSolutions,
   type ArchitectureDoc,
   type ArchitectureDocKind,
   type DiagramFormat,
-  type RepoLink,
-  type RepoLinkKind,
   type Solution,
 } from "../../lib/backend";
 
 const KINDS = Object.keys(ARCHITECTURE_KIND_LABELS) as ArchitectureDocKind[];
-const LINK_KINDS = Object.keys(REPO_LINK_LABELS) as RepoLinkKind[];
 
-/** Developer Planning: how the systems are put together, and how they depend
- *  on one another.
+/** Developer Planning: one picture of how the Solutions fit together.
+ *
+ *  The cross-repo map and the architecture diagram were the same drawing made
+ *  twice — a box per Solution and the dependencies between them — so they are
+ *  one section now: a drag-drop map at the top (each Solution a box shaped by
+ *  its type), and below it the AI's help drawing the notations a hand-arranged
+ *  map cannot, plus every diagram already saved.
  *
  *  Architecture documents are validated as the notation they claim to be before
  *  they are stored — a diagram that does not render is worse than none, because
  *  it looks like documentation and so nobody writes the documentation. */
 export default function DeveloperPlanning({ productId }: { productId: number }) {
   const [docs, setDocs] = useState<ArchitectureDoc[]>([]);
-  const [links, setLinks] = useState<RepoLink[]>([]);
   const [solutions, setSolutions] = useState<Solution[]>([]);
   const [kind, setKind] = useState<ArchitectureDocKind>("systemInteraction");
   const [format, setFormat] = useState<DiagramFormat>("mermaid");
   const [solutionId, setSolutionId] = useState("");
   const [brief, setBrief] = useState("");
-  const [linkFrom, setLinkFrom] = useState("");
-  const [linkTo, setLinkTo] = useState("");
-  const [linkKind, setLinkKind] = useState<RepoLinkKind>("callsApi");
-  const [linkNotes, setLinkNotes] = useState("");
-  const [impact, setImpact] = useState<{ id: number; reached: number[] } | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const [loadedDocs, loadedLinks, loadedSolutions] = await Promise.all([
+      const [loadedDocs, loadedSolutions] = await Promise.all([
         listArchitectureDocs(productId),
-        listRepoLinks(productId),
         listSolutions(),
       ]);
       setDocs(loadedDocs);
-      setLinks(loadedLinks);
       setSolutions(loadedSolutions.filter((s) => s.productId === productId));
       setError(null);
     } catch (e) {
@@ -68,8 +58,7 @@ export default function DeveloperPlanning({ productId }: { productId: number }) 
     void refresh();
   }, [refresh]);
 
-  const nameOf = (id: number) =>
-    solutions.find((s) => s.id === id)?.name ?? `#${id}`;
+  const nameOf = (id: number) => solutions.find((s) => s.id === id)?.name ?? `#${id}`;
 
   async function onGenerate() {
     setBusy(true);
@@ -99,143 +88,27 @@ export default function DeveloperPlanning({ productId }: { productId: number }) 
     }
   }
 
-  async function onLink() {
-    try {
-      await linkSolutions(Number(linkFrom), Number(linkTo), linkKind, linkNotes);
-      setLinkFrom("");
-      setLinkTo("");
-      setLinkNotes("");
-      setError(null);
-      await refresh();
-    } catch (e) {
-      setError(String(e));
-    }
-  }
-
-  async function onImpact(id: number) {
-    try {
-      setImpact({ id, reached: await solutionsReachedBy(id) });
-      setError(null);
-    } catch (e) {
-      setError(String(e));
-    }
-  }
-
   return (
     <section className="developer-planning" aria-label="Developer Planning">
       <h2>Developer Planning</h2>
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
 
-      <section className="repo-map" aria-label="How the Solutions depend on each other">
-        <h3>Cross-repo map</h3>
-        {solutions.length < 2 ? (
-          <p className="hint">
-            A dependency needs two Solutions — this Product has{" "}
-            {solutions.length === 0 ? "none" : "one"}.
-          </p>
-        ) : (
-          <>
-            {links.length > 0 && (
-              <ul className="repo-links">
-                {links.map((l) => (
-                  <li key={l.id} className={l.kind === "buildsOn" ? "ordering" : ""}>
-                    <span>
-                      {nameOf(l.fromSolutionId)} {REPO_LINK_LABELS[l.kind]}{" "}
-                      {nameOf(l.toSolutionId)}
-                      {l.notes && <em> — {l.notes}</em>}
-                    </span>
-                    <button
-                      aria-label={`Remove link from ${nameOf(l.fromSolutionId)} to ${nameOf(l.toSolutionId)}`}
-                      onClick={() =>
-                        void unlinkSolutions(l.id).then(refresh).catch((e) => setError(String(e)))
-                      }
-                    >
-                      ×
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div className="repo-link-form">
-              <select
-                aria-label="Dependency from"
-                value={linkFrom}
-                onChange={(e) => setLinkFrom(e.target.value)}
-              >
-                <option value="">From…</option>
-                {solutions.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-              <select
-                aria-label="Dependency kind"
-                value={linkKind}
-                onChange={(e) => setLinkKind(e.target.value as RepoLinkKind)}
-              >
-                {LINK_KINDS.map((k) => (
-                  <option key={k} value={k}>
-                    {REPO_LINK_LABELS[k]}
-                  </option>
-                ))}
-              </select>
-              <select
-                aria-label="Dependency to"
-                value={linkTo}
-                onChange={(e) => setLinkTo(e.target.value)}
-              >
-                <option value="">To…</option>
-                {solutions.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-              <input
-                aria-label="Dependency notes"
-                placeholder="why (optional)"
-                value={linkNotes}
-                onChange={(e) => setLinkNotes(e.target.value)}
-              />
-              <button
-                aria-label="Add Solution dependency"
-                disabled={linkFrom === "" || linkTo === ""}
-                onClick={onLink}
-              >
-                Link
-              </button>
-            </div>
-
-            {/* The question the map exists to answer. */}
-            <div className="impact">
-              <span className="hint">If we change…</span>
-              {solutions.map((s) => (
-                <button
-                  key={s.id}
-                  aria-label={`What does changing ${s.name} reach`}
-                  onClick={() => onImpact(s.id)}
-                >
-                  {s.name}
-                </button>
-              ))}
-              {impact && (
-                <p role="status">
-                  {impact.reached.length === 0
-                    ? `Changing ${nameOf(impact.id)} reaches nothing else recorded here.`
-                    : `Changing ${nameOf(impact.id)} reaches: ${impact.reached
-                        .map(nameOf)
-                        .join(", ")}.`}
-                </p>
-              )}
-            </div>
-          </>
-        )}
+      {/* The combined map: existing Solutions as type-shaped boxes, dragged into
+          place and joined by their dependencies, with a new Solution added from
+          here and the arrangement saved. */}
+      <section aria-label="Architecture map of the Solutions">
+        <h3>Architecture map</h3>
+        <SolutionMap productId={productId} />
       </section>
 
       <section className="architecture-docs" aria-label="Architecture documents">
-        <h3>Architecture</h3>
+        <h3>Generated diagrams</h3>
+        <p className="hint">
+          For the notations a hand-arranged map cannot draw — a sequence, a
+          contract — let the AI draft one from the Solutions and links already
+          recorded.
+        </p>
         <div className="architecture-form">
           <select
             aria-label="Document kind"

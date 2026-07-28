@@ -2,20 +2,23 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DeveloperPlanning from "../../components/planning/DeveloperPlanning";
-import type { ArchitectureDoc, RepoLink, Solution } from "../../lib/backend";
+import type { ArchitectureDoc, Solution } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../lib/backend")>();
   return {
     ...original,
     listArchitectureDocs: vi.fn(),
-    listRepoLinks: vi.fn(),
     listSolutions: vi.fn(),
-    linkSolutions: vi.fn(),
-    unlinkSolutions: vi.fn(),
-    solutionsReachedBy: vi.fn(),
     generateArchitectureDoc: vi.fn(),
     deleteArchitectureDoc: vi.fn(),
+    // The embedded SolutionMap loads and can act on these; mocked so it mounts
+    // cleanly rather than falling through to the real invoke.
+    listRepoLinks: vi.fn(),
+    linkSolutions: vi.fn(),
+    unlinkSolutions: vi.fn(),
+    createSolution: vi.fn(),
+    saveDiagram: vi.fn(),
   };
 });
 
@@ -50,14 +53,6 @@ const doc: ArchitectureDoc = {
   format: "mermaid",
 };
 
-const link: RepoLink = {
-  id: 20,
-  fromSolutionId: 11,
-  toSolutionId: 12,
-  kind: "callsApi",
-  notes: "for the basket",
-};
-
 describe("DeveloperPlanning", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -66,85 +61,12 @@ describe("DeveloperPlanning", () => {
     mocked.listSolutions.mockResolvedValue([sol(11, "Web"), sol(12, "API")]);
   });
 
-  it("shows a dependency in plain words, with its note", async () => {
-    mocked.listRepoLinks.mockResolvedValue([link]);
+  /// The combined view leads with the map: each Solution is a box on it.
+  it("shows the Solutions as boxes on the architecture map", async () => {
     render(<DeveloperPlanning productId={7} />);
-
-    const map = await screen.findByRole("region", {
-      name: "How the Solutions depend on each other",
-    });
-    expect(within(map).getByText(/Web calls the API of API/)).toBeInTheDocument();
-    expect(within(map).getByText(/for the basket/)).toBeInTheDocument();
-  });
-
-  /// A dependency needs two things to sit between.
-  it("says so rather than offering an empty form when there is one Solution", async () => {
-    mocked.listSolutions.mockResolvedValue([sol(11, "Web")]);
-    render(<DeveloperPlanning productId={7} />);
-
-    expect(await screen.findByText(/A dependency needs two Solutions/)).toBeInTheDocument();
-    expect(screen.queryByLabelText("Add Solution dependency")).not.toBeInTheDocument();
-  });
-
-  it("only offers this Product's Solutions", async () => {
-    mocked.listSolutions.mockResolvedValue([
-      sol(11, "Web"),
-      sol(12, "API"),
-      sol(99, "Someone else's", 42),
-    ]);
-    render(<DeveloperPlanning productId={7} />);
-
-    const from = await screen.findByLabelText("Dependency from");
-    expect(within(from).getByRole("option", { name: "Web" })).toBeInTheDocument();
-    expect(
-      within(from).queryByRole("option", { name: "Someone else's" }),
-    ).not.toBeInTheDocument();
-  });
-
-  it("records a dependency with its kind and note", async () => {
-    const user = userEvent.setup();
-    mocked.linkSolutions.mockResolvedValue(1);
-    render(<DeveloperPlanning productId={7} />);
-
-    await user.selectOptions(await screen.findByLabelText("Dependency from"), "11");
-    await user.selectOptions(screen.getByLabelText("Dependency kind"), "buildsOn");
-    await user.selectOptions(screen.getByLabelText("Dependency to"), "12");
-    await user.type(screen.getByLabelText("Dependency notes"), "shared types");
-    await user.click(screen.getByLabelText("Add Solution dependency"));
-
-    await waitFor(() =>
-      expect(mocked.linkSolutions).toHaveBeenCalledWith(11, 12, "buildsOn", "shared types"),
-    );
-  });
-
-  /// Only `buildsOn` orders anything; the backend refuses a cycle of it and the
-  /// reason has to reach the user rather than the click doing nothing.
-  it("surfaces a refused build cycle", async () => {
-    const user = userEvent.setup();
-    mocked.linkSolutions.mockRejectedValue(
-      "that would make a build cycle — neither Solution could be built first",
-    );
-    render(<DeveloperPlanning productId={7} />);
-
-    await user.selectOptions(await screen.findByLabelText("Dependency from"), "11");
-    await user.selectOptions(screen.getByLabelText("Dependency to"), "12");
-    await user.click(screen.getByLabelText("Add Solution dependency"));
-
-    expect(await screen.findByText(/build cycle/)).toBeInTheDocument();
-  });
-
-  /// The question the map exists to answer.
-  it("answers what a change would reach, and says so when it reaches nothing", async () => {
-    const user = userEvent.setup();
-    mocked.solutionsReachedBy.mockResolvedValue([12]);
-    render(<DeveloperPlanning productId={7} />);
-
-    await user.click(await screen.findByLabelText("What does changing Web reach"));
-    expect(await screen.findByText(/Changing Web reaches: API/)).toBeInTheDocument();
-
-    mocked.solutionsReachedBy.mockResolvedValue([]);
-    await user.click(screen.getByLabelText("What does changing API reach"));
-    expect(await screen.findByText(/reaches nothing else recorded here/)).toBeInTheDocument();
+    const map = await screen.findByRole("region", { name: "Architecture map" });
+    expect(within(map).getByLabelText("Web (api)")).toBeInTheDocument();
+    expect(within(map).getByLabelText("API (api)")).toBeInTheDocument();
   });
 
   it("generates a document for the whole Product by default", async () => {
@@ -202,9 +124,6 @@ describe("DeveloperPlanning", () => {
     expect(within(docs).getByText("whole Product")).toBeInTheDocument();
     expect(within(docs).getByText("How it fits")).toBeInTheDocument();
 
-    // Scoped to the row: "API" is also a Solution name in the selects above.
-    // The diagram itself is DiagramView's business and is tested there — this
-    // is about the document's identity and scope.
     const row = within(docs).getByText("Orders API").closest("li") as HTMLElement;
     expect(within(row).getByText("API")).toBeInTheDocument();
     expect(within(row).getByText("API contract")).toBeInTheDocument();
