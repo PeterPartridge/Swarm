@@ -124,6 +124,7 @@ describe("RunsPanel", () => {
       branch: "feature/9-add-checkout",
       briefPath: "brief.md",
       command: "claude 'read brief.md'",
+      runStart: "",
     });
     render(<RunsPanel productId={1} />);
 
@@ -136,6 +137,30 @@ describe("RunsPanel", () => {
     expect(await screen.findByTestId("run-terminal")).toHaveTextContent(
       "Add checkout → Shop API",
     );
+  });
+
+  /// The "boots the app without a click": a Solution with something to run gets
+  /// a second terminal beside the agent's, running the app in the same worktree.
+  it("boots the app in its own terminal when the Solution has a run command", async () => {
+    const user = userEvent.setup();
+    mocked.listRuns.mockResolvedValue([run()]);
+    mocked.startRun.mockResolvedValue({
+      runId: 1,
+      worktreePath: "C:/repos/.coperativeai-worktrees/feature-9",
+      branch: "feature/9-add-checkout",
+      briefPath: "brief.md",
+      command: "claude 'read brief.md'",
+      runStart: "npm run dev",
+    });
+    render(<RunsPanel productId={1} />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Start Add checkout on Shop API" }),
+    );
+
+    // two terminals: the agent's, and the app's
+    await waitFor(() => expect(screen.getAllByTestId("run-terminal")).toHaveLength(2));
+    expect(screen.getByText("Add checkout → Shop API — app")).toBeInTheDocument();
   });
 
   /// Start is refused when the run has no branch — a run needs its own branch,
@@ -162,6 +187,7 @@ describe("RunsPanel", () => {
       branch: "b",
       briefPath: "brief.md",
       command: "claude",
+      runStart: "",
     });
     render(<RunsPanel productId={1} />);
 

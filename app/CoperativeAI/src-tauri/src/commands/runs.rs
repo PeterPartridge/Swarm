@@ -108,6 +108,10 @@ pub struct StartedRun {
     pub brief_path: String,
     /// Shown, never executed by the app — the terminal runs it.
     pub command: String,
+    /// How to start the Solution running in the worktree, so a started run can
+    /// boot the app alongside its agent. Empty when there is nothing detection
+    /// recognises and no override — then no dev-server terminal is opened.
+    pub run_start: String,
 }
 
 /// Prepares one (work item, Solution) to run: its own checkout, its own branch,
@@ -125,7 +129,7 @@ pub async fn start_run(
 ) -> Result<StartedRun, String> {
     use crate::handover;
 
-    let (root, branch, clone_from, brief, brief_path, attempt) = {
+    let (root, branch, clone_from, brief, brief_path, attempt, run_start) = {
         let conn = db.0.lock().await;
         let Some(plan) = work_item_plan::list_for_item(&conn, work_item_id)
             .await
@@ -151,12 +155,23 @@ pub async fn start_run(
         else {
             return Err("that Solution no longer exists".into());
         };
+        // The Solution's own run command wins over detection, the same rule the
+        // Run panel and the brief use. Kept before `local_path` is moved below.
+        let run_override = row.run_command.clone().filter(|c| !c.trim().is_empty());
         let root = row.local_path.filter(|p| !p.trim().is_empty()).ok_or_else(|| {
             format!(
                 "'{}' has no folder on this machine, so there is nothing to make a worktree from",
                 row.name
             )
         })?;
+        // Detection reads the same manifest the worktree will have — the repo is
+        // one repository — so the command works run from the checkout below.
+        let run_start = match run_override {
+            Some(command) => crate::dev_runner::custom(&command).start,
+            None => crate::dev_runner::detect(std::path::Path::new(&root))
+                .map(|d| d.start)
+                .unwrap_or_default(),
+        };
         let item = work_item::find_by_id(&conn, work_item_id)
             .await
             .map_err(to_message)?
@@ -169,7 +184,7 @@ pub async fn start_run(
         // only changes *where* it is written.
         let brief = super::workspace::build_handover_brief(&conn, &item, solution_id).await?;
         let brief_path = handover::brief_path(&item.title, attempt);
-        (root, plan.branch_name, plan.clone_from, brief, brief_path, attempt)
+        (root, plan.branch_name, plan.clone_from, brief, brief_path, attempt, run_start)
     };
     let _ = attempt;
 
@@ -201,6 +216,7 @@ pub async fn start_run(
         branch,
         command: handover::suggested_command(&brief_path),
         brief_path,
+        run_start,
     })
 }
 

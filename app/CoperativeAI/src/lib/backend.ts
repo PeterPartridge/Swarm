@@ -1808,6 +1808,9 @@ export interface StartedRun {
   briefPath: string;
   /** Shown, never executed by the app — the terminal runs it. */
   command: string;
+  /** How to start the Solution running in the worktree. Empty when there is
+   *  nothing to run, in which case no dev-server terminal is opened. */
+  runStart: string;
 }
 
 export const listRuns = (productId: number): Promise<Run[]> =>

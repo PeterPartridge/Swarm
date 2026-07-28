@@ -14,6 +14,11 @@ interface StartedRun {
   solutionId: number;
   worktreePath: string;
   command: string;
+  /** How to start the app in the worktree — empty when there is nothing to run.
+   *  When present, a second terminal boots the app beside the agent's. */
+  runStart: string;
+  /** The dev-server terminal was closed on its own, without ending the run. */
+  devClosed?: boolean;
   title: string;
 }
 
@@ -64,11 +69,14 @@ export default function RunsPanel({ productId }: { productId: number }) {
           solutionId: run.solutionId,
           worktreePath: prepared.worktreePath,
           command: prepared.command,
+          runStart: prepared.runStart,
           title: `${run.workItemTitle} → ${run.solutionName}`,
         },
       ]);
       setNotice(
-        `Prepared ${run.workItemTitle} on ${prepared.branch} — its terminal is open below.`,
+        prepared.runStart
+          ? `Started ${run.workItemTitle} on ${prepared.branch} — its agent and the app are running below.`
+          : `Prepared ${run.workItemTitle} on ${prepared.branch} — its terminal is open below.`,
       );
       setError(null);
       await refresh();
@@ -171,22 +179,45 @@ export default function RunsPanel({ productId }: { productId: number }) {
         ))}
       </ul>
 
-      {/* One terminal per run started this session, side by side — this is the
-          "simultaneously": each is a separate agent in its own worktree, and
-          they run at the same time. */}
+      {/* Per run started this session: the agent's terminal, and — when the
+          Solution has something to run — a second terminal that boots the app
+          in the same worktree. Several runs side by side is the
+          "simultaneously"; the app running beside each agent is the "boots the
+          app without a click". */}
       {started.length > 0 && (
         <div className="run-terminals">
           {started.map((s) => (
-            <RunTerminal
-              key={s.runId}
-              solutionId={s.solutionId}
-              worktreePath={s.worktreePath}
-              command={s.command}
-              title={s.title}
-              onClose={() =>
-                setStarted((prev) => prev.filter((r) => r.runId !== s.runId))
-              }
-            />
+            <div key={s.runId} className="run-terminal-pair">
+              <RunTerminal
+                key={`${s.runId}-agent`}
+                solutionId={s.solutionId}
+                worktreePath={s.worktreePath}
+                command={s.command}
+                title={s.title}
+                onClose={() =>
+                  setStarted((prev) => prev.filter((r) => r.runId !== s.runId))
+                }
+              />
+              {s.runStart && !s.devClosed && (
+                <RunTerminal
+                  key={`${s.runId}-dev`}
+                  solutionId={s.solutionId}
+                  worktreePath={s.worktreePath}
+                  command={s.runStart}
+                  title={`${s.title} — app`}
+                  // Closing the app's terminal leaves the agent running: the two
+                  // are the same run, but you may want to stop the server and
+                  // keep working.
+                  onClose={() =>
+                    setStarted((prev) =>
+                      prev.map((r) =>
+                        r.runId === s.runId ? { ...r, devClosed: true } : r,
+                      ),
+                    )
+                  }
+                />
+              )}
+            </div>
           ))}
         </div>
       )}

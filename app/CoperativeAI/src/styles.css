@@ -3003,6 +3003,15 @@ code {
   gap: 0.6rem;
   margin-top: 0.6rem;
 }
+/* One run's terminals — the agent's and, when it boots, the app's — stacked
+   together so a run reads as one column even with two shells in it. */
+.run-terminal-pair {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  flex: 1 1 420px;
+  min-width: 320px;
+}
 .run-terminal {
   flex: 1 1 420px;
   min-width: 320px;
