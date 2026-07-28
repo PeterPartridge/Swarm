@@ -22,6 +22,12 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     listAiJobs: vi.fn(),
     getAiConcurrency: vi.fn(),
     listRuns: vi.fn(),
+    // Opening a work item mounts the build plan, which loads these. Left
+    // unmocked they fall through to the real invoke and the editor renders its
+    // error state instead of the fields.
+    listWorkItemPlans: vi.fn(),
+    listAiFeedback: vi.fn(),
+    listWorkItemChanges: vi.fn(),
   };
 });
 
@@ -52,6 +58,9 @@ describe("WorkItemViews", () => {
     mocked.listAiJobs.mockResolvedValue([]);
     mocked.getAiConcurrency.mockResolvedValue({ limit: 1, available: 1 });
     mocked.listRuns.mockResolvedValue([]);
+    mocked.listWorkItemPlans.mockResolvedValue([]);
+    mocked.listAiFeedback.mockResolvedValue([]);
+    mocked.listWorkItemChanges.mockResolvedValue([]);
     mocked.listWorkItems.mockResolvedValue([
       item({ id: 1, title: "Checkout", status: "planned", assigneeId: 5, sprintId: 9 }),
       item({ id: 2, title: "Search", status: "building", assigneeId: 6, sprintId: null }),
@@ -63,6 +72,22 @@ describe("WorkItemViews", () => {
     const board = await screen.findByRole("region", { name: "Board view" });
     expect(within(board).getByRole("region", { name: "planned" })).toHaveTextContent("Checkout");
     expect(within(board).getByRole("region", { name: "building" })).toHaveTextContent("Search");
+  });
+
+  /// The bug: the default Board view had no way to open a work item, so a
+  /// developer could not outline the changes or affected Solutions from where
+  /// they land. A card opens its build plan now.
+  it("opens a work item's build plan from a board card", async () => {
+    const user = userEvent.setup();
+    render(<WorkItemViews productId={7} />);
+
+    await user.click(await screen.findByRole("button", { name: "Open Checkout" }));
+
+    // the developer's editor, with its technical fields
+    expect(
+      await screen.findByRole("region", { name: "Build plan for Checkout" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Development details")).toBeInTheDocument();
   });
 
   it("switches to List view and shows a row per item", async () => {

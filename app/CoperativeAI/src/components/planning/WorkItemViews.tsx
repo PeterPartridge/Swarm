@@ -116,9 +116,21 @@ export default function WorkItemViews({ productId }: { productId: number }) {
                 .filter((i) => i.status === status)
                 .map((i) => (
                   <article key={i.id} className={`card type-${i.itemType}`} aria-label={i.title}>
-                    <span className="card-type">{TYPE_LABELS[i.itemType] ?? i.itemType}</span>
-                    <strong>{i.title}</strong>
-                    <span className="card-meta">{memberName(i.assigneeId)}</span>
+                    {/* The card opens the build plan: outlining the changes and
+                        which Solutions are affected is a developer's job, and it
+                        has to be reachable from the view they actually land on,
+                        not only from the List. */}
+                    <button
+                      type="button"
+                      className="card-open"
+                      aria-pressed={planItem === i.id}
+                      aria-label={`Open ${i.title}`}
+                      onClick={() => setPlanItem(planItem === i.id ? null : i.id)}
+                    >
+                      <span className="card-type">{TYPE_LABELS[i.itemType] ?? i.itemType}</span>
+                      <strong>{i.title}</strong>
+                      <span className="card-meta">{memberName(i.assigneeId)}</span>
+                    </button>
                   </article>
                 ))}
             </section>
@@ -137,7 +149,15 @@ export default function WorkItemViews({ productId }: { productId: number }) {
                     .filter((i) => i.sprintId === lane.id)
                     .map((i) => (
                       <li key={i.id}>
-                        {TYPE_LABELS[i.itemType] ?? i.itemType}: {i.title} — {memberName(i.assigneeId)}
+                        <button
+                          type="button"
+                          className="sprint-item"
+                          aria-pressed={planItem === i.id}
+                          aria-label={`Open ${i.title}`}
+                          onClick={() => setPlanItem(planItem === i.id ? null : i.id)}
+                        >
+                          {TYPE_LABELS[i.itemType] ?? i.itemType}: {i.title} — {memberName(i.assigneeId)}
+                        </button>
                       </li>
                     ))}
                 </ul>
@@ -146,6 +166,30 @@ export default function WorkItemViews({ productId }: { productId: number }) {
           )}
         </div>
       )}
+
+      {/* The build plan for the item opened from the Board or Sprint view. The
+          List view opens it inline in its own row, so it is left out here to
+          avoid showing it twice. This is the editor a developer outlines the
+          changes and affected Solutions in — reachable from every view, not
+          just the List. */}
+      {view !== "list" &&
+        (() => {
+          const selected =
+            planItem !== null ? filtered.find((i) => i.id === planItem) ?? null : null;
+          return selected ? (
+            <div className="selected-plan">
+              <div className="selected-plan-head">
+                <strong>Build plan — {selected.title}</strong>
+                <button aria-label="Close build plan" onClick={() => setPlanItem(null)}>
+                  Close
+                </button>
+              </div>
+              {/* WorkItemBuildPlan is itself a region named "Build plan for …",
+                  so the wrapper stays a plain div to avoid two of them. */}
+              <WorkItemBuildPlan item={selected} solutions={solutions} />
+            </div>
+          ) : null;
+        })()}
 
       {view === "list" && (
         <table className="list-view" aria-label="List view">

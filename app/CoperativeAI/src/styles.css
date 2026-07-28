@@ -279,6 +279,67 @@ code {
   color: var(--fg-muted);
 }
 
+/* The whole card is the control that opens its build plan. Styled to look like
+   the card content it replaced — no button chrome — but keyboard-focusable and
+   clickable. */
+.card-open {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.card-open:hover strong {
+  text-decoration: underline;
+}
+.card-open[aria-pressed="true"] strong {
+  color: var(--accent, #0a84ff);
+}
+
+/* Sprint rows open the same plan; a plain text button so the lane still reads
+   as a list. */
+.sprint-item {
+  width: 100%;
+  text-align: left;
+  padding: 0.2rem 0.3rem;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  border-radius: 0.25rem;
+}
+.sprint-item:hover,
+.sprint-item[aria-pressed="true"] {
+  background: var(--raised);
+}
+.sprint-item[aria-pressed="true"] {
+  font-weight: 600;
+}
+
+/* The build plan opened from the Board or Sprint view, below the items. */
+.selected-plan {
+  margin-top: 0.8rem;
+  border: 1px solid var(--line, #333);
+  border-radius: 8px;
+  padding: 0.6rem;
+  background: var(--sunken);
+}
+.selected-plan-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
 .product-home,
 .develop-area {
   display: flex;
