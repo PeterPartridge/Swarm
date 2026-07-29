@@ -127,11 +127,25 @@ pub async fn start_run(
     work_item_id: i64,
     solution_id: i64,
 ) -> Result<StartedRun, String> {
+    let conn = db.0.lock().await;
+    prepare_run(&conn, work_item_id, solution_id).await
+}
+
+/// The body of `start_run`, over a plain connection.
+///
+/// Split out so the whole loop — plan, worktree, brief, commit, merge — can be
+/// driven end to end in a test against a real repository. The command is a thin
+/// wrapper, so what the test exercises is what the app runs, rather than a
+/// second copy of the sequence that could drift from it.
+pub(crate) async fn prepare_run(
+    conn: &turso::Connection,
+    work_item_id: i64,
+    solution_id: i64,
+) -> Result<StartedRun, String> {
     use crate::handover;
 
     let (root, branch, clone_from, brief, brief_path, attempt, run_start) = {
-        let conn = db.0.lock().await;
-        let Some(plan) = work_item_plan::list_for_item(&conn, work_item_id)
+        let Some(plan) = work_item_plan::list_for_item(conn, work_item_id)
             .await
             .map_err(to_message)?
             .into_iter()
@@ -149,7 +163,7 @@ pub async fn start_run(
                     .into(),
             );
         }
-        let Some(row) = solution::find_by_id(&conn, solution_id)
+        let Some(row) = solution::find_by_id(conn, solution_id)
             .await
             .map_err(to_message)?
         else {
@@ -172,17 +186,17 @@ pub async fn start_run(
                 .map(|d| d.start)
                 .unwrap_or_default(),
         };
-        let item = work_item::find_by_id(&conn, work_item_id)
+        let item = work_item::find_by_id(conn, work_item_id)
             .await
             .map_err(to_message)?
             .ok_or("that work item no longer exists")?;
-        let attempt = change_run::list_for_item(&conn, work_item_id)
+        let attempt = change_run::list_for_item(conn, work_item_id)
             .await
             .map_err(to_message)?
             .len();
         // The brief is built by the existing assembler, unchanged — this round
         // only changes *where* it is written.
-        let brief = super::workspace::build_handover_brief(&conn, &item, solution_id).await?;
+        let brief = super::workspace::build_handover_brief(conn, &item, solution_id).await?;
         let brief_path = handover::brief_path(&item.title, attempt);
         (root, plan.branch_name, plan.clone_from, brief, brief_path, attempt, run_start)
     };
@@ -200,11 +214,10 @@ pub async fn start_run(
     )?;
 
     let run_id = {
-        let conn = db.0.lock().await;
-        let id = change_run::prepare(&conn, work_item_id, solution_id, &brief_path)
+        let id = change_run::prepare(conn, work_item_id, solution_id, &brief_path)
             .await
             .map_err(to_message)?;
-        change_run::set_workspace(&conn, id, &worktree, "")
+        change_run::set_workspace(conn, id, &worktree, "")
             .await
             .map_err(to_message)?;
         id
@@ -470,4 +483,186 @@ pub async fn discard_run_worktree(db: State<'_, AppDb>, run_id: i64) -> Result<(
     change_run::set_workspace(&conn, run_id, "", "")
         .await
         .map_err(to_message)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::product::tests::db_with_product;
+    use crate::db::{work_item, work_item_plan};
+    use std::path::Path;
+
+    /// A real repository with one commit on `main`, nested a level down so the
+    /// worktrees (which land beside it) cannot collide between tests.
+    fn temp_repo(name: &str) -> Option<std::path::PathBuf> {
+        let enclosing = std::env::temp_dir().join(format!(
+            "coperativeai-loop-{}-{name}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&enclosing);
+        let dir = enclosing.join("repo");
+        std::fs::create_dir_all(&dir).ok()?;
+        let run = |args: &[&str]| {
+            std::process::Command::new("git")
+                .current_dir(&dir)
+                .args(args)
+                .output()
+                .ok()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        };
+        if !run(&["init", "-b", "main"]) {
+            return None;
+        }
+        run(&["config", "user.email", "t@example.invalid"]);
+        run(&["config", "user.name", "Test"]);
+        std::fs::write(dir.join("README.md"), "hello").ok()?;
+        run(&["add", "-A"]);
+        run(&["commit", "-m", "first"]);
+        Some(dir)
+    }
+
+    /// Stands in for the agent: writes a file in the run's own checkout and
+    /// commits it, which is all the rest of the loop needs from that step.
+    fn agent_commits(worktree: &str, file: &str, text: &str) {
+        std::fs::write(Path::new(worktree).join(file), text).expect("write");
+        for args in [["add", "-A"], ["commit", "-m"]] {
+            let mut cmd = std::process::Command::new("git");
+            cmd.current_dir(worktree).arg(args[0]).arg(args[1]);
+            if args[0] == "commit" {
+                cmd.arg("agent work");
+            }
+            cmd.output().expect("git");
+        }
+    }
+
+    /// Sets a Product up the way the app does: a Solution pointed at a real
+    /// repository, a work item, and a build plan naming the branch.
+    async fn product_with_run(
+        conn: &turso::Connection,
+        product_id: i64,
+        root: &str,
+        title: &str,
+        branch: &str,
+    ) -> (i64, i64) {
+        let solution_id = solution::create(conn, "Shop API", product_id, "api", "{}")
+            .await
+            .expect("solution");
+        solution::set_local_path(conn, solution_id, Some(root))
+            .await
+            .expect("point the Solution at the repo");
+        let item_id = work_item::create(conn, title, "feature", product_id, None, None)
+            .await
+            .expect("work item");
+        let plan_id = work_item_plan::attach(conn, item_id, solution_id)
+            .await
+            .expect("tick the Solution as affected");
+        work_item_plan::set_written(conn, plan_id, "Add it", "It works", branch, "main", "[]")
+            .await
+            .expect("write the plan");
+        (item_id, solution_id)
+    }
+
+    /// **The whole loop, on a real Product against a real repository.**
+    ///
+    /// Product → Solution pointed at a repo → work item → build plan → run
+    /// prepared (its own branch, its own checkout, its brief written into it) →
+    /// the agent commits → the branch comes home. Every step is the code the app
+    /// runs, not a second copy of the sequence that could drift from it.
+    #[tokio::test]
+    async fn a_work_item_goes_from_plan_to_merged() {
+        let Some(dir) = temp_repo("full") else {
+            eprintln!("skipped: git is not usable here");
+            return;
+        };
+        let root = dir.to_str().expect("utf-8");
+        let (conn, product_id) = db_with_product().await;
+        let (item_id, solution_id) =
+            product_with_run(&conn, product_id, root, "Add checkout", "feature/9-checkout").await;
+
+        // Start the run: a checkout of its own, on its own branch.
+        let started = prepare_run(&conn, item_id, solution_id).await.expect("start the run");
+        assert_eq!(started.branch, "feature/9-checkout");
+        assert!(Path::new(&started.worktree_path).is_dir(), "the run has its own folder");
+
+        // The brief the agent reads is inside that folder, not the main copy.
+        let brief = Path::new(&started.worktree_path).join(&started.brief_path);
+        assert!(brief.is_file(), "the brief is written where the agent will be");
+        let text = std::fs::read_to_string(&brief).expect("read brief");
+        assert!(text.contains("Add checkout"), "the brief names the work");
+        assert!(
+            !dir.join(&started.brief_path).exists(),
+            "and not into the main checkout"
+        );
+
+        // The run is recorded, so the panel finds it again after a restart.
+        let runs = change_run::list_for_product(&conn, product_id).await.expect("runs");
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].worktree_path, started.worktree_path);
+
+        // The agent does its work.
+        agent_commits(&started.worktree_path, "checkout.rs", "fn pay() {}");
+
+        // Bringing it home: checked first, then done.
+        let preview = vcs::merge_preview(root, &started.branch, "main").expect("preview");
+        assert!(preview.clean, "nothing else touched this file: {preview:?}");
+        assert_eq!(preview.commits_ahead, 1);
+        let outcome = vcs::merge_branch(root, &started.branch, "main").expect("merge");
+        assert!(outcome.merged);
+        assert!(dir.join("checkout.rs").is_file(), "the work landed on main");
+
+        let _ = std::fs::remove_dir_all(dir.parent().unwrap_or(&dir));
+    }
+
+    /// **Two work items at once** — what the worktrees exist for. Both run
+    /// against one Solution without sharing a checkout, and the second one home
+    /// is the merge that has to be resolved.
+    #[tokio::test]
+    async fn two_runs_on_one_solution_stay_apart_and_the_second_conflicts() {
+        let Some(dir) = temp_repo("parallel") else {
+            eprintln!("skipped: git is not usable here");
+            return;
+        };
+        let root = dir.to_str().expect("utf-8");
+        let (conn, product_id) = db_with_product().await;
+
+        // One Solution, two work items — the case that used to overwrite itself.
+        let (first_item, solution_id) =
+            product_with_run(&conn, product_id, root, "Add checkout", "feature/9-checkout").await;
+        let second_item =
+            work_item::create(&conn, "Add refunds", "feature", product_id, None, None)
+                .await
+                .expect("second item");
+        let plan = work_item_plan::attach(&conn, second_item, solution_id)
+            .await
+            .expect("attach");
+        work_item_plan::set_written(
+            &conn, plan, "Add it", "It works", "feature/10-refunds", "main", "[]",
+        )
+        .await
+        .expect("plan");
+
+        let a = prepare_run(&conn, first_item, solution_id).await.expect("first run");
+        let b = prepare_run(&conn, second_item, solution_id).await.expect("second run");
+        assert_ne!(a.worktree_path, b.worktree_path, "each run gets its own checkout");
+
+        // Both agents edit the same file — the collision this design expects.
+        agent_commits(&a.worktree_path, "shared.rs", "fn a() {}");
+        agent_commits(&b.worktree_path, "shared.rs", "fn b() {}");
+
+        // Neither disturbed the other: each checkout still holds its own work.
+        let read =
+            |wt: &str| std::fs::read_to_string(Path::new(wt).join("shared.rs")).expect("read");
+        assert_eq!(read(&a.worktree_path), "fn a() {}");
+        assert_eq!(read(&b.worktree_path), "fn b() {}");
+
+        // First home merges; the second is reported as a fight before it starts.
+        assert!(vcs::merge_branch(root, &a.branch, "main").expect("first").merged);
+        let preview = vcs::merge_preview(root, &b.branch, "main").expect("preview");
+        assert!(!preview.clean, "the second branch rewrote the same file");
+        assert!(preview.conflicts.iter().any(|f| f.contains("shared.rs")));
+
+        let _ = std::fs::remove_dir_all(dir.parent().unwrap_or(&dir));
+    }
 }
