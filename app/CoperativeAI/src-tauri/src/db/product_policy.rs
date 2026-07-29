@@ -89,7 +89,7 @@ pub async fn set_policy(
     Ok(())
 }
 
-pub async fn get_for_product(conn: &Connection, product_id: i64) -> Result<Option<ProductPolicy>> {
+pub async fn for_product(conn: &Connection, product_id: i64) -> Result<Option<ProductPolicy>> {
     let mut rows = conn
         .query(
             "SELECT id, productId, allowRead, allowGenerate, providerId, effortTier, updatedAt
@@ -123,7 +123,7 @@ mod tests {
     #[tokio::test]
     async fn a_product_with_no_policy_is_closed() {
         let (conn, product_id) = db_with_product().await;
-        assert_eq!(get_for_product(&conn, product_id).await.expect("get"), None);
+        assert_eq!(for_product(&conn, product_id).await.expect("get"), None);
     }
 
     #[tokio::test]
@@ -132,7 +132,7 @@ mod tests {
         set_policy(&conn, product_id, true, true, None, "medium")
             .await
             .expect("set");
-        let policy = get_for_product(&conn, product_id)
+        let policy = for_product(&conn, product_id)
             .await
             .expect("get")
             .expect("exists");
@@ -143,7 +143,7 @@ mod tests {
         set_policy(&conn, product_id, false, false, None, "low")
             .await
             .expect("replace");
-        let policy = get_for_product(&conn, product_id)
+        let policy = for_product(&conn, product_id)
             .await
             .expect("get")
             .expect("exists");

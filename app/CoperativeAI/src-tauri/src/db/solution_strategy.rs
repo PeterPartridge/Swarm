@@ -113,7 +113,7 @@ pub async fn set_strategy(
 
 /// Records which option the developer picked. `None` clears the choice.
 pub async fn choose_option(conn: &Connection, work_item_id: i64, index: Option<i64>) -> Result<()> {
-    let Some(existing) = get_for_item(conn, work_item_id).await? else {
+    let Some(existing) = for_item(conn, work_item_id).await? else {
         return Err(DbError::Validation(format!(
             "no solution strategy for work item {work_item_id}"
         )));
@@ -135,7 +135,7 @@ pub async fn choose_option(conn: &Connection, work_item_id: i64, index: Option<i
     Ok(())
 }
 
-pub async fn get_for_item(conn: &Connection, work_item_id: i64) -> Result<Option<SolutionStrategy>> {
+pub async fn for_item(conn: &Connection, work_item_id: i64) -> Result<Option<SolutionStrategy>> {
     let mut rows = conn
         .query(&format!("{SELECT} WHERE workItemId = ?1"), (work_item_id,))
         .await?;
@@ -179,7 +179,7 @@ mod tests {
             .await
             .expect("set");
 
-        let stored = get_for_item(&conn, item_id).await.expect("get").expect("exists");
+        let stored = for_item(&conn, item_id).await.expect("get").expect("exists");
         assert!(stored.strategy.starts_with("Build it"));
         assert_eq!(stored.tech_stack, "Rust, Azure");
         assert_eq!(stored.ai_usage_id, Some(4));
@@ -202,7 +202,7 @@ mod tests {
 
         choose_option(&conn, item_id, Some(1)).await.expect("choose");
         assert_eq!(
-            get_for_item(&conn, item_id).await.expect("get").unwrap().chosen_option_index,
+            for_item(&conn, item_id).await.expect("get").unwrap().chosen_option_index,
             Some(1)
         );
 
@@ -212,7 +212,7 @@ mod tests {
 
         choose_option(&conn, item_id, None).await.expect("clear");
         assert_eq!(
-            get_for_item(&conn, item_id).await.expect("get").unwrap().chosen_option_index,
+            for_item(&conn, item_id).await.expect("get").unwrap().chosen_option_index,
             None
         );
     }
@@ -227,7 +227,7 @@ mod tests {
         choose_option(&conn, item_id, Some(1)).await.expect("choose");
 
         set_strategy(&conn, item_id, "second", OPTIONS, "", "[]", None).await.expect("regenerate");
-        let stored = get_for_item(&conn, item_id).await.expect("get").unwrap();
+        let stored = for_item(&conn, item_id).await.expect("get").unwrap();
         assert_eq!(stored.strategy, "second");
         assert_eq!(stored.chosen_option_index, None, "a stale choice must not survive");
     }

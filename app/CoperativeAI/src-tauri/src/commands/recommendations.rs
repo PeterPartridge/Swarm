@@ -60,7 +60,7 @@ pub async fn recommend_for_work_item(
 
     // Budget state, so an option can be marked unaffordable rather than
     // offered and then refused by the router at the moment of spending.
-    let budget = product_budget::get_for_product(&conn, item.product_id)
+    let budget = product_budget::for_product(&conn, item.product_id)
         .await
         .map_err(to_message)?;
     let (ai_budget, spent, hard_stop_reached) = match &budget {

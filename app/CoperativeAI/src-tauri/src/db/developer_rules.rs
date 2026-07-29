@@ -85,7 +85,7 @@ pub async fn set_rules(
     Ok(())
 }
 
-pub async fn get_for_product(conn: &Connection, product_id: i64) -> Result<Option<DeveloperRules>> {
+pub async fn for_product(conn: &Connection, product_id: i64) -> Result<Option<DeveloperRules>> {
     let mut rows = conn
         .query(&format!("{SELECT} WHERE productId = ?1"), (product_id,))
         .await?;
@@ -198,7 +198,7 @@ mod tests {
             .await
             .expect("replace");
 
-        let rules = get_for_product(&conn, product_id).await.expect("get").expect("exists");
+        let rules = for_product(&conn, product_id).await.expect("get").expect("exists");
         assert_eq!(rules.coding_standards, "DRY + SOLID");
         assert_eq!(rules.disallowed_tech, "Java, PHP");
     }
@@ -206,7 +206,7 @@ mod tests {
     #[tokio::test]
     async fn a_product_without_rules_has_none_and_an_unknown_product_is_rejected() {
         let (conn, product_id) = db_with_product().await;
-        assert_eq!(get_for_product(&conn, product_id).await.expect("get"), None);
+        assert_eq!(for_product(&conn, product_id).await.expect("get"), None);
         assert!(set_rules(&conn, 999, "", "", "", "", "", "", "").await.is_err());
     }
 

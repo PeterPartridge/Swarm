@@ -96,7 +96,7 @@ pub fn brief(inputs: &HandoverInputs<'_>) -> String {
         s.push('\n');
     }
 
-    s.push_str(&crate::pack::developer_rules_doc(inputs.rules));
+    s.push_str(&crate::files::pack::developer_rules_doc(inputs.rules));
     s.push('\n');
 
     if let Some(strategy) = inputs.strategy.map(str::trim).filter(|v| !v.is_empty()) {
@@ -210,7 +210,7 @@ pub fn brief(inputs: &HandoverInputs<'_>) -> String {
 /// never overwrites what an earlier attempt was told — which is the first
 /// thing anyone wants to read when a second attempt goes wrong.
 pub fn brief_path(work_item_title: &str, attempt: usize) -> String {
-    let stem = crate::emit::safe_stem(work_item_title);
+    let stem = crate::files::emit::safe_stem(work_item_title);
     if attempt <= 1 {
         format!(".coperativeai/briefs/{stem}.md")
     } else {

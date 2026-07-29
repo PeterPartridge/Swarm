@@ -6,7 +6,8 @@
 
 use super::{to_message, AppDb};
 use crate::db::{commit_policy, solution};
-use crate::{drawio, ssh, vcs};
+use crate::design::drawio;
+use crate::git::{ssh, vcs};
 use serde::Serialize;
 use tauri::State;
 

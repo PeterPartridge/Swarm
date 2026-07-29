@@ -102,7 +102,7 @@ pub async fn set_budget(
 
     // Keep the period start when only the amounts change, so editing a budget
     // mid-month does not silently reset the spend window.
-    let existing_start = get_for_product(conn, product_id).await?.map(|b| b.period_start);
+    let existing_start = for_product(conn, product_id).await?.map(|b| b.period_start);
     let period_start = existing_start.unwrap_or_else(now_millis);
 
     conn.execute("DELETE FROM product_budgets WHERE productId = ?1", (product_id,))
@@ -130,7 +130,7 @@ pub async fn set_budget(
     Ok(())
 }
 
-pub async fn get_for_product(conn: &Connection, product_id: i64) -> Result<Option<ProductBudget>> {
+pub async fn for_product(conn: &Connection, product_id: i64) -> Result<Option<ProductBudget>> {
     let mut rows = conn
         .query(&format!("{SELECT} WHERE productId = ?1"), (product_id,))
         .await?;
@@ -181,7 +181,7 @@ mod tests {
     #[tokio::test]
     async fn a_product_with_no_budget_has_none() {
         let (conn, product_id) = db_with_product().await;
-        assert_eq!(get_for_product(&conn, product_id).await.expect("get"), None);
+        assert_eq!(for_product(&conn, product_id).await.expect("get"), None);
     }
 
     #[tokio::test]
@@ -193,7 +193,7 @@ mod tests {
             .await
             .expect("set");
 
-        let budget = get_for_product(&conn, product_id).await.expect("get").expect("exists");
+        let budget = for_product(&conn, product_id).await.expect("get").expect("exists");
         assert_eq!(budget.ai_budget_micropence, 50_000_000);
         assert_eq!(budget.provider_chain, vec![claude, ollama]);
         assert_eq!(budget.handover_pct, 90);
@@ -223,10 +223,10 @@ mod tests {
     async fn editing_a_budget_keeps_the_period_start() {
         let (conn, product_id) = db_with_product().await;
         set_budget(&conn, product_id, 0, 100, 0, 75, 90, 100, 30, &[]).await.expect("first");
-        let first = get_for_product(&conn, product_id).await.expect("get").expect("exists");
+        let first = for_product(&conn, product_id).await.expect("get").expect("exists");
 
         set_budget(&conn, product_id, 0, 999, 0, 75, 90, 100, 30, &[]).await.expect("second");
-        let second = get_for_product(&conn, product_id).await.expect("get").expect("exists");
+        let second = for_product(&conn, product_id).await.expect("get").expect("exists");
 
         assert_eq!(second.period_start, first.period_start);
         assert_eq!(second.ai_budget_micropence, 999);

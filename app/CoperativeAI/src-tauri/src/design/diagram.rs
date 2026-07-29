@@ -46,7 +46,7 @@ pub fn check(format: &str, content: &str) -> Result<(), String> {
         // be. `drawio::looks_like_drawio` is the one place that judges it, so
         // the file writer and this check cannot disagree.
         "drawio" => {
-            if crate::drawio::looks_like_drawio(content) {
+            if crate::design::drawio::looks_like_drawio(content) {
                 Ok(())
             } else {
                 Err("a draw.io diagram starts with <mxfile> — this does not".into())

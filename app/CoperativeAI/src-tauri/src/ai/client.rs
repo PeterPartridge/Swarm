@@ -1596,7 +1596,7 @@ mod tests {
         };
         assert_eq!(draft.format, "plantuml", "the parser takes the caller's word");
         assert!(
-            crate::diagram::check(&draft.format, &draft.content).is_err(),
+            crate::design::diagram::check(&draft.format, &draft.content).is_err(),
             "and the checker catches that it is not PlantUML"
         );
     }

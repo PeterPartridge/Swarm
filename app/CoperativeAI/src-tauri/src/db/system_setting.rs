@@ -59,7 +59,7 @@ pub async fn set(conn: &Connection, key: &str, value_json: &str) -> Result<()> {
 }
 
 /// The active planning hierarchy — the stored preset, or the default when unset.
-pub async fn get_planning_hierarchy(conn: &Connection) -> Result<Vec<String>> {
+pub async fn planning_hierarchy(conn: &Connection) -> Result<Vec<String>> {
     match get(conn, PLANNING_HIERARCHY_KEY).await? {
         Some(json) => Ok(serde_json::from_str(&json).unwrap_or_else(|_| default_hierarchy())),
         None => Ok(default_hierarchy()),
@@ -90,7 +90,7 @@ pub const AI_CONCURRENCY_DEFAULT: i64 = 1;
 /// budget is still meaningfully checked between calls.
 pub const AI_CONCURRENCY_MAX: i64 = 8;
 
-pub async fn get_ai_concurrency(conn: &Connection) -> Result<i64> {
+pub async fn ai_concurrency(conn: &Connection) -> Result<i64> {
     let raw = match get(conn, AI_CONCURRENCY_KEY).await? {
         Some(json) => serde_json::from_str::<i64>(&json).unwrap_or(AI_CONCURRENCY_DEFAULT),
         None => AI_CONCURRENCY_DEFAULT,
@@ -110,7 +110,7 @@ pub async fn set_ai_concurrency(conn: &Connection, limit: i64) -> Result<()> {
     set(conn, AI_CONCURRENCY_KEY, &json).await
 }
 
-pub async fn get_roadmap_mode(conn: &Connection) -> Result<String> {
+pub async fn roadmap_mode(conn: &Connection) -> Result<String> {
     match get(conn, ROADMAP_MODE_KEY).await? {
         Some(json) => Ok(serde_json::from_str(&json).unwrap_or_else(|_| "sprints".to_string())),
         None => Ok("sprints".to_string()),
@@ -145,9 +145,9 @@ mod tests {
     #[tokio::test]
     async fn unset_hierarchy_falls_back_to_the_default_preset() {
         let conn = test_db().await;
-        let hierarchy = get_planning_hierarchy(&conn).await.expect("get");
+        let hierarchy = planning_hierarchy(&conn).await.expect("get");
         assert_eq!(hierarchy, vec!["epic", "feature", "userStory", "task"]);
-        assert_eq!(get_roadmap_mode(&conn).await.expect("get"), "sprints");
+        assert_eq!(roadmap_mode(&conn).await.expect("get"), "sprints");
     }
 
     #[tokio::test]
@@ -155,7 +155,7 @@ mod tests {
         let conn = test_db().await;
         let valid: Vec<String> = ["feature", "task"].iter().map(|s| s.to_string()).collect();
         set_planning_hierarchy(&conn, &valid).await.expect("valid preset");
-        assert_eq!(get_planning_hierarchy(&conn).await.expect("get"), valid);
+        assert_eq!(planning_hierarchy(&conn).await.expect("get"), valid);
 
         let invalid: Vec<String> = ["task", "epic"].iter().map(|s| s.to_string()).collect();
         assert!(set_planning_hierarchy(&conn, &invalid).await.is_err());
@@ -165,7 +165,7 @@ mod tests {
     async fn roadmap_mode_is_validated_and_persisted() {
         let conn = test_db().await;
         set_roadmap_mode(&conn, "kanban").await.expect("valid mode");
-        assert_eq!(get_roadmap_mode(&conn).await.expect("get"), "kanban");
+        assert_eq!(roadmap_mode(&conn).await.expect("get"), "kanban");
         assert!(set_roadmap_mode(&conn, "gantt").await.is_err());
     }
 

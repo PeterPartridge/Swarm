@@ -13,7 +13,9 @@
 
 use super::{to_message, AppDb};
 use crate::db::solution;
-use crate::{test_runner, vcs, workspace};
+use crate::files::workspace;
+use crate::git::vcs;
+use crate::tooling::test_runner;
 use serde::Serialize;
 use tauri::State;
 
@@ -327,9 +329,9 @@ pub async fn suggest_dev_command(
     };
     // The Solution's own command wins over detection, exactly like the test one.
     let dev = match &custom {
-        Some(command) => crate::dev_runner::custom(command),
-        None => crate::dev_runner::detect(std::path::Path::new(&root)).unwrap_or_else(|| {
-            crate::dev_runner::DevCommand {
+        Some(command) => crate::tooling::dev_runner::custom(command),
+        None => crate::tooling::dev_runner::detect(std::path::Path::new(&root)).unwrap_or_else(|| {
+            crate::tooling::dev_runner::DevCommand {
                 kind: "custom".into(),
                 start: String::new(),
                 watch: String::new(),
@@ -346,7 +348,7 @@ pub async fn suggest_dev_command(
         start: dev.start,
         watch: dev.watch,
         watch_needs: dev.watch_needs,
-        watch_ready: crate::dev_runner::tool_on_path(&dev.watch_bin),
+        watch_ready: crate::tooling::dev_runner::tool_on_path(&dev.watch_bin),
         found_by: dev.found_by,
         custom: custom.is_some(),
         unavailable,

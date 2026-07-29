@@ -11,7 +11,7 @@
 
 use super::{to_message, AppDb};
 use crate::db::{change_run, solution, work_item, work_item_plan};
-use crate::vcs;
+use crate::git::vcs;
 use serde::Serialize;
 use tauri::State;
 
@@ -142,7 +142,7 @@ pub(crate) async fn prepare_run(
     work_item_id: i64,
     solution_id: i64,
 ) -> Result<StartedRun, String> {
-    use crate::handover;
+    use crate::agent::handover;
 
     let (root, branch, clone_from, brief, brief_path, attempt, run_start) = {
         let Some(plan) = work_item_plan::list_for_item(conn, work_item_id)
@@ -181,8 +181,8 @@ pub(crate) async fn prepare_run(
         // Detection reads the same manifest the worktree will have — the repo is
         // one repository — so the command works run from the checkout below.
         let run_start = match run_override {
-            Some(command) => crate::dev_runner::custom(&command).start,
-            None => crate::dev_runner::detect(std::path::Path::new(&root))
+            Some(command) => crate::tooling::dev_runner::custom(&command).start,
+            None => crate::tooling::dev_runner::detect(std::path::Path::new(&root))
                 .map(|d| d.start)
                 .unwrap_or_default(),
         };
@@ -205,9 +205,9 @@ pub(crate) async fn prepare_run(
     // The checkout comes first: the brief is written into it, not into the main
     // working copy, so an agent reading its brief is already in its own folder.
     let worktree = vcs::add_worktree(&root, &branch, &clone_from)?;
-    crate::emit::write_generated(
+    crate::files::emit::write_generated(
         &worktree,
-        &[crate::emit::EmitFile {
+        &[crate::files::emit::EmitFile {
             rel_path: brief_path.clone(),
             contents: brief,
         }],

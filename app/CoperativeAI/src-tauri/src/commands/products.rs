@@ -44,7 +44,7 @@ pub async fn create_product(
     let conn = db.0.lock().await;
     let id = product::create(&conn, &name, &answers).await.map_err(to_message)?;
     if let Some(dir) = scaffold_dir.filter(|d| !d.trim().is_empty()) {
-        let path = match crate::scaffold::scaffold_product(&dir, &name, &answers) {
+        let path = match crate::tooling::scaffold::scaffold_product(&dir, &name, &answers) {
             Ok(path) => path,
             Err(e) => {
                 let _ = product::delete(&conn, id).await;

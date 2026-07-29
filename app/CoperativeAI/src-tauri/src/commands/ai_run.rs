@@ -49,7 +49,7 @@ pub(crate) async fn plan(
         })
         .collect();
 
-    let budget_row = product_budget::get_for_product(conn, product_id)
+    let budget_row = product_budget::for_product(conn, product_id)
         .await
         .map_err(to_message)?;
     let state = match &budget_row {

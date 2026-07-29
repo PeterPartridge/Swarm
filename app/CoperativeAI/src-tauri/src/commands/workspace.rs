@@ -3,7 +3,8 @@
 
 use super::{to_message, AppDb};
 use crate::db::{developer_rules, solution};
-use crate::{review, workspace};
+use crate::agent::review;
+use crate::files::workspace;
 use serde::Serialize;
 use tauri::State;
 
@@ -134,7 +135,7 @@ pub async fn ask_coding_pal(
         let product_id = solution_row.product_id;
         // Deny-by-default, the same policy that gates every Product-scoped
         // generation.
-        let Some(policy) = product_policy::get_for_product(&conn, product_id)
+        let Some(policy) = product_policy::for_product(&conn, product_id)
             .await
             .map_err(to_message)?
         else {
@@ -155,12 +156,12 @@ pub async fn ask_coding_pal(
         // The same containment rule as every read — the pal cannot be pointed
         // at a file outside the Solution's folder.
         let file_content = workspace::read_file(&root, &path)?;
-        let rules = developer_rules::get_for_product(&conn, product_id)
+        let rules = developer_rules::for_product(&conn, product_id)
             .await
             .map_err(to_message)?
             .unwrap_or_default();
         let disallowed = rules.disallowed_tech.clone();
-        let rules_doc = crate::pack::developer_rules_doc(&rules);
+        let rules_doc = crate::files::pack::developer_rules_doc(&rules);
         let prompt = client::build_pal_prompt(
             &path,
             &file_content,
@@ -292,7 +293,7 @@ pub(crate) async fn build_handover_brief(
     use crate::db::{
         ai_feedback, architecture_doc, product, solution_strategy, work_item, work_item_link,
     };
-    use crate::handover::{self, HandoverInputs};
+    use crate::agent::handover::{self, HandoverInputs};
 
     let Some(product_row) = product::find_by_id(conn, item.product_id)
         .await
@@ -303,14 +304,14 @@ pub(crate) async fn build_handover_brief(
     let solution_row = solution::find_by_id(conn, solution_id)
         .await
         .map_err(to_message)?;
-    let rules = developer_rules::get_for_product(conn, item.product_id)
+    let rules = developer_rules::for_product(conn, item.product_id)
         .await
         .map_err(to_message)?
         .unwrap_or_default();
 
     // The build strategy, and which option the developer settled on — so the
     // agent does not re-open a decision that has already been made.
-    let strategy = solution_strategy::get_for_item(conn, item.id)
+    let strategy = solution_strategy::for_item(conn, item.id)
         .await
         .map_err(to_message)?;
     let chosen = strategy.as_ref().and_then(|s| {
@@ -343,8 +344,8 @@ pub(crate) async fn build_handover_brief(
     let dev = solution_row.as_ref().and_then(|row| {
         let root = row.local_path.as_deref().filter(|p| !p.trim().is_empty())?;
         match row.run_command.as_deref().filter(|c| !c.trim().is_empty()) {
-            Some(command) => Some(crate::dev_runner::custom(command)),
-            None => crate::dev_runner::detect(std::path::Path::new(root)),
+            Some(command) => Some(crate::tooling::dev_runner::custom(command)),
+            None => crate::tooling::dev_runner::detect(std::path::Path::new(root)),
         }
     });
     let run_start = dev.as_ref().map(|d| d.start.as_str()).filter(|s| !s.is_empty());
@@ -425,7 +426,7 @@ pub async fn prepare_handover(
     work_item_id: i64,
 ) -> Result<HandoverDto, String> {
     use crate::db::work_item;
-    use crate::handover;
+    use crate::agent::handover;
 
     let (brief, brief_path, root, solution_id) = {
         let conn = db.0.lock().await;
@@ -457,9 +458,9 @@ pub async fn prepare_handover(
 
     // Written into the working copy so the agent can read it in place, under
     // this app's own folder rather than the project's root.
-    crate::emit::write_generated(
+    crate::files::emit::write_generated(
         &root,
-        &[crate::emit::EmitFile {
+        &[crate::files::emit::EmitFile {
             rel_path: brief_path.clone(),
             contents: brief.clone(),
         }],
@@ -472,7 +473,7 @@ pub async fn prepare_handover(
 
     Ok(HandoverDto {
         run_id,
-        command: crate::handover::suggested_command(&brief_path),
+        command: crate::agent::handover::suggested_command(&brief_path),
         brief_path,
         brief,
     })
@@ -525,7 +526,7 @@ pub async fn review_solution_changes(
         else {
             return Err("that Solution no longer exists".into());
         };
-        let rules = developer_rules::get_for_product(&conn, row.product_id)
+        let rules = developer_rules::for_product(&conn, row.product_id)
             .await
             .map_err(to_message)?;
         (root, rules)

@@ -5,7 +5,7 @@
 
 use super::{to_message, AppDb};
 use crate::db::solution;
-use crate::github;
+use crate::git::github;
 use serde::Serialize;
 use tauri::State;
 

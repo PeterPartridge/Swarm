@@ -109,7 +109,7 @@ pub async fn save(
     if format == "mermaid" {
         // The same check architecture documents use — one answer to "is this a
         // diagram", rather than two that drift apart.
-        crate::diagram::check(format, content)
+        crate::design::diagram::check(format, content)
             .map_err(|e| DbError::Validation(format!("{kind}: {e}")))?;
     }
 

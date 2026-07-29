@@ -145,7 +145,7 @@ pub async fn create(
         return Err(DbError::Validation(format!("no Product with id {product_id}")));
     }
 
-    let hierarchy = crate::db::system_setting::get_planning_hierarchy(conn).await?;
+    let hierarchy = crate::db::system_setting::planning_hierarchy(conn).await?;
     let is_hierarchy_type = hierarchy.iter().any(|t| t == item_type);
     let is_any_level_type = item_type == "bug" || item_type == "test";
     if !is_hierarchy_type && !is_any_level_type {

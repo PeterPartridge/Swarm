@@ -329,7 +329,7 @@ mod tests {
         assert!(files[0].contents.contains("1f6feb"));
 
         // and the message that points there still says so
-        let message = crate::figma::explain_for_test(403, "write variables");
+        let message = crate::design::figma::explain_for_test(403, "write variables");
         assert!(message.contains("design/tokens.json"));
     }
 

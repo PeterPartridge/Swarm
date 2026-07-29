@@ -47,7 +47,7 @@ pub async fn save(conn: &Connection, work_item_id: i64, canvas: &str) -> Result<
     validate_canvas(canvas)?;
 
     let now = now_millis();
-    let existing = get_for_item(conn, work_item_id).await?;
+    let existing = for_item(conn, work_item_id).await?;
     match existing {
         Some(design) => {
             conn.execute(
@@ -68,7 +68,7 @@ pub async fn save(conn: &Connection, work_item_id: i64, canvas: &str) -> Result<
     Ok(())
 }
 
-pub async fn get_for_item(
+pub async fn for_item(
     conn: &Connection,
     work_item_id: i64,
 ) -> Result<Option<FeatureDesign>> {
@@ -152,7 +152,7 @@ mod tests {
     async fn saved_design_reloads_exactly_as_left() {
         let (conn, item_id) = db_with_item().await;
         save(&conn, item_id, VALID_CANVAS).await.expect("save");
-        let design = get_for_item(&conn, item_id)
+        let design = for_item(&conn, item_id)
             .await
             .expect("get")
             .expect("exists");
@@ -182,7 +182,7 @@ mod tests {
         let (conn, item_id) = db_with_item().await;
         save(&conn, item_id, "{}").await.expect("first save");
         save(&conn, item_id, VALID_CANVAS).await.expect("second save");
-        let design = get_for_item(&conn, item_id)
+        let design = for_item(&conn, item_id)
             .await
             .expect("get")
             .expect("exists");
@@ -194,7 +194,7 @@ mod tests {
         let (conn, item_id) = db_with_item().await;
         save(&conn, item_id, VALID_CANVAS).await.expect("save");
         work_item::delete(&conn, item_id).await.expect("delete item");
-        assert!(get_for_item(&conn, item_id).await.expect("get").is_none());
+        assert!(for_item(&conn, item_id).await.expect("get").is_none());
     }
 
     #[tokio::test]

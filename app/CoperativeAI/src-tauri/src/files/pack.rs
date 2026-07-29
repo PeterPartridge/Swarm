@@ -13,7 +13,7 @@
 
 use crate::db::developer_rules::DeveloperRules;
 use crate::db::solution_strategy::ARCHITECTURE_KINDS;
-use crate::emit::EmitFile;
+use crate::files::emit::EmitFile;
 
 /// What the pack was built from, so a pack can be rebuilt identically.
 pub struct PackInputs<'a> {
@@ -149,7 +149,7 @@ pub fn pack_info(inputs: &PackInputs<'_>) -> String {
 
 /// Builds the whole pack as files, relative to the Product's scaffold root.
 pub fn build(inputs: &PackInputs<'_>) -> Vec<EmitFile> {
-    let dir = format!("packs/{}", crate::emit::safe_stem(inputs.model));
+    let dir = format!("packs/{}", crate::files::emit::safe_stem(inputs.model));
     vec![
         EmitFile {
             rel_path: format!("{dir}/pack-info.json"),

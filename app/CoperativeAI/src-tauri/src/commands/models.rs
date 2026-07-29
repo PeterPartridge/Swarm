@@ -15,7 +15,7 @@ use crate::db::{
     ai_provider, ai_usage, developer_rules, model_install, product, product_budget,
     solution_management, strategy,
 };
-use crate::{emit, pack};
+use crate::files::{emit, pack};
 use serde::Serialize;
 use std::collections::HashMap;
 use tauri::State;
@@ -142,7 +142,7 @@ pub async fn install_model(
             .await
             .map_err(to_message)?
             .ok_or_else(|| "that Product no longer exists".to_string())?;
-        let rules = developer_rules::get_for_product(&conn, product_id)
+        let rules = developer_rules::for_product(&conn, product_id)
             .await
             .map_err(to_message)?
             .unwrap_or_default();
@@ -192,7 +192,7 @@ pub async fn install_model(
     let disallowed = {
         let conn = db.0.lock().await;
         if provider.metered {
-            let budget = product_budget::get_for_product(&conn, product_id)
+            let budget = product_budget::for_product(&conn, product_id)
                 .await
                 .map_err(to_message)?;
             if let Some(budget) = budget {
@@ -214,7 +214,7 @@ pub async fn install_model(
                 }
             }
         }
-        developer_rules::get_for_product(&conn, product_id)
+        developer_rules::for_product(&conn, product_id)
             .await
             .map_err(to_message)?
             .map(|r| r.disallowed_tech)

@@ -100,7 +100,7 @@ pub async fn set_policy(
     Ok(())
 }
 
-pub async fn get_for_item(
+pub async fn for_item(
     conn: &Connection,
     work_item_id: i64,
 ) -> Result<Option<WorkItemPolicy>> {
@@ -139,7 +139,7 @@ pub async fn is_allowed(
     ai_use: AiUse,
     provider_id: i64,
 ) -> Result<bool> {
-    let Some(policy) = get_for_item(conn, work_item_id).await? else {
+    let Some(policy) = for_item(conn, work_item_id).await? else {
         return Ok(false);
     };
     if policy.provider_id != Some(provider_id) {
@@ -232,7 +232,7 @@ mod tests {
         set_policy(&conn, item_id, true, false, false, Some(provider_id), "low")
             .await
             .expect("replace policy");
-        let policy = get_for_item(&conn, item_id)
+        let policy = for_item(&conn, item_id)
             .await
             .expect("get")
             .expect("exists");
@@ -249,7 +249,7 @@ mod tests {
             .await
             .expect("set policy");
         ai_provider::remove(&conn, provider_id).await.expect("remove");
-        let policy = get_for_item(&conn, item_id)
+        let policy = for_item(&conn, item_id)
             .await
             .expect("get")
             .expect("policy survives");
@@ -266,7 +266,7 @@ mod tests {
             .await
             .expect("set policy");
         work_item::delete(&conn, item_id).await.expect("delete item");
-        assert!(get_for_item(&conn, item_id).await.expect("get").is_none());
+        assert!(for_item(&conn, item_id).await.expect("get").is_none());
     }
 
     #[tokio::test]

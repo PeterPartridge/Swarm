@@ -103,7 +103,7 @@ pub async fn open_terminal_at(
             .ok_or("that Solution has no folder on this machine")?
     };
     // Only somewhere the app made: a worktree of this Solution's repository.
-    let known = crate::vcs::list_worktrees(&root)?;
+    let known = crate::git::vcs::list_worktrees(&root)?;
     if !known.iter().any(|w| same_path(w, &path)) {
         return Err("that folder is not one of this run's worktrees".into());
     }

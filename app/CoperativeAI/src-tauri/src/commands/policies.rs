@@ -38,7 +38,7 @@ pub async fn get_work_item_policy(
     work_item_id: i64,
 ) -> Result<Option<WorkItemPolicyDto>, String> {
     let conn = db.0.lock().await;
-    let policy = work_item_policy::get_for_item(&conn, work_item_id)
+    let policy = work_item_policy::for_item(&conn, work_item_id)
         .await
         .map_err(to_message)?;
     Ok(policy.map(WorkItemPolicyDto::from))
@@ -96,7 +96,7 @@ pub async fn get_product_policy(
     product_id: i64,
 ) -> Result<Option<ProductPolicyDto>, String> {
     let conn = db.0.lock().await;
-    let policy = product_policy::get_for_product(&conn, product_id)
+    let policy = product_policy::for_product(&conn, product_id)
         .await
         .map_err(to_message)?;
     Ok(policy.map(ProductPolicyDto::from))

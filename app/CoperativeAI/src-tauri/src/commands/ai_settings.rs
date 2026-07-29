@@ -21,7 +21,7 @@ pub struct AiProviderDto {
 }
 
 fn to_dto(p: AiProvider) -> AiProviderDto {
-    let key_stored = keys::key_stored(&p.key_alias);
+    let key_stored = keys::stored(&p.key_alias);
     AiProviderDto {
         id: p.id,
         name: p.name,
@@ -90,7 +90,7 @@ pub async fn add_ai_provider(
         .map_err(to_message)?;
     // Key goes to the OS credential store only after the row is valid; if
     // storing fails, roll the row back so DB and store stay consistent.
-    if let Err(e) = keys::store_key(&alias, &api_key) {
+    if let Err(e) = keys::store(&alias, &api_key) {
         let _ = ai_provider::remove(&conn, id).await;
         return Err(e);
     }
@@ -103,7 +103,7 @@ pub async fn remove_ai_provider(db: State<'_, AppDb>, id: i64) -> Result<(), Str
     let Some(provider) = ai_provider::find_by_id(&conn, id).await.map_err(to_message)? else {
         return Err(format!("no AI provider with id {id}"));
     };
-    keys::delete_key(&provider.key_alias)?;
+    keys::delete(&provider.key_alias)?;
     ai_provider::remove(&conn, id).await.map_err(to_message)
 }
 
@@ -139,7 +139,7 @@ pub async fn test_ai_provider(db: State<'_, AppDb>, id: i64) -> Result<String, S
         };
     }
 
-    let key = keys::get_key(&key_alias)?;
+    let key = keys::read(&key_alias)?;
     client::test_connection(&base_url, &key, &model).await?;
     Ok(format!("Connection OK ({model})"))
 }

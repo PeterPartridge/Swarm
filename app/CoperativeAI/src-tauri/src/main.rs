@@ -1,27 +1,19 @@
 // Prevents an extra console window on Windows in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+// Grouped by what each area is for, rather than eighteen files in a row: git
+// and the things that authenticate to it, the drawing tools, the agent pipeline,
+// the command runners, and the file readers/writers. `db` and `commands` were
+// already folders; `terminal` and `ai` too.
+mod agent;
 mod ai;
 mod commands;
 mod db;
-mod dev_runner;
-mod diagram;
-mod emit;
-mod figma;
-mod handover;
-mod jobs;
-mod github;
-mod pack;
-mod review;
-mod scaffold;
-mod drawio;
-mod ssh;
-mod starter;
+mod design;
+mod files;
+mod git;
 mod terminal;
-mod test_runner;
-mod vcs;
-mod work_item_files;
-mod workspace;
+mod tooling;
 
 use std::path::PathBuf;
 use tauri::Manager;
@@ -58,11 +50,11 @@ fn main() {
                 let db = app.state::<commands::AppDb>();
                 let conn = db.0.lock().await;
                 let _ = db::ai_job::fail_interrupted(&conn).await;
-                db::system_setting::get_ai_concurrency(&conn)
+                db::system_setting::ai_concurrency(&conn)
                     .await
                     .unwrap_or(db::system_setting::AI_CONCURRENCY_DEFAULT)
             });
-            app.manage(std::sync::Arc::new(jobs::JobRunner::new(limit)));
+            app.manage(std::sync::Arc::new(agent::jobs::JobRunner::new(limit)));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

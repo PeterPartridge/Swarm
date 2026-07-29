@@ -521,7 +521,7 @@ mod tests {
         assert!(mermaid.contains("solution_7[(\"Orders\")]"));
         assert!(mermaid.contains("solution_3 -->|shares a schema with| solution_7"));
         // and the structural check agrees it is Mermaid
-        assert!(crate::diagram::check("mermaid", &mermaid).is_ok());
+        assert!(crate::design::diagram::check("mermaid", &mermaid).is_ok());
     }
 
     /// A dash ends a Mermaid id and the rest becomes a parse error nobody can
@@ -547,7 +547,7 @@ mod tests {
 
         assert!(!mermaid.contains("\"quoted\""), "double quotes are swapped out");
         assert!(mermaid.contains("reads/writes"), "the pipe is swapped out");
-        assert!(crate::diagram::check("mermaid", &mermaid).is_ok());
+        assert!(crate::design::diagram::check("mermaid", &mermaid).is_ok());
     }
 
     /// draw.io is an architecture format like the others, so the same validator
@@ -555,9 +555,9 @@ mod tests {
     #[test]
     fn drawio_is_checked_as_an_architecture_format() {
         let xml = build("Infra", &[node("a", "A", "service")], &[]);
-        assert!(crate::diagram::check("drawio", &xml).is_ok());
-        assert!(crate::diagram::check("drawio", "flowchart TD\n  a --> b").is_err());
-        assert!(crate::diagram::FORMATS.contains(&"drawio"));
+        assert!(crate::design::diagram::check("drawio", &xml).is_ok());
+        assert!(crate::design::diagram::check("drawio", "flowchart TD\n  a --> b").is_err());
+        assert!(crate::design::diagram::FORMATS.contains(&"drawio"));
     }
 
     #[test]

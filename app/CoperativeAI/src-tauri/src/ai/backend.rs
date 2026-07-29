@@ -25,7 +25,7 @@ pub async fn generate_stories(
     match provider.kind.as_str() {
         "ollama" => ollama::generate_stories(&provider.api_base_url, model, prompt).await,
         "anthropic" => {
-            let api_key = keys::get_key(&provider.key_alias)?;
+            let api_key = keys::read(&provider.key_alias)?;
             client::generate_stories(&provider.api_base_url, &api_key, model, effort, prompt).await
         }
         other => Err(unknown_kind(provider, other)),
@@ -47,7 +47,7 @@ pub async fn generate_solution_strategy(
     match provider.kind.as_str() {
         "ollama" => ollama::generate_solution_strategy(&provider.api_base_url, model, prompt).await,
         "anthropic" => {
-            let api_key = keys::get_key(&provider.key_alias)?;
+            let api_key = keys::read(&provider.key_alias)?;
             client::generate_solution_strategy(&provider.api_base_url, &api_key, model, effort, prompt)
                 .await
         }
@@ -67,7 +67,7 @@ pub async fn generate_design(
     match provider.kind.as_str() {
         "ollama" => ollama::generate_design(&provider.api_base_url, model, prompt).await,
         "anthropic" => {
-            let api_key = keys::get_key(&provider.key_alias)?;
+            let api_key = keys::read(&provider.key_alias)?;
             client::generate_design(&provider.api_base_url, &api_key, model, effort, prompt).await
         }
         other => Err(unknown_kind(provider, other)),
@@ -85,7 +85,7 @@ pub async fn generate_diagram(
     match provider.kind.as_str() {
         "ollama" => ollama::generate_diagram(&provider.api_base_url, model, prompt, format).await,
         "anthropic" => {
-            let api_key = keys::get_key(&provider.key_alias)?;
+            let api_key = keys::read(&provider.key_alias)?;
             client::generate_diagram(&provider.api_base_url, &api_key, model, effort, prompt, format)
                 .await
         }
@@ -105,7 +105,7 @@ pub async fn generate_pal(
     match provider.kind.as_str() {
         "ollama" => ollama::generate_pal(&provider.api_base_url, model, prompt).await,
         "anthropic" => {
-            let api_key = keys::get_key(&provider.key_alias)?;
+            let api_key = keys::read(&provider.key_alias)?;
             client::generate_pal(&provider.api_base_url, &api_key, model, effort, prompt).await
         }
         other => Err(unknown_kind(provider, other)),
@@ -126,7 +126,7 @@ pub async fn generate_change_plan(
             ollama::generate_change_plan(&provider.api_base_url, model, prompt, images).await
         }
         "anthropic" => {
-            let api_key = keys::get_key(&provider.key_alias)?;
+            let api_key = keys::read(&provider.key_alias)?;
             client::generate_change_plan(
                 &provider.api_base_url, &api_key, model, effort, prompt, images,
             )
@@ -191,7 +191,7 @@ mod tests {
         assert!(err.contains("unknown kind"), "got: {err}");
     }
 
-    /// A local provider must not be asked for a key. `get_key` would fail for
+    /// A local provider must not be asked for a key. `keys::read` would fail for
     /// an alias that was never stored, so reaching the network at all proves
     /// the Ollama branch was taken.
     #[tokio::test]

@@ -200,7 +200,7 @@ pub fn branch_from_pattern(pattern: &str, item_id: i64, title: &str, item_type: 
     }
     pattern
         .replace("{id}", &item_id.to_string())
-        .replace("{title}", &crate::emit::safe_stem(title))
+        .replace("{title}", &crate::files::emit::safe_stem(title))
         .replace("{type}", item_type)
 }
 

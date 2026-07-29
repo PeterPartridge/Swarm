@@ -44,7 +44,7 @@ pub async fn get_developer_rules(
     product_id: i64,
 ) -> Result<Option<DeveloperRulesDto>, String> {
     let conn = db.0.lock().await;
-    let rules = developer_rules::get_for_product(&conn, product_id)
+    let rules = developer_rules::for_product(&conn, product_id)
         .await
         .map_err(to_message)?;
     Ok(rules.map(|r| DeveloperRulesDto {
@@ -94,7 +94,7 @@ pub async fn get_solution_strategy(
     work_item_id: i64,
 ) -> Result<Option<SolutionStrategyDto>, String> {
     let conn = db.0.lock().await;
-    let Some(stored) = solution_strategy::get_for_item(&conn, work_item_id)
+    let Some(stored) = solution_strategy::for_item(&conn, work_item_id)
         .await
         .map_err(to_message)?
     else {
@@ -106,7 +106,7 @@ pub async fn get_solution_strategy(
     let declared: Vec<String> = serde_json::from_str(&stored.technologies).unwrap_or_default();
     let (violations, unlisted) =
         match work_item::find_by_id(&conn, work_item_id).await.map_err(to_message)? {
-            Some(item) => match developer_rules::get_for_product(&conn, item.product_id)
+            Some(item) => match developer_rules::for_product(&conn, item.product_id)
                 .await
                 .map_err(to_message)?
             {
@@ -186,7 +186,7 @@ pub async fn generate_solution_strategy(
             super::work_items::resolve_item_ai_gate(&conn, work_item_id, &item.title).await?;
         let routed =
             ai_run::plan(&conn, product_id, policy_provider.id, &effort_tier, PURPOSE).await?;
-        let rules = developer_rules::get_for_product(&conn, product_id)
+        let rules = developer_rules::for_product(&conn, product_id)
             .await
             .map_err(to_message)?
             .unwrap_or_default();

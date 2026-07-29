@@ -6,7 +6,7 @@
 
 use super::{to_message, AppDb};
 use crate::db::design_asset;
-use crate::figma;
+use crate::design::figma;
 use serde::Serialize;
 use tauri::State;
 
@@ -227,7 +227,7 @@ pub async fn emit_design_files(
     if assets.is_empty() {
         return Err("there are no design assets to write yet".into());
     }
-    crate::emit::write_generated(&root, &crate::emit::design_files(&assets))
+    crate::files::emit::write_generated(&root, &crate::files::emit::design_files(&assets))
 }
 
 // ------------------------------------------------------------- AI generation
@@ -279,7 +279,7 @@ pub async fn generate_design_strategy(
             return Err("that Product no longer exists".into());
         };
         // Deny-by-default, exactly as Deliverable planning is.
-        let Some(policy) = product_policy::get_for_product(&conn, product_id)
+        let Some(policy) = product_policy::for_product(&conn, product_id)
             .await
             .map_err(to_message)?
         else {

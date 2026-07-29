@@ -187,7 +187,7 @@ fn blank_as<'a>(value: &'a str, fallback: &'a str) -> &'a str {
 
 /// Where the pair goes, relative to the Product's folder.
 pub fn paths(work_item_id: i64, title: &str) -> (String, String) {
-    let stem = crate::emit::safe_stem(title);
+    let stem = crate::files::emit::safe_stem(title);
     (
         format!(".CoperativeAI/work-items/{work_item_id}-{stem}.md"),
         format!(".CoperativeAI/work-items/{work_item_id}-{stem}.json"),

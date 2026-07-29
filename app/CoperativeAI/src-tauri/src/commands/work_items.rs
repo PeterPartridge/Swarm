@@ -394,7 +394,7 @@ pub(crate) async fn resolve_story_generation(
             item.title, item.item_type
         ));
     }
-    let hierarchy = system_setting::get_planning_hierarchy(conn)
+    let hierarchy = system_setting::planning_hierarchy(conn)
         .await
         .map_err(to_message)?;
     if !hierarchy.iter().any(|t| t == "userStory") {
@@ -420,7 +420,7 @@ pub(crate) async fn resolve_item_ai_gate(
 ) -> Result<(crate::db::ai_provider::AiProvider, String), String> {
     // No policy row, or one that doesn't allow reading via a named provider,
     // blocks the call before any content moves.
-    let Some(policy) = work_item_policy::get_for_item(conn, item_id)
+    let Some(policy) = work_item_policy::for_item(conn, item_id)
         .await
         .map_err(to_message)?
     else {
@@ -483,7 +483,7 @@ pub(crate) async fn resolve_deliverable_generation(
     else {
         return Err(format!("no deliverable with id {deliverable_id}"));
     };
-    let hierarchy = system_setting::get_planning_hierarchy(conn)
+    let hierarchy = system_setting::planning_hierarchy(conn)
         .await
         .map_err(to_message)?;
     let Some(item_type) = level_for_deliverable(&hierarchy) else {
@@ -494,7 +494,7 @@ pub(crate) async fn resolve_deliverable_generation(
     };
     // Deny-by-default: no Product policy, or one that doesn't allow reading and
     // generating via a named provider, blocks the call before any content moves.
-    let Some(policy) = product_policy::get_for_product(conn, deliverable.product_id)
+    let Some(policy) = product_policy::for_product(conn, deliverable.product_id)
         .await
         .map_err(to_message)?
     else {

@@ -57,7 +57,7 @@ pub async fn get_product_budget(
     product_id: i64,
 ) -> Result<Option<ProductBudgetDto>, String> {
     let conn = db.0.lock().await;
-    let budget = product_budget::get_for_product(&conn, product_id)
+    let budget = product_budget::for_product(&conn, product_id)
         .await
         .map_err(to_message)?;
     Ok(budget.map(|b| ProductBudgetDto {
@@ -110,7 +110,7 @@ pub async fn get_spend_summary(
     product_id: i64,
 ) -> Result<SpendSummaryDto, String> {
     let conn = db.0.lock().await;
-    let budget = product_budget::get_for_product(&conn, product_id)
+    let budget = product_budget::for_product(&conn, product_id)
         .await
         .map_err(to_message)?;
 

@@ -12,7 +12,7 @@
 //! a model was flagged for writing "No Java or PHP anywhere" in obedience.
 
 use crate::db::developer_rules::{self, DeveloperRules};
-use crate::workspace::FileChange;
+use crate::files::workspace::FileChange;
 
 /// Test files, by the conventions that actually appear in repositories.
 const TEST_MARKERS: &[&str] = &[

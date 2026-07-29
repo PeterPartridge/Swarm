@@ -42,8 +42,8 @@ impl From<Solution> for SolutionDto {
 /// The languages a new Solution can be started in, each with its toolchain's
 /// own generator. Shown in the form and editable before anything runs.
 #[tauri::command]
-pub async fn list_starters() -> Result<Vec<crate::starter::Starter>, String> {
-    Ok(crate::starter::starters())
+pub async fn list_starters() -> Result<Vec<crate::tooling::starter::Starter>, String> {
+    Ok(crate::tooling::starter::starters())
 }
 
 /// What creating a Solution with a starter did.
@@ -53,7 +53,7 @@ pub struct CreatedSolution {
     pub solution_id: i64,
     /// None when no starter was chosen — creating a Solution without one stays
     /// perfectly valid, for a repository that already exists.
-    pub started: Option<crate::starter::StarterRun>,
+    pub started: Option<crate::tooling::starter::StarterRun>,
 }
 
 /// Creates a Solution and, when a starter was chosen, runs that language's
@@ -110,11 +110,11 @@ pub async fn create_solution_with_starter(
     // the person actually read before pressing the button.
     let template = command
         .filter(|c| !c.trim().is_empty())
-        .or_else(|| crate::starter::find(&starter_id).map(|s| s.command))
+        .or_else(|| crate::tooling::starter::find(&starter_id).map(|s| s.command))
         .unwrap_or_default();
-    let filled = crate::starter::fill(&template, &name);
+    let filled = crate::tooling::starter::fill(&template, &name);
 
-    let started = crate::starter::run(&parent, &name, &filled)?;
+    let started = crate::tooling::starter::run(&parent, &name, &filled)?;
 
     {
         let conn = db.0.lock().await;
@@ -155,7 +155,7 @@ pub async fn start_existing_solution(
     starter_id: String,
     command: Option<String>,
     parent_dir: String,
-) -> Result<crate::starter::StarterRun, String> {
+) -> Result<crate::tooling::starter::StarterRun, String> {
     let name = {
         let conn = db.0.lock().await;
         let Some(row) = solution::find_by_id(&conn, solution_id)
@@ -169,9 +169,9 @@ pub async fn start_existing_solution(
 
     let template = command
         .filter(|c| !c.trim().is_empty())
-        .or_else(|| crate::starter::find(&starter_id).map(|s| s.command))
+        .or_else(|| crate::tooling::starter::find(&starter_id).map(|s| s.command))
         .unwrap_or_default();
-    let started = crate::starter::run(&parent_dir, &name, &crate::starter::fill(&template, &name))?;
+    let started = crate::tooling::starter::run(&parent_dir, &name, &crate::tooling::starter::fill(&template, &name))?;
 
     {
         let conn = db.0.lock().await;

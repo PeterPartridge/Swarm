@@ -223,7 +223,7 @@ pub(crate) async fn run_change_plan(
         let solutions = solution::list_by_product(&conn, product_id)
             .await
             .map_err(to_message)?;
-        let rules = developer_rules::get_for_product(&conn, product_id)
+        let rules = developer_rules::for_product(&conn, product_id)
             .await
             .map_err(to_message)?
             .unwrap_or_default();
@@ -491,7 +491,7 @@ pub async fn write_work_item_files(
     db: State<'_, AppDb>,
     work_item_id: i64,
 ) -> Result<Vec<String>, String> {
-    use crate::work_item_files as files;
+    use crate::files::work_item_files as files;
 
     let (doc, product_dir) = {
         let conn = db.0.lock().await;
@@ -588,14 +588,14 @@ pub async fn write_work_item_files(
     };
 
     let (md_path, json_path) = files::paths(doc.id, &doc.title);
-    let written = crate::emit::write_generated(
+    let written = crate::files::emit::write_generated(
         &product_dir,
         &[
-            crate::emit::EmitFile {
+            crate::files::emit::EmitFile {
                 rel_path: md_path,
                 contents: files::to_markdown(&doc),
             },
-            crate::emit::EmitFile {
+            crate::files::emit::EmitFile {
                 rel_path: json_path,
                 contents: files::to_json(&doc),
             },

@@ -165,7 +165,7 @@ pub async fn generate_architecture_doc(
         else {
             return Err("that Product no longer exists".into());
         };
-        let Some(policy) = product_policy::get_for_product(&conn, product_id)
+        let Some(policy) = product_policy::for_product(&conn, product_id)
             .await
             .map_err(to_message)?
         else {

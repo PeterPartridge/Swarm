@@ -100,7 +100,7 @@ pub async fn save(
     // Validated before storing, not on the way out. A diagram that does not
     // render is worse than no diagram — it looks like documentation, so nobody
     // writes the documentation.
-    crate::diagram::check(format, content).map_err(DbError::Validation)?;
+    crate::design::diagram::check(format, content).map_err(DbError::Validation)?;
 
     let now = now_millis();
     // Scoped so the read is finished before the write — an open statement

@@ -2,7 +2,7 @@
 
 use super::{to_message, AppDb};
 use crate::db::{ai_job, system_setting};
-use crate::jobs::JobRunner;
+use crate::agent::jobs::JobRunner;
 use serde::Serialize;
 use std::sync::Arc;
 use tauri::{AppHandle, State};
@@ -71,7 +71,7 @@ pub async fn submit_for_planning(
             .await
             .map_err(to_message)?
     };
-    crate::jobs::spawn(app, runner.inner().clone(), job_id, work_item_id);
+    crate::agent::jobs::spawn(app, runner.inner().clone(), job_id, work_item_id);
     Ok(job_id)
 }
 
@@ -126,7 +126,7 @@ pub async fn get_ai_concurrency(
 ) -> Result<Concurrency, String> {
     let conn = db.0.lock().await;
     Ok(Concurrency {
-        limit: system_setting::get_ai_concurrency(&conn)
+        limit: system_setting::ai_concurrency(&conn)
             .await
             .map_err(to_message)?,
         available: runner.available() as i64,

@@ -8,7 +8,7 @@ use tauri::State;
 #[tauri::command]
 pub async fn get_planning_hierarchy(db: State<'_, AppDb>) -> Result<Vec<String>, String> {
     let conn = db.0.lock().await;
-    system_setting::get_planning_hierarchy(&conn)
+    system_setting::planning_hierarchy(&conn)
         .await
         .map_err(to_message)
 }
@@ -27,7 +27,7 @@ pub async fn set_planning_hierarchy(
 #[tauri::command]
 pub async fn get_roadmap_mode(db: State<'_, AppDb>) -> Result<String, String> {
     let conn = db.0.lock().await;
-    system_setting::get_roadmap_mode(&conn).await.map_err(to_message)
+    system_setting::roadmap_mode(&conn).await.map_err(to_message)
 }
 
 #[tauri::command]

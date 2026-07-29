@@ -3,7 +3,7 @@
 
 use super::{to_message, AppDb};
 use crate::db::{deliverable, emitted_file, product, solution, solution_management, work_item};
-use crate::emit::{self, EmitFile, EmitReport};
+use crate::files::emit::{self, EmitFile, EmitReport};
 use std::collections::HashMap;
 use tauri::State;
 

@@ -204,7 +204,7 @@ pub fn status(root: &str) -> Result<RepoStatus, String> {
 pub fn conflict_sides(root: &str, relative: &str) -> Result<ConflictSides, String> {
     let root_path = canonical(root)?;
     // The same containment rule as every other path into a working copy.
-    let target = crate::workspace::resolve_within(root, relative)?;
+    let target = crate::files::workspace::resolve_within(root, relative)?;
     if !target.exists() {
         return Err(format!("{relative} is not in this Solution's folder"));
     }
@@ -414,7 +414,7 @@ pub fn push(root: &str) -> Result<String, String> {
 /// costs one read of a file that is already open in front of the person.
 pub fn mark_resolved(root: &str, relative: &str) -> Result<(), String> {
     let root_path = canonical(root)?;
-    let target = crate::workspace::resolve_within(root, relative)?;
+    let target = crate::files::workspace::resolve_within(root, relative)?;
     let text = std::fs::read_to_string(&target)
         .map_err(|e| format!("could not read {relative}: {e}"))?;
     if has_conflict_markers(&text) {
