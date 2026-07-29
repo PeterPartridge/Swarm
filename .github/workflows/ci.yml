@@ -1,0 +1,78 @@
+name: CI
+
+# The Rust crate lives at app/CoperativeAI/src-tauri and the frontend at
+# app/CoperativeAI — there is no Cargo.toml at the repository root, so every
+# cargo step names its manifest explicitly.
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tauri links against the system webview. Without these the crate does
+      # not build at all on a runner, which is not a code failure and should
+      # not read like one.
+      - name: Install Tauri's system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev \
+            libsoup-3.0-dev \
+            libgtk-3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/CoperativeAI/src-tauri
+
+      # The codebase is warning-free; -D warnings is what keeps it that way.
+      # Three lints accumulated unnoticed before this gate existed.
+      - name: Clippy (warnings are failures)
+        run: cargo clippy --manifest-path app/CoperativeAI/src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --manifest-path app/CoperativeAI/src-tauri/Cargo.toml
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/CoperativeAI
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/CoperativeAI/package-lock.json
+
+      - run: npm ci
+
+      # tsc type-checks the test files too, so an unused import in a *.test.tsx
+      # fails the build even when vitest is green. Run it in its own right.
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Tests
+        run: npm test
+
+      # Monaco's workers need the larger heap the build script already sets.
+      - name: Build
+        run: npm run build
