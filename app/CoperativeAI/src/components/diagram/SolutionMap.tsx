@@ -188,11 +188,18 @@ export default function SolutionMap({ productId }: { productId: number }) {
   }
 
   async function onSave() {
-    const nodes: DiagramNode[] = solutions.map((s) => ({
-      id: String(s.id),
-      label: s.name,
-      kind: exportKind(s.solutionType),
-    }));
+    const nodes: DiagramNode[] = solutions.map((s) => {
+      const p = positionOf(s.id);
+      // Written where they were dragged, so the saved .drawio is the arrangement
+      // on screen rather than a fresh grid.
+      return {
+        id: String(s.id),
+        label: s.name,
+        kind: exportKind(s.solutionType),
+        x: Math.round(p.x),
+        y: Math.round(p.y),
+      };
+    });
     const edges: DiagramEdge[] = links.map((l) => ({
       from: String(l.fromSolutionId),
       to: String(l.toSolutionId),

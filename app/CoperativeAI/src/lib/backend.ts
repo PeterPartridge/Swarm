@@ -1669,6 +1669,10 @@ export interface DiagramNode {
   id: string;
   label: string;
   kind: string; // service | database | queue | external | store
+  /** Where the box sits, when it was arranged by hand. Omitted for a generated
+   *  draft, which falls back to the grid; set by the saved architecture map. */
+  x?: number;
+  y?: number;
 }
 
 export interface DiagramEdge {

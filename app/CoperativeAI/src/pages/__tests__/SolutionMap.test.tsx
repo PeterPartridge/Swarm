@@ -120,6 +120,12 @@ describe("SolutionMap", () => {
     expect(productId).toBe(7);
     expect(name).toBe("architecture-map");
     expect(nodes).toHaveLength(3);
+    // The arrangement travels: every box is saved with its coordinates, not left
+    // to snap back to a grid.
+    for (const n of nodes) {
+      expect(typeof n.x).toBe("number");
+      expect(typeof n.y).toBe("number");
+    }
     expect(edges).toEqual([{ from: "11", to: "12", label: "calls the API of" }]);
   });
 

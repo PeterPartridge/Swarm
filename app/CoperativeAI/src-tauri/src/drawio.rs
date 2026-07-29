@@ -23,6 +23,13 @@ pub struct Node {
     /// "service" | "database" | "queue" | "external" | "store"
     #[serde(default)]
     pub kind: String,
+    /// Where the box sits, when it was arranged by hand. Null falls back to the
+    /// grid — a generated draft has no positions, a saved map does, and both
+    /// write the same kind of file.
+    #[serde(default)]
+    pub x: Option<i64>,
+    #[serde(default)]
+    pub y: Option<i64>,
 }
 
 /// One arrow.
@@ -91,7 +98,15 @@ pub fn build(title: &str, nodes: &[Node], edges: &[Edge]) -> String {
     let mut cells = String::new();
 
     for (index, node) in nodes.iter().enumerate() {
-        let (x, y) = position(index);
+        // A hand-arranged box keeps where it was put; one without a position
+        // falls onto the grid so a generated draft is still legible.
+        let (x, y) = match (node.x, node.y) {
+            (Some(x), Some(y)) => (x, y),
+            _ => {
+                let (gx, gy) = position(index);
+                (gx as i64, gy as i64)
+            }
+        };
         cells.push_str(&format!(
             "        <mxCell id=\"{}\" value=\"{}\" style=\"{}\" vertex=\"1\" parent=\"1\">\n\
              \x20         <mxGeometry x=\"{x}\" y=\"{y}\" width=\"{BOX_W}\" height=\"{BOX_H}\" as=\"geometry\" />\n\
@@ -161,6 +176,8 @@ pub fn from_solutions(solutions: &[(i64, String, String)], links: &[(i64, i64, S
             id: format!("solution-{id}"),
             label: name.clone(),
             kind: kind_for_solution(solution_type).to_string(),
+            x: None,
+            y: None,
         })
         .collect();
 
@@ -334,6 +351,8 @@ mod tests {
             id: id.into(),
             label: label.into(),
             kind: kind.into(),
+            x: None,
+            y: None,
         }
     }
 
@@ -396,6 +415,25 @@ mod tests {
         assert!(xml.contains("x=\"40\" y=\"40\""), "first on the first row");
         assert!(xml.contains("x=\"640\" y=\"40\""), "fourth still on it");
         assert!(xml.contains("x=\"40\" y=\"180\""), "fifth wraps to the next");
+    }
+
+    /// A hand-arranged box is written where it was put, so saving the map keeps
+    /// the layout rather than snapping everything back to the grid.
+    #[test]
+    fn a_positioned_node_keeps_its_own_coordinates() {
+        let placed = Node {
+            id: "a".into(),
+            label: "A".into(),
+            kind: "service".into(),
+            x: Some(313),
+            y: Some(207),
+        };
+        // A second node with no position still lands on the grid — the two kinds
+        // of node coexist in one file.
+        let drifting = node("b", "B", "service");
+        let xml = build("Map", &[placed, drifting], &[]);
+        assert!(xml.contains("x=\"313\" y=\"207\""), "the placed box keeps its spot");
+        assert!(xml.contains("x=\"240\" y=\"40\""), "the un-placed one grids at index 1");
     }
 
     /// The point of having recorded the Solutions: the first draft of the
@@ -467,8 +505,8 @@ mod tests {
     #[test]
     fn the_same_draft_renders_as_mermaid() {
         let nodes = vec![
-            Node { id: "solution-3".into(), label: "Shop API".into(), kind: "service".into() },
-            Node { id: "solution-7".into(), label: "Orders".into(), kind: "database".into() },
+            node("solution-3", "Shop API", "service"),
+            node("solution-7", "Orders", "database"),
         ];
         let edges = vec![Edge {
             from: "solution-3".into(),
@@ -501,8 +539,8 @@ mod tests {
     #[test]
     fn punctuation_in_a_label_does_not_break_the_flowchart() {
         let nodes = vec![
-            Node { id: "a".into(), label: "A \"quoted\" box".into(), kind: "service".into() },
-            Node { id: "b".into(), label: "B".into(), kind: "service".into() },
+            node("a", "A \"quoted\" box", "service"),
+            node("b", "B", "service"),
         ];
         let edges = vec![Edge { from: "a".into(), to: "b".into(), label: "reads|writes".into() }];
         let mermaid = to_mermaid(&nodes, &edges);
@@ -516,7 +554,7 @@ mod tests {
     /// judges it — one place decides, and the file writer cannot disagree.
     #[test]
     fn drawio_is_checked_as_an_architecture_format() {
-        let xml = build("Infra", &[Node { id: "a".into(), label: "A".into(), kind: "service".into() }], &[]);
+        let xml = build("Infra", &[node("a", "A", "service")], &[]);
         assert!(crate::diagram::check("drawio", &xml).is_ok());
         assert!(crate::diagram::check("drawio", "flowchart TD\n  a --> b").is_err());
         assert!(crate::diagram::FORMATS.contains(&"drawio"));
