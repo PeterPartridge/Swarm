@@ -97,7 +97,7 @@ fn median_of(values: &[i64], minimum: usize) -> Option<i64> {
     let mut sorted = values.to_vec();
     sorted.sort_unstable();
     let middle = sorted.len() / 2;
-    Some(if sorted.len() % 2 == 0 {
+    Some(if sorted.len().is_multiple_of(2) {
         (sorted[middle - 1] + sorted[middle]) / 2
     } else {
         sorted[middle]
