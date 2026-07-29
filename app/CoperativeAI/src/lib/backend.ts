@@ -1774,6 +1774,10 @@ export interface AiJob {
  *  the next work item can be written up and submitted while this one runs. */
 export const submitForPlanning = (workItemId: number): Promise<number> =>
   invoke("submit_for_planning", { workItemId });
+/** Recent AI jobs across every Product — what the topbar's bell reports. A
+ *  queue left running under another Product is exactly what it is for. */
+export const listRecentAiJobs = (): Promise<AiJob[]> =>
+  invoke("list_recent_ai_jobs");
 export const listAiJobs = (productId: number): Promise<AiJob[]> =>
   invoke("list_ai_jobs", { productId });
 

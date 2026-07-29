@@ -57,11 +57,26 @@ const DEVELOP_TABS: { id: DevelopView; label: string }[] = [
 /** The Develop environment: pick a Product, then work in one of four tabs —
  *  Planning (strategy, rules, architecture), Work (board/sprint/list),
  *  Workspace (solutions, editor, review), Settings (GitHub, models, AI). */
-export default function DevelopSolutions() {
+export default function DevelopSolutions({
+  requestedView,
+}: {
+  /** A tab the command palette asked for. Carries a timestamp so asking for
+   *  the same tab twice still moves — a bare string would compare equal and
+   *  the second request would do nothing. */
+  requestedView?: { id: string; at: number } | null;
+} = {}) {
   const [products, setProducts] = useState<Product[]>([]);
   const [solutions, setSolutions] = useState<Solution[]>([]);
   const [activeProduct, setActiveProduct] = useState<number | "">("");
   const [view, setView] = useState<DevelopView>("strategy");
+  // A tab asked for from the command palette. Checked against the real tab list
+  // so a stale entry cannot put this component into a view it cannot render.
+  useEffect(() => {
+    if (!requestedView) return;
+    if (DEVELOP_TABS.some((t) => t.id === requestedView.id)) {
+      setView(requestedView.id as DevelopView);
+    }
+  }, [requestedView]);
   /** Which Solution the Code tab is editing — set by "Open" on the Workspace
    *  tab, so the two tabs are one flow rather than two disconnected screens. */
   const [openSolution, setOpenSolution] = useState<Solution | null>(null);

@@ -106,6 +106,7 @@ fn main() {
             commands::work_item_plans::write_work_item_files,
             commands::jobs::submit_for_planning,
             commands::jobs::list_ai_jobs,
+            commands::jobs::list_recent_ai_jobs,
             commands::jobs::get_ai_concurrency,
             commands::jobs::set_ai_concurrency,
             commands::runs::list_runs,

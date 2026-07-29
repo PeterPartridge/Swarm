@@ -22,6 +22,38 @@ pub struct AiJobDto {
     pub finished_at: Option<i64>,
 }
 
+/// Recent AI jobs across every Product, for the topbar's notifications.
+///
+/// Titles are resolved from every work item at once rather than one query per
+/// row — the bell opens on a click and a query per notification would be felt.
+#[tauri::command]
+pub async fn list_recent_ai_jobs(db: State<'_, AppDb>) -> Result<Vec<AiJobDto>, String> {
+    let conn = db.0.lock().await;
+    let jobs = ai_job::list_recent(&conn, 20).await.map_err(to_message)?;
+    let items = crate::db::work_item::list_all(&conn)
+        .await
+        .map_err(to_message)?;
+
+    Ok(jobs
+        .into_iter()
+        .map(|j| AiJobDto {
+            work_item_title: items
+                .iter()
+                .find(|i| i.id == j.work_item_id)
+                .map(|i| i.title.clone())
+                .unwrap_or_else(|| format!("#{}", j.work_item_id)),
+            id: j.id,
+            work_item_id: j.work_item_id,
+            purpose: j.purpose,
+            state: j.state,
+            message: j.message,
+            submitted_at: j.submitted_at,
+            started_at: j.started_at,
+            finished_at: j.finished_at,
+        })
+        .collect())
+}
+
 /// Queues a work item for planning and returns at once.
 ///
 /// The whole point: this writes a row, starts a task behind it and comes back,

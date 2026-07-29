@@ -294,6 +294,22 @@ pub async fn list_by_product(conn: &Connection, product_id: i64) -> Result<Vec<W
     Ok(items)
 }
 
+/// Every work item, whatever Product it belongs to.
+///
+/// For the views that are not scoped to one — the topbar's notifications name
+/// the work a job was for, and a job queued under another Product is exactly
+/// what that bell is for.
+pub async fn list_all(conn: &Connection) -> Result<Vec<WorkItem>> {
+    let mut rows = conn
+        .query(&format!("{SELECT_COLUMNS} FROM work_items ORDER BY id"), ())
+        .await?;
+    let mut items = Vec::new();
+    while let Some(row) = rows.next().await? {
+        items.push(row_to_item(row)?);
+    }
+    Ok(items)
+}
+
 pub async fn find_by_id(conn: &Connection, id: i64) -> Result<Option<WorkItem>> {
     let mut rows = conn
         .query(&format!("{SELECT_COLUMNS} FROM work_items WHERE id = ?1"), (id,))

@@ -1,10 +1,12 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import TabBar, { ENVIRONMENTS } from "../components/common/TabBar";
+import CommandPalette, { type PaletteGroup } from "../components/common/CommandPalette";
 import ProductPlanning from "./ProductPlanning";
 import DevelopSolutions from "./DevelopSolutions";
 import TestArea from "./TestArea";
 import AdminArea from "./AdminArea";
 import ActiveUserPicker from "../components/common/ActiveUserPicker";
+import NotificationsBell from "../components/common/NotificationsBell";
 import { usePermissions, type Area } from "../lib/permissions";
 import {
   applyTabColors,
@@ -26,6 +28,10 @@ const ENVIRONMENT_PLACEHOLDERS: Record<EnvironmentId, string> = {
 export default function WorkspaceShell() {
   const [active, setActive] = useState<EnvironmentId>("product");
   const [colors, setColors] = useState<TabColors>(() => loadTabColors());
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  /** The Develop tab the palette asked for, bumped so asking for the same tab
+   *  twice still moves. Null means "leave Develop where it was". */
+  const [developView, setDevelopView] = useState<{ id: string; at: number } | null>(null);
   const { canAccess } = usePermissions();
 
   useEffect(() => {
@@ -36,6 +42,21 @@ export default function WorkspaceShell() {
   // so the app opens in the theme that was chosen rather than flashing dark.
   useEffect(() => {
     applyThemeMode(loadThemeMode());
+  }, []);
+
+  // ⌘K anywhere opens the palette, Esc closes it — the shortcut every editor
+  // this sits beside already uses, so it needs no learning.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((open) => !open);
+      } else if (e.key === "Escape") {
+        setPaletteOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   }, []);
 
   const visibleTabs = ENVIRONMENTS.filter((e) => canAccess(e.id as Area));
@@ -56,6 +77,45 @@ export default function WorkspaceShell() {
 
   const activeLabel = ENVIRONMENTS.find((e) => e.id === active)!.label;
 
+  /** What the palette can reach. Built from the areas this user can actually
+   *  see — offering a destination their role hides would be a dead end — and
+   *  from Develop's real tabs, so every entry lands somewhere. */
+  const paletteGroups: PaletteGroup[] = useMemo(() => {
+    const goToArea = (id: EnvironmentId) => () => setActive(id);
+    const goToDevelop = (view: string) => () => {
+      setActive("develop");
+      setDevelopView({ id: view, at: Date.now() });
+    };
+    const areas: PaletteGroup = {
+      name: "Go to",
+      items: visibleTabs.map((t, i) => ({
+        glyph: t.label.charAt(0),
+        label: t.label,
+        hint: `⌘${i + 1}`,
+        run: goToArea(t.id),
+      })),
+    };
+    const develop: PaletteGroup = {
+      name: "Develop",
+      items: canAccess("develop" as Area)
+        ? [
+            { glyph: "‹›", label: "Code", hint: "", run: goToDevelop("code") },
+            { glyph: "◫", label: "Work", hint: "", run: goToDevelop("work") },
+            { glyph: "⎇", label: "Git", hint: "", run: goToDevelop("git") },
+            { glyph: "✓", label: "Tests", hint: "", run: goToDevelop("tests") },
+            {
+              glyph: "◈",
+              label: "Planning and Architecture",
+              hint: "",
+              run: goToDevelop("architecture"),
+            },
+            { glyph: "⚙", label: "Settings", hint: "", run: goToDevelop("settings") },
+          ]
+        : [],
+    };
+    return [areas, develop].filter((g) => g.items.length > 0);
+  }, [visibleTabs, canAccess]);
+
   return (
     <div className="workspace-shell">
       {/* The rail is a sibling of the whole main column now, not a bar above
@@ -63,8 +123,25 @@ export default function WorkspaceShell() {
       <TabBar active={active} colors={colors} onSelect={setActive} tabs={visibleTabs} />
       <div className="shell-main">
       <div className="shell-topbar">
+        {/* The search box is the palette's visible door: people who never learn
+            the shortcut still find it, and it teaches ⌘K by showing it. */}
+        <button className="palette-trigger" onClick={() => setPaletteOpen(true)}>
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true">
+            <circle cx="7" cy="7" r="4.3" />
+            <line x1="10.3" y1="10.3" x2="14" y2="14" />
+          </svg>
+          <span className="palette-trigger-text">Search or run…</span>
+          <span className="palette-trigger-key">⌘K</span>
+        </button>
+        <NotificationsBell />
         <ActiveUserPicker />
       </div>
+
+      <CommandPalette
+        open={paletteOpen}
+        groups={paletteGroups}
+        onClose={() => setPaletteOpen(false)}
+      />
       <main
         className="environment"
         role="tabpanel"
@@ -75,7 +152,7 @@ export default function WorkspaceShell() {
         {active === "product" ? (
           <ProductPlanning />
         ) : active === "develop" ? (
-          <DevelopSolutions />
+          <DevelopSolutions requestedView={developView} />
         ) : active === "test" ? (
           <TestArea />
         ) : active === "admin" ? (

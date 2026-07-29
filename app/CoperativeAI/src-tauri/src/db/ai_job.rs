@@ -168,6 +168,25 @@ pub async fn list_for_product(conn: &Connection, product_id: i64) -> Result<Vec<
     Ok(jobs)
 }
 
+/// The most recent jobs across every Product, for the notifications bell.
+///
+/// Not scoped to a Product because the bell is not: it sits in the topbar,
+/// above the whole app, and a queue you left running under another Product is
+/// exactly the thing you want it to tell you about.
+pub async fn list_recent(conn: &Connection, limit: i64) -> Result<Vec<AiJob>> {
+    let mut rows = conn
+        .query(
+            &format!("{SELECT} ORDER BY submittedAt DESC, id DESC LIMIT ?1"),
+            (limit,),
+        )
+        .await?;
+    let mut jobs = Vec::new();
+    while let Some(row) = rows.next().await? {
+        jobs.push(row_to_job(row)?);
+    }
+    Ok(jobs)
+}
+
 pub async fn list_for_item(conn: &Connection, work_item_id: i64) -> Result<Vec<AiJob>> {
     let mut rows = conn
         .query(

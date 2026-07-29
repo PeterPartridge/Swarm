@@ -38,9 +38,19 @@ export default function ActiveUserPicker() {
     await reload();
   }
 
+  const activeName =
+    active === "" ? null : members.find((m) => m.id === active)?.name ?? null;
+
   return (
     <label className="active-user">
-      Working as
+      {/* The avatar the redesign puts in the topbar. Who you are working as
+          changes what the app shows, so it is worth seeing at a glance rather
+          than reading out of a dropdown — but the dropdown stays, because
+          switching member is the actual mechanism and it is not a login. */}
+      <span className="active-user-avatar" aria-hidden="true">
+        {initialsOf(activeName)}
+      </span>
+      <span className="active-user-label">Working as</span>
       <select
         aria-label="Working as"
         value={active}
@@ -55,4 +65,16 @@ export default function ActiveUserPicker() {
       </select>
     </label>
   );
+}
+
+/** Up to two initials — "Alex Chen" → "AC". Everyone (no member chosen) is a
+ *  dot rather than letters, because there is no one to initial. */
+function initialsOf(name: string | null): string {
+  if (!name) return "•";
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "•";
+  return parts
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() ?? "")
+    .join("");
 }
