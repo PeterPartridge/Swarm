@@ -13,6 +13,7 @@ import SshCard from "../components/product/SshCard";
 import StrategyEditor from "../components/planning/StrategyEditor";
 import TestExplorer from "../components/testing/TestExplorer";
 import WorkItemViews from "../components/planning/WorkItemViews";
+import AiWorkspace from "../components/ai/AiWorkspace";
 import {
   createSolutionWithStarter,
   deleteSolution,
@@ -38,6 +39,7 @@ import {
 type DevelopView =
   | "strategy"
   | "work"
+  | "ai"
   | "architecture"
   | "code"
   | "tests"
@@ -47,6 +49,9 @@ type DevelopView =
 const DEVELOP_TABS: { id: DevelopView; label: string }[] = [
   { id: "strategy", label: "Strategy and Rules" },
   { id: "work", label: "Work" },
+  // Beside Work rather than inside it: with several agents in flight, managing
+  // them is its own activity and needs the room.
+  { id: "ai", label: "AI" },
   { id: "architecture", label: "Planning and Architecture" },
   { id: "code", label: "Code" },
   { id: "tests", label: "Tests" },
@@ -243,6 +248,10 @@ export default function DevelopSolutions({
 
       {view === "work" && activeProduct !== "" && (
         <WorkItemViews productId={Number(activeProduct)} />
+      )}
+
+      {view === "ai" && activeProduct !== "" && (
+        <AiWorkspace productId={Number(activeProduct)} />
       )}
 
       {/* A plain function call, not a <Component> — an inner component gets a

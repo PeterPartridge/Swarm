@@ -391,6 +391,51 @@ button:disabled {
   margin-left: auto;
 }
 
+/* The AI tab: queue, questions and runs in one column. */
+.ai-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+.question-list {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+}
+.question {
+  border-left: 3px solid var(--warn);
+  padding: 0.4rem 0 0.4rem 0.6rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.82rem;
+}
+.question-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+.question-kind {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+}
+.question-message {
+  margin: 0.2rem 0;
+}
+/* The actionable half — what would unblock it — reads as the prompt to answer. */
+.question-needed {
+  margin: 0.2rem 0 0.35rem;
+  color: var(--warn);
+}
+.question-answer {
+  display: flex;
+  gap: 0.4rem;
+}
+.question-answer input {
+  flex: 1;
+  min-width: 0;
+}
+
 /* Bringing a run's branch home. */
 .run-merge {
   margin-top: 0.35rem;

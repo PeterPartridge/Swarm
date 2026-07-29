@@ -1779,6 +1779,21 @@ export const submitForPlanning = (workItemId: number): Promise<number> =>
   invoke("submit_for_planning", { workItemId });
 /** Recent AI jobs across every Product — what the topbar's bell reports. A
  *  queue left running under another Product is exactly what it is for. */
+/** One unanswered AI question, with the work item that raised it. */
+export interface OpenQuestion {
+  id: number;
+  workItemId: number;
+  workItemTitle: string;
+  kind: string;
+  message: string;
+  whatIsNeeded: string;
+}
+
+/** Every unanswered question in a Product. Several agents plan at once, and a
+ *  question from any of them is blocking that one. */
+export const listOpenQuestions = (productId: number): Promise<OpenQuestion[]> =>
+  invoke("list_open_questions", { productId });
+
 export const listRecentAiJobs = (): Promise<AiJob[]> =>
   invoke("list_recent_ai_jobs");
 export const listAiJobs = (productId: number): Promise<AiJob[]> =>
