@@ -289,6 +289,9 @@ pub struct DevCommandDto {
     pub found_by: String,
     /// True when the start command is the Solution's own override.
     pub custom: bool,
+    /// Whether the watcher's tool is actually on PATH. Checked here rather than
+    /// discovered as a shell error after pressing Hot refresh.
+    pub watch_ready: bool,
     pub unavailable: Option<String>,
 }
 
@@ -318,6 +321,7 @@ pub async fn suggest_dev_command(
             watch_needs: String::new(),
             found_by: String::new(),
             custom: false,
+            watch_ready: true,
             unavailable: Some("no folder on this machine yet".into()),
         });
     };
@@ -330,6 +334,7 @@ pub async fn suggest_dev_command(
                 start: String::new(),
                 watch: String::new(),
                 watch_needs: String::new(),
+                watch_bin: String::new(),
                 found_by: String::new(),
             }
         }),
@@ -341,6 +346,7 @@ pub async fn suggest_dev_command(
         start: dev.start,
         watch: dev.watch,
         watch_needs: dev.watch_needs,
+        watch_ready: crate::dev_runner::tool_on_path(&dev.watch_bin),
         found_by: dev.found_by,
         custom: custom.is_some(),
         unavailable,

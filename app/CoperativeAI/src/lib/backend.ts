@@ -1403,6 +1403,9 @@ export interface DevCommand {
   foundBy: string;
   /** True when `start` is the Solution's own override, not detection. */
   custom: boolean;
+  /** Whether the watcher's tool is on PATH. False means Hot refresh would fail
+   *  with a "command not found", so the panel says so instead of offering it. */
+  watchReady: boolean;
   unavailable: string | null;
 }
 
@@ -1832,5 +1835,22 @@ export const startRun = (
 /** Removes a finished run's checkout. Refused while it holds uncommitted work. */
 export const discardRunWorktree = (runId: number): Promise<void> =>
   invoke("discard_run_worktree", { runId });
+/** A run checkout still on disk that no run points at any more. */
+export interface AbandonedWorktree {
+  solutionId: number;
+  solutionName: string;
+  path: string;
+}
+
+/** Leftover checkouts across a Product — cleanup is offered, never forced, so
+ *  without this the pile is invisible until the disk fills. */
+export const listAbandonedWorktrees = (
+  productId: number,
+): Promise<AbandonedWorktree[]> => invoke("list_abandoned_worktrees", { productId });
+/** Removes a leftover checkout. Refused if the path is not one of that
+ *  Solution's run checkouts, or if it still holds uncommitted work. */
+export const removeWorktreeAt = (solutionId: number, path: string): Promise<void> =>
+  invoke("remove_worktree_at", { solutionId, path });
+
 export const listRunWorktrees = (solutionId: number): Promise<string[]> =>
   invoke("list_run_worktrees", { solutionId });

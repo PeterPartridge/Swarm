@@ -387,6 +387,46 @@ button:disabled {
   color: var(--fg-dim);
 }
 
+/* Leftover run checkouts, offered for removal rather than swept up. */
+.abandoned {
+  margin-top: 0.7rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--warn);
+  border-radius: 8px;
+  background: var(--sunken);
+}
+.abandoned h4 {
+  margin: 0 0 0.2rem;
+  font-size: 0.8rem;
+}
+.abandoned-list {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  font-size: 0.75rem;
+}
+.abandoned-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.2rem 0;
+}
+.abandoned-solution {
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.abandoned-path {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg-muted);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ── Notifications bell ───────────────────────────────────────────────────── */
 .notif {
   position: relative;

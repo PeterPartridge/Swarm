@@ -86,6 +86,7 @@ describe("CodeEditor", () => {
       watchNeeds: "",
       foundBy: "package.json",
       custom: false,
+      watchReady: true,
       unavailable: null,
     });
   });

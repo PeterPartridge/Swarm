@@ -40,6 +40,7 @@ const dev = (over: Partial<DevCommand> = {}): DevCommand => ({
   watchNeeds: "",
   foundBy: "package.json",
   custom: false,
+  watchReady: true,
   unavailable: null,
   ...over,
 });
@@ -68,6 +69,28 @@ describe("DevServerPanel", () => {
 
     expect(await screen.findByText("cargo run")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Hot refresh" })).toBeInTheDocument();
+  });
+
+  /// The debt this closes: Hot refresh used to be offered whether or not the
+  /// watcher existed, so pressing it produced a "command not found" nobody had
+  /// been warned about. The check happens before the press now.
+  it("refuses hot refresh when its tool is not installed, and says which", async () => {
+    mocked.suggestDevCommand.mockResolvedValue(
+      dev({
+        kind: "cargo",
+        start: "cargo run",
+        watch: "cargo watch -x run",
+        watchNeeds: "cargo-watch (cargo install cargo-watch)",
+        watchReady: false,
+        foundBy: "Cargo.toml",
+      }),
+    );
+    render(<DevServerPanel solution={solution()} terminalReady onRunInTerminal={() => {}} />);
+
+    expect(await screen.findByRole("button", { name: "Hot refresh" })).toBeDisabled();
+    expect(screen.getByText(/cargo-watch.*is not installed/)).toBeInTheDocument();
+    // …and Run is untouched, because it does not need the watcher.
+    expect(screen.getByRole("button", { name: "Run" })).toBeEnabled();
   });
 
   /// Run hands the start command to the terminal below.

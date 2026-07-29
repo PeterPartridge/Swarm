@@ -250,6 +250,113 @@ pub async fn list_run_worktrees(
         .collect())
 }
 
+/// A checkout on disk that no run claims any more.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AbandonedWorktree {
+    pub solution_id: i64,
+    pub solution_name: String,
+    pub path: String,
+}
+
+/// Run checkouts left behind across a Product.
+///
+/// The debt this closes: cleanup is offered, never forced, so a run somebody
+/// walked away from keeps its worktree — and until now nothing ever mentioned
+/// it again, which meant the only way to discover the pile was to run out of
+/// disk. A worktree is "abandoned" when no `change_run` still points at it.
+///
+/// A Solution whose repository cannot be read is skipped rather than failing
+/// the lot: one broken working copy must not hide every other Solution's
+/// leftovers.
+#[tauri::command]
+pub async fn list_abandoned_worktrees(
+    db: State<'_, AppDb>,
+    product_id: i64,
+) -> Result<Vec<AbandonedWorktree>, String> {
+    let (solutions, claimed) = {
+        let conn = db.0.lock().await;
+        let solutions: Vec<(i64, String, Option<String>)> =
+            solution::list_by_product(&conn, product_id)
+                .await
+                .map_err(to_message)?
+                .into_iter()
+                .map(|s| (s.id, s.name, s.local_path.filter(|p| !p.trim().is_empty())))
+                .collect();
+        let claimed: Vec<String> = change_run::list_for_product(&conn, product_id)
+            .await
+            .map_err(to_message)?
+            .into_iter()
+            .map(|r| r.worktree_path)
+            .filter(|p| !p.trim().is_empty())
+            .collect();
+        (solutions, claimed)
+    };
+
+    let same = |a: &str, b: &str| a.replace('\\', "/").eq_ignore_ascii_case(&b.replace('\\', "/"));
+
+    let mut out = Vec::new();
+    for (solution_id, solution_name, root) in solutions {
+        let Some(root) = root else { continue };
+        let Ok(worktrees) = vcs::list_worktrees(&root) else {
+            continue;
+        };
+        for path in worktrees {
+            if !path.contains(".coperativeai-worktrees") {
+                continue;
+            }
+            if claimed.iter().any(|c| same(c, &path)) {
+                continue;
+            }
+            out.push(AbandonedWorktree {
+                solution_id,
+                solution_name: solution_name.clone(),
+                path,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// Removes a leftover checkout by path.
+///
+/// The path is checked against that Solution's own worktrees before anything is
+/// deleted — it arrives from the frontend, and a delete that trusted whatever
+/// it was handed would be a way to remove any folder on the machine. The main
+/// checkout is never a candidate, and `remove_worktree` still refuses while
+/// there is uncommitted work in it.
+#[tauri::command]
+pub async fn remove_worktree_at(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+    path: String,
+) -> Result<(), String> {
+    let root = {
+        let conn = db.0.lock().await;
+        let Some(row) = solution::find_by_id(&conn, solution_id)
+            .await
+            .map_err(to_message)?
+        else {
+            return Err("that Solution no longer exists".into());
+        };
+        row.local_path
+            .filter(|p| !p.trim().is_empty())
+            .ok_or("that Solution has no folder on this machine")?
+    };
+
+    let same = |a: &str, b: &str| a.replace('\\', "/").eq_ignore_ascii_case(&b.replace('\\', "/"));
+    let known = vcs::list_worktrees(&root)?;
+    if !known
+        .iter()
+        .any(|w| same(w, &path) && w.contains(".coperativeai-worktrees"))
+    {
+        return Err(
+            "that folder is not one of this Solution's run checkouts, so it was not removed".into(),
+        );
+    }
+    vcs::remove_worktree(&root, &path)
+}
+
 /// Removes a finished run's checkout.
 ///
 /// Refused while it holds uncommitted work — pulling a worktree from under an

@@ -15,6 +15,8 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     listRuns: vi.fn(),
     startRun: vi.fn(),
     discardRunWorktree: vi.fn(),
+    listAbandonedWorktrees: vi.fn(),
+    removeWorktreeAt: vi.fn(),
   };
 });
 
@@ -97,6 +99,71 @@ describe("JobsPanel", () => {
 describe("RunsPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocked.listAbandonedWorktrees.mockResolvedValue([]);
+  });
+
+  /// The debt this closes: a run somebody walked away from kept its checkout,
+  /// and nothing ever mentioned it again — so the pile was invisible until the
+  /// disk filled.
+  it("surfaces leftover checkouts and removes one", async () => {
+    const user = userEvent.setup();
+    mocked.listRuns.mockResolvedValue([]);
+    mocked.listAbandonedWorktrees.mockResolvedValue([
+      {
+        solutionId: 3,
+        solutionName: "Shop API",
+        path: "C:/repos/.coperativeai-worktrees/feature-9",
+      },
+    ]);
+    mocked.removeWorktreeAt.mockResolvedValue(undefined);
+    render(<RunsPanel productId={1} />);
+
+    const leftovers = await screen.findByRole("region", { name: "Leftover checkouts" });
+    expect(leftovers).toHaveTextContent("Shop API");
+
+    await user.click(
+      screen.getByLabelText(
+        "Remove leftover checkout C:/repos/.coperativeai-worktrees/feature-9",
+      ),
+    );
+
+    await waitFor(() =>
+      expect(mocked.removeWorktreeAt).toHaveBeenCalledWith(
+        3,
+        "C:/repos/.coperativeai-worktrees/feature-9",
+      ),
+    );
+  });
+
+  /// Refusing to remove one holding uncommitted work is the point of the
+  /// refusal, so the reason has to reach the screen.
+  it("surfaces a refusal to remove a checkout still holding work", async () => {
+    const user = userEvent.setup();
+    mocked.listRuns.mockResolvedValue([]);
+    mocked.listAbandonedWorktrees.mockResolvedValue([
+      { solutionId: 3, solutionName: "Shop API", path: "C:/wt/feature-9" },
+    ]);
+    mocked.removeWorktreeAt.mockRejectedValue(
+      "that checkout still has uncommitted changes",
+    );
+    render(<RunsPanel productId={1} />);
+
+    await user.click(
+      await screen.findByLabelText("Remove leftover checkout C:/wt/feature-9"),
+    );
+
+    expect(await screen.findByText(/uncommitted changes/)).toBeInTheDocument();
+  });
+
+  /// No leftovers means no section at all — a tidy machine should not carry a
+  /// permanent empty warning box.
+  it("shows no leftovers section when there are none", async () => {
+    mocked.listRuns.mockResolvedValue([]);
+    render(<RunsPanel productId={1} />);
+    await screen.findByText(/No runs yet/);
+    expect(
+      screen.queryByRole("region", { name: "Leftover checkouts" }),
+    ).not.toBeInTheDocument();
   });
 
   /// A run per (work item, Solution) with its branch, and Start for the ones

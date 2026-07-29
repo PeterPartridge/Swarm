@@ -33,6 +33,7 @@ const job = (over: Partial<AiJob> = {}): AiJob => ({
 describe("NotificationsBell", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     mocked.listRecentAiJobs.mockResolvedValue([]);
   });
 
@@ -82,5 +83,40 @@ describe("NotificationsBell", () => {
     // The bell itself no longer announces anything needing attention. (Scoped
     // to the button: the open panel is also labelled "Notifications".)
     expect(screen.getByRole("button", { name: "Notifications" })).toBeInTheDocument();
+  });
+
+  /// The debt this closes: marking everything read and finding the same dot
+  /// back after a restart is what teaches people to ignore a bell.
+  it("remembers what was read across a restart", async () => {
+    const user = userEvent.setup();
+    mocked.listRecentAiJobs.mockResolvedValue([job({ id: 7, state: "failed" })]);
+    const first = render(<NotificationsBell />);
+
+    await user.click(await screen.findByLabelText("Notifications, 1 needing attention"));
+    await user.click(screen.getByRole("button", { name: "Mark all read" }));
+    first.unmount();
+
+    // …a fresh mount, as after reopening the app: the same job is not new.
+    render(<NotificationsBell />);
+    expect(await screen.findByRole("button", { name: "Notifications" })).toBeInTheDocument();
+  });
+
+  /// …but a job that arrived after the last read still rings.
+  it("rings again for a job newer than the last one read", async () => {
+    const user = userEvent.setup();
+    mocked.listRecentAiJobs.mockResolvedValue([job({ id: 7, state: "failed" })]);
+    const first = render(<NotificationsBell />);
+    await user.click(await screen.findByLabelText("Notifications, 1 needing attention"));
+    await user.click(screen.getByRole("button", { name: "Mark all read" }));
+    first.unmount();
+
+    mocked.listRecentAiJobs.mockResolvedValue([
+      job({ id: 8, state: "blocked", message: "which provider?" }),
+      job({ id: 7, state: "failed" }),
+    ]);
+    render(<NotificationsBell />);
+    expect(
+      await screen.findByLabelText("Notifications, 1 needing attention"),
+    ).toBeInTheDocument();
   });
 });

@@ -113,6 +113,8 @@ fn main() {
             commands::runs::start_run,
             commands::runs::discard_run_worktree,
             commands::runs::list_run_worktrees,
+            commands::runs::list_abandoned_worktrees,
+            commands::runs::remove_worktree_at,
             commands::solutions::start_existing_solution,
             commands::vcs_ops::branch_history,
             commands::vcs_ops::commit_solution,

@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   discardRunWorktree,
+  listAbandonedWorktrees,
   listRuns,
+  removeWorktreeAt,
   startRun,
+  type AbandonedWorktree,
   type Run,
 } from "../../lib/backend";
 import RunTerminal from "../code/RunTerminal";
@@ -40,6 +43,8 @@ export default function RunsPanel({ productId }: { productId: number }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /// Checkouts on disk that no run claims — the pile that used to be invisible.
+  const [abandoned, setAbandoned] = useState<AbandonedWorktree[]>([]);
 
   const refresh = useCallback(async () => {
     try {
@@ -47,6 +52,13 @@ export default function RunsPanel({ productId }: { productId: number }) {
       setError(null);
     } catch (e) {
       setError(String(e));
+    }
+    // Separately, and never fatal: leftovers are a tidiness question, and
+    // failing to read them must not blank the runs this panel is actually for.
+    try {
+      setAbandoned(await listAbandonedWorktrees(productId));
+    } catch {
+      setAbandoned([]);
     }
   }, [productId]);
 
@@ -108,6 +120,22 @@ export default function RunsPanel({ productId }: { productId: number }) {
       setError(null);
       await refresh();
     } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function removeAbandoned(left: AbandonedWorktree) {
+    setBusy(left.path);
+    try {
+      await removeWorktreeAt(left.solutionId, left.path);
+      setNotice(`Removed the leftover checkout in ${left.solutionName}.`);
+      setError(null);
+      await refresh();
+    } catch (e) {
+      // Most often "it still holds uncommitted work", which is a refusal worth
+      // reading rather than a failure to retry.
       setError(String(e));
     } finally {
       setBusy(null);
@@ -178,6 +206,37 @@ export default function RunsPanel({ productId }: { productId: number }) {
           </li>
         ))}
       </ul>
+
+      {/* Leftovers. A run somebody walked away from keeps its checkout — that
+          is deliberate, because removing one under a working agent is worse
+          than the disk it costs — but until now nothing ever mentioned them
+          again, so the only way to find the pile was to run out of space. */}
+      {abandoned.length > 0 && (
+        <section className="abandoned" aria-label="Leftover checkouts">
+          <h4>
+            Leftover checkouts ({abandoned.length})
+          </h4>
+          <p className="hint">
+            These belong to no run any more. Removing one is refused while it
+            still holds uncommitted work.
+          </p>
+          <ul className="abandoned-list">
+            {abandoned.map((left) => (
+              <li key={left.path}>
+                <span className="abandoned-solution">{left.solutionName}</span>
+                <span className="abandoned-path">{left.path}</span>
+                <button
+                  aria-label={`Remove leftover checkout ${left.path}`}
+                  disabled={busy === left.path}
+                  onClick={() => removeAbandoned(left)}
+                >
+                  {busy === left.path ? "Removing…" : "Remove"}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {/* Per run started this session: the agent's terminal, and — when the
           Solution has something to run — a second terminal that boots the app

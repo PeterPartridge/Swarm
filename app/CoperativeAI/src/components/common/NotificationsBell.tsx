@@ -10,13 +10,19 @@ import { listRecentAiJobs, type AiJob } from "../../lib/backend";
  *  are not looking at is exactly what a bell is for.
  *
  *  A job that asked a question or failed is what deserves attention, so those
- *  are what the unread dot counts. "Read" is per session and lives in this
- *  component: it is a nudge, not a record, and persisting it would mean a
- *  migration for something nobody would miss. */
+ *  are what the unread dot counts.
+ *
+ *  **"Read" survives a restart.** Marking everything read and finding the same
+ *  dot back after reopening the app is the behaviour that teaches people to
+ *  ignore a bell. It is kept as the highest job id read through, on this
+ *  machine — job ids only climb, so one number answers "is this newer than what
+ *  I have seen" for every row, and it cannot grow without bound the way a list
+ *  of ids would. Per machine rather than in the database, for the same reason
+ *  the theme is: what one person has looked at is not a shared fact. */
 export default function NotificationsBell() {
   const [jobs, setJobs] = useState<AiJob[]>([]);
   const [open, setOpen] = useState(false);
-  const [seen, setSeen] = useState<Set<number>>(new Set());
+  const [readThrough, setReadThrough] = useState<number>(() => loadReadThrough());
   const holder = useRef<HTMLDivElement | null>(null);
 
   const refresh = useCallback(async () => {
@@ -48,10 +54,14 @@ export default function NotificationsBell() {
 
   /// Worth interrupting for: a question to answer, or a failure to look at.
   const notable = jobs.filter((j) => j.state === "blocked" || j.state === "failed");
-  const unread = notable.filter((j) => !seen.has(j.id)).length;
+  const unread = notable.filter((j) => j.id > readThrough).length;
 
   function markAllRead() {
-    setSeen(new Set(jobs.map((j) => j.id)));
+    // The highest id in hand, not just the notable ones: everything currently
+    // listed has been seen, so a later job is the only thing that should ring.
+    const highest = jobs.reduce((max, j) => Math.max(max, j.id), readThrough);
+    setReadThrough(highest);
+    saveReadThrough(highest);
   }
 
   return (
@@ -101,6 +111,31 @@ export default function NotificationsBell() {
       )}
     </div>
   );
+}
+
+const READ_KEY = "coperativeai.notificationsReadThrough";
+
+/** The highest job id already looked at. Zero means "nothing read yet", which
+ *  is the right answer for a fresh machine and for one whose storage is
+ *  unreadable — showing a dot that is not needed is a smaller failure than
+ *  hiding one that is. */
+function loadReadThrough(): number {
+  try {
+    const raw = localStorage.getItem(READ_KEY);
+    const parsed = raw === null ? 0 : Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function saveReadThrough(id: number): void {
+  try {
+    localStorage.setItem(READ_KEY, String(id));
+  } catch {
+    // A machine that refuses localStorage still clears the dot for this
+    // session; it just rings again next launch.
+  }
 }
 
 /** A job's state said as an outcome rather than a database value — "asked a

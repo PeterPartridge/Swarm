@@ -112,7 +112,9 @@ export default function DevServerPanel({
               <code>{dev.watch}</code>
               <button
                 onClick={() => run(dev.watch, "Hot refresh started in the terminal below.")}
-                disabled={!terminalReady}
+                // Checked before the press rather than discovered as a shell
+                // error after it: a button that cannot work should say so.
+                disabled={!terminalReady || !dev.watchReady}
               >
                 Hot refresh
               </button>
@@ -121,8 +123,9 @@ export default function DevServerPanel({
 
           {dev.watch && dev.watchNeeds && (
             <p className="hint">
-              Hot refresh needs {dev.watchNeeds}. If it is missing, the terminal
-              will say so and Run still works without it.
+              {dev.watchReady
+                ? `Hot refresh uses ${dev.watchNeeds}.`
+                : `Hot refresh needs ${dev.watchNeeds}, which is not installed — install it and reopen this tab. Run still works without it.`}
             </p>
           )}
         </>

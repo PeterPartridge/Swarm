@@ -29,6 +29,10 @@ pub struct DevCommand {
     /// Whether `watch` needs a tool that may not be installed, said plainly so
     /// a failure reads as "install cargo-watch" rather than a mystery.
     pub watch_needs: String,
+    /// The executable `watch` needs on PATH, so the panel can check before
+    /// offering it. Empty when nothing extra is required — `dotnet watch` is
+    /// built in, and a front end has no watcher at all.
+    pub watch_bin: String,
     /// The file that gave the language away.
     pub found_by: String,
 }
@@ -45,7 +49,7 @@ pub fn detect(root: &Path) -> Option<DevCommand> {
         let manifest = std::fs::read_to_string(root.join("package.json")).unwrap_or_default();
         if manifest.contains("\"dev\"") {
             // A dev server reloads itself — no separate watcher.
-            return Some(cmd("vite", "npm run dev", "", "", "package.json"));
+            return Some(cmd("vite", "npm run dev", "", "", "", "package.json"));
         }
         // A plain Node service: start it, and restart on change with nodemon.
         return Some(cmd(
@@ -53,6 +57,8 @@ pub fn detect(root: &Path) -> Option<DevCommand> {
             "npm start",
             "npx nodemon .",
             "nodemon (npx fetches it)",
+            // npx fetches nodemon on demand, so npm itself is the requirement.
+            "npx",
             "package.json",
         ));
     }
@@ -63,6 +69,7 @@ pub fn detect(root: &Path) -> Option<DevCommand> {
             "cargo run",
             "cargo watch -x run",
             "cargo-watch (cargo install cargo-watch)",
+            "cargo-watch",
             "Cargo.toml",
         ));
     }
@@ -72,6 +79,7 @@ pub fn detect(root: &Path) -> Option<DevCommand> {
             "go run .",
             "air",
             "air (github.com/air-verse/air)",
+            "air",
             "go.mod",
         ));
     }
@@ -84,6 +92,7 @@ pub fn detect(root: &Path) -> Option<DevCommand> {
                 "python -m app",
                 "watchmedo auto-restart -d . -p '*.py' -- python -m app",
                 "watchdog (pip install watchdog)",
+                "watchmedo",
                 marker,
             ));
         }
@@ -91,17 +100,25 @@ pub fn detect(root: &Path) -> Option<DevCommand> {
     if has_extension(root, "csproj") || has_extension(root, "sln") {
         // dotnet watch is built in — the one language where the refresh needs
         // no extra tool at all.
-        return Some(cmd("dotnet", "dotnet run", "dotnet watch run", "", "a .csproj or .sln"));
+        return Some(cmd("dotnet", "dotnet run", "dotnet watch run", "", "", "a .csproj or .sln"));
     }
     None
 }
 
-fn cmd(kind: &str, start: &str, watch: &str, watch_needs: &str, found_by: &str) -> DevCommand {
+fn cmd(
+    kind: &str,
+    start: &str,
+    watch: &str,
+    watch_needs: &str,
+    watch_bin: &str,
+    found_by: &str,
+) -> DevCommand {
     DevCommand {
         kind: kind.into(),
         start: start.into(),
         watch: watch.into(),
         watch_needs: watch_needs.into(),
+        watch_bin: watch_bin.into(),
         found_by: found_by.into(),
     }
 }
@@ -118,7 +135,47 @@ fn has_extension(dir: &Path, ext: &str) -> bool {
 
 /// A Solution's own command, replacing detection.
 pub fn custom(start: &str) -> DevCommand {
-    cmd("custom", start.trim(), "", "", "set on this Solution")
+    cmd("custom", start.trim(), "", "", "", "set on this Solution")
+}
+
+/// Whether an executable is on PATH.
+///
+/// Checked so the panel can say "hot refresh needs cargo-watch, which is not
+/// installed" *before* the button is pressed, rather than leaving someone to
+/// read a shell error. An empty name is "nothing to check", which is true for
+/// `dotnet watch` and for a front end that reloads itself.
+///
+/// PATHEXT is honoured on Windows because `cargo-watch` on disk is really
+/// `cargo-watch.exe`, and looking only for the bare name would report every
+/// installed tool as missing.
+pub fn tool_on_path(name: &str) -> bool {
+    if name.trim().is_empty() {
+        return true;
+    }
+    let Some(path) = std::env::var_os("PATH") else {
+        // No PATH to search is not evidence the tool is absent, and claiming it
+        // is missing would be a worse guess than staying quiet.
+        return true;
+    };
+    let extensions: Vec<String> = if cfg!(windows) {
+        std::env::var("PATHEXT")
+            .unwrap_or_else(|_| ".EXE;.CMD;.BAT;.COM".into())
+            .split(';')
+            .filter(|e| !e.is_empty())
+            .map(|e| e.to_lowercase())
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    std::env::split_paths(&path).any(|dir| {
+        if dir.join(name).is_file() {
+            return true;
+        }
+        extensions
+            .iter()
+            .any(|ext| dir.join(format!("{name}{ext}")).is_file())
+    })
 }
 
 #[cfg(test)]
@@ -169,6 +226,20 @@ mod tests {
         assert_eq!(d.start, "npm start");
         assert!(d.watch.contains("nodemon"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The panel checks this before offering Hot refresh, so it has to answer
+    /// honestly both ways.
+    #[test]
+    fn a_tool_on_path_is_found_and_a_made_up_one_is_not() {
+        // Something every machine running these tests has, by definition.
+        assert!(tool_on_path("cargo"), "cargo built this test");
+        assert!(
+            !tool_on_path("coperativeai-definitely-not-a-real-tool"),
+            "a name nothing could match must report missing"
+        );
+        // Nothing to check is not a failure — dotnet watch needs no extra tool.
+        assert!(tool_on_path(""), "an empty requirement is satisfied");
     }
 
     /// .NET is the one language whose refresh needs no extra tool.
