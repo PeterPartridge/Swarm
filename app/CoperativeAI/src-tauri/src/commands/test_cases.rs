@@ -77,12 +77,14 @@ pub async fn update_test_case(
     test_case::update_case(
         &conn,
         id,
-        &title,
-        &scenario,
-        &state,
-        test_path.as_deref(),
-        deliverable_id,
-        work_item_id,
+        &test_case::TestCaseUpdate {
+            title: &title,
+            scenario: &scenario,
+            state: &state,
+            test_path: test_path.as_deref(),
+            deliverable_id,
+            work_item_id,
+        },
     )
     .await
     .map_err(to_message)

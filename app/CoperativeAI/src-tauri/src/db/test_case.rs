@@ -111,24 +111,37 @@ pub async fn find_by_id(conn: &Connection, id: i64) -> Result<Option<TestCase>> 
     }
 }
 
+/// The editable parts of a test case.
+///
+/// Grouped rather than passed as six more positional parameters: `title`,
+/// `scenario` and `state` are all `&str`, and `deliverable_id` and
+/// `work_item_id` are both `Option<i64>` — swapping either pair compiles
+/// silently and lands a test case against the wrong work.
+#[derive(Debug, Clone, Copy)]
+pub struct TestCaseUpdate<'a> {
+    pub title: &'a str,
+    pub scenario: &'a str,
+    pub state: &'a str,
+    /// Where the implemented test lives, once it exists.
+    pub test_path: Option<&'a str>,
+    pub deliverable_id: Option<i64>,
+    pub work_item_id: Option<i64>,
+}
+
 /// Updates the editable parts of a test case: its text, what it is associated
 /// with, and whether it has been implemented (and where).
 pub async fn update_case(
     conn: &Connection,
     id: i64,
-    title: &str,
-    scenario: &str,
-    state: &str,
-    test_path: Option<&str>,
-    deliverable_id: Option<i64>,
-    work_item_id: Option<i64>,
+    update: &TestCaseUpdate<'_>,
 ) -> Result<()> {
-    if title.trim().is_empty() {
+    if update.title.trim().is_empty() {
         return Err(DbError::Validation("a test case needs a title".into()));
     }
-    if !STATES.contains(&state) {
+    if !STATES.contains(&update.state) {
         return Err(DbError::Validation(format!(
-            "state must be one of {STATES:?}, got '{state}'"
+            "state must be one of {STATES:?}, got '{}'",
+            update.state
         )));
     }
     // A read must be finished before the write below — see db::mod notes.
@@ -136,17 +149,17 @@ pub async fn update_case(
     if !exists {
         return Err(DbError::Validation(format!("no test case with id {id}")));
     }
-    check_links(conn, deliverable_id, work_item_id).await?;
+    check_links(conn, update.deliverable_id, update.work_item_id).await?;
     conn.execute(
         "UPDATE test_cases SET title = ?1, scenario = ?2, state = ?3, testPath = ?4,
          deliverableId = ?5, workItemId = ?6, updatedAt = ?7 WHERE id = ?8",
         (
-            title,
-            scenario,
-            state,
-            test_path,
-            deliverable_id,
-            work_item_id,
+            update.title,
+            update.scenario,
+            update.state,
+            update.test_path,
+            update.deliverable_id,
+            update.work_item_id,
             now_millis(),
             id,
         ),
@@ -242,12 +255,14 @@ mod tests {
         update_case(
             &conn,
             id,
-            "Login works",
-            "…",
-            "implemented",
-            Some("src/__tests__/login.test.ts"),
-            None,
-            None,
+            &TestCaseUpdate {
+                title: "Login works",
+                scenario: "…",
+                state: "implemented",
+                test_path: Some("src/__tests__/login.test.ts"),
+                deliverable_id: None,
+                work_item_id: None,
+            },
         )
         .await
         .expect("update");
@@ -260,9 +275,22 @@ mod tests {
     async fn update_rejects_a_bad_state_empty_title_or_unknown_case() {
         let (conn, product_id) = db_with_product().await;
         let id = create(&conn, product_id, "T", "", None, None).await.expect("create");
-        assert!(update_case(&conn, id, "T", "", "shipped", None, None, None).await.is_err());
-        assert!(update_case(&conn, id, " ", "", "designed", None, None, None).await.is_err());
-        assert!(update_case(&conn, 999, "T", "", "designed", None, None, None).await.is_err());
+        // Same update but for the one thing each case is checking, so what is
+        // being rejected is the difference rather than buried in a row of args.
+        let valid = TestCaseUpdate {
+            title: "T",
+            scenario: "",
+            state: "designed",
+            test_path: None,
+            deliverable_id: None,
+            work_item_id: None,
+        };
+        let bad_state = TestCaseUpdate { state: "shipped", ..valid };
+        let blank_title = TestCaseUpdate { title: " ", ..valid };
+
+        assert!(update_case(&conn, id, &bad_state).await.is_err());
+        assert!(update_case(&conn, id, &blank_title).await.is_err());
+        assert!(update_case(&conn, 999, &valid).await.is_err());
     }
 
     /// Deleting what a test case points at must not leave a dangling id — the

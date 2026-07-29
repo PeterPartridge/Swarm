@@ -27,12 +27,83 @@ pub struct Role {
     pub can_design: bool,
 }
 
-/// (name, product, develop, test, admin, cost, profit, chargeable, budget, marketing, design)
-const DEFAULT_ROLES: &[(&str, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool)] = &[
-    ("Admin", true, true, true, true, true, true, true, true, true, true),
-    ("Product", true, false, false, false, true, true, true, true, true, true),
-    ("Developer", false, true, true, false, false, false, false, false, false, false),
-    ("QA", false, false, true, false, false, false, false, false, false, false),
+/// One role as first seeded.
+///
+/// Named fields rather than a row of positional booleans. Ten bare `true`s and
+/// `false`s in a line is precisely where two flags get swapped without anyone
+/// noticing — the symptom would be somebody unable to see a screen they should,
+/// traced back through the UI and the database before anyone suspected the seed
+/// data. The flags are only readable at the place they are written if they are
+/// named there.
+struct DefaultRole {
+    name: &'static str,
+    product: bool,
+    develop: bool,
+    test: bool,
+    admin: bool,
+    cost: bool,
+    profit: bool,
+    chargeable: bool,
+    budget: bool,
+    marketing: bool,
+    design: bool,
+}
+
+/// Everything off unless a role says otherwise — deny by default, so a new flag
+/// added later cannot silently grant itself to a role nobody reconsidered.
+impl DefaultRole {
+    const fn nothing(name: &'static str) -> Self {
+        Self {
+            name,
+            product: false,
+            develop: false,
+            test: false,
+            admin: false,
+            cost: false,
+            profit: false,
+            chargeable: false,
+            budget: false,
+            marketing: false,
+            design: false,
+        }
+    }
+}
+
+const DEFAULT_ROLES: &[DefaultRole] = &[
+    DefaultRole {
+        product: true,
+        develop: true,
+        test: true,
+        admin: true,
+        cost: true,
+        profit: true,
+        chargeable: true,
+        budget: true,
+        marketing: true,
+        design: true,
+        ..DefaultRole::nothing("Admin")
+    },
+    // Product sees the money and the campaigns, but not the code.
+    DefaultRole {
+        product: true,
+        cost: true,
+        profit: true,
+        chargeable: true,
+        budget: true,
+        marketing: true,
+        design: true,
+        ..DefaultRole::nothing("Product")
+    },
+    // A developer needs Develop and Test; the commercial fields are not theirs.
+    DefaultRole {
+        develop: true,
+        test: true,
+        ..DefaultRole::nothing("Developer")
+    },
+    DefaultRole {
+        test: true,
+        ..DefaultRole::nothing("QA")
+    },
 ];
 
 pub async fn create_table(conn: &Connection) -> Result<()> {
@@ -98,14 +169,23 @@ async fn seed_defaults(conn: &Connection) -> Result<()> {
     if count > 0 {
         return Ok(());
     }
-    for (name, p, d, t, a, cost, profit, charge, budget, marketing, design) in DEFAULT_ROLES {
+    for role in DEFAULT_ROLES {
         conn.execute(
             "INSERT INTO roles (name, canProduct, canDevelop, canTest, canAdmin, seeCost, seeProfit, seeChargeable, canManageBudget, canMarketing, canDesign, createdAt)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             (
-                *name, *p as i64, *d as i64, *t as i64, *a as i64,
-                *cost as i64, *profit as i64, *charge as i64, *budget as i64,
-                *marketing as i64, *design as i64, now_millis(),
+                role.name,
+                role.product as i64,
+                role.develop as i64,
+                role.test as i64,
+                role.admin as i64,
+                role.cost as i64,
+                role.profit as i64,
+                role.chargeable as i64,
+                role.budget as i64,
+                role.marketing as i64,
+                role.design as i64,
+                now_millis(),
             ),
         )
         .await?;

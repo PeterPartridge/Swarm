@@ -579,16 +579,16 @@ pub async fn generate_deliverable_work(
             .map(|i| i.title)
             .collect::<Vec<_>>();
         let label = human_level(&context.item_type);
-        let prompt = client::build_deliverable_prompt(
-            &product_row.name,
-            &product_row.answers,
-            &strategy_json,
-            &context.deliverable.name,
-            &context.deliverable.description,
-            label,
-            &existing,
-            &solutions,
-        );
+        let prompt = client::build_deliverable_prompt(&client::DeliverablePrompt {
+            product_name: &product_row.name,
+            product_answers: &product_row.answers,
+            strategy: &strategy_json,
+            deliverable_name: &context.deliverable.name,
+            deliverable_description: &context.deliverable.description,
+            item_label: label,
+            existing: &existing,
+            solutions: &solutions,
+        });
         (context, routed, prompt, product_id)
     };
 

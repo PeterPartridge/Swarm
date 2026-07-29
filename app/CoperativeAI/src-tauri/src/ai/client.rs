@@ -147,42 +147,59 @@ fn append_clarifications(task: &mut String, clarifications: &[String]) {
     }
 }
 
+/// Everything the deliverable prompt is built from.
+///
+/// A struct rather than eight positional parameters: four of them are strings
+/// that would compile fine in the wrong order, and the failure would be a
+/// subtly wrong prompt rather than an error — the sort of thing found by
+/// reading generated work and wondering why it drifted.
+pub struct DeliverablePrompt<'a> {
+    pub product_name: &'a str,
+    pub product_answers: &'a str,
+    pub strategy: &'a str,
+    pub deliverable_name: &'a str,
+    pub deliverable_description: &'a str,
+    /// The plain name of the level being generated ("feature", "user story", …)
+    /// so the wording follows the Product's planning method.
+    pub item_label: &'a str,
+    /// Titles already under the deliverable, so a second press extends the plan
+    /// instead of repeating it.
+    pub existing: &'a [String],
+    /// (name, solutionType, answers JSON)
+    pub solutions: &'a [(String, String, String)],
+}
+
 /// Builds the prompt that turns a Deliverable into the work that achieves it.
-/// `item_label` is the plain name of the level being generated ("feature",
-/// "user story", …) so the wording follows the Product's planning method.
-/// `existing` are the titles already under the deliverable, so a second press
-/// extends the plan instead of repeating it. (pure — unit tested)
-pub fn build_deliverable_prompt(
-    product_name: &str,
-    product_answers: &str,
-    strategy: &str,
-    deliverable_name: &str,
-    deliverable_description: &str,
-    item_label: &str,
-    existing: &[String],
-    solutions: &[(String, String, String)], // (name, solutionType, answers JSON)
-) -> Prompt {
-    let context = product_context(product_name, product_answers, Some(strategy), solutions);
-    let mut task = format!("Deliverable: {deliverable_name}\n");
-    if !deliverable_description.trim().is_empty() {
+/// (pure — unit tested)
+pub fn build_deliverable_prompt(input: &DeliverablePrompt<'_>) -> Prompt {
+    let context = product_context(
+        input.product_name,
+        input.product_answers,
+        Some(input.strategy),
+        input.solutions,
+    );
+    let mut task = format!("Deliverable: {}\n", input.deliverable_name);
+    if !input.deliverable_description.trim().is_empty() {
         task.push_str(&format!(
-            "Deliverable description: {deliverable_description}\n"
+            "Deliverable description: {}\n",
+            input.deliverable_description
         ));
     }
-    if !existing.is_empty() {
+    if !input.existing.is_empty() {
         task.push_str(
             "\nAlready planned under this deliverable — do NOT repeat these, add what is missing:\n",
         );
-        for title in existing {
+        for title in input.existing {
             task.push_str(&format!("- {title}\n"));
         }
     }
     task.push_str(&format!(
-        "\nBreak this deliverable into the {item_label}s needed to achieve it. \
+        "\nBreak this deliverable into the {}s needed to achieve it. \
          Write 3-6 of them. Each one: a short title naming the outcome, and a \
          one-to-three sentence description of what done looks like. Cover the \
          deliverable across the connected solutions, and keep each one \
-         independently deliverable."
+         independently deliverable.",
+        input.item_label
     ));
     task.push_str(ESCAPE_HATCH);
     Prompt { context, task }
@@ -2148,16 +2165,16 @@ mod tests {
         assert_ne!(first.task, second.task);
 
         // and the deliverable prompt shares that same context for the Product
-        let deliverable = build_deliverable_prompt(
-            "Shop App",
-            answers,
-            "{}",
-            "MVP",
-            "",
-            "feature",
-            &[],
-            &solutions,
-        );
+        let deliverable = build_deliverable_prompt(&DeliverablePrompt {
+            product_name: "Shop App",
+            product_answers: answers,
+            strategy: "{}",
+            deliverable_name: "MVP",
+            deliverable_description: "",
+            item_label: "feature",
+            existing: &[],
+            solutions: &solutions,
+        });
         assert_eq!(first.context, deliverable.context);
     }
 
@@ -2177,16 +2194,16 @@ mod tests {
 
     #[test]
     fn deliverable_prompt_puts_strategy_in_context_and_existing_work_in_the_task() {
-        let prompt = build_deliverable_prompt(
-            "Shop App",
-            "{}",
-            "{\"vision\":\"be the best\"}",
-            "MVP",
-            "first release",
-            "feature",
-            &["Checkout flow".to_string()],
-            &[],
-        );
+        let prompt = build_deliverable_prompt(&DeliverablePrompt {
+            product_name: "Shop App",
+            product_answers: "{}",
+            strategy: "{\"vision\":\"be the best\"}",
+            deliverable_name: "MVP",
+            deliverable_description: "first release",
+            item_label: "feature",
+            existing: &["Checkout flow".to_string()],
+            solutions: &[],
+        });
         assert!(prompt.context.contains("be the best"));
         assert!(prompt.task.contains("MVP"));
         assert!(prompt.task.contains("first release"));
@@ -2377,8 +2394,16 @@ mod tests {
     #[test]
     fn every_prompt_offers_the_escape_hatch() {
         let story = build_story_prompt("P", "{}", "F", None, &[], &[]);
-        let deliverable =
-            build_deliverable_prompt("P", "{}", "{}", "D", "", "feature", &[], &[]);
+        let deliverable = build_deliverable_prompt(&DeliverablePrompt {
+            product_name: "P",
+            product_answers: "{}",
+            strategy: "{}",
+            deliverable_name: "D",
+            deliverable_description: "",
+            item_label: "feature",
+            existing: &[],
+            solutions: &[],
+        });
         for prompt in [story, deliverable] {
             assert!(prompt.task.contains("do NOT guess"), "got: {}", prompt.task);
             assert!(prompt.task.contains("blocked"));
