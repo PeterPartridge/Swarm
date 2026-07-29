@@ -14,6 +14,7 @@ import {
   loadTabColors,
   loadThemeMode,
   saveTabColors,
+  saveThemeMode,
   type EnvironmentId,
   type TabColors,
 } from "../lib/theme";
@@ -113,7 +114,34 @@ export default function WorkspaceShell() {
           ]
         : [],
     };
-    return [areas, develop].filter((g) => g.items.length > 0);
+    // Actions rather than destinations — what `>` narrows to. Kept to things
+    // the shell can genuinely do from here; a command that only pretends to
+    // work is worse than one that is missing.
+    const commands: PaletteGroup = {
+      name: "Commands",
+      commands: true,
+      items: [
+        {
+          glyph: "◐",
+          label: "Switch to dark theme",
+          hint: "",
+          run: () => {
+            saveThemeMode("dark");
+            applyThemeMode("dark");
+          },
+        },
+        {
+          glyph: "◑",
+          label: "Switch to light theme",
+          hint: "",
+          run: () => {
+            saveThemeMode("light");
+            applyThemeMode("light");
+          },
+        },
+      ],
+    };
+    return [areas, develop, commands].filter((g) => g.items.length > 0);
   }, [visibleTabs, canAccess]);
 
   return (

@@ -13,6 +13,10 @@ export interface PaletteItem {
 export interface PaletteGroup {
   name: string;
   items: PaletteItem[];
+  /** True for a group of *actions* rather than destinations. Typing `>` narrows
+   *  to these — the convention every editor beside this one uses, and the one
+   *  the footer advertises. */
+  commands?: boolean;
 }
 
 /** Go anywhere, run anything, from the keyboard.
@@ -50,10 +54,17 @@ export default function CommandPalette({
     }
   }, [open]);
 
+  /// `>` switches to commands only. Plain text still searches everything, so
+  /// the prefix narrows rather than being the only way to reach an action —
+  /// nobody should have to know the convention to find something.
+  const commandMode = query.trimStart().startsWith(">");
+
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (q === "") return groups;
-    return groups
+    const raw = query.trimStart();
+    const q = (commandMode ? raw.slice(1) : raw).trim().toLowerCase();
+    const scope = commandMode ? groups.filter((g) => g.commands) : groups;
+    if (q === "") return scope;
+    return scope
       .map((g) => ({
         ...g,
         items: g.items.filter(
@@ -62,7 +73,7 @@ export default function CommandPalette({
         ),
       }))
       .filter((g) => g.items.length > 0);
-  }, [groups, query]);
+  }, [groups, query, commandMode]);
 
   /// Flattened, because ↑↓ crosses group boundaries — the groups are headings,
   /// not separate lists.
@@ -130,7 +141,11 @@ export default function CommandPalette({
         </div>
 
         <div className="palette-results">
-          {flat.length === 0 && <p className="hint palette-empty">Nothing matches that.</p>}
+          {flat.length === 0 && (
+            <p className="hint palette-empty">
+              {commandMode ? "No command matches that." : "Nothing matches that."}
+            </p>
+          )}
           {filtered.map((group) => (
             <div key={group.name} className="palette-group">
               <div className="palette-group-name">{group.name}</div>
@@ -163,6 +178,9 @@ export default function CommandPalette({
         <div className="palette-foot">
           <span>↑↓ navigate</span>
           <span>⏎ select</span>
+          <span className="palette-foot-end">
+            {commandMode ? "commands only" : "> for commands"}
+          </span>
         </div>
       </div>
     </div>

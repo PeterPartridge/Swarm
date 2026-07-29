@@ -16,6 +16,11 @@ function groups(run = vi.fn()): PaletteGroup[] {
       name: "Develop",
       items: [{ glyph: "‹›", label: "Code", hint: "", run }],
     },
+    {
+      name: "Commands",
+      commands: true,
+      items: [{ glyph: "◐", label: "Switch to dark theme", hint: "", run }],
+    },
   ];
 }
 
@@ -82,6 +87,42 @@ describe("CommandPalette", () => {
       "aria-selected",
       "true",
     );
+  });
+
+  /// The mode the footer advertises: `>` drops the destinations and leaves the
+  /// actions.
+  it("narrows to commands after a > prefix", async () => {
+    const user = userEvent.setup();
+    render(<CommandPalette open groups={groups()} onClose={() => {}} />);
+
+    await user.type(screen.getByLabelText("Search or run"), ">");
+
+    expect(screen.getByText("Switch to dark theme")).toBeInTheDocument();
+    expect(screen.queryByText("Product")).not.toBeInTheDocument();
+    expect(screen.queryByText("Code")).not.toBeInTheDocument();
+    expect(screen.getByText("commands only")).toBeInTheDocument();
+  });
+
+  /// …and text after the > still filters within them.
+  it("filters within commands after the prefix", async () => {
+    const user = userEvent.setup();
+    render(<CommandPalette open groups={groups()} onClose={() => {}} />);
+
+    await user.type(screen.getByLabelText("Search or run"), ">dark");
+    expect(screen.getByText("Switch to dark theme")).toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText("Search or run"));
+    await user.type(screen.getByLabelText("Search or run"), ">zzz");
+    expect(screen.getByText(/No command matches/)).toBeInTheDocument();
+  });
+
+  /// Plain text still reaches an action, so nobody has to know the convention
+  /// to find one — the prefix narrows, it is not the only door.
+  it("finds a command by plain search too", async () => {
+    const user = userEvent.setup();
+    render(<CommandPalette open groups={groups()} onClose={() => {}} />);
+    await user.type(screen.getByLabelText("Search or run"), "theme");
+    expect(screen.getByText("Switch to dark theme")).toBeInTheDocument();
   });
 
   it("closes on Escape", async () => {

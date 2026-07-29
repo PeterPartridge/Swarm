@@ -386,6 +386,10 @@ button:disabled {
   font-size: 0.66rem;
   color: var(--fg-dim);
 }
+/* Pushed to the right, where the design puts the "> for commands" hint. */
+.palette-foot-end {
+  margin-left: auto;
+}
 
 /* Leftover run checkouts, offered for removal rather than swept up. */
 .abandoned {
