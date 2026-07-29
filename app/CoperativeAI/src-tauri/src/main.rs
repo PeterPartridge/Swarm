@@ -82,6 +82,7 @@ fn main() {
             commands::products::delete_product,
             commands::emit::generate_framework_files,
             commands::feedback::list_ai_feedback,
+            commands::feedback::list_open_questions,
             commands::feedback::resolve_ai_feedback,
             commands::solutions::list_solutions,
             commands::solutions::create_solution,

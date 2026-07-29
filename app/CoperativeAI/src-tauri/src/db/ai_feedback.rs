@@ -96,6 +96,27 @@ pub async fn list_open_for_item(conn: &Connection, work_item_id: i64) -> Result<
     .await
 }
 
+/// Every unanswered question in a Product, whichever work item raised it.
+///
+/// The AI panel is not scoped to one work item: several agents are planning at
+/// once, and a question from any of them is blocking that one. Per-item lists
+/// would mean opening each item to discover which is waiting on you.
+pub async fn list_open_for_product(
+    conn: &Connection,
+    product_id: i64,
+) -> Result<Vec<AiFeedback>> {
+    query(
+        conn,
+        &format!(
+            "{SELECT} WHERE resolved = 0 \
+             AND workItemId IN (SELECT id FROM work_items WHERE productId = ?1) \
+             ORDER BY id DESC"
+        ),
+        product_id,
+    )
+    .await
+}
+
 /// Answers a piece of feedback. The note is the clarification that will be sent
 /// with the next prompt for this item, which is the whole point of capturing it.
 pub async fn resolve(conn: &Connection, id: i64, note: &str) -> Result<()> {

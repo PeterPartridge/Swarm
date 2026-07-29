@@ -32,6 +32,51 @@ impl From<AiFeedback> for AiFeedbackDto {
     }
 }
 
+/// Every unanswered AI question in a Product, with the work item that raised it
+/// named — so the AI panel can say which agent is waiting on you rather than
+/// leaving you to open each item and check.
+#[tauri::command]
+pub async fn list_open_questions(
+    db: State<'_, AppDb>,
+    product_id: i64,
+) -> Result<Vec<OpenQuestionDto>, String> {
+    let conn = db.0.lock().await;
+    let open = ai_feedback::list_open_for_product(&conn, product_id)
+        .await
+        .map_err(to_message)?;
+    let items = crate::db::work_item::list_by_product(&conn, product_id)
+        .await
+        .map_err(to_message)?;
+
+    Ok(open
+        .into_iter()
+        .map(|q| OpenQuestionDto {
+            work_item_title: items
+                .iter()
+                .find(|i| i.id == q.work_item_id)
+                .map(|i| i.title.clone())
+                .unwrap_or_else(|| format!("#{}", q.work_item_id)),
+            id: q.id,
+            work_item_id: q.work_item_id,
+            kind: q.kind,
+            message: q.message,
+            what_is_needed: q.what_is_needed,
+        })
+        .collect())
+}
+
+/// An open question, carrying the work item's title so the panel can name it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenQuestionDto {
+    pub id: i64,
+    pub work_item_id: i64,
+    pub work_item_title: String,
+    pub kind: String,
+    pub message: String,
+    pub what_is_needed: String,
+}
+
 #[tauri::command]
 pub async fn list_ai_feedback(
     db: State<'_, AppDb>,
