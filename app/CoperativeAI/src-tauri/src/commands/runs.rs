@@ -250,6 +250,84 @@ pub async fn list_run_worktrees(
         .collect())
 }
 
+/// The branch and base a run works on, with its Solution's repository.
+///
+/// Both come from the work item's build plan, not from anything invented here —
+/// the same pair `start_run` cut the worktree from.
+async fn branch_of_run(
+    db: &State<'_, AppDb>,
+    run_id: i64,
+) -> Result<(String, String, String), String> {
+    let conn = db.0.lock().await;
+    let Some(run) = change_run::find_by_id(&conn, run_id)
+        .await
+        .map_err(to_message)?
+    else {
+        return Err("that run no longer exists".into());
+    };
+    let Some(plan) = work_item_plan::list_for_item(&conn, run.work_item_id)
+        .await
+        .map_err(to_message)?
+        .into_iter()
+        .find(|p| p.solution_id == run.solution_id)
+    else {
+        return Err("this run's build plan has gone, so its branch is unknown".into());
+    };
+    if plan.branch_name.trim().is_empty() {
+        return Err("this run has no branch name on its build plan".into());
+    }
+    let Some(row) = solution::find_by_id(&conn, run.solution_id)
+        .await
+        .map_err(to_message)?
+    else {
+        return Err("that run's Solution no longer exists".into());
+    };
+    let root = row
+        .local_path
+        .filter(|p| !p.trim().is_empty())
+        .ok_or("that run's Solution has no folder on this machine")?;
+    // An empty base means the plan never said; main is the only sane guess and
+    // it is the same one add_worktree made.
+    let base = if plan.clone_from.trim().is_empty() {
+        "main".to_string()
+    } else {
+        plan.clone_from
+    };
+    Ok((root, plan.branch_name, base))
+}
+
+/// Whether a run's branch would merge cleanly — checked without touching the
+/// working copy, so "this will be a fight" is knowable before committing to it.
+#[tauri::command]
+pub async fn preview_run_merge(
+    db: State<'_, AppDb>,
+    run_id: i64,
+) -> Result<vcs::MergePreview, String> {
+    let (root, branch, base) = branch_of_run(&db, run_id).await?;
+    vcs::merge_preview(&root, &branch, &base)
+}
+
+/// Brings a run's branch home.
+///
+/// Deliberately a press rather than something settling a run does for you: this
+/// is the one operation in the feature that rewrites shared history instead of
+/// a scratch folder.
+#[tauri::command]
+pub async fn merge_run_branch(
+    db: State<'_, AppDb>,
+    run_id: i64,
+) -> Result<vcs::MergeOutcome, String> {
+    let (root, branch, base) = branch_of_run(&db, run_id).await?;
+    vcs::merge_branch(&root, &branch, &base)
+}
+
+/// Abandons a conflicted merge, putting the checkout back as it was.
+#[tauri::command]
+pub async fn abort_run_merge(db: State<'_, AppDb>, run_id: i64) -> Result<(), String> {
+    let (root, _, _) = branch_of_run(&db, run_id).await?;
+    vcs::abort_merge(&root)
+}
+
 /// A checkout on disk that no run claims any more.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

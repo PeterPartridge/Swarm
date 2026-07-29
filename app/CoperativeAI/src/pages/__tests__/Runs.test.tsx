@@ -17,6 +17,9 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     discardRunWorktree: vi.fn(),
     listAbandonedWorktrees: vi.fn(),
     removeWorktreeAt: vi.fn(),
+    previewRunMerge: vi.fn(),
+    mergeRunBranch: vi.fn(),
+    abortRunMerge: vi.fn(),
   };
 });
 
@@ -153,6 +156,115 @@ describe("RunsPanel", () => {
     );
 
     expect(await screen.findByText(/uncommitted changes/)).toBeInTheDocument();
+  });
+
+  /// A clean branch says how much is coming and offers to merge it.
+  it("checks a merge and reports it as clean", async () => {
+    const user = userEvent.setup();
+    mocked.listRuns.mockResolvedValue([run({ id: 4, state: "prepared" })]);
+    mocked.previewRunMerge.mockResolvedValue({
+      clean: true,
+      conflicts: [],
+      commitsAhead: 3,
+    });
+    render(<RunsPanel productId={1} />);
+
+    await user.click(
+      await screen.findByLabelText("Check merge for Add checkout on Shop API"),
+    );
+
+    expect(await screen.findByText(/3 commits to merge, cleanly/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Merge Add checkout on Shop API" })).toBeInTheDocument();
+  });
+
+  /// The case the feature exists for: two agents on one file. The clash is
+  /// named before anything is touched.
+  it("names the files that will conflict before merging", async () => {
+    const user = userEvent.setup();
+    mocked.listRuns.mockResolvedValue([run({ id: 4, state: "prepared" })]);
+    mocked.previewRunMerge.mockResolvedValue({
+      clean: false,
+      conflicts: ["src/checkout.rs"],
+      commitsAhead: 2,
+    });
+    render(<RunsPanel productId={1} />);
+
+    await user.click(
+      await screen.findByLabelText("Check merge for Add checkout on Shop API"),
+    );
+
+    expect(await screen.findByText(/1 file will conflict/)).toBeInTheDocument();
+    expect(screen.getByText("src/checkout.rs")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Merge Add checkout on Shop API" }),
+    ).toHaveTextContent("Merge and resolve");
+  });
+
+  /// An agent that wrote nothing has nothing to merge, and "merged cleanly"
+  /// about zero commits would read as success.
+  it("says there is nothing to merge when the branch has no commits", async () => {
+    const user = userEvent.setup();
+    mocked.listRuns.mockResolvedValue([run({ id: 4, state: "prepared" })]);
+    mocked.previewRunMerge.mockResolvedValue({ clean: true, conflicts: [], commitsAhead: 0 });
+    render(<RunsPanel productId={1} />);
+
+    await user.click(
+      await screen.findByLabelText("Check merge for Add checkout on Shop API"),
+    );
+
+    expect(await screen.findByText(/Nothing to merge/)).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Merge Add checkout on Shop API" }),
+    ).not.toBeInTheDocument();
+  });
+
+  /// A conflicted merge is left standing for the three-way editor, and there
+  /// has to be a way out of it.
+  it("leaves a conflicted merge open and offers to abandon it", async () => {
+    const user = userEvent.setup();
+    mocked.listRuns.mockResolvedValue([run({ id: 4, state: "prepared" })]);
+    mocked.previewRunMerge.mockResolvedValue({
+      clean: false,
+      conflicts: ["src/checkout.rs"],
+      commitsAhead: 1,
+    });
+    mocked.mergeRunBranch.mockResolvedValue({
+      merged: false,
+      conflicts: ["src/checkout.rs"],
+      message: "feature/9 conflicts with main.",
+    });
+    mocked.abortRunMerge.mockResolvedValue(undefined);
+    render(<RunsPanel productId={1} />);
+
+    await user.click(
+      await screen.findByLabelText("Check merge for Add checkout on Shop API"),
+    );
+    await user.click(screen.getByRole("button", { name: "Merge Add checkout on Shop API" }));
+
+    const abandon = await screen.findByLabelText(
+      "Abandon the merge for Add checkout on Shop API",
+    );
+    await user.click(abandon);
+    await waitFor(() => expect(mocked.abortRunMerge).toHaveBeenCalledWith(4));
+  });
+
+  /// Merging over uncommitted work is how work gets lost; the refusal has to
+  /// reach the screen.
+  it("surfaces a refusal to merge over uncommitted work", async () => {
+    const user = userEvent.setup();
+    mocked.listRuns.mockResolvedValue([run({ id: 4, state: "prepared" })]);
+    mocked.previewRunMerge.mockResolvedValue({ clean: true, conflicts: [], commitsAhead: 1 });
+    mocked.mergeRunBranch.mockRejectedValue(
+      "there are 2 uncommitted files here — commit or stash before merging",
+    );
+    render(<RunsPanel productId={1} />);
+
+    await user.click(
+      await screen.findByLabelText("Check merge for Add checkout on Shop API"),
+    );
+    await user.click(screen.getByRole("button", { name: "Merge Add checkout on Shop API" }));
+
+    expect(await screen.findByText(/uncommitted files/)).toBeInTheDocument();
   });
 
   /// No leftovers means no section at all — a tidy machine should not carry a

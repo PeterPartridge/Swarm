@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  abortRunMerge,
   discardRunWorktree,
   listAbandonedWorktrees,
   listRuns,
+  mergeRunBranch,
+  previewRunMerge,
   removeWorktreeAt,
   startRun,
   type AbandonedWorktree,
+  type MergeOutcome,
+  type MergePreview,
   type Run,
 } from "../../lib/backend";
 import RunTerminal from "../code/RunTerminal";
@@ -23,6 +28,92 @@ interface StartedRun {
   /** The dev-server terminal was closed on its own, without ending the run. */
   devClosed?: boolean;
   title: string;
+}
+
+/** What one run's merge looks like: what the check found, and what a merge did
+ *  if one has been attempted. */
+interface MergeInfo {
+  preview: MergePreview;
+  outcome?: MergeOutcome;
+  /** True while a conflicted merge is standing open in the working copy. */
+  open: boolean;
+}
+
+/** The merge state of one run: what the check found, what to do next.
+ *
+ *  Every branch of this says something the person did not already know — how
+ *  many commits are coming, which files will fight, whether a merge is sitting
+ *  open right now. A control that just said "Merge" would hide all of it. */
+function MergeState({
+  preview,
+  outcome,
+  busy,
+  onMerge,
+  onAbort,
+  label,
+}: {
+  preview: MergePreview;
+  outcome?: MergeOutcome;
+  busy: boolean;
+  onMerge: () => void;
+  onAbort: () => void;
+  label: string;
+}) {
+  if (preview.commitsAhead === 0) {
+    return (
+      <p className="hint">
+        Nothing to merge — this branch has no commits the base does not already
+        have.
+      </p>
+    );
+  }
+
+  const commits = `${preview.commitsAhead} commit${preview.commitsAhead === 1 ? "" : "s"}`;
+
+  // A merge left open is the most urgent thing this component can say.
+  if (outcome && !outcome.merged) {
+    return (
+      <div className="merge-open">
+        <p role="status">{outcome.message}</p>
+        <ul className="merge-conflicts">
+          {outcome.conflicts.map((f) => (
+            <li key={f}>{f}</li>
+          ))}
+        </ul>
+        <button aria-label={`Abandon the merge for ${label}`} disabled={busy} onClick={onAbort}>
+          Abandon this merge
+        </button>
+      </div>
+    );
+  }
+
+  if (outcome?.merged) {
+    return <p role="status">{outcome.message}</p>;
+  }
+
+  return (
+    <div className="merge-check">
+      {preview.clean ? (
+        <p className="hint">{commits} to merge, cleanly.</p>
+      ) : (
+        <>
+          <p className="hint">
+            {commits} to merge, but {preview.conflicts.length} file
+            {preview.conflicts.length === 1 ? "" : "s"} will conflict — merging
+            opens them in the Code tab's merge view.
+          </p>
+          <ul className="merge-conflicts">
+            {preview.conflicts.map((f) => (
+              <li key={f}>{f}</li>
+            ))}
+          </ul>
+        </>
+      )}
+      <button aria-label={`Merge ${label}`} disabled={busy} onClick={onMerge}>
+        {preview.clean ? "Merge" : "Merge and resolve"}
+      </button>
+    </div>
+  );
 }
 
 /** The execution runs — one per (work item, Solution), each in its own checkout.
@@ -45,6 +136,9 @@ export default function RunsPanel({ productId }: { productId: number }) {
   const [notice, setNotice] = useState<string | null>(null);
   /// Checkouts on disk that no run claims — the pile that used to be invisible.
   const [abandoned, setAbandoned] = useState<AbandonedWorktree[]>([]);
+  /// What a merge would do (or did), per run id. Held per run because several
+  /// runs are in flight at once and each answers the question separately.
+  const [merges, setMerges] = useState<Record<number, MergeInfo>>({});
 
   const refresh = useCallback(async () => {
     try {
@@ -126,6 +220,53 @@ export default function RunsPanel({ productId }: { productId: number }) {
     }
   }
 
+  async function checkMerge(run: Run) {
+    setBusy(key(run));
+    try {
+      const preview = await previewRunMerge(run.id);
+      setMerges((prev) => ({ ...prev, [run.id]: { preview, open: false } }));
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function doMerge(run: Run) {
+    setBusy(key(run));
+    try {
+      const outcome = await mergeRunBranch(run.id);
+      setMerges((prev) => ({
+        ...prev,
+        [run.id]: { ...prev[run.id], outcome, open: !outcome.merged },
+      }));
+      setNotice(outcome.message);
+      setError(null);
+      await refresh();
+    } catch (e) {
+      // Most often "there are uncommitted files here" — a refusal to read, not
+      // a failure to retry.
+      setError(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function abortMerge(run: Run) {
+    setBusy(key(run));
+    try {
+      await abortRunMerge(run.id);
+      setMerges((prev) => ({ ...prev, [run.id]: { ...prev[run.id], open: false, outcome: undefined } }));
+      setNotice("The merge was abandoned; the checkout is back as it was.");
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function removeAbandoned(left: AbandonedWorktree) {
     setBusy(left.path);
     try {
@@ -182,6 +323,32 @@ export default function RunsPanel({ productId }: { productId: number }) {
 
             {run.worktreePath && (
               <p className="hint run-path">{run.worktreePath}</p>
+            )}
+
+            {/* Bringing the branch home. Checking first is free and touches
+                nothing, so the answer to "will this be a fight?" is available
+                before anyone commits to finding out. */}
+            {run.id !== 0 && run.branch.trim() !== "" && (
+              <div className="run-merge">
+                <button
+                  aria-label={`Check merge for ${run.workItemTitle} on ${run.solutionName}`}
+                  disabled={busy === key(run)}
+                  onClick={() => checkMerge(run)}
+                >
+                  Check merge
+                </button>
+
+                {merges[run.id] && (
+                  <MergeState
+                    preview={merges[run.id].preview}
+                    outcome={merges[run.id].outcome}
+                    busy={busy === key(run)}
+                    onMerge={() => doMerge(run)}
+                    onAbort={() => abortMerge(run)}
+                    label={`${run.workItemTitle} on ${run.solutionName}`}
+                  />
+                )}
+              </div>
             )}
 
             <div className="run-buttons">

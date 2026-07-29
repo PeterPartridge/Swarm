@@ -547,6 +547,167 @@ pub fn remove_worktree(root: &str, path: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// What merging a run's branch would do, worked out without touching anything.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergePreview {
+    /// True when the merge would apply with no conflicts.
+    pub clean: bool,
+    /// The files that would conflict. Named before anything is attempted, so
+    /// "this will be a fight" is knowable in advance.
+    pub conflicts: Vec<String>,
+    /// Commits on the branch the base does not have. Zero means there is
+    /// nothing to merge — the agent produced no commits.
+    pub commits_ahead: usize,
+}
+
+/// What a merge actually did.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeOutcome {
+    pub merged: bool,
+    /// Files left conflicted. When this is non-empty the merge is still in
+    /// progress in the working copy, waiting for the three-way editor.
+    pub conflicts: Vec<String>,
+    pub message: String,
+}
+
+/// Runs git tolerating a non-zero exit, for the commands where "it failed" is
+/// an answer rather than an error — `merge-tree` exits 1 to mean "conflicts",
+/// and `merge` exits 1 to mean the same.
+fn git_allowing_failure(root: &Path, args: &[&str]) -> Result<(bool, String, String), String> {
+    let output = Command::new("git")
+        .current_dir(root)
+        .args(args)
+        .output()
+        .map_err(|e| format!("could not run git — is it installed? ({e})"))?;
+    Ok((
+        output.status.success(),
+        String::from_utf8_lossy(&output.stdout).to_string(),
+        String::from_utf8_lossy(&output.stderr).to_string(),
+    ))
+}
+
+/// Whether `branch` would merge into `into` cleanly — **without touching the
+/// working copy at all**.
+///
+/// `git merge-tree --write-tree` does the whole merge in the object database
+/// and reports the result, so the question "will this be a fight?" can be
+/// answered before anyone commits to finding out. That matters most in exactly
+/// the case this feature exists for: two agents that both edited one Solution.
+pub fn merge_preview(root: &str, branch: &str, into: &str) -> Result<MergePreview, String> {
+    let root_path = canonical(root)?;
+
+    // Nothing to merge is worth saying plainly rather than reporting a clean
+    // merge of nothing, which reads like success.
+    let range = format!("{into}..{branch}");
+    let (ok, counted, err) = git_allowing_failure(&root_path, &["rev-list", "--count", &range])?;
+    if !ok {
+        return Err(format!("could not compare {branch} with {into}: {}", err.trim()));
+    }
+    let commits_ahead: usize = counted.trim().parse().unwrap_or(0);
+
+    let (clean, out, err) = git_allowing_failure(
+        &root_path,
+        &["merge-tree", "--write-tree", "--name-only", into, branch],
+    )?;
+    if !clean && out.trim().is_empty() {
+        // No tree at all means git refused the arguments, not that it found
+        // conflicts — an unknown branch, most often.
+        return Err(format!("could not test the merge: {}", err.trim()));
+    }
+
+    // On a conflict the first line is the tree, then the conflicted paths, then
+    // a blank line and human-readable notes we do not need.
+    let conflicts: Vec<String> = if clean {
+        Vec::new()
+    } else {
+        out.lines()
+            .skip(1)
+            .take_while(|l| !l.trim().is_empty())
+            .map(|l| l.trim().to_string())
+            .collect()
+    };
+
+    Ok(MergePreview { clean, conflicts, commits_ahead })
+}
+
+/// Merges a run's branch into its base, in the main checkout.
+///
+/// **Refused unless the working copy is clean.** Merging on top of someone's
+/// uncommitted edits is how work gets lost, and a merge is the one operation
+/// here that rewrites shared history rather than a scratch folder.
+///
+/// A conflicted merge is left **in progress** rather than rolled back, because
+/// the three-way editor in the Code tab is what resolves it — aborting would
+/// throw away the very state that view exists to work on. `abort_merge` is the
+/// way out when the answer is "not now".
+pub fn merge_branch(root: &str, branch: &str, into: &str) -> Result<MergeOutcome, String> {
+    let root_path = canonical(root)?;
+
+    let dirty = status(root)?;
+    if !dirty.files.is_empty() {
+        return Err(format!(
+            "there {} {} uncommitted file{} here — commit or stash before merging, so nothing \
+             of yours is caught up in it",
+            if dirty.files.len() == 1 { "is" } else { "are" },
+            dirty.files.len(),
+            if dirty.files.len() == 1 { "" } else { "s" }
+        ));
+    }
+
+    // Checking out the base is safe precisely because the tree is clean: there
+    // is nothing to carry across or lose.
+    git(&root_path, &["checkout", into])?;
+
+    let (ok, out, err) = git_allowing_failure(&root_path, &["merge", "--no-ff", branch])?;
+    if ok {
+        return Ok(MergeOutcome {
+            merged: true,
+            conflicts: Vec::new(),
+            message: format!("{branch} merged into {into}."),
+        });
+    }
+
+    // Conflicted: report which files, and leave the merge standing.
+    let conflicts = match git_allowing_failure(&root_path, &["diff", "--name-only", "--diff-filter=U"])
+    {
+        Ok((_, files, _)) => files
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| l.trim().to_string())
+            .collect::<Vec<_>>(),
+        Err(_) => Vec::new(),
+    };
+    if conflicts.is_empty() {
+        // Failed for a reason that is not a conflict — do not leave the repo
+        // half-merged on a mystery.
+        let _ = git_allowing_failure(&root_path, &["merge", "--abort"]);
+        return Err(format!(
+            "the merge failed: {}",
+            if err.trim().is_empty() { out.trim() } else { err.trim() }
+        ));
+    }
+    Ok(MergeOutcome {
+        merged: false,
+        conflicts,
+        message: format!(
+            "{branch} conflicts with {into}. The merge is open in the working copy — resolve it \
+             in the Code tab's merge view, or abandon it."
+        ),
+    })
+}
+
+/// Abandons a merge left in progress, putting the checkout back as it was.
+pub fn abort_merge(root: &str) -> Result<(), String> {
+    let root_path = canonical(root)?;
+    let (ok, _, err) = git_allowing_failure(&root_path, &["merge", "--abort"])?;
+    if !ok {
+        return Err(format!("there was no merge to abandon ({})", err.trim()));
+    }
+    Ok(())
+}
+
 /// The checkouts this repository has, main one included.
 pub fn list_worktrees(root: &str) -> Result<Vec<String>, String> {
     let root_path = canonical(root)?;
@@ -790,6 +951,128 @@ ddd4\u{1f}\u{1f}tag: v1\u{1f}First commit\u{1f}Ada\u{1f}1700000100
 
     /// The whole point of the feature: two work items on one Solution get two
     /// folders and two branches, so neither can overwrite the other's edits.
+    /// Commits `text` to `file` inside a checkout, so a test can make two
+    /// branches disagree.
+    fn commit_file(dir: &Path, file: &str, text: &str, message: &str) {
+        std::fs::write(dir.join(file), text).expect("write");
+        let run = |args: &[&str]| {
+            std::process::Command::new("git")
+                .current_dir(dir)
+                .args(args)
+                .output()
+                .expect("git");
+        };
+        run(&["add", "-A"]);
+        run(&["commit", "-m", message]);
+    }
+
+    /// The happy path: a run's branch comes home.
+    #[test]
+    fn a_branch_that_does_not_clash_merges_into_its_base() {
+        let Some(dir) = temp_repo_with_commit("merge-clean") else {
+            eprintln!("skipped: git is not usable here");
+            return;
+        };
+        let root = dir.to_str().expect("utf-8");
+        let wt = add_worktree(root, "feature/9-checkout", "main").expect("worktree");
+        commit_file(Path::new(&wt), "checkout.rs", "fn pay() {}", "add checkout");
+
+        // Preview first, and it must agree with what happens.
+        let preview = merge_preview(root, "feature/9-checkout", "main").expect("preview");
+        assert!(preview.clean, "nothing else touched this file");
+        assert_eq!(preview.commits_ahead, 1);
+        assert!(preview.conflicts.is_empty());
+
+        let outcome = merge_branch(root, "feature/9-checkout", "main").expect("merge");
+        assert!(outcome.merged);
+        assert!(
+            dir.join("checkout.rs").is_file(),
+            "the work is in the main checkout now"
+        );
+
+        let _ = std::fs::remove_dir_all(dir.parent().unwrap_or(&dir));
+    }
+
+    /// The case this whole feature exists for: two agents edited one file, so
+    /// the second branch home has to be resolved rather than merged.
+    #[test]
+    fn two_agents_on_one_file_are_reported_as_a_conflict_before_anything_is_touched() {
+        let Some(dir) = temp_repo_with_commit("merge-clash") else {
+            eprintln!("skipped: git is not usable here");
+            return;
+        };
+        let root = dir.to_str().expect("utf-8");
+        let a = add_worktree(root, "feature/9-checkout", "main").expect("a");
+        let b = add_worktree(root, "feature/10-refunds", "main").expect("b");
+        commit_file(Path::new(&a), "shared.rs", "fn a() {}", "a edits shared");
+        commit_file(Path::new(&b), "shared.rs", "fn b() {}", "b edits shared");
+
+        // The first one home is clean.
+        assert!(merge_branch(root, "feature/9-checkout", "main").expect("first").merged);
+
+        // The second is not, and the preview says so without touching anything.
+        let preview = merge_preview(root, "feature/10-refunds", "main").expect("preview");
+        assert!(!preview.clean, "both branches rewrote the same file");
+        assert!(
+            preview.conflicts.iter().any(|f| f.contains("shared.rs")),
+            "the clashing file is named: {:?}",
+            preview.conflicts
+        );
+        // …and previewing left the checkout alone.
+        assert!(status(root).expect("status").files.is_empty(), "preview must not touch anything");
+
+        // Doing it for real leaves the merge open for the three-way editor.
+        let outcome = merge_branch(root, "feature/10-refunds", "main").expect("merge runs");
+        assert!(!outcome.merged);
+        assert!(outcome.conflicts.iter().any(|f| f.contains("shared.rs")));
+
+        // And there is a way out.
+        abort_merge(root).expect("abort");
+        assert!(status(root).expect("status").files.is_empty(), "abandoning restores the checkout");
+
+        let _ = std::fs::remove_dir_all(dir.parent().unwrap_or(&dir));
+    }
+
+    /// Merging on top of uncommitted work is how work gets lost.
+    #[test]
+    fn a_merge_is_refused_while_the_checkout_has_uncommitted_work() {
+        let Some(dir) = temp_repo_with_commit("merge-dirty") else {
+            eprintln!("skipped: git is not usable here");
+            return;
+        };
+        let root = dir.to_str().expect("utf-8");
+        let wt = add_worktree(root, "feature/9-checkout", "main").expect("worktree");
+        commit_file(Path::new(&wt), "new.rs", "fn x() {}", "work");
+
+        std::fs::write(dir.join("mine.txt"), "half-finished").expect("write");
+        let refused = merge_branch(root, "feature/9-checkout", "main");
+        assert!(refused.is_err(), "must not merge over uncommitted work");
+        assert!(
+            refused.unwrap_err().contains("uncommitted"),
+            "and must say why"
+        );
+
+        let _ = std::fs::remove_dir_all(dir.parent().unwrap_or(&dir));
+    }
+
+    /// An agent that produced nothing has nothing to merge, and saying "merged
+    /// cleanly" about zero commits would read as success.
+    #[test]
+    fn a_branch_with_no_commits_reports_nothing_to_merge() {
+        let Some(dir) = temp_repo_with_commit("merge-empty") else {
+            eprintln!("skipped: git is not usable here");
+            return;
+        };
+        let root = dir.to_str().expect("utf-8");
+        add_worktree(root, "feature/9-checkout", "main").expect("worktree");
+
+        let preview = merge_preview(root, "feature/9-checkout", "main").expect("preview");
+        assert_eq!(preview.commits_ahead, 0, "the agent wrote nothing");
+        assert!(preview.clean);
+
+        let _ = std::fs::remove_dir_all(dir.parent().unwrap_or(&dir));
+    }
+
     #[test]
     fn two_runs_on_one_repository_get_their_own_checkouts() {
         let Some(dir) = temp_repo_with_commit("two") else {

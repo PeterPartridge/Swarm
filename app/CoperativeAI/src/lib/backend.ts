@@ -1835,6 +1835,35 @@ export const startRun = (
 /** Removes a finished run's checkout. Refused while it holds uncommitted work. */
 export const discardRunWorktree = (runId: number): Promise<void> =>
   invoke("discard_run_worktree", { runId });
+/** What merging a run's branch would do, worked out without touching anything. */
+export interface MergePreview {
+  clean: boolean;
+  /** The files that would conflict, named before anything is attempted. */
+  conflicts: string[];
+  /** Commits the base does not have. Zero means the agent wrote nothing. */
+  commitsAhead: number;
+}
+
+/** What a merge actually did. */
+export interface MergeOutcome {
+  merged: boolean;
+  /** Files left conflicted — the merge is still open in the working copy. */
+  conflicts: string[];
+  message: string;
+}
+
+/** Whether a run's branch would merge cleanly. Touches nothing, so it is safe
+ *  to ask before deciding. */
+export const previewRunMerge = (runId: number): Promise<MergePreview> =>
+  invoke("preview_run_merge", { runId });
+/** Brings a run's branch home. Refused while the checkout has uncommitted work;
+ *  a conflicted merge is left open for the Code tab's three-way view. */
+export const mergeRunBranch = (runId: number): Promise<MergeOutcome> =>
+  invoke("merge_run_branch", { runId });
+/** Abandons a conflicted merge, restoring the checkout. */
+export const abortRunMerge = (runId: number): Promise<void> =>
+  invoke("abort_run_merge", { runId });
+
 /** A run checkout still on disk that no run points at any more. */
 export interface AbandonedWorktree {
   solutionId: number;
