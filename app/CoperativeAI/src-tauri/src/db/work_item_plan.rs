@@ -31,11 +31,17 @@ pub struct WorkItemPlan {
     pub api_schema: String,
     pub page_schema: String,
     pub files_to_change: String,
+    /// When a person read this plan and said go, or 0 for not yet.
+    ///
+    /// A timestamp rather than a flag because editing the plan afterwards has to
+    /// clear it, and "approved at 14:02, changed at 14:09" is the comparison
+    /// that catches an agent about to build something nobody agreed to.
+    pub approved_at: i64,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
-const SELECT: &str = "SELECT id, workItemId, solutionId, changesRequired, unitTests, branchName, cloneFrom, mockups, apiSchema, pageSchema, filesToChange, createdAt, updatedAt FROM work_item_plans";
+const SELECT: &str = "SELECT id, workItemId, solutionId, changesRequired, unitTests, branchName, cloneFrom, mockups, apiSchema, pageSchema, filesToChange, approvedAt, createdAt, updatedAt FROM work_item_plans";
 
 pub async fn create_table(conn: &Connection) -> Result<()> {
     conn.execute(
@@ -51,11 +57,51 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             apiSchema TEXT NOT NULL DEFAULT '',
             pageSchema TEXT NOT NULL DEFAULT '',
             filesToChange TEXT NOT NULL DEFAULT '',
+            approvedAt INTEGER NOT NULL DEFAULT 0,
             createdAt INTEGER NOT NULL,
             updatedAt INTEGER NOT NULL,
             UNIQUE(workItemId, solutionId)
         )",
         (),
+    )
+    .await?;
+
+    // ALTER, not drop-and-recreate: a plan is written by a person — the changes
+    // required, the branch to cut, what has to be proved — and none of it can be
+    // rebuilt from anything else. Existing plans default to 0, unapproved, which
+    // is the safe direction: the gate asks once rather than waving through work
+    // that predates it.
+    let columns = crate::db::table_columns(conn, "work_item_plans").await?;
+    if !columns.iter().any(|c| c == "approvedAt") {
+        conn.execute(
+            "ALTER TABLE work_item_plans ADD COLUMN approvedAt INTEGER NOT NULL DEFAULT 0",
+            (),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+/// Records that a person read this plan and agreed to it.
+///
+/// Deliberately not part of `save`: approving is a different act from editing,
+/// and folding them together would mean every keystroke in the plan counted as
+/// consent to build it.
+pub async fn approve(conn: &Connection, work_item_id: i64, solution_id: i64) -> Result<()> {
+    conn.execute(
+        "UPDATE work_item_plans SET approvedAt = ?3, updatedAt = ?3 WHERE workItemId = ?1 AND solutionId = ?2",
+        (work_item_id, solution_id, now_millis()),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Withdraws approval — for changing your mind before an agent starts, and for
+/// the automatic withdrawal when the plan itself is edited.
+pub async fn unapprove(conn: &Connection, work_item_id: i64, solution_id: i64) -> Result<()> {
+    conn.execute(
+        "UPDATE work_item_plans SET approvedAt = 0, updatedAt = ?3 WHERE workItemId = ?1 AND solutionId = ?2",
+        (work_item_id, solution_id, now_millis()),
     )
     .await?;
     Ok(())
@@ -129,8 +175,12 @@ pub async fn set_written(
     }
     serde_json::from_str::<Vec<String>>(mockups_json)
         .map_err(|e| DbError::Validation(format!("mockups must be a JSON array of paths: {e}")))?;
+    // `approvedAt = 0` in the same statement: consent was given to the plan as
+    // it read at the time, and this is a different plan now. Leaving it standing
+    // would let an approval from before the rewrite start an agent on work
+    // nobody agreed to — the exact thing the gate exists to prevent.
     conn.execute(
-        "UPDATE work_item_plans SET changesRequired = ?1, unitTests = ?2, branchName = ?3, cloneFrom = ?4, mockups = ?5, updatedAt = ?6 WHERE id = ?7",
+        "UPDATE work_item_plans SET changesRequired = ?1, unitTests = ?2, branchName = ?3, cloneFrom = ?4, mockups = ?5, approvedAt = 0, updatedAt = ?6 WHERE id = ?7",
         (changes_required, unit_tests, branch_name, clone_from, mockups_json, now_millis(), id),
     )
     .await?;
@@ -149,8 +199,12 @@ pub async fn set_generated(
     if find_by_id(conn, id).await?.is_none() {
         return Err(DbError::Validation(format!("no plan with id {id}")));
     }
+    // Regenerating also withdraws approval. This is the AI's half rather than a
+    // person's, which makes it *more* important: a fresh generation can propose
+    // different files and a different API, and inheriting the old approval would
+    // mean the AI effectively approved its own new plan.
     conn.execute(
-        "UPDATE work_item_plans SET apiSchema = ?1, pageSchema = ?2, filesToChange = ?3, updatedAt = ?4 WHERE id = ?5",
+        "UPDATE work_item_plans SET apiSchema = ?1, pageSchema = ?2, filesToChange = ?3, approvedAt = 0, updatedAt = ?4 WHERE id = ?5",
         (api_schema, page_schema, files_to_change, now_millis(), id),
     )
     .await?;
@@ -217,8 +271,9 @@ fn row_to_plan(row: turso::Row) -> Result<WorkItemPlan> {
         api_schema: row.get(8)?,
         page_schema: row.get(9)?,
         files_to_change: row.get(10)?,
-        created_at: row.get(11)?,
-        updated_at: row.get(12)?,
+        approved_at: row.get(11)?,
+        created_at: row.get(12)?,
+        updated_at: row.get(13)?,
     })
 }
 

@@ -67,6 +67,7 @@ fn main() {
             commands::work_item_plans::list_work_item_plans,
             commands::work_item_plans::attach_solution_to_work_item,
             commands::work_item_plans::save_work_item_plan,
+            commands::work_item_plans::set_plan_approval,
             commands::work_item_plans::detach_work_item_plan,
             commands::work_item_plans::generate_change_plan,
             commands::work_items::list_work_item_links,

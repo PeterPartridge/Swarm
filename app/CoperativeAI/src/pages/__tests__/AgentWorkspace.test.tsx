@@ -119,7 +119,11 @@ describe("AgentWorkspace", () => {
     mocked.listAiJobs.mockResolvedValue([]);
     mocked.listOpenQuestions.mockResolvedValue([]);
     mocked.listAiFeedback.mockResolvedValue([]);
-    mocked.listWorkItemPlans.mockResolvedValue([]);
+    // Approved by default so the Start tests are about starting; the gate has
+    // its own test below.
+    mocked.listWorkItemPlans.mockResolvedValue([
+      { solutionId: 5, workItemId: 9, approvedAt: 1_700_000_000_000 },
+    ] as never);
     mocked.suggestDevCommand.mockResolvedValue({
       kind: "npm",
       start: "npm run dev",
@@ -261,6 +265,26 @@ describe("AgentWorkspace", () => {
     expect(
       screen.getByText("terminal: Add checkout → Shop API — app"),
     ).toBeInTheDocument();
+  });
+
+  /// Starting makes a checkout and hands an agent a brief, so it waits on
+  /// somebody having read the plan. The button says so before the press rather
+  /// than after — the backend refuses either way, but a control that looks
+  /// available and then errors teaches nothing.
+  it("will not start a run whose plan is unapproved, and says where to approve", async () => {
+    const user = userEvent.setup();
+    mocked.listRuns.mockResolvedValue([run()]);
+    mocked.listWorkItemPlans.mockResolvedValue([
+      { solutionId: 5, workItemId: 9, approvedAt: 0 },
+    ] as never);
+    render(panel());
+
+    await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
+    expect(
+      await screen.findByText(/plan needs approving first/),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Start Add checkout on Shop API")).toBeDisabled();
+    expect(mocked.startRun).not.toHaveBeenCalled();
   });
 
   /// A per-agent view cannot answer "what is everything doing?" — the queue as a

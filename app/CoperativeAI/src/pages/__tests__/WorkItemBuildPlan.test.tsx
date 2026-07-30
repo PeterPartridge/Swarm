@@ -22,6 +22,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     askProductQuestion: vi.fn(),
     resolveAiFeedback: vi.fn(),
     pickImages: vi.fn(),
+    setPlanApproval: vi.fn(),
   };
 });
 
@@ -82,6 +83,8 @@ function plan(overrides: Partial<WorkItemPlan> = {}): WorkItemPlan {
     apiSchema: "",
     pageSchema: "",
     filesToChange: "",
+    // Unapproved by default, matching a freshly attached plan.
+    approvedAt: 0,
     ...overrides,
   };
 }
@@ -284,6 +287,62 @@ describe("WorkItemBuildPlan", () => {
       expect(mocked.saveWorkItemPlan).toHaveBeenCalledWith(
         expect.objectContaining({ mockups: JSON.stringify(["C:/shots/basket.png"]) }),
       ),
+    );
+  });
+});
+
+describe("WorkItemBuildPlan approval", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocked.listAiFeedback.mockResolvedValue([]);
+    mocked.listWorkItemChanges.mockResolvedValue([]);
+    mocked.changeKindsForSolution.mockResolvedValue([]);
+  });
+
+  /// Approving is what lets a run start, so an unapproved plan has to say that
+  /// where the plan is read — not leave it to be discovered on a failed press.
+  it("says an unapproved plan will not start a run", async () => {
+    mocked.listWorkItemPlans.mockResolvedValue([plan({ approvedAt: 0 })]);
+    render(<WorkItemBuildPlan item={item} solutions={solutions} />);
+
+    expect(await screen.findByText("Not approved")).toBeInTheDocument();
+    expect(
+      screen.getByText(/will not start until the plan is approved/),
+    ).toBeInTheDocument();
+  });
+
+  /// Approval is per (work item, Solution) — one work item can touch three
+  /// repositories and you may be ready to build in only one of them.
+  it("approves that one Solution's plan", async () => {
+    const user = userEvent.setup();
+    mocked.listWorkItemPlans.mockResolvedValue([plan({ approvedAt: 0 })]);
+    mocked.setPlanApproval.mockResolvedValue();
+    render(<WorkItemBuildPlan item={item} solutions={solutions} />);
+
+    await user.click(await screen.findByLabelText("Approve the plan for Shop API"));
+
+    await waitFor(() =>
+      expect(mocked.setPlanApproval).toHaveBeenCalledWith(12, 3, true),
+    );
+  });
+
+  /// Changing your mind before an agent starts has to be possible, so the same
+  /// control goes both ways.
+  it("withdraws approval again", async () => {
+    const user = userEvent.setup();
+    mocked.listWorkItemPlans.mockResolvedValue([plan({ approvedAt: 1_700_000_000_000 })]);
+    mocked.setPlanApproval.mockResolvedValue();
+    render(<WorkItemBuildPlan item={item} solutions={solutions} />);
+
+    expect(await screen.findByText("Approved")).toBeInTheDocument();
+    // The warning is gone once it is approved.
+    expect(
+      screen.queryByText(/will not start until the plan is approved/),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("Withdraw approval for Shop API"));
+    await waitFor(() =>
+      expect(mocked.setPlanApproval).toHaveBeenCalledWith(12, 3, false),
     );
   });
 });

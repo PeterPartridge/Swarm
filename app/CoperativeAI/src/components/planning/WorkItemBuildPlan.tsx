@@ -12,6 +12,7 @@ import {
   pickImages,
   resolveAiFeedback,
   saveWorkItemPlan,
+  setPlanApproval,
   updateWorkItem,
   writeWorkItemFiles,
   type AiFeedback,
@@ -305,6 +306,30 @@ export default function WorkItemBuildPlan({
           >
             <div className="plan-head">
               <strong>{plan.solutionName}</strong>
+              {/* Approval sits on the plan rather than beside the Start button,
+                  because it is a statement about *this text* — you approve what
+                  you have just read. Editing any field below clears it again. */}
+              <span className={`plan-approval ${plan.approvedAt > 0 ? "approved" : "pending"}`}>
+                {plan.approvedAt > 0 ? "Approved" : "Not approved"}
+              </span>
+              <button
+                aria-label={
+                  plan.approvedAt > 0
+                    ? `Withdraw approval for ${plan.solutionName}`
+                    : `Approve the plan for ${plan.solutionName}`
+                }
+                onClick={() =>
+                  run(() =>
+                    setPlanApproval(
+                      plan.workItemId,
+                      plan.solutionId,
+                      plan.approvedAt === 0,
+                    ),
+                  )
+                }
+              >
+                {plan.approvedAt > 0 ? "Withdraw approval" : "Approve"}
+              </button>
               <button
                 aria-label={`Remove ${plan.solutionName} from this work item`}
                 onClick={() => run(() => detachWorkItemPlan(plan.id))}
@@ -312,6 +337,14 @@ export default function WorkItemBuildPlan({
                 Remove
               </button>
             </div>
+
+            {plan.approvedAt === 0 && (
+              <p className="hint">
+                A run for this Solution will not start until the plan is
+                approved — it makes a checkout and hands an agent a brief, so it
+                waits on somebody having read what it says.
+              </p>
+            )}
 
             <div className="field">
               <span>What has to change here</span>

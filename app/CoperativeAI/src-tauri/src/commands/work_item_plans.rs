@@ -22,6 +22,9 @@ pub struct WorkItemPlanDto {
     pub api_schema: String,
     pub page_schema: String,
     pub files_to_change: String,
+    /// 0 until a person reads the plan and approves it. A run refuses to start
+    /// without this, and editing the plan clears it.
+    pub approved_at: i64,
 }
 
 #[tauri::command]
@@ -58,8 +61,42 @@ pub async fn list_work_item_plans(
             api_schema: p.api_schema,
             page_schema: p.page_schema,
             files_to_change: p.files_to_change,
+            approved_at: p.approved_at,
         })
         .collect())
+}
+
+/// Approves the plan for one (work item, Solution) pair, or withdraws approval.
+///
+/// One command for both directions because they are the same decision seen from
+/// either side, and a person who has just approved is exactly the person who may
+/// want to take it back. Withdrawal after a run has started does not stop the
+/// agent — it is already working in its own checkout — it only refuses the next
+/// start, which is honest about what an approval can and cannot reach.
+#[tauri::command]
+pub async fn set_plan_approval(
+    db: State<'_, AppDb>,
+    work_item_id: i64,
+    solution_id: i64,
+    approved: bool,
+) -> Result<(), String> {
+    let conn = db.0.lock().await;
+    // Checked first so approving a pair that has no plan is a refusal rather
+    // than an UPDATE that matches nothing and reports success.
+    let exists = work_item_plan::list_for_item(&conn, work_item_id)
+        .await
+        .map_err(to_message)?
+        .iter()
+        .any(|p| p.solution_id == solution_id);
+    if !exists {
+        return Err("there is no plan for that Solution to approve".into());
+    }
+    if approved {
+        work_item_plan::approve(&conn, work_item_id, solution_id).await
+    } else {
+        work_item_plan::unapprove(&conn, work_item_id, solution_id).await
+    }
+    .map_err(to_message)
 }
 
 /// Marks a Solution as affected by this work item, prefilling the branch name

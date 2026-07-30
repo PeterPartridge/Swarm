@@ -5,6 +5,7 @@ import RunTerminal from "../code/RunTerminal";
 import WorkItemBuildPlan from "../planning/WorkItemBuildPlan";
 import WorkItemChanges from "../code/WorkItemChanges";
 import {
+  listWorkItemPlans,
   startRun,
   suggestDevCommand,
   type Run,
@@ -63,6 +64,10 @@ export default function AgentJobPanel({
   const [runCommand, setRunCommand] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /// Whether this run's plan has been approved. The backend refuses to start
+  /// without it either way — this is so the button can say so before the press
+  /// rather than after it.
+  const [planApproved, setPlanApproved] = useState<boolean | null>(null);
 
   // `started` counts as prepared on its own, and not only because it is quicker
   // than a refresh: the run row this panel was handed is a snapshot from before
@@ -101,6 +106,25 @@ export default function AgentJobPanel({
   useEffect(() => {
     void loadRunCommand();
   }, [loadRunCommand]);
+
+  /// Reloaded whenever the plan panel might have changed it, so approving on
+  /// the Plan tab and coming back to Start does not need a refresh.
+  const loadApproval = useCallback(async () => {
+    if (run === null) return;
+    try {
+      const plans = await listWorkItemPlans(run.workItemId);
+      const mine = plans.find((p) => p.solutionId === run.solutionId);
+      setPlanApproved(mine ? mine.approvedAt > 0 : false);
+    } catch {
+      // Unknown rather than false: refusing to offer Start because a lookup
+      // failed would be a worse guess than letting the backend answer.
+      setPlanApproved(null);
+    }
+  }, [run]);
+
+  useEffect(() => {
+    void loadApproval();
+  }, [loadApproval, panel]);
 
   // Starting is still a press. An app that silently launched something which
   // writes files would be doing the one thing this design keeps deliberate.
@@ -165,9 +189,17 @@ export default function AgentJobPanel({
             Changes, preview and a terminal appear once this run has its own
             checkout. Starting makes one on <code>{run.branch || "its branch"}</code>.
           </p>
+          {planApproved === false && (
+            <p className="hint">
+              The plan needs approving first — read it on the Plan tab and press
+              Approve there. Editing it afterwards asks again.
+            </p>
+          )}
           <button
             aria-label={`Start ${item.title} on ${run.solutionName}`}
-            disabled={busy || run.branch.trim() === ""}
+            // `null` means the lookup failed, and refusing on a failed lookup
+            // would be a worse guess than letting the backend answer.
+            disabled={busy || run.branch.trim() === "" || planApproved === false}
             onClick={start}
           >
             {busy ? "Preparing…" : "Start this run"}

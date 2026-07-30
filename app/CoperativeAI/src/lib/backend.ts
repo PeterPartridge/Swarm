@@ -507,10 +507,26 @@ export interface WorkItemPlan {
   apiSchema: string;
   pageSchema: string;
   filesToChange: string;
+  /** When somebody read this plan and agreed to it; 0 for not yet.
+   *
+   *  A run refuses to start without it, and editing or regenerating the plan
+   *  sets it back to 0 — so it is consent to *this* version, not an earlier one. */
+  approvedAt: number;
 }
 
 export const listWorkItemPlans = (workItemId: number): Promise<WorkItemPlan[]> =>
   invoke("list_work_item_plans", { workItemId });
+
+/** Approves the plan for one (work item, Solution) pair, or withdraws approval.
+ *
+ *  Withdrawing after a run has started does not stop that agent — it is already
+ *  working in its own checkout — it only refuses the next start. */
+export const setPlanApproval = (
+  workItemId: number,
+  solutionId: number,
+  approved: boolean,
+): Promise<void> =>
+  invoke("set_plan_approval", { workItemId, solutionId, approved });
 /** Marks a Solution as affected, prefilling branch and clone-from from the
  *  Develop Strategy. Attaching one already attached changes nothing. */
 export const attachSolutionToWorkItem = (

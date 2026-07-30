@@ -3908,3 +3908,19 @@ code {
     max-height: 14rem;
   }
 }
+
+/* The approval badge on a build plan. Colour is emphasis only — the word says
+   it, because "green means ready" is not something a first-time reader knows. */
+.plan-approval {
+  padding: 0.05rem 0.4rem;
+  font-size: 0.75rem;
+  border-radius: 3px;
+}
+
+.plan-approval.approved {
+  background: color-mix(in srgb, var(--ok) 22%, transparent);
+}
+
+.plan-approval.pending {
+  background: color-mix(in srgb, var(--warn) 22%, transparent);
+}

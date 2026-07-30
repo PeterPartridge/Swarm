@@ -163,6 +163,21 @@ pub(crate) async fn prepare_run(
                     .into(),
             );
         }
+        // Enforced here rather than only on the button, because this is the
+        // point where a worktree gets made and an agent is handed a brief. A UI
+        // that hides Start is a courtesy; this is the actual gate, and it also
+        // covers "start all" and anything added later that reaches this path.
+        //
+        // Editing or regenerating the plan sets `approved_at` back to 0, so this
+        // is checking consent to *this* version, not to some earlier one.
+        if plan.approved_at == 0 {
+            return Err(
+                "this plan has not been approved yet. Read it and press Approve on the plan \
+                 first — a run makes a checkout and hands an agent a brief, so it waits on \
+                 somebody having agreed to what it says."
+                    .into(),
+            );
+        }
         let Some(row) = solution::find_by_id(conn, solution_id)
             .await
             .map_err(to_message)?
@@ -561,7 +576,122 @@ mod tests {
         work_item_plan::set_written(conn, plan_id, "Add it", "It works", branch, "main", "[]")
             .await
             .expect("write the plan");
+        // Part of the loop now: a run refuses to start until somebody has read
+        // the plan and agreed to it.
+        work_item_plan::approve(conn, item_id, solution_id)
+            .await
+            .expect("approve the plan");
         (item_id, solution_id)
+    }
+
+    /// **The gate.** A run makes a checkout and hands an agent a brief, so it
+    /// waits on a person. Enforced in `prepare_run` rather than only by hiding a
+    /// button, because "start all" and anything added later reach this same path.
+    #[tokio::test]
+    async fn a_run_will_not_start_until_the_plan_is_approved() {
+        let Some(dir) = temp_repo("ungated") else {
+            eprintln!("skipped: git is not usable here");
+            return;
+        };
+        let root = dir.to_str().expect("utf-8");
+        let (conn, product_id) = db_with_product().await;
+        let (item_id, solution_id) =
+            product_with_run(&conn, product_id, root, "Add checkout", "feature/9-checkout").await;
+
+        work_item_plan::unapprove(&conn, item_id, solution_id)
+            .await
+            .expect("withdraw approval");
+
+        let err = prepare_run(&conn, item_id, solution_id)
+            .await
+            .map(|s| s.branch)
+            .expect_err("must refuse an unapproved plan");
+        assert!(err.contains("not been approved"), "got: {err}");
+
+        // And nothing was made on the way to refusing — a half-prepared run
+        // would leave a checkout nobody asked for.
+        let runs = change_run::list_for_product(&conn, product_id).await.expect("runs");
+        assert!(
+            runs.iter().all(|r| r.worktree_path.is_empty()),
+            "a refused run must not leave a checkout behind"
+        );
+
+        // Approving is all that was missing.
+        work_item_plan::approve(&conn, item_id, solution_id)
+            .await
+            .expect("approve");
+        prepare_run(&conn, item_id, solution_id)
+            .await
+            .map(|s| s.branch)
+            .expect("starts once approved");
+    }
+
+    /// Consent was given to the plan as it read at the time. Editing it makes a
+    /// different plan, and an approval that survived the rewrite would let an
+    /// agent build something nobody agreed to — which is the whole point of the
+    /// gate.
+    #[tokio::test]
+    async fn editing_the_plan_withdraws_approval() {
+        let Some(dir) = temp_repo("edited") else {
+            eprintln!("skipped: git is not usable here");
+            return;
+        };
+        let root = dir.to_str().expect("utf-8");
+        let (conn, product_id) = db_with_product().await;
+        let (item_id, solution_id) =
+            product_with_run(&conn, product_id, root, "Add checkout", "feature/9-checkout").await;
+
+        let plan_id = work_item_plan::list_for_item(&conn, item_id)
+            .await
+            .expect("plans")[0]
+            .id;
+        work_item_plan::set_written(
+            &conn,
+            plan_id,
+            "Actually, rewrite the payment module",
+            "It works",
+            "feature/9-checkout",
+            "main",
+            "[]",
+        )
+        .await
+        .expect("rewrite the plan");
+
+        let err = prepare_run(&conn, item_id, solution_id)
+            .await
+            .map(|s| s.branch)
+            .expect_err("the rewritten plan needs approving again");
+        assert!(err.contains("not been approved"), "got: {err}");
+    }
+
+    /// The AI's half withdraws it too, and that matters more: a regeneration can
+    /// propose different files and a different API, so inheriting the approval
+    /// would have the AI approving its own new plan.
+    #[tokio::test]
+    async fn regenerating_the_schemas_withdraws_approval_as_well() {
+        let (conn, product_id) = db_with_product().await;
+        let solution_id = solution::create(&conn, "Shop API", product_id, "api", "{}")
+            .await
+            .expect("solution");
+        let item_id = work_item::create(&conn, "Add checkout", "feature", product_id, None, None)
+            .await
+            .expect("work item");
+        let plan_id = work_item_plan::attach(&conn, item_id, solution_id)
+            .await
+            .expect("attach");
+        work_item_plan::approve(&conn, item_id, solution_id)
+            .await
+            .expect("approve");
+
+        work_item_plan::set_generated(&conn, plan_id, "{}", "{}", "src/pay.rs")
+            .await
+            .expect("regenerate");
+
+        let plan = &work_item_plan::list_for_item(&conn, item_id).await.expect("plans")[0];
+        assert_eq!(
+            plan.approved_at, 0,
+            "a fresh generation must not inherit the old approval"
+        );
     }
 
     /// **The whole loop, on a real Product against a real repository.**
@@ -642,6 +772,9 @@ mod tests {
         )
         .await
         .expect("plan");
+        work_item_plan::approve(&conn, second_item, solution_id)
+            .await
+            .expect("approve the second plan too");
 
         let a = prepare_run(&conn, first_item, solution_id).await.expect("first run");
         let b = prepare_run(&conn, second_item, solution_id).await.expect("second run");
