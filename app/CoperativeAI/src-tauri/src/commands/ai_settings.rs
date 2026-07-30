@@ -42,7 +42,22 @@ pub async fn add_ollama_provider(
     name: String,
     api_base_url: String,
 ) -> Result<i64, String> {
-    let models = crate::ai::ollama::list_models(&api_base_url, None).await?;
+    let models = crate::ai::ollama::list_models(&api_base_url, None)
+        .await
+        // Now that hosted Ollama exists, the likeliest way to reach this error is
+        // typing the hosted address into the free form. "401" alone would send
+        // someone hunting a local server that was never the problem.
+        .map_err(|e| {
+            if e.contains("401") || e.contains("403") {
+                format!(
+                    "{api_base_url} refused an unauthenticated request — that looks like a \
+                     hosted Ollama, which needs an API key. Add it with the hosted form instead; \
+                     note it is metered."
+                )
+            } else {
+                e
+            }
+        })?;
     if models.is_empty() {
         return Err(format!(
             "{api_base_url} is reachable but has no models pulled — run `ollama pull <model>` first"
