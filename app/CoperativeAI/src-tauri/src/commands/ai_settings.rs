@@ -64,6 +64,49 @@ pub async fn add_ollama_provider(
     .map_err(to_message)
 }
 
+/// Adds Claude via the `claude` CLI on this machine.
+///
+/// This is the provider for a Claude Pro or Max subscription and no API credits.
+/// The subscription pays for the CLI; the Messages API bills credits against an
+/// API key and cannot read a subscription — so with no credits, the metered
+/// Anthropic provider simply will not work, and this one will.
+///
+/// No key is stored, because there is nothing to store: the CLI holds its own
+/// sign-in. Not metered, for the reason spelled out in `ai::claude_code` — the
+/// plan's allowance is charged where this app cannot see it, and inventing a
+/// figure would put money in the ledger that nobody actually spent per call.
+///
+/// `executable` is a path for installs that are not on `PATH`; empty means
+/// `claude`. It is checked before the row is written, so a typo is a refusal
+/// rather than a provider that fails on first use.
+#[tauri::command]
+pub async fn add_claude_code_provider(
+    db: State<'_, AppDb>,
+    name: String,
+    executable: String,
+    models: Vec<String>,
+) -> Result<i64, String> {
+    if models.is_empty() {
+        return Err("name at least one model, for example claude-opus-5".into());
+    }
+    crate::ai::claude_code::version(&executable).await?;
+
+    let alias = format!("coperativeai/{}", name.trim().to_lowercase().replace(' ', "-"));
+    let model_refs: Vec<&str> = models.iter().map(String::as_str).collect();
+    let conn = db.0.lock().await;
+    ai_provider::add_of_kind(
+        &conn,
+        &name,
+        executable.trim(),
+        &model_refs,
+        &alias,
+        "claudeCode",
+        false,
+    )
+    .await
+    .map_err(to_message)
+}
+
 #[tauri::command]
 pub async fn list_ai_providers(db: State<'_, AppDb>) -> Result<Vec<AiProviderDto>, String> {
     let conn = db.0.lock().await;
@@ -137,6 +180,20 @@ pub async fn test_ai_provider(db: State<'_, AppDb>, id: i64) -> Result<String, S
                 "Reached Ollama at {base_url}, but '{model}' is not pulled. Run `ollama pull {model}`."
             ))
         };
+    }
+
+    // The CLI has no endpoint and no key, so there is no connection to test —
+    // only whether it is installed and runnable. Saying so, rather than
+    // reporting "Connection OK", keeps the Test button from implying it proved
+    // the sign-in as well; a real turn would prove that, and would spend plan
+    // allowance on every press.
+    if kind == "claudeCode" {
+        let version = crate::ai::claude_code::version(&base_url).await?;
+        return Ok(format!(
+            "Claude Code is installed ({version}). It runs on your own subscription, \
+             so nothing here is billed to API credits — and this check cannot tell \
+             whether you are signed in. If a call fails, run `claude` in a terminal once."
+        ));
     }
 
     let key = keys::read(&key_alias)?;

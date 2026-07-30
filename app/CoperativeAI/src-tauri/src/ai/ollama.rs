@@ -204,7 +204,7 @@ pub async fn generate_design(
 }
 
 /// The design shape, mirroring the Claude schema so one parser serves both.
-fn design_schema() -> serde_json::Value {
+pub(crate) fn design_schema() -> serde_json::Value {
     json!({
         "type": "object",
         "properties": {
@@ -258,7 +258,7 @@ pub async fn generate_diagram(
 }
 
 /// The diagram shape, mirroring the Claude schema so one parser serves both.
-fn diagram_schema() -> serde_json::Value {
+pub(crate) fn diagram_schema() -> serde_json::Value {
     json!({
         "type": "object",
         "properties": {
@@ -288,7 +288,7 @@ pub async fn generate_pal(
 }
 
 /// The pal shape, mirroring the Claude schema so one parser serves both.
-fn pal_schema() -> serde_json::Value {
+pub(crate) fn pal_schema() -> serde_json::Value {
     json!({
         "type": "object",
         "properties": {
@@ -324,7 +324,7 @@ pub async fn generate_change_plan(
 }
 
 /// The change-plan shape, mirroring the Claude schema so one parser serves both.
-fn change_plan_schema() -> serde_json::Value {
+pub(crate) fn change_plan_schema() -> serde_json::Value {
     json!({
         "type": "object",
         "properties": {
@@ -354,7 +354,7 @@ fn change_plan_schema() -> serde_json::Value {
 }
 
 /// The strategy shape, mirroring the Claude schema so one parser serves both.
-fn strategy_schema() -> serde_json::Value {
+pub(crate) fn strategy_schema() -> serde_json::Value {
     json!({
         "type": "object",
         "properties": {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   addAiProvider,
+  addClaudeCodeProvider,
   addOllamaProvider,
   listAiProviders,
   removeAiProvider,
@@ -22,6 +23,9 @@ export default function AiSettings() {
   const [apiKey, setApiKey] = useState("");
   const [ollamaName, setOllamaName] = useState("Ollama (local)");
   const [ollamaUrl, setOllamaUrl] = useState(DEFAULT_OLLAMA_URL);
+  const [cliName, setCliName] = useState("Claude Code (my plan)");
+  const [cliExe, setCliExe] = useState("");
+  const [cliModels, setCliModels] = useState("claude-opus-5");
 
   const refresh = useCallback(async () => {
     try {
@@ -62,6 +66,26 @@ export default function AiSettings() {
     if (!ollamaName.trim() || !ollamaUrl.trim()) return;
     try {
       await addOllamaProvider(ollamaName, ollamaUrl);
+      setNotice(null);
+      setError(null);
+      await refresh();
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
+  async function onAddClaudeCode(e: FormEvent) {
+    e.preventDefault();
+    if (!cliName.trim()) return;
+    try {
+      await addClaudeCodeProvider(
+        cliName,
+        cliExe,
+        cliModels
+          .split(",")
+          .map((m) => m.trim())
+          .filter(Boolean),
+      );
       setNotice(null);
       setError(null);
       await refresh();
@@ -149,12 +173,59 @@ export default function AiSettings() {
         <button type="submit">Add Ollama</button>
       </form>
 
+      {/* The subscription path. Worth its own form and its own explanation,
+          because "I have Claude Pro" and "I have API credits" are different
+          purchases and the form above quietly assumes the second one. */}
+      <form onSubmit={onAddClaudeCode} aria-label="Add Claude Code provider">
+        <p className="hint">
+          Or use <strong>Claude Code on this machine</strong>, signed in with your
+          own Claude subscription. A Pro or Max plan covers the CLI but{" "}
+          <strong>not</strong> the API above — that bills separate API credits
+          against a key — so this is the way to use Claude with a plan and no
+          credits. No key is asked for, and no spend is recorded against a budget:
+          your plan's allowance is charged where this app cannot see it, and a
+          figure it invented would be worse than none.
+        </p>
+        <input
+          aria-label="Claude Code provider name"
+          placeholder="Claude Code (my plan)"
+          value={cliName}
+          onChange={(e) => setCliName(e.target.value)}
+        />
+        <input
+          aria-label="Claude Code executable"
+          placeholder="claude — or a full path if it is not on PATH"
+          value={cliExe}
+          onChange={(e) => setCliExe(e.target.value)}
+        />
+        <input
+          aria-label="Claude Code models (comma separated)"
+          placeholder="claude-opus-5"
+          value={cliModels}
+          onChange={(e) => setCliModels(e.target.value)}
+        />
+        <button type="submit">Add Claude Code</button>
+      </form>
+
       <ul>
         {providers.map((p) => (
           <li key={p.id}>
-            <strong>{p.name}</strong> ({p.metered ? "metered" : "free"}) —{" "}
-            {p.apiBaseUrl} — models: {p.models.join(", ") || "none"} —{" "}
-            {p.kind === "ollama" ? "local, no key" : `key: ${p.keyStored ? "stored" : "not stored"}`}{" "}
+            {/* "free" would be a lie for Claude Code — the plan is paid for, the
+                allowance is finite, and this app simply cannot see the cost.
+                Saying so is the honest third state between metered and free. */}
+            <strong>{p.name}</strong> (
+            {p.kind === "claudeCode"
+              ? "on your plan — cost not visible here"
+              : p.metered
+                ? "metered"
+                : "free"}
+            ) — {p.kind === "claudeCode" ? p.apiBaseUrl || "claude" : p.apiBaseUrl} — models:{" "}
+            {p.models.join(", ") || "none"} —{" "}
+            {p.kind === "ollama"
+              ? "local, no key"
+              : p.kind === "claudeCode"
+                ? "signed in through the CLI, no key"
+                : `key: ${p.keyStored ? "stored" : "not stored"}`}{" "}
             <button aria-label={`Test ${p.name}`} onClick={() => onTest(p)}>
               Test
             </button>{" "}

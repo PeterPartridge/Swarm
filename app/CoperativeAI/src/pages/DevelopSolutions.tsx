@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import AiSettings from "../components/ai/AiSettings";
-import CodeEditor from "../components/code/CodeEditor";
+
 import DeveloperPlanning from "../components/planning/DeveloperPlanning";
 import DeveloperRulesEditor from "../components/ai/DeveloperRulesEditor";
 import FrameworkFiles from "../components/product/FrameworkFiles";
@@ -13,7 +13,7 @@ import SshCard from "../components/product/SshCard";
 import StrategyEditor from "../components/planning/StrategyEditor";
 import TestExplorer from "../components/testing/TestExplorer";
 import WorkItemViews from "../components/planning/WorkItemViews";
-import AiWorkspace from "../components/ai/AiWorkspace";
+import AgentWorkspace from "../components/ai/AgentWorkspace";
 import {
   createSolutionWithStarter,
   deleteSolution,
@@ -39,9 +39,8 @@ import {
 type DevelopView =
   | "strategy"
   | "work"
-  | "ai"
+  | "agents"
   | "architecture"
-  | "code"
   | "tests"
   | "git"
   | "settings";
@@ -49,11 +48,13 @@ type DevelopView =
 const DEVELOP_TABS: { id: DevelopView; label: string }[] = [
   { id: "strategy", label: "Strategy and Rules" },
   { id: "work", label: "Work" },
-  // Beside Work rather than inside it: with several agents in flight, managing
-  // them is its own activity and needs the room.
-  { id: "ai", label: "AI" },
+  // One tab, not the two it replaced. "AI" listed the agents but could not show
+  // a line of what they wrote; "Code" showed the code but did not know an agent
+  // had written it. Following one agent from queued to its diff meant switching
+  // between them and finding it again — so they are the same tab now, with the
+  // agents down the side and the plain editor still first among them.
+  { id: "agents", label: "Agents and Code" },
   { id: "architecture", label: "Planning and Architecture" },
-  { id: "code", label: "Code" },
   { id: "tests", label: "Tests" },
   { id: "git", label: "Git" },
   { id: "settings", label: "Settings" },
@@ -250,8 +251,14 @@ export default function DevelopSolutions({
         <WorkItemViews productId={Number(activeProduct)} />
       )}
 
-      {view === "ai" && activeProduct !== "" && (
-        <AiWorkspace productId={Number(activeProduct)} />
+      {/* The merged panel: agents down the left with their own sub-panels, and
+          the plain editor as the first entry for work with no agent in it. */}
+      {view === "agents" && activeProduct !== "" && (
+        <AgentWorkspace
+          productId={Number(activeProduct)}
+          solutions={solutions.filter((s) => s.productId === Number(activeProduct))}
+          opened={openSolution}
+        />
       )}
 
       {/* A plain function call, not a <Component> — an inner component gets a
@@ -259,18 +266,6 @@ export default function DevelopSolutions({
           on each keystroke, dropping the editor's open file and input focus. */}
       {view === "architecture" && workspaceSection()}
 
-      {/* The explorer can hold several of this Product's Solutions at once —
-          a change spanning an API and the app in front of it is one job. */}
-      {view === "code" && (
-        <CodeEditor
-          solutions={
-            activeProduct === ""
-              ? []
-              : solutions.filter((s) => s.productId === Number(activeProduct))
-          }
-          opened={openSolution}
-        />
-      )}
 
       {view === "tests" && activeProduct !== "" && (
         <TestExplorer productId={Number(activeProduct)} />
@@ -491,7 +486,9 @@ export default function DevelopSolutions({
                 onPathChanged={refresh}
                 onOpenInEditor={(sol) => {
                   setOpenSolution(sol);
-                  setView("code");
+                  // The editor lives inside the merged panel now, as its first
+                  // rail entry — so opening a Solution lands there.
+                  setView("agents");
                 }}
               />
             </li>

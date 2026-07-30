@@ -227,6 +227,7 @@ fn main() {
             commands::ai_settings::list_ai_providers,
             commands::ai_settings::add_ai_provider,
             commands::ai_settings::add_ollama_provider,
+            commands::ai_settings::add_claude_code_provider,
             commands::ai_settings::remove_ai_provider,
             commands::ai_settings::test_ai_provider,
             commands::policies::get_work_item_policy,

@@ -3648,3 +3648,263 @@ code {
   border-bottom: 1px solid var(--line-soft);
   font-size: 0.78rem;
 }
+
+/* ---------------------------------------------------------------------------
+   Agents and Code — the merged panel.
+
+   A rail of agents on the left, one agent's sub-panels on the right. The rail
+   is fixed-width and scrolls on its own so a long list never squeezes the pane
+   that holds the actual work.
+   --------------------------------------------------------------------------- */
+
+.agent-workspace {
+  display: grid;
+  grid-template-columns: 15rem minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+  /* Bounded so the two columns scroll independently rather than the page. */
+  height: calc(100vh - 12rem);
+  min-height: 30rem;
+}
+
+.agent-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  height: 100%;
+  overflow-y: auto;
+  padding: 0.5rem;
+  background: var(--sunken);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.rail-heading {
+  margin: 0.75rem 0 0.25rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-muted);
+}
+
+.agent-rail-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.agent-rail-entry:hover {
+  background: var(--raised);
+}
+
+.agent-rail-entry.rail-active {
+  background: var(--raised);
+  border-color: var(--accent);
+}
+
+.agent-rail-entry strong {
+  font-weight: 600;
+  /* Titles are long and the rail is narrow: one line, elided. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-sub {
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The badge. Colour carries the same meaning as the word, never instead of it —
+   the state is always spelled out, so this is emphasis and not the message. */
+.rail-state {
+  align-self: flex-start;
+  padding: 0.05rem 0.35rem;
+  font-size: 0.7rem;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--fg) 12%, transparent);
+}
+
+.rail-state.asking,
+.rail-state.blocked {
+  background: color-mix(in srgb, var(--warn) 22%, transparent);
+}
+
+.rail-state.failed {
+  background: color-mix(in srgb, var(--bad) 22%, transparent);
+}
+
+.rail-state.running,
+.rail-state.queued {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.rail-state.kept {
+  background: color-mix(in srgb, var(--ok) 22%, transparent);
+}
+
+.agent-main {
+  height: 100%;
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.agent-job-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.agent-job-meta {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+
+.agent-subtabs {
+  display: flex;
+  gap: 0.25rem;
+  margin: 0.5rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.agent-subpanel {
+  padding-top: 0.5rem;
+}
+
+.agent-not-started {
+  padding: 0.5rem 0;
+}
+
+/* ---------------------------------------------------------------------------
+   The preview sub-panel: the running app in a frame, or a request builder.
+   --------------------------------------------------------------------------- */
+
+.preview-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.preview-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+
+.preview-url {
+  flex: 1 1 16rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.8rem;
+}
+
+/* White, deliberately: this frames somebody else's page, and inheriting the
+   app's dark surface would show through a transparent body and misrepresent
+   what their site actually looks like. */
+.preview-frame {
+  width: 100%;
+  min-height: 26rem;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.api-caller {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.api-request-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+
+.api-path {
+  flex: 1 1 14rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.8rem;
+}
+
+.api-headers,
+.api-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.8rem;
+}
+
+.api-headers textarea,
+.api-body textarea {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.8rem;
+}
+
+.api-status {
+  font-weight: 600;
+}
+
+.api-status.ok {
+  color: var(--ok);
+}
+
+.api-status.bad {
+  color: var(--bad);
+}
+
+/* Console-dark on both themes, like .terminal-surface and .test-output: this is
+   a machine's own output, and reading it as a quoted transcript rather than as
+   part of the page is the point. */
+.api-response {
+  max-height: 22rem;
+  overflow: auto;
+  padding: 0.5rem;
+  background: #141416;
+  color: #d4d4d4;
+  border-radius: 4px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.api-response-headers {
+  margin: 0.25rem 0 0;
+  padding-left: 1rem;
+  font-size: 0.8rem;
+}
+
+@media (max-width: 60rem) {
+  /* The rail becomes a row above the work rather than a sliver beside it. */
+  .agent-workspace {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+  }
+
+  .agent-rail {
+    height: auto;
+    max-height: 14rem;
+  }
+}

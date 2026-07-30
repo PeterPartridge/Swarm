@@ -318,7 +318,10 @@ export interface AiProvider {
   apiBaseUrl: string;
   models: string[];
   keyStored: boolean;
-  /** "anthropic" (metered API) | "ollama" (local, free) */
+  /** "anthropic" (metered API, needs credits) | "ollama" (local, free) |
+   *  "claudeCode" (the CLI on this machine, on your own subscription). For
+   *  claudeCode, `apiBaseUrl` holds the executable rather than a URL — a CLI has
+   *  no endpoint. */
   kind: string;
   metered: boolean;
 }
@@ -1193,6 +1196,21 @@ export const addOllamaProvider = (
   name: string,
   apiBaseUrl: string,
 ): Promise<number> => invoke("add_ollama_provider", { name, apiBaseUrl });
+/** Adds Claude through the `claude` CLI already signed in on this machine.
+ *
+ *  This is the path for a Pro or Max subscription with no API credits: the
+ *  subscription pays for the CLI, while the Messages API bills credits against
+ *  an API key and cannot read a subscription. No key is asked for because there
+ *  is none to give — and no spend is recorded, because the plan's allowance is
+ *  charged where this app cannot see it.
+ *
+ *  `executable` is for installs that are not on PATH; empty means `claude`. */
+export const addClaudeCodeProvider = (
+  name: string,
+  executable: string,
+  models: string[],
+): Promise<number> =>
+  invoke("add_claude_code_provider", { name, executable, models });
 export const removeAiProvider = (id: number): Promise<void> =>
   invoke("remove_ai_provider", { id });
 export const testAiProvider = (id: number): Promise<string> =>

@@ -9,8 +9,11 @@ use crate::db::{now_millis, solution_management::last_insert_id, DbError, Result
 use turso::Connection;
 
 /// `anthropic` speaks the Messages API over HTTPS with a key; `ollama` is a
-/// local model server with no key and no per-token cost.
-pub const KINDS: &[&str] = &["anthropic", "ollama"];
+/// local model server with no key and no per-token cost; `claudeCode` runs the
+/// `claude` CLI already signed in with the person's own subscription, so it also
+/// has no key — and no cost this app can see, since the plan's allowance is
+/// charged somewhere we cannot read.
+pub const KINDS: &[&str] = &["anthropic", "ollama", "claudeCode"];
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AiProvider {
@@ -58,6 +61,12 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
 /// loopback address — a remote http:// endpoint would send prompts in clear
 /// text across a network, so the https rule still holds for everything else.
 fn check_base_url(api_base_url: &str, kind: &str) -> Result<()> {
+    // A CLI provider has no endpoint: the field holds the executable to run, and
+    // the prompt never crosses a network at all. The https rule is about text in
+    // flight, so there is nothing here for it to protect.
+    if kind == "claudeCode" {
+        return Ok(());
+    }
     if api_base_url.starts_with("https://") {
         return Ok(());
     }

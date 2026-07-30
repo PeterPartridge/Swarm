@@ -60,7 +60,7 @@ const solution: Solution = {
  *  behind its section button. */
 async function openSection(
   user: ReturnType<typeof userEvent.setup>,
-  name: "Work" | "Planning and Architecture" | "Code" | "Settings",
+  name: "Work" | "Planning and Architecture" | "Agents and Code" | "Settings",
 ) {
   await user.click(await screen.findByRole("button", { name }));
 }
@@ -118,16 +118,16 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     expect(screen.getByRole("tab", { name: "List" })).toBeInTheDocument();
   });
 
-  /// The Code tab is reached by opening a Solution, so the two tabs are one
-  /// flow rather than two disconnected screens.
-  it("opens a Solution from the Workspace tab into the Code tab", async () => {
+  /// The editor is the first entry of the merged Agents and Code tab, reached by
+  /// opening a Solution — so the two tabs stay one flow.
+  it("opens a Solution from the Workspace tab into the merged panel", async () => {
     const user = userEvent.setup();
     mocked.listSolutions.mockResolvedValue([{ ...solution, localPath: "C:/repos/shop-api" }]);
     render(<DevelopSolutions />);
 
     // Nothing open yet: the Code tab offers the way forward itself rather than
     // sending someone to another tab to press a button.
-    await openSection(user, "Code");
+    await openSection(user, "Agents and Code");
     expect(await screen.findByLabelText("Solution to open")).toBeInTheDocument();
 
     await openSection(user, "Planning and Architecture");

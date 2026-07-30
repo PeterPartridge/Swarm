@@ -9,7 +9,7 @@ use crate::ai::client::{
     Generated, GeneratedChangePlan, GeneratedDesign, GeneratedDiagram, GeneratedPal,
     GeneratedStrategy, Prompt, Usage,
 };
-use crate::ai::{client, keys, ollama};
+use crate::ai::{claude_code, client, keys, ollama};
 use crate::db::ai_provider::AiProvider;
 
 /// Generates work items from a prompt using the given provider.
@@ -24,6 +24,9 @@ pub async fn generate_stories(
 ) -> Result<(Generated, Usage), String> {
     match provider.kind.as_str() {
         "ollama" => ollama::generate_stories(&provider.api_base_url, model, prompt).await,
+        // No key: the CLI is signed in with the person's own subscription, which
+        // is the whole point of this kind.
+        "claudeCode" => claude_code::generate_stories(&provider.api_base_url, model, prompt).await,
         "anthropic" => {
             let api_key = keys::read(&provider.key_alias)?;
             client::generate_stories(&provider.api_base_url, &api_key, model, effort, prompt).await
@@ -46,6 +49,9 @@ pub async fn generate_solution_strategy(
 ) -> Result<(GeneratedStrategy, Usage), String> {
     match provider.kind.as_str() {
         "ollama" => ollama::generate_solution_strategy(&provider.api_base_url, model, prompt).await,
+        "claudeCode" => {
+            claude_code::generate_solution_strategy(&provider.api_base_url, model, prompt).await
+        }
         "anthropic" => {
             let api_key = keys::read(&provider.key_alias)?;
             client::generate_solution_strategy(&provider.api_base_url, &api_key, model, effort, prompt)
@@ -66,6 +72,7 @@ pub async fn generate_design(
 ) -> Result<(GeneratedDesign, Usage), String> {
     match provider.kind.as_str() {
         "ollama" => ollama::generate_design(&provider.api_base_url, model, prompt).await,
+        "claudeCode" => claude_code::generate_design(&provider.api_base_url, model, prompt).await,
         "anthropic" => {
             let api_key = keys::read(&provider.key_alias)?;
             client::generate_design(&provider.api_base_url, &api_key, model, effort, prompt).await
@@ -84,6 +91,9 @@ pub async fn generate_diagram(
 ) -> Result<(GeneratedDiagram, Usage), String> {
     match provider.kind.as_str() {
         "ollama" => ollama::generate_diagram(&provider.api_base_url, model, prompt, format).await,
+        "claudeCode" => {
+            claude_code::generate_diagram(&provider.api_base_url, model, prompt, format).await
+        }
         "anthropic" => {
             let api_key = keys::read(&provider.key_alias)?;
             client::generate_diagram(&provider.api_base_url, &api_key, model, effort, prompt, format)
@@ -104,6 +114,7 @@ pub async fn generate_pal(
 ) -> Result<(GeneratedPal, Usage), String> {
     match provider.kind.as_str() {
         "ollama" => ollama::generate_pal(&provider.api_base_url, model, prompt).await,
+        "claudeCode" => claude_code::generate_pal(&provider.api_base_url, model, prompt).await,
         "anthropic" => {
             let api_key = keys::read(&provider.key_alias)?;
             client::generate_pal(&provider.api_base_url, &api_key, model, effort, prompt).await
@@ -124,6 +135,11 @@ pub async fn generate_change_plan(
     match provider.kind.as_str() {
         "ollama" => {
             ollama::generate_change_plan(&provider.api_base_url, model, prompt, images).await
+        }
+        // Refuses rather than quietly planning without the mockups — see
+        // `claude_code::generate_change_plan`.
+        "claudeCode" => {
+            claude_code::generate_change_plan(&provider.api_base_url, model, prompt, images).await
         }
         "anthropic" => {
             let api_key = keys::read(&provider.key_alias)?;
