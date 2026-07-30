@@ -193,11 +193,15 @@ export default function RunsPanel({ productId }: { productId: number }) {
     }
   }
 
-  /** Starts every run that has not begun. This is the "simultaneously" of the
-   *  request: each Start is a separate prepared run, and with the limit raised
-   *  their agents run at once in their own folders. */
+  /** Starts every run that has not begun **and whose plan is approved**. This is
+   *  the "simultaneously" of the request: each Start is a separate prepared run,
+   *  and with the limit raised their agents run at once in their own folders.
+   *
+   *  Unapproved ones are skipped rather than attempted: `prepare_run` would
+   *  refuse each in turn, and a loop of refusals leaves one error message
+   *  standing for however many failed. */
   async function startAll() {
-    const ready = runs.filter((r) => r.state === "notStarted");
+    const ready = runs.filter((r) => r.state === "notStarted" && r.planApproved);
     for (const run of ready) {
       // Sequential *preparation* — the worktrees are made one after another to
       // keep git calm — but the agents they open run concurrently.
@@ -284,6 +288,10 @@ export default function RunsPanel({ productId }: { productId: number }) {
   }
 
   const notStarted = runs.filter((r) => r.state === "notStarted").length;
+  /// What "Start all" would actually start. Counting the unapproved ones in
+  /// would offer a number that starts fewer runs than it names.
+  const startable = runs.filter((r) => r.state === "notStarted" && r.planApproved).length;
+  const waitingOnApproval = notStarted - startable;
 
   return (
     <section className="develop-card" aria-label="Runs">
@@ -295,10 +303,20 @@ export default function RunsPanel({ productId }: { productId: number }) {
 
       <div className="runs-actions">
         <button onClick={refresh}>Refresh</button>
-        <button onClick={startAll} disabled={notStarted === 0 || busy !== null}>
-          Start all ({notStarted})
+        <button onClick={startAll} disabled={startable === 0 || busy !== null}>
+          Start all ({startable})
         </button>
       </div>
+
+      {/* Said once for the whole list rather than repeated per row: the fix is
+          the same for all of them, and it is not here. */}
+      {waitingOnApproval > 0 && (
+        <p className="hint">
+          {waitingOnApproval} more {waitingOnApproval === 1 ? "run is" : "runs are"}{" "}
+          ready but {waitingOnApproval === 1 ? "its plan has" : "their plans have"}{" "}
+          not been approved — approve on each work item's build plan.
+        </p>
+      )}
 
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
@@ -355,10 +373,16 @@ export default function RunsPanel({ productId }: { productId: number }) {
               {run.state === "notStarted" ? (
                 <button
                   aria-label={`Start ${run.workItemTitle} on ${run.solutionName}`}
-                  disabled={busy === key(run) || run.branch.trim() === ""}
+                  disabled={
+                    busy === key(run) || run.branch.trim() === "" || !run.planApproved
+                  }
                   onClick={() => start(run)}
                 >
-                  {busy === key(run) ? "Preparing…" : "Start"}
+                  {busy === key(run)
+                    ? "Preparing…"
+                    : run.planApproved
+                      ? "Start"
+                      : "Needs an approved plan"}
                 </button>
               ) : (
                 <button

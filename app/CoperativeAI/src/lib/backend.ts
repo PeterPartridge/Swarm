@@ -1876,6 +1876,9 @@ export interface Run {
   terminalId: string;
   briefPath: string;
   filesChanged: number;
+  /** Whether this pair's plan has been approved. A run refuses to start
+   *  without it, so "Start all" counts only these. */
+  planApproved: boolean;
 }
 
 export interface StartedRun {

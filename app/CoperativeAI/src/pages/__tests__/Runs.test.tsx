@@ -59,6 +59,9 @@ const run = (over: Partial<Run> = {}): Run => ({
   terminalId: "",
   briefPath: "",
   filesChanged: 0,
+  // Approved by default so the existing tests stay about starting and merging;
+  // the gate has its own tests below.
+  planApproved: true,
   ...over,
 });
 
@@ -375,5 +378,42 @@ describe("RunsPanel", () => {
     await waitFor(() => expect(mocked.startRun).toHaveBeenCalledTimes(2));
     expect(mocked.startRun).toHaveBeenCalledWith(9, 3);
     expect(mocked.startRun).toHaveBeenCalledWith(10, 3);
+  });
+});
+
+describe("RunsPanel and the approval gate", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocked.listAbandonedWorktrees.mockResolvedValue([]);
+  });
+
+  /// "Start all (3)" that starts nothing is worse than an accurate smaller
+  /// number: it names work it cannot do and then reports one error for however
+  /// many it skipped.
+  it("counts only the runs Start all would actually start", async () => {
+    mocked.listRuns.mockResolvedValue([
+      run({ workItemId: 9, planApproved: true }),
+      run({ workItemId: 10, workItemTitle: "Add refunds", planApproved: false }),
+      run({ workItemId: 11, workItemTitle: "Add invoices", planApproved: false }),
+    ]);
+    render(<RunsPanel productId={1} />);
+
+    expect(await screen.findByRole("button", { name: "Start all (1)" })).toBeEnabled();
+    // And the two that cannot start say why, once, with the fix.
+    expect(
+      screen.getByText(/2 more runs are ready but their plans have not been approved/),
+    ).toBeInTheDocument();
+  });
+
+  /// Per row, the button says what is missing instead of looking available and
+  /// then failing on the press.
+  it("names what an unapproved run is waiting for", async () => {
+    mocked.listRuns.mockResolvedValue([run({ planApproved: false })]);
+    render(<RunsPanel productId={1} />);
+
+    const start = await screen.findByLabelText("Start Add checkout on Shop API");
+    expect(start).toBeDisabled();
+    expect(start).toHaveTextContent("Needs an approved plan");
+    expect(mocked.startRun).not.toHaveBeenCalled();
   });
 });

@@ -29,6 +29,10 @@ pub struct RunDto {
     pub terminal_id: String,
     pub brief_path: String,
     pub files_changed: i64,
+    /// Whether this pair's plan has been approved. Carried on the run rather
+    /// than looked up per row by the panel, so "Start all (n)" can count what
+    /// would actually start instead of offering a number that starts nothing.
+    pub plan_approved: bool,
 }
 
 /// Every run in a Product, and every (work item, Solution) that could become
@@ -91,6 +95,7 @@ pub async fn list_runs(db: State<'_, AppDb>, product_id: i64) -> Result<Vec<RunD
                 terminal_id: existing.map(|r| r.terminal_id.clone()).unwrap_or_default(),
                 brief_path: existing.map(|r| r.brief_path.clone()).unwrap_or_default(),
                 files_changed: existing.map(|r| r.files_changed).unwrap_or(0),
+                plan_approved: plan.approved_at > 0,
             });
         }
     }
