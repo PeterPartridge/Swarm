@@ -1,11 +1,18 @@
-//! Ollama client — a locally hosted model server, used as the handover target
-//! when a Product's AI budget runs out.
+//! Ollama client — the same API whether it is a process on this machine or
+//! Ollama's hosted service. The local one is the handover target when a
+//! Product's AI budget runs out.
 //!
-//! Differences from the Claude client that matter here: no API key (it is a
-//! local process), structured output is requested via a top-level `format`
-//! holding the JSON schema rather than `output_config`, and token counts come
-//! back as `prompt_eval_count` / `eval_count`. Cost is always zero — nothing
-//! leaves the machine.
+//! Differences from the Claude client that matter here: structured output is
+//! requested via a top-level `format` holding the JSON schema rather than
+//! `output_config`, and token counts come back as `prompt_eval_count` /
+//! `eval_count`.
+//!
+//! **Local and hosted differ by exactly one header**, which is why they share a
+//! provider kind: a bearer token, passed in by the caller and never read here.
+//! What they do *not* share is money. A local model costs nothing because
+//! nothing leaves the machine; the hosted service is somebody else's hardware
+//! being paid for, so providers pointed at it are stored metered and go through
+//! the same budget gate and ledger as Claude.
 
 use crate::ai::client::{
     parse_change_plan, parse_design, parse_diagram, parse_generation, parse_pal,
@@ -50,6 +57,24 @@ fn client() -> Result<reqwest::Client, String> {
         .timeout(Duration::from_secs(600))
         .build()
         .map_err(|e| format!("could not build the HTTP client: {e}"))
+}
+
+/// Attaches the bearer token when there is one.
+///
+/// A local Ollama has no key and wants no header; Ollama's hosted service
+/// rejects an unauthenticated call outright. One provider kind covers both
+/// because the difference really is only this header — the API is the same, so
+/// splitting the kind in two would have duplicated six generate functions to
+/// express one `if`.
+///
+/// The key is passed in by the caller, never read here: it comes from the OS
+/// credential store at the dispatch point, so this module has no route to the
+/// keyring and cannot log what it never holds beyond the call.
+fn authorized(request: reqwest::RequestBuilder, key: Option<&str>) -> reqwest::RequestBuilder {
+    match key {
+        Some(k) if !k.trim().is_empty() => request.bearer_auth(k.trim()),
+        _ => request,
+    }
 }
 
 /// The JSON schema Ollama is asked to conform to — the same shape the Claude
@@ -121,10 +146,11 @@ pub(crate) fn chat_body_with_images(
 /// client so callers do not care which backend ran.
 pub async fn generate_stories(
     api_base_url: &str,
+    key: Option<&str>,
     model: &str,
     prompt: &Prompt,
 ) -> Result<(Generated, Usage), String> {
-    let (content, usage) = chat(api_base_url, model, prompt, story_schema()).await?;
+    let (content, usage) = chat(api_base_url, key, model, prompt, story_schema()).await?;
     Ok((parse_generation(&content)?, usage))
 }
 
@@ -132,23 +158,24 @@ pub async fn generate_stories(
 /// text and what it consumed. Each caller parses its own shape.
 async fn chat(
     api_base_url: &str,
+    key: Option<&str>,
     model: &str,
     prompt: &Prompt,
     schema: serde_json::Value,
 ) -> Result<(String, Usage), String> {
-    chat_with_images(api_base_url, model, prompt, schema, &[]).await
+    chat_with_images(api_base_url, key, model, prompt, schema, &[]).await
 }
 
 async fn chat_with_images(
     api_base_url: &str,
+    key: Option<&str>,
     model: &str,
     prompt: &Prompt,
     schema: serde_json::Value,
     images: &[crate::ai::vision::LoadedImage],
 ) -> Result<(String, Usage), String> {
     let url = format!("{}/api/chat", api_base_url.trim_end_matches('/'));
-    let response = client()?
-        .post(&url)
+    let response = authorized(client()?.post(&url), key)
         .json(&chat_body_with_images(model, prompt, schema, images))
         .send()
         .await
@@ -186,20 +213,22 @@ async fn chat_with_images(
 /// could not design anything at all.
 pub async fn generate_solution_strategy(
     api_base_url: &str,
+    key: Option<&str>,
     model: &str,
     prompt: &Prompt,
 ) -> Result<(GeneratedStrategy, Usage), String> {
-    let (content, usage) = chat(api_base_url, model, prompt, strategy_schema()).await?;
+    let (content, usage) = chat(api_base_url, key, model, prompt, strategy_schema()).await?;
     Ok((parse_solution_strategy(&content)?, usage))
 }
 
 /// Generates design or marketing work from a local model.
 pub async fn generate_design(
     api_base_url: &str,
+    key: Option<&str>,
     model: &str,
     prompt: &Prompt,
 ) -> Result<(GeneratedDesign, Usage), String> {
-    let (content, usage) = chat(api_base_url, model, prompt, design_schema()).await?;
+    let (content, usage) = chat(api_base_url, key, model, prompt, design_schema()).await?;
     Ok((parse_design(&content)?, usage))
 }
 
@@ -249,11 +278,12 @@ pub(crate) fn design_schema() -> serde_json::Value {
 /// Generates an architecture document from a local model.
 pub async fn generate_diagram(
     api_base_url: &str,
+    key: Option<&str>,
     model: &str,
     prompt: &Prompt,
     format: &str,
 ) -> Result<(GeneratedDiagram, Usage), String> {
-    let (content, usage) = chat(api_base_url, model, prompt, diagram_schema()).await?;
+    let (content, usage) = chat(api_base_url, key, model, prompt, diagram_schema()).await?;
     Ok((parse_diagram(&content, format)?, usage))
 }
 
@@ -280,10 +310,11 @@ pub(crate) fn diagram_schema() -> serde_json::Value {
 /// The coding pal from a local model.
 pub async fn generate_pal(
     api_base_url: &str,
+    key: Option<&str>,
     model: &str,
     prompt: &Prompt,
 ) -> Result<(GeneratedPal, Usage), String> {
-    let (content, usage) = chat(api_base_url, model, prompt, pal_schema()).await?;
+    let (content, usage) = chat(api_base_url, key, model, prompt, pal_schema()).await?;
     Ok((parse_pal(&content)?, usage))
 }
 
@@ -314,12 +345,13 @@ pub(crate) fn pal_schema() -> serde_json::Value {
 /// the Anthropic block — so the same `LoadedImage` serves both shapes.
 pub async fn generate_change_plan(
     api_base_url: &str,
+    key: Option<&str>,
     model: &str,
     prompt: &Prompt,
     images: &[crate::ai::vision::LoadedImage],
 ) -> Result<(GeneratedChangePlan, Usage), String> {
     let (content, usage) =
-        chat_with_images(api_base_url, model, prompt, change_plan_schema(), images).await?;
+        chat_with_images(api_base_url, key, model, prompt, change_plan_schema(), images).await?;
     Ok((parse_change_plan(&content)?, usage))
 }
 
@@ -389,10 +421,9 @@ pub(crate) fn strategy_schema() -> serde_json::Value {
 
 /// Lists the models the local server has pulled — used by AI Settings so the
 /// user picks from what is actually installed rather than typing a guess.
-pub async fn list_models(api_base_url: &str) -> Result<Vec<String>, String> {
+pub async fn list_models(api_base_url: &str, key: Option<&str>) -> Result<Vec<String>, String> {
     let url = format!("{}/api/tags", api_base_url.trim_end_matches('/'));
-    let response = client()?
-        .get(&url)
+    let response = authorized(client()?.get(&url), key)
         .send()
         .await
         .map_err(|e| format!("could not reach Ollama at {api_base_url} — is it running? ({e})"))?;
@@ -416,6 +447,45 @@ mod tests {
         Prompt {
             context: "Product: Shop App".into(),
             task: "Feature: Checkout".into(),
+        }
+    }
+
+    /// A local server is not asked to authenticate. Sending a stray header was
+    /// never the risk; reading a key that was never stored is, and that is the
+    /// bug that once made the Test button demand an API key for Ollama.
+    #[test]
+    fn a_local_server_gets_no_authorization_header() {
+        let request = reqwest::Client::new().get("http://localhost:11434/api/tags");
+        let built = authorized(request, None).build().expect("build");
+        assert!(built.headers().get(reqwest::header::AUTHORIZATION).is_none());
+    }
+
+    /// The hosted service rejects an unauthenticated call outright, so the token
+    /// has to actually go out — and as a bearer, which is the scheme it wants.
+    #[test]
+    fn a_hosted_server_is_sent_the_token_as_a_bearer() {
+        let request = reqwest::Client::new().get("https://ollama.com/api/tags");
+        let built = authorized(request, Some("secret-token")).build().expect("build");
+        assert_eq!(
+            built
+                .headers()
+                .get(reqwest::header::AUTHORIZATION)
+                .expect("a bearer header"),
+            "Bearer secret-token"
+        );
+    }
+
+    /// An empty or whitespace key is not a key. Sending `Bearer ` would fail as
+    /// a malformed header rather than as the missing credential it really is.
+    #[test]
+    fn a_blank_key_is_treated_as_no_key_at_all() {
+        for blank in ["", "   "] {
+            let request = reqwest::Client::new().get("https://ollama.com/api/tags");
+            let built = authorized(request, Some(blank)).build().expect("build");
+            assert!(
+                built.headers().get(reqwest::header::AUTHORIZATION).is_none(),
+                "a blank key should send no header, not an empty bearer"
+            );
         }
     }
 
@@ -517,7 +587,7 @@ mod tests {
         let base = std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".into());
         let model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "llama3".into());
 
-        let installed = list_models(&base).await.expect("list models");
+        let installed = list_models(&base, None).await.expect("list models");
         println!("installed models: {installed:?}");
         assert!(!installed.is_empty(), "no models pulled on the local server");
 
@@ -527,7 +597,7 @@ mod tests {
                    title and a one-sentence description of what done looks like."
                 .into(),
         };
-        let (generated, usage) = generate_stories(&base, &model, &prompt)
+        let (generated, usage) = generate_stories(&base, None, &model, &prompt)
             .await
             .expect("generate");
         println!("generated: {generated:?}");
@@ -572,7 +642,7 @@ mod tests {
                 .into(),
         };
 
-        let (generated, usage) = generate_solution_strategy(&base, &model, &prompt)
+        let (generated, usage) = generate_solution_strategy(&base, None, &model, &prompt)
             .await
             .expect("generate");
         println!("usage: in={} out={}", usage.input_tokens, usage.output_tokens);
@@ -631,7 +701,7 @@ mod tests {
                    feature.".into(),
         };
         probes.push(validation::check_work_items(
-            &generate_stories(&base, &model, &clear).await.map(|(g, _)| g),
+            &generate_stories(&base, None, &model, &clear).await.map(|(g, _)| g),
         ));
 
         // 2-4 — strategy, architecture vocabulary, rule obedience.
@@ -649,7 +719,7 @@ mod tests {
                    technology you are actually proposing to USE.".into(),
         };
         probes.extend(validation::check_strategy(
-            &generate_solution_strategy(&base, &model, &strategy).await.map(|(g, _)| g),
+            &generate_solution_strategy(&base, None, &model, &strategy).await.map(|(g, _)| g),
             disallowed,
         ));
 
@@ -662,7 +732,7 @@ mod tests {
                    could answer.".into(),
         };
         probes.push(validation::check_declines_vague(
-            &generate_stories(&base, &model, &hopeless).await.map(|(g, _)| g),
+            &generate_stories(&base, None, &model, &hopeless).await.map(|(g, _)| g),
         ));
 
         let report = ValidationReport::finish(&model, probes);
@@ -710,7 +780,7 @@ mod tests {
                 .into(),
         };
 
-        let (generated, usage) = generate_stories(&base, &model, &prompt)
+        let (generated, usage) = generate_stories(&base, None, &model, &prompt)
             .await
             .expect("generate");
         println!("usage: in={} out={}", usage.input_tokens, usage.output_tokens);

@@ -107,11 +107,18 @@ pub async fn refresh_provider_models(
     };
     if provider.kind != "ollama" {
         return Err(
-            "only a local Ollama server can be re-read — for other providers, edit the model list"
+            "only an Ollama server can be re-read — for other providers, edit the model list"
                 .into(),
         );
     }
-    let models = crate::ai::ollama::list_models(&provider.api_base_url).await?;
+    // A hosted Ollama will not list anything without its token; a local one has
+    // no key stored and must not be asked for one.
+    let key = if crate::ai::keys::stored(&provider.key_alias) {
+        Some(crate::ai::keys::read(&provider.key_alias)?)
+    } else {
+        None
+    };
+    let models = crate::ai::ollama::list_models(&provider.api_base_url, key.as_deref()).await?;
 
     let conn = db.0.lock().await;
     ai_provider::set_models(&conn, provider_id, &models)

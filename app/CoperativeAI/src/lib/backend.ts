@@ -1196,6 +1196,23 @@ export const addOllamaProvider = (
   name: string,
   apiBaseUrl: string,
 ): Promise<number> => invoke("add_ollama_provider", { name, apiBaseUrl });
+/** Adds Ollama's hosted service rather than a local process.
+ *
+ *  Same provider kind as a local Ollama — the API is identical and only a bearer
+ *  token differs — but stored **metered**, because this is somebody else's
+ *  hardware being paid for. It goes through the same budget gate and ledger as
+ *  Claude; marking it free because its local sibling is free would let a Product
+ *  spend past its budget on the very provider picked up when the budget ran out.
+ *
+ *  Models are read from the service, so what is offered is what the account can
+ *  actually reach. */
+export const addOllamaCloudProvider = (
+  name: string,
+  apiBaseUrl: string,
+  apiKey: string,
+): Promise<number> =>
+  invoke("add_ollama_cloud_provider", { name, apiBaseUrl, apiKey });
+
 /** Adds Claude through the `claude` CLI already signed in on this machine.
  *
  *  This is the path for a Pro or Max subscription with no API credits: the

@@ -23,7 +23,9 @@ pub async fn generate_stories(
     prompt: &Prompt,
 ) -> Result<(Generated, Usage), String> {
     match provider.kind.as_str() {
-        "ollama" => ollama::generate_stories(&provider.api_base_url, model, prompt).await,
+        "ollama" => {
+            ollama::generate_stories(&provider.api_base_url, ollama_key(provider)?.as_deref(), model, prompt).await
+        }
         // No key: the CLI is signed in with the person's own subscription, which
         // is the whole point of this kind.
         "claudeCode" => claude_code::generate_stories(&provider.api_base_url, model, prompt).await,
@@ -48,7 +50,9 @@ pub async fn generate_solution_strategy(
     prompt: &Prompt,
 ) -> Result<(GeneratedStrategy, Usage), String> {
     match provider.kind.as_str() {
-        "ollama" => ollama::generate_solution_strategy(&provider.api_base_url, model, prompt).await,
+        "ollama" => {
+            ollama::generate_solution_strategy(&provider.api_base_url, ollama_key(provider)?.as_deref(), model, prompt).await
+        }
         "claudeCode" => {
             claude_code::generate_solution_strategy(&provider.api_base_url, model, prompt).await
         }
@@ -71,7 +75,9 @@ pub async fn generate_design(
     prompt: &Prompt,
 ) -> Result<(GeneratedDesign, Usage), String> {
     match provider.kind.as_str() {
-        "ollama" => ollama::generate_design(&provider.api_base_url, model, prompt).await,
+        "ollama" => {
+            ollama::generate_design(&provider.api_base_url, ollama_key(provider)?.as_deref(), model, prompt).await
+        }
         "claudeCode" => claude_code::generate_design(&provider.api_base_url, model, prompt).await,
         "anthropic" => {
             let api_key = keys::read(&provider.key_alias)?;
@@ -90,7 +96,9 @@ pub async fn generate_diagram(
     format: &str,
 ) -> Result<(GeneratedDiagram, Usage), String> {
     match provider.kind.as_str() {
-        "ollama" => ollama::generate_diagram(&provider.api_base_url, model, prompt, format).await,
+        "ollama" => {
+            ollama::generate_diagram(&provider.api_base_url, ollama_key(provider)?.as_deref(), model, prompt, format).await
+        }
         "claudeCode" => {
             claude_code::generate_diagram(&provider.api_base_url, model, prompt, format).await
         }
@@ -113,7 +121,9 @@ pub async fn generate_pal(
     prompt: &Prompt,
 ) -> Result<(GeneratedPal, Usage), String> {
     match provider.kind.as_str() {
-        "ollama" => ollama::generate_pal(&provider.api_base_url, model, prompt).await,
+        "ollama" => {
+            ollama::generate_pal(&provider.api_base_url, ollama_key(provider)?.as_deref(), model, prompt).await
+        }
         "claudeCode" => claude_code::generate_pal(&provider.api_base_url, model, prompt).await,
         "anthropic" => {
             let api_key = keys::read(&provider.key_alias)?;
@@ -134,7 +144,7 @@ pub async fn generate_change_plan(
 ) -> Result<(GeneratedChangePlan, Usage), String> {
     match provider.kind.as_str() {
         "ollama" => {
-            ollama::generate_change_plan(&provider.api_base_url, model, prompt, images).await
+            ollama::generate_change_plan(&provider.api_base_url, ollama_key(provider)?.as_deref(), model, prompt, images).await
         }
         // Refuses rather than quietly planning without the mockups — see
         // `claude_code::generate_change_plan`.
@@ -150,6 +160,25 @@ pub async fn generate_change_plan(
         }
         other => Err(unknown_kind(provider, other)),
     }
+}
+
+/// The key for an Ollama provider, when it has one.
+///
+/// A local server has no key stored, and demanding one would be the bug that
+/// made the Test button ask Ollama for an API key it never needed. A hosted
+/// Ollama does have one, and sending nothing gets a 401. Whether a key was
+/// stored under this provider's alias is the honest signal for which of the two
+/// this is — it is what the person actually configured, rather than something
+/// guessed from the URL.
+///
+/// A failure to read a key that *is* stored is not swallowed: that means the
+/// credential store refused, and silently sending an unauthenticated request
+/// would turn a fixable keyring problem into a confusing 401.
+fn ollama_key(provider: &AiProvider) -> Result<Option<String>, String> {
+    if !keys::stored(&provider.key_alias) {
+        return Ok(None);
+    }
+    keys::read(&provider.key_alias).map(Some)
 }
 
 fn unknown_kind(provider: &AiProvider, kind: &str) -> String {

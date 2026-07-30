@@ -10,6 +10,8 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     ...original,
     listAiProviders: vi.fn(),
     addOllamaProvider: vi.fn(),
+    addOllamaCloudProvider: vi.fn(),
+    addClaudeCodeProvider: vi.fn(),
     addAiProvider: vi.fn(),
     removeAiProvider: vi.fn(),
     testAiProvider: vi.fn(),
@@ -96,6 +98,74 @@ describe("AiSettings", () => {
     expect(await screen.findByText(/\(metered\)/)).toBeInTheDocument();
     expect(screen.getByText(/\(free\)/)).toBeInTheDocument();
     expect(screen.getByText(/local, no key/)).toBeInTheDocument();
+  });
+
+  /// A hosted Ollama is somebody else's hardware being paid for. Calling it
+  /// free because its local sibling is free would let a Product spend past its
+  /// budget on the very provider chosen because the budget ran out.
+  it("keeps a hosted Ollama key and clears the field, and calls it metered", async () => {
+    const user = userEvent.setup();
+    mocked.addOllamaCloudProvider.mockResolvedValue(3);
+    render(<AiSettings />);
+
+    const keyField = await screen.findByLabelText("Hosted Ollama API key");
+    await user.type(keyField, "ollama-secret");
+    await user.click(screen.getByRole("button", { name: "Add hosted Ollama" }));
+
+    await waitFor(() =>
+      expect(mocked.addOllamaCloudProvider).toHaveBeenCalledWith(
+        "Ollama Cloud",
+        "https://ollama.com",
+        "ollama-secret",
+      ),
+    );
+    // The key goes to the credential store and leaves the form.
+    expect((keyField as HTMLInputElement).value).toBe("");
+  });
+
+  /// The two Ollamas share a provider kind, so the list has to tell them apart
+  /// by the same signal the backend authenticates on — whether a key is stored.
+  it("tells a hosted Ollama from a local one in the list", async () => {
+    mocked.listAiProviders.mockResolvedValue([
+      {
+        id: 2,
+        name: "Ollama Cloud",
+        apiBaseUrl: "https://ollama.com",
+        models: ["gpt-oss:120b"],
+        keyStored: true,
+        kind: "ollama",
+        metered: true,
+      },
+    ]);
+    render(<AiSettings />);
+
+    expect(await screen.findByText(/hosted, key stored/)).toBeInTheDocument();
+    expect(screen.getByText(/\(metered\)/)).toBeInTheDocument();
+    expect(screen.queryByText(/local, no key/)).not.toBeInTheDocument();
+  });
+
+  /// Claude Code is neither metered nor free: the plan is paid for, the
+  /// allowance is finite, and this app cannot see what a call consumed. Saying
+  /// "free" would be a lie; inventing a number would be worse.
+  it("says a Claude Code provider's cost is not visible rather than free", async () => {
+    mocked.listAiProviders.mockResolvedValue([
+      {
+        id: 4,
+        name: "Claude Code (my plan)",
+        apiBaseUrl: "",
+        models: ["claude-opus-5"],
+        keyStored: false,
+        kind: "claudeCode",
+        metered: false,
+      },
+    ]);
+    render(<AiSettings />);
+
+    expect(
+      await screen.findByText(/on your plan — cost not visible here/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/\(free\)/)).not.toBeInTheDocument();
+    expect(screen.getByText(/signed in through the CLI, no key/)).toBeInTheDocument();
   });
 
   it("test connection surfaces the result", async () => {

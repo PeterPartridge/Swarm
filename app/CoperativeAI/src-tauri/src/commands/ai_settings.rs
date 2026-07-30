@@ -42,7 +42,7 @@ pub async fn add_ollama_provider(
     name: String,
     api_base_url: String,
 ) -> Result<i64, String> {
-    let models = crate::ai::ollama::list_models(&api_base_url).await?;
+    let models = crate::ai::ollama::list_models(&api_base_url, None).await?;
     if models.is_empty() {
         return Err(format!(
             "{api_base_url} is reachable but has no models pulled — run `ollama pull <model>` first"
@@ -62,6 +62,59 @@ pub async fn add_ollama_provider(
     )
     .await
     .map_err(to_message)
+}
+
+/// Adds a hosted Ollama provider — Ollama's cloud rather than a local process.
+///
+/// Same kind as a local one, because the API is identical and only the bearer
+/// token differs. What is *not* the same is the money: this is somebody else's
+/// hardware being paid for, so it is stored **metered**, and every call goes
+/// through the same budget gate and lands in the same ledger as Claude. Marking
+/// it free because its sibling is free would let a Product spend past its budget
+/// on a provider chosen precisely because the budget ran out.
+///
+/// Any free allowance the account has is not modelled: no API reports how much
+/// of one is left, so the app would be guessing. Metered-from-the-first-call
+/// overstates early spend rather than understating it — the safe direction when
+/// the alternative is a budget that silently does nothing.
+#[tauri::command]
+pub async fn add_ollama_cloud_provider(
+    db: State<'_, AppDb>,
+    name: String,
+    api_base_url: String,
+    api_key: String,
+) -> Result<i64, String> {
+    if api_key.trim().is_empty() {
+        return Err("a hosted Ollama needs an API key — a local one at http://localhost:11434 does not".into());
+    }
+    // Asked before the row exists, so a wrong key or URL is a refusal rather
+    // than a provider that fails the first time real work depends on it.
+    let models = crate::ai::ollama::list_models(&api_base_url, Some(&api_key)).await?;
+    if models.is_empty() {
+        return Err(format!("{api_base_url} answered but offered no models"));
+    }
+
+    let alias = format!("coperativeai/{}", name.trim().to_lowercase().replace(' ', "-"));
+    let model_refs: Vec<&str> = models.iter().map(String::as_str).collect();
+    let conn = db.0.lock().await;
+    let id = ai_provider::add_of_kind(
+        &conn,
+        &name,
+        &api_base_url,
+        &model_refs,
+        &alias,
+        "ollama",
+        true,
+    )
+    .await
+    .map_err(to_message)?;
+    // Same order as the Anthropic path: the row first, then the key, and the row
+    // rolled back if the credential store refuses — so the two never disagree.
+    if let Err(e) = keys::store(&alias, &api_key) {
+        let _ = ai_provider::remove(&conn, id).await;
+        return Err(e);
+    }
+    Ok(id)
 }
 
 /// Adds Claude via the `claude` CLI on this machine.
@@ -172,7 +225,14 @@ pub async fn test_ai_provider(db: State<'_, AppDb>, id: i64) -> Result<String, S
     // does not. Reaching its model list is the honest test: it proves the
     // server is up and the chosen model is actually pulled.
     if kind == "ollama" {
-        let installed = crate::ai::ollama::list_models(&base_url).await?;
+        // Hosted Ollama needs its bearer token even to list models; a local one
+        // has no key stored and must not be asked for one.
+        let key = if keys::stored(&key_alias) {
+            Some(keys::read(&key_alias)?)
+        } else {
+            None
+        };
+        let installed = crate::ai::ollama::list_models(&base_url, key.as_deref()).await?;
         return if installed.iter().any(|m| m == &model) {
             Ok(format!("Connection OK — {model} is pulled and ready"))
         } else {
