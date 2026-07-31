@@ -1817,7 +1817,7 @@ export interface AiJob {
   workItemId: number;
   workItemTitle: string;
   purpose: string;
-  state: "queued" | "running" | "done" | "blocked" | "failed";
+  state: "queued" | "running" | "done" | "blocked" | "failed" | "cancelled";
   message: string;
   submittedAt: number;
   startedAt: number | null;
@@ -1844,6 +1844,17 @@ export interface OpenQuestion {
  *  question from any of them is blocking that one. */
 export const listOpenQuestions = (productId: number): Promise<OpenQuestion[]> =>
   invoke("list_open_questions", { productId });
+
+/** Stops a queued or running job, and returns what that actually achieved.
+ *
+ *  The message matters and should be shown. Stopping a *queued* job costs
+ *  nothing. Stopping a *running* one stops this app waiting — genuinely the end
+ *  of it for Ollama and Claude Code, whose processes are killed — but a request
+ *  already sent to a metered provider may still be generated and charged. No
+ *  reply comes back, so that spend never reaches the ledger, and the app says so
+ *  rather than inventing a figure to cover the gap. */
+export const cancelAiJob = (id: number): Promise<string> =>
+  invoke("cancel_ai_job", { id });
 
 export const listRecentAiJobs = (): Promise<AiJob[]> =>
   invoke("list_recent_ai_jobs");

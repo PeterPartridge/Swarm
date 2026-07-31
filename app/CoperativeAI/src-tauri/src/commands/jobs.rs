@@ -54,6 +54,49 @@ pub async fn list_recent_ai_jobs(db: State<'_, AppDb>) -> Result<Vec<AiJobDto>, 
         .collect())
 }
 
+/// Stops a queued or running AI job.
+///
+/// **What this can and cannot do, which is the whole point of the message it
+/// returns.** A *queued* job has not reached a provider, so stopping it costs
+/// nothing and there is nothing to be said. A *running* one has a request in
+/// flight: aborting the task stops this app waiting, and for the local paths —
+/// Ollama, or Claude Code, where the child process is killed — that really is
+/// the end of it. For a metered HTTPS provider it is not: the request already
+/// left, and the model may generate and charge for a reply nobody is listening
+/// for.
+///
+/// That reply never comes back, so `ai_run::record` never runs and **the spend
+/// does not reach the ledger**. The app says so rather than quietly
+/// understating the bill, and it does not invent a figure to fill the gap —
+/// the same rule that keeps estimated costs out of the ledger everywhere else.
+#[tauri::command]
+pub async fn cancel_ai_job(
+    db: State<'_, AppDb>,
+    runner: State<'_, Arc<JobRunner>>,
+    id: i64,
+) -> Result<String, String> {
+    // The row first, then the task: aborting at an arbitrary await point means
+    // the task may never write anything again, so the database has to be right
+    // before the task can stop being able to correct it.
+    let was = {
+        let conn = db.0.lock().await;
+        ai_job::cancel(&conn, id, "cancelled").await.map_err(to_message)?
+    };
+    let Some(was) = was else {
+        return Ok("That job had already finished, so there was nothing to stop.".into());
+    };
+    runner.abort(id);
+
+    Ok(if was == "queued" {
+        "Stopped before it reached a provider, so nothing was spent.".into()
+    } else {
+        "Stopped waiting for it. If it had already reached a paid provider that call \
+         may still be charged — and because no reply came back, it will not appear in \
+         the ledger."
+            .into()
+    })
+}
+
 /// Queues a work item for planning and returns at once.
 ///
 /// The whole point: this writes a row, starts a task behind it and comes back,

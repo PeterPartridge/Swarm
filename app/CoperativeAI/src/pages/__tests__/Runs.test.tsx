@@ -10,6 +10,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
   return {
     ...original,
     listAiJobs: vi.fn(),
+    cancelAiJob: vi.fn(),
     getAiConcurrency: vi.fn(),
     submitForPlanning: vi.fn(),
     listRuns: vi.fn(),
@@ -415,5 +416,67 @@ describe("RunsPanel and the approval gate", () => {
     expect(start).toBeDisabled();
     expect(start).toHaveTextContent("Needs an approved plan");
     expect(mocked.startRun).not.toHaveBeenCalled();
+  });
+});
+
+describe("JobsPanel cancelling", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocked.getAiConcurrency.mockResolvedValue({ limit: 1, available: 0 });
+  });
+
+  /// A 15-minute agent turn with no way out was the debt this closes.
+  it("stops a running job and passes on what that achieved", async () => {
+    const user = userEvent.setup();
+    mocked.listAiJobs.mockResolvedValue([job({ id: 7, state: "running" })]);
+    mocked.cancelAiJob.mockResolvedValue(
+      "Stopped waiting for it. If it had already reached a paid provider that call may still be charged — and because no reply came back, it will not appear in the ledger.",
+    );
+    render(<JobsPanel productId={1} />);
+
+    await user.click(await screen.findByLabelText("Stop Add checkout"));
+
+    await waitFor(() => expect(mocked.cancelAiJob).toHaveBeenCalledWith(7));
+    // The warning is the backend's, shown verbatim: only it knows whether the
+    // call had already left, and that is the whole difference.
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      /may still be charged.*will not appear in the ledger/,
+    );
+  });
+
+  /// Stopping something that never reached a provider costs nothing, and saying
+  /// so is as important as the warning — otherwise every cancel reads alarming.
+  it("says a queued job cost nothing to stop", async () => {
+    const user = userEvent.setup();
+    mocked.listAiJobs.mockResolvedValue([job({ id: 8, state: "queued" })]);
+    mocked.cancelAiJob.mockResolvedValue(
+      "Stopped before it reached a provider, so nothing was spent.",
+    );
+    render(<JobsPanel productId={1} />);
+
+    await user.click(await screen.findByLabelText("Stop Add checkout"));
+    expect(await screen.findByRole("status")).toHaveTextContent(/nothing was spent/);
+  });
+
+  /// A finished job has nothing to stop, and a button that only explains itself
+  /// is worse than no button.
+  it("offers no way to stop a job that has already finished", async () => {
+    mocked.listAiJobs.mockResolvedValue([
+      job({ id: 9, state: "done", message: "wrote two plans" }),
+    ]);
+    render(<JobsPanel productId={1} />);
+
+    expect(await screen.findByText("done")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Stop Add checkout")).not.toBeInTheDocument();
+  });
+
+  /// Stopped is not failed. Filing a choice as a fault sends people looking for
+  /// a bug that is not there.
+  it("shows a stopped job as stopped, not failed", async () => {
+    mocked.listAiJobs.mockResolvedValue([job({ id: 10, state: "cancelled" })]);
+    render(<JobsPanel productId={1} />);
+
+    expect(await screen.findByText("stopped")).toBeInTheDocument();
+    expect(screen.queryByText("failed")).not.toBeInTheDocument();
   });
 });

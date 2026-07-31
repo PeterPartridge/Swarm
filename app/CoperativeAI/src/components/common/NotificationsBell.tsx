@@ -146,4 +146,7 @@ const STATE_WORDS: Record<AiJob["state"], string> = {
   done: "planned",
   blocked: "asked a question",
   failed: "failed",
+  // "you stopped it" rather than "cancelled": the bell reports what happened,
+  // and this is the one outcome the reader caused themselves.
+  cancelled: "you stopped it",
 };

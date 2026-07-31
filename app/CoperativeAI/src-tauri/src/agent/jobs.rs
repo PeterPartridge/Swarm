@@ -19,13 +19,22 @@
 
 use crate::commands::AppDb;
 use crate::db::{ai_job, system_setting};
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::Semaphore;
+use tauri::async_runtime::JoinHandle;
 
 /// Held in Tauri state so every submission shares one limit.
 pub struct JobRunner {
     permits: Arc<Semaphore>,
+    /// One handle per job that has been spawned and not yet settled, so a
+    /// cancel can reach a specific job rather than the whole queue.
+    ///
+    /// A `std::sync::Mutex` and not tokio's: the guard is only ever held across
+    /// a map insert or remove, never across an await, and that is precisely the
+    /// case the blocking one is for.
+    running: Arc<Mutex<HashMap<i64, JoinHandle<()>>>>,
 }
 
 impl JobRunner {
@@ -35,11 +44,47 @@ impl JobRunner {
     pub fn new(limit: i64) -> Self {
         JobRunner {
             permits: Arc::new(Semaphore::new(limit.clamp(1, system_setting::AI_CONCURRENCY_MAX) as usize)),
+            running: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     pub fn available(&self) -> usize {
         self.permits.available_permits()
+    }
+
+    /// Stops the task for one job, if it is still going.
+    ///
+    /// Returns whether there was a task to stop. False is not an error: a job
+    /// that finished a moment ago, or one left over from a previous launch, has
+    /// no task in this process — the database row is still updated by the
+    /// caller, which is what the person actually sees.
+    pub fn abort(&self, job_id: i64) -> bool {
+        let handle = self
+            .running
+            .lock()
+            .expect("the job map is only locked for insert and remove")
+            .remove(&job_id);
+        match handle {
+            Some(handle) => {
+                handle.abort();
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn remember(&self, job_id: i64, handle: JoinHandle<()>) {
+        self.running
+            .lock()
+            .expect("the job map is only locked for insert and remove")
+            .insert(job_id, handle);
+    }
+
+    fn forget(&self, job_id: i64) {
+        self.running
+            .lock()
+            .expect("the job map is only locked for insert and remove")
+            .remove(&job_id);
     }
 }
 
@@ -49,7 +94,8 @@ impl JobRunner {
 /// that submits returns as soon as the row is written, and the work happens
 /// behind it.
 pub fn spawn(app: AppHandle, runner: Arc<JobRunner>, job_id: i64, work_item_id: i64) {
-    tauri::async_runtime::spawn(async move {
+    let registry = runner.clone();
+    let handle = tauri::async_runtime::spawn(async move {
         // The database is fetched from the app handle rather than passed in, so
         // that adding a queue does not mean changing the signature of every
         // command that already takes `State<'_, AppDb>`.
@@ -99,8 +145,20 @@ pub fn spawn(app: AppHandle, runner: Arc<JobRunner>, job_id: i64, work_item_id: 
             let conn = db.0.lock().await;
             let _ = ai_job::finish(&conn, job_id, state, &message).await;
         }
+        // Off the map before the announce, so a cancel arriving in the gap
+        // between finishing and being forgotten aborts a task that has already
+        // done its work rather than one that is still doing it. `cancel` also
+        // refuses to overwrite a settled row, so the outcome above stands.
+        runner.forget(job_id);
         announce(&app);
     });
+
+    // Registered after spawning because that is when the handle exists. A
+    // cancel in the moment before this line finds nothing to abort and still
+    // marks the row cancelled — the task then runs to completion against a row
+    // that has moved on, which `finish` overwrites; the alternative, holding a
+    // lock across the spawn, buys nothing for a window this small.
+    registry.remember(job_id, handle);
 }
 
 /// Tells the UI something moved. Nothing is carried in the event — the list is
@@ -141,6 +199,37 @@ mod tests {
 
         drop(first);
         assert!(waiting.await.expect("join"), "the slot frees the next job");
+    }
+
+    /// Aborting reaches one job, not the queue. A registry keyed by id is the
+    /// only thing that makes "cancel this one" different from "stop everything".
+    #[tokio::test]
+    async fn aborting_stops_the_named_job_and_leaves_the_others() {
+        let runner = JobRunner::new(2);
+        let long = tauri::async_runtime::spawn(async {
+            // Long enough that it cannot finish on its own during the test.
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        });
+        let other = tauri::async_runtime::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        });
+        runner.remember(1, long);
+        runner.remember(2, other);
+
+        assert!(runner.abort(1), "there was a task to stop");
+        // And it is gone from the registry, so a second cancel is honest about
+        // finding nothing rather than reporting success twice.
+        assert!(!runner.abort(1), "already stopped");
+        assert!(runner.abort(2), "the other was untouched until now");
+    }
+
+    /// A job with no task in this process — finished a moment ago, or left over
+    /// from a previous launch — is not an error. The row still gets updated,
+    /// which is what the person actually sees.
+    #[tokio::test]
+    async fn aborting_an_unknown_job_is_not_an_error() {
+        let runner = JobRunner::new(1);
+        assert!(!runner.abort(404));
     }
 
     /// At two, two run at once — which is what the setting is for.

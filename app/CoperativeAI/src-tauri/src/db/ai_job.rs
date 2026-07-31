@@ -18,7 +18,11 @@ use turso::Connection;
 /// `done` — finished and wrote something.
 /// `blocked` — the AI declined, or the budget refused it. Not a failure.
 /// `failed` — it broke.
-pub const STATES: &[&str] = &["queued", "running", "done", "blocked", "failed"];
+/// `cancelled` — someone stopped it. Its own state rather than `failed`,
+/// because "I changed my mind" and "it broke" call for different reactions and
+/// only one of them is worth investigating.
+pub const STATES: &[&str] =
+    &["queued", "running", "done", "blocked", "failed", "cancelled"];
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AiJob {
@@ -121,6 +125,30 @@ pub async fn finish(conn: &Connection, id: i64, state: &str, message: &str) -> R
     )
     .await?;
     Ok(())
+}
+
+/// Marks a job cancelled, but only while there is still something to cancel.
+///
+/// A job that already finished is left exactly as it was: overwriting `done`
+/// with `cancelled` would erase the outcome, and the work — and any spend — had
+/// already happened. Returns what it was cancelled *from*, so the caller can
+/// say the right thing: stopping a queued job costs nothing, while stopping one
+/// in flight may not stop the provider.
+pub async fn cancel(conn: &Connection, id: i64, message: &str) -> Result<Option<String>> {
+    let was = {
+        let mut rows = conn
+            .query("SELECT state FROM ai_jobs WHERE id = ?1", (id,))
+            .await?;
+        match rows.next().await? {
+            Some(row) => row.get::<String>(0)?,
+            None => return Err(DbError::Validation(format!("no AI job with id {id}"))),
+        }
+    };
+    if was != "queued" && was != "running" {
+        return Ok(None);
+    }
+    finish(conn, id, "cancelled", message).await?;
+    Ok(Some(was))
 }
 
 /// Clears jobs left `running` when the app stopped.
@@ -228,6 +256,65 @@ mod tests {
             .await
             .expect("item b");
         (conn, a, b)
+    }
+
+    /// Cancelling a job that has not started costs nothing, and the caller is
+    /// told which state it came from so it can say so.
+    #[tokio::test]
+    async fn a_queued_job_can_be_cancelled_and_reports_it_was_queued() {
+        let (conn, a, _) = fixture().await;
+        let id = submit(&conn, a, "changePlan").await.expect("submit");
+
+        let was = cancel(&conn, id, "cancelled").await.expect("cancel");
+        assert_eq!(was.as_deref(), Some("queued"));
+
+        let job = &list_recent(&conn, 10).await.expect("list")[0];
+        assert_eq!(job.state, "cancelled");
+        // Not `failed`: nothing broke, and the two deserve different reactions.
+        assert_ne!(job.state, "failed");
+    }
+
+    /// A running job reports `running`, which is what lets the command warn that
+    /// the provider may already have been paid.
+    #[tokio::test]
+    async fn a_running_job_reports_that_it_was_already_in_flight() {
+        let (conn, a, _) = fixture().await;
+        let id = submit(&conn, a, "changePlan").await.expect("submit");
+        mark_running(&conn, id).await.expect("start it");
+
+        assert_eq!(
+            cancel(&conn, id, "cancelled").await.expect("cancel").as_deref(),
+            Some("running"),
+        );
+    }
+
+    /// **The one that would quietly lose an outcome.** A cancel racing a job
+    /// that has just finished must not overwrite `done` — the work happened and
+    /// the spend is real, so replacing it with `cancelled` would file a
+    /// completed, paid-for call as one nobody wanted.
+    #[tokio::test]
+    async fn cancelling_a_finished_job_leaves_its_outcome_alone() {
+        let (conn, a, _) = fixture().await;
+        let id = submit(&conn, a, "changePlan").await.expect("submit");
+        finish(&conn, id, "done", "wrote two plans").await.expect("finish");
+
+        assert_eq!(
+            cancel(&conn, id, "cancelled").await.expect("cancel"),
+            None,
+            "nothing was cancelled, and the caller can say so"
+        );
+
+        let job = &list_recent(&conn, 10).await.expect("list")[0];
+        assert_eq!(job.state, "done");
+        assert_eq!(job.message, "wrote two plans");
+    }
+
+    /// Cancelling something that never existed is a mistake worth reporting,
+    /// not a silent no-op that looks like it worked.
+    #[tokio::test]
+    async fn cancelling_a_job_that_does_not_exist_is_refused() {
+        let (conn, _, _) = fixture().await;
+        assert!(cancel(&conn, 9999, "cancelled").await.is_err());
     }
 
     /// The queue is a queue: submitted first, run first.
