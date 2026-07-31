@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { useWorkChanged } from "../../lib/workSignal";
 import { listRecentAiJobs, type AiJob } from "../../lib/backend";
 
 /** What the AI has been doing, from anywhere in the app.
@@ -36,11 +36,9 @@ export default function NotificationsBell() {
 
   useEffect(() => {
     void refresh();
-    const off = listen("ai-job-changed", () => void refresh());
-    return () => {
-      void off.then((f) => f());
-    };
   }, [refresh]);
+
+  useWorkChanged(refresh);
 
   // A click anywhere else closes it, the way every dropdown like this does.
   useEffect(() => {

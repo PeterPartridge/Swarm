@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { notifyWorkChanged, useWorkChanged } from "../../lib/workSignal";
 import {
   cancelAiJob,
   getAiConcurrency,
@@ -53,12 +53,7 @@ export default function JobsPanel({ productId }: { productId: number }) {
     void refresh();
   }, [refresh]);
 
-  useEffect(() => {
-    const off = listen("ai-job-changed", () => void refresh());
-    return () => {
-      void off.then((f) => f());
-    };
-  }, [refresh]);
+  useWorkChanged(refresh);
 
   async function cancel(job: AiJob) {
     setCancelling(job.id);
@@ -68,6 +63,9 @@ export default function JobsPanel({ productId }: { productId: number }) {
       setNotice(await cancelAiJob(job.id));
       setError(null);
       await refresh();
+      // A stopped job frees a slot and may unblock a run, neither of which the
+      // panels beside this one would otherwise hear about.
+      notifyWorkChanged();
     } catch (e) {
       setError(String(e));
     } finally {

@@ -4,6 +4,7 @@ import PreviewPanel from "../code/PreviewPanel";
 import RunTerminal from "../code/RunTerminal";
 import WorkItemBuildPlan from "../planning/WorkItemBuildPlan";
 import WorkItemChanges from "../code/WorkItemChanges";
+import { notifyWorkChanged, useWorkChanged } from "../../lib/workSignal";
 import {
   listWorkItemPlans,
   startRun,
@@ -124,7 +125,12 @@ export default function AgentJobPanel({
 
   useEffect(() => {
     void loadApproval();
-  }, [loadApproval, panel]);
+  }, [loadApproval]);
+
+  // Was keyed to `panel`, which meant a query on every sub-panel switch and
+  // still nothing when approval changed while the Plan tab was open. Following
+  // the signal is both fewer reads and more correct.
+  useWorkChanged(loadApproval);
 
   // Starting is still a press. An app that silently launched something which
   // writes files would be doing the one thing this design keeps deliberate.
@@ -141,6 +147,7 @@ export default function AgentJobPanel({
       setPanel("terminal");
       setError(null);
       onRunChanged();
+      notifyWorkChanged();
     } catch (e) {
       setError(String(e));
     } finally {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import HandoverPanel from "../planning/HandoverPanel";
 import WorkItemChanges from "../code/WorkItemChanges";
+import { notifyWorkChanged } from "../../lib/workSignal";
 import {
   askProductQuestion,
   attachSolutionToWorkItem,
@@ -77,6 +78,11 @@ export default function WorkItemBuildPlan({
       await action();
       await refresh();
       setError(null);
+      // Every mutation here moves something a run depends on — approving,
+      // withdrawing, changing the branch, or editing text, which clears the
+      // approval. The rail's Start button has to follow all of them, so the
+      // signal goes out from the one place they all pass through.
+      notifyWorkChanged();
     } catch (e) {
       setError(String(e));
     }

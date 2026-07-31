@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { notifyWorkChanged, useWorkChanged } from "../../lib/workSignal";
 import {
   listOpenQuestions,
   resolveAiFeedback,
@@ -34,13 +34,11 @@ export default function QuestionsPanel({ productId }: { productId: number }) {
 
   useEffect(() => {
     void refresh();
-    // A job finishing is how a question arrives, so the list follows the same
-    // event the queue does rather than being polled.
-    const off = listen("ai-job-changed", () => void refresh());
-    return () => {
-      void off.then((f) => f());
-    };
   }, [refresh]);
+
+  // A job finishing is how a question arrives, so the list follows the signal
+  // rather than being polled.
+  useWorkChanged(refresh);
 
   async function answer(question: OpenQuestion) {
     const note = (answers[question.id] ?? "").trim();
@@ -54,6 +52,9 @@ export default function QuestionsPanel({ productId }: { productId: number }) {
       );
       setError(null);
       await refresh();
+      // An answered question is what unblocks that work item, so the queue and
+      // the agent rail want to hear about it too.
+      notifyWorkChanged();
     } catch (e) {
       setError(String(e));
     } finally {

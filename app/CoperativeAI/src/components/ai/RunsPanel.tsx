@@ -14,6 +14,7 @@ import {
   type Run,
 } from "../../lib/backend";
 import RunTerminal from "../code/RunTerminal";
+import { notifyWorkChanged, useWorkChanged } from "../../lib/workSignal";
 
 /** A run started this session: its own worktree terminal and the command to run
  *  in it. Kept so several can be open at once — that is the "simultaneously". */
@@ -160,6 +161,12 @@ export default function RunsPanel({ productId }: { productId: number }) {
     void refresh();
   }, [refresh]);
 
+  // This panel used to refresh on mount and never again, so a plan approved or
+  // a question answered next to it left a stale list until somebody pressed
+  // Refresh — and the Start button that had just become available did not
+  // appear.
+  useWorkChanged(refresh);
+
   const key = (r: Run) => `${r.workItemId}-${r.solutionId}`;
 
   async function start(run: Run) {
@@ -186,6 +193,7 @@ export default function RunsPanel({ productId }: { productId: number }) {
       );
       setError(null);
       await refresh();
+      notifyWorkChanged();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -217,6 +225,7 @@ export default function RunsPanel({ productId }: { productId: number }) {
       setNotice(`Removed the worktree for ${run.workItemTitle}.`);
       setError(null);
       await refresh();
+      notifyWorkChanged();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -248,6 +257,7 @@ export default function RunsPanel({ productId }: { productId: number }) {
       setNotice(outcome.message);
       setError(null);
       await refresh();
+      notifyWorkChanged();
     } catch (e) {
       // Most often "there are uncommitted files here" — a refusal to read, not
       // a failure to retry.
@@ -278,6 +288,7 @@ export default function RunsPanel({ productId }: { productId: number }) {
       setNotice(`Removed the leftover checkout in ${left.solutionName}.`);
       setError(null);
       await refresh();
+      notifyWorkChanged();
     } catch (e) {
       // Most often "it still holds uncommitted work", which is a refusal worth
       // reading rather than a failure to retry.

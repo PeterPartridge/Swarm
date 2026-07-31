@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { useWorkChanged } from "../../lib/workSignal";
 import AgentJobPanel from "./AgentJobPanel";
 import CodeEditor from "../code/CodeEditor";
 import JobsPanel from "./JobsPanel";
@@ -152,14 +152,9 @@ export default function AgentWorkspace({
     void refresh();
   }, [refresh]);
 
-  // The runner emits on every state change, so the rail follows several agents
-  // without polling — the same event the queue and the bell already use.
-  useEffect(() => {
-    const stop = listen("ai-job-changed", () => void refresh());
-    return () => {
-      void stop.then((off) => off());
-    };
-  }, [refresh]);
+  // The rail follows both halves without polling: the runner's own state
+  // changes, and anything a person does in the sub-panels beside it.
+  useWorkChanged(refresh);
 
   const active = agents.find((a) => a.key === selected) ?? null;
 
