@@ -24,7 +24,7 @@ jobs:
   rust:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -48,11 +48,15 @@ jobs:
       run:
         working-directory: app/CoperativeAI
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      # Pinned to the major, not `lts/*`: tracking the LTS alias would move this
+      # build to Node 26 the day that line goes LTS, with no commit and nobody
+      # deciding. A number here means the bump is a change somebody made, and
+      # `.nvmrc` carries the same one so a laptop and the runner agree.
+      - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
           cache-dependency-path: app/CoperativeAI/package-lock.json
 
