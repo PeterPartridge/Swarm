@@ -1,3 +1,4 @@
+import SectionTabs from "../components/common/SectionTabs";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import AiConcurrencySetting from "../components/ai/AiConcurrencySetting";
 import AiSettings from "../components/ai/AiSettings";
@@ -130,19 +131,13 @@ export default function AdminArea() {
       {/* Four sections rather than one long scroll. Everything that was in
           Develop → Settings is here too: settings were in two places, which
           meant knowing which before you could look. */}
-      <nav role="tablist" aria-label="Settings sections" className="admin-tabs">
-        {ADMIN_SECTIONS.map((s) => (
-          <button
-            key={s.id}
-            role="tab"
-            aria-selected={section === s.id}
-            className={section === s.id ? "view-active" : ""}
-            onClick={() => setSection(s.id)}
-          >
-            {s.label}
-          </button>
-        ))}
-      </nav>
+      <SectionTabs
+        label="Settings sections"
+        className="admin-tabs"
+        options={[...ADMIN_SECTIONS]}
+        active={section}
+        onSelect={(id) => setSection(id as AdminSection)}
+      />
 
       {/* One picker for every per-Product setting on this page, at the top
           rather than repeated inside each card. */}

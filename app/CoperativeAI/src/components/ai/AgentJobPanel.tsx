@@ -1,3 +1,4 @@
+import SectionTabs from "../common/SectionTabs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AiQuestions from "./AiQuestions";
 import PreviewPanel from "../code/PreviewPanel";
@@ -172,19 +173,13 @@ export default function AgentJobPanel({
         )}
       </header>
 
-      <nav role="tablist" aria-label="Agent sub-panels" className="agent-subtabs">
-        {available.map((p) => (
-          <button
-            key={p}
-            role="tab"
-            aria-selected={panel === p}
-            className={panel === p ? "view-active" : ""}
-            onClick={() => setPanel(p)}
-          >
-            {LABELS[p]}
-          </button>
-        ))}
-      </nav>
+      <SectionTabs
+        label="Agent sub-panels"
+        className="agent-subtabs"
+        options={available.map((p) => ({ id: p, label: LABELS[p] }))}
+        active={panel}
+        onSelect={(id) => setPanel(id as SubPanel)}
+      />
 
       {error && <p role="alert">{error}</p>}
 

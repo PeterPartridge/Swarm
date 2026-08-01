@@ -1,3 +1,4 @@
+import SectionTabs from "../components/common/SectionTabs";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import DeveloperPlanning from "../components/planning/DeveloperPlanning";
@@ -214,21 +215,17 @@ export default function DevelopSolutions({
         </label>
       )}
 
-      {/* Plain buttons, not role="tab" — WorkItemViews already owns real
+      {/* `as="buttons"`, not a tablist — WorkItemViews already owns real
           Board/Sprint/List tabs inside the Work section, and two tablists on
           one page would make "the tabs" ambiguous to a screen reader. */}
-      <nav className="develop-tabs" aria-label="Develop sections">
-        {DEVELOP_TABS.map((t) => (
-          <button
-            key={t.id}
-            aria-pressed={view === t.id}
-            className={view === t.id ? "develop-tab-active" : ""}
-            onClick={() => setView(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
+      <SectionTabs
+        label="Develop sections"
+        className="develop-tabs"
+        as="buttons"
+        options={DEVELOP_TABS}
+        active={view}
+        onSelect={(id) => setView(id as DevelopView)}
+      />
 
       {view === "strategy" && activeProduct !== "" && (
         <>

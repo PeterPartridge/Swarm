@@ -1,3 +1,4 @@
+import SectionTabs from "../common/SectionTabs";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import SolutionStrategyPanel from "../ai/SolutionStrategyPanel";
 import WorkItemBuildPlan from "../planning/WorkItemBuildPlan";
@@ -66,19 +67,15 @@ export default function WorkItemViews({ productId }: { productId: number }) {
   return (
     <section className="work-views" aria-label="Work views">
       <div className="view-controls">
-        <div role="tablist" aria-label="View">
-          {DEV_VIEWS.map((v) => (
-            <button
-              key={v}
-              role="tab"
-              aria-selected={view === v}
-              className={view === v ? "view-active" : ""}
-              onClick={() => setView(v)}
-            >
-              {v[0].toUpperCase() + v.slice(1)}
-            </button>
-          ))}
-        </div>
+        <SectionTabs
+          label="View"
+          options={DEV_VIEWS.map((v) => ({
+            id: v,
+            label: v[0].toUpperCase() + v.slice(1),
+          }))}
+          active={view}
+          onSelect={(id) => setView(id as (typeof DEV_VIEWS)[number])}
+        />
         <label>
           Filter by user
           <select

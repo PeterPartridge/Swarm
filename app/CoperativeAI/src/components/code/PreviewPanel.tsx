@@ -1,3 +1,4 @@
+import SectionTabs from "../common/SectionTabs";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /** Where a dev server is *probably* listening, given the command that starts it.
@@ -178,24 +179,15 @@ export default function PreviewPanel({
   return (
     <section className="preview-panel" aria-label={`Preview of ${label}`}>
       <div className="preview-controls">
-        <div role="tablist" aria-label="Preview mode">
-          <button
-            role="tab"
-            aria-selected={mode === "app"}
-            className={mode === "app" ? "view-active" : ""}
-            onClick={() => setMode("app")}
-          >
-            App
-          </button>
-          <button
-            role="tab"
-            aria-selected={mode === "api"}
-            className={mode === "api" ? "view-active" : ""}
-            onClick={() => setMode("api")}
-          >
-            API
-          </button>
-        </div>
+        <SectionTabs
+          label="Preview mode"
+          options={[
+            { id: "app", label: "App" },
+            { id: "api", label: "API" },
+          ]}
+          active={mode}
+          onSelect={(id) => setMode(id as "app" | "api")}
+        />
 
         <label className="preview-url">
           Address

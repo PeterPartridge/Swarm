@@ -198,6 +198,25 @@ textarea {
   border-radius: 6px;
   padding: 0.3rem 0.45rem;
   font: inherit;
+
+  /* Room to write in, everywhere, from one rule rather than a `rows` argued
+     over per field. Several boxes people describe a change in were two rows
+     tall, which is a slot rather than a space — you cannot see a paragraph you
+     have written, so you write less than you meant to. `rows` still raises a
+     box above this; it can no longer lower one below it.
+
+     Vertical resize because these hold anything from a sentence to a spec, and
+     the person writing knows which. Horizontal is off: the width belongs to the
+     layout, and a dragged-wide textarea breaks the column it sits in. */
+  min-height: 5.5rem;
+  resize: vertical;
+}
+
+/* The exceptions, and why. A one-line answer in a box the size of a paragraph
+   reads as a field somebody forgot to fill in. */
+textarea.one-line,
+.card-risk textarea {
+  min-height: 2.5rem;
 }
 
 input:focus,
@@ -3933,4 +3952,28 @@ code {
   gap: 0.25rem;
   margin-bottom: 0.75rem;
   border-bottom: 1px solid var(--line);
+}
+
+/* The shared section switcher. One rule set now that five screens draw their
+   sections through one component. */
+.section-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+/* The narrow-window form: a select, because below this width a row of tabs
+   wraps onto three lines and stops being a row. Wider than that the row wins —
+   it is one press, not two. */
+.section-tabs-narrow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.8rem;
+}
+
+.section-tabs-narrow select {
+  /* Full width so it reads as the page's own navigation rather than a stray
+     control that happens to sit at the top. */
+  width: 100%;
 }
