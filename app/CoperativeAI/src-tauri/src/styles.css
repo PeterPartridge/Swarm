@@ -1,0 +1,110 @@
+
+/* ---------------------------------------------------------------------------
+   Claude setup — one choice, one button, four lines of state. Everything that
+   is a decision rather than a step lives in the <details> below it.
+   --------------------------------------------------------------------------- */
+
+.claude-setup {
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.setup-route {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.25rem;
+}
+
+.setup-actions {
+  margin: 0.5rem 0;
+}
+
+/* The one action on the card, so it is the thing the eye lands on. */
+.setup-go {
+  padding: 0.45rem 0.9rem;
+  font-weight: 600;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.setup-go:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+/* Working: the label already names the stage, and the cursor agrees with it. */
+.setup-go[aria-busy="true"] {
+  cursor: progress;
+}
+
+.setup-state {
+  margin: 0.5rem 0 0;
+  padding-left: 1rem;
+  font-size: 0.85rem;
+}
+
+.setup-state li {
+  margin-bottom: 0.2rem;
+}
+
+/* Colour is emphasis only — every line says its own state in words, because a
+   green bullet means nothing to somebody reading this for the first time. */
+.setup-state .is-done {
+  color: var(--ok);
+}
+
+.setup-state .is-todo {
+  color: var(--warn);
+}
+
+.setup-state .is-yours {
+  color: var(--fg-muted);
+}
+
+.setup-advanced {
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line);
+}
+
+.setup-advanced summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+}
+
+.setup-advanced label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.setup-advanced h4 {
+  margin: 0.75rem 0 0.25rem;
+  font-size: 0.85rem;
+}
+
+/* npm's own output, read as a quoted transcript rather than as page text —
+   same treatment as the terminal and the API response. */
+.setup-log {
+  max-height: 14rem;
+  overflow: auto;
+  padding: 0.5rem;
+  background: #141416;
+  color: #d4d4d4;
+  border-radius: 4px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

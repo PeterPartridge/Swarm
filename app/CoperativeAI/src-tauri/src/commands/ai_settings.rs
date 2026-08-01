@@ -132,6 +132,54 @@ pub async fn add_ollama_cloud_provider(
     Ok(id)
 }
 
+/// Whether the `claude` CLI on this machine can run, for the setup steps.
+///
+/// Separate from `test_ai_provider` because the setup guide has to answer this
+/// *before* a provider exists — the first step is installing it, and a check
+/// that needed the thing it is checking for would be no use.
+///
+/// It reports installed-or-not and nothing about the sign-in, which cannot be
+/// established without a real turn that spends plan allowance. The guide says
+/// so rather than leaving a green tick to imply more than was checked.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeCodeStatus {
+    pub installed: bool,
+    /// What `claude --version` printed, when it ran.
+    pub version: String,
+    /// Why it did not, in words that say what to do next.
+    pub problem: String,
+}
+
+#[tauri::command]
+pub async fn claude_code_status(executable: String) -> Result<ClaudeCodeStatus, String> {
+    match crate::ai::claude_code::version(&executable).await {
+        Ok(version) => Ok(ClaudeCodeStatus {
+            installed: true,
+            version,
+            problem: String::new(),
+        }),
+        // Not an `Err`: "it is not installed" is the answer to this question,
+        // not a failure to answer it. A thrown error would make the guide show
+        // a red alert where it should be showing step one.
+        Err(problem) => Ok(ClaudeCodeStatus {
+            installed: false,
+            version: String::new(),
+            problem,
+        }),
+    }
+}
+
+/// Installs Claude Code, for the setup button.
+///
+/// Its own command rather than part of `add_claude_code_provider`, because
+/// installing software on somebody's machine is a different kind of act from
+/// writing a row, and the setup panel reports the two as separate steps.
+#[tauri::command]
+pub async fn install_claude_code() -> Result<String, String> {
+    crate::ai::claude_code::install().await
+}
+
 /// Adds Claude via the `claude` CLI on this machine.
 ///
 /// This is the provider for a Claude Pro or Max subscription and no API credits.

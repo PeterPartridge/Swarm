@@ -1229,6 +1229,33 @@ export const addOllamaCloudProvider = (
 ): Promise<number> =>
   invoke("add_ollama_cloud_provider", { name, apiBaseUrl, apiKey });
 
+export interface ClaudeCodeStatus {
+  installed: boolean;
+  /** What `claude --version` printed, when it ran. */
+  version: string;
+  /** Why it did not, phrased as what to do next. */
+  problem: string;
+}
+
+/** Whether the `claude` CLI on this machine can run.
+ *
+ *  Answers the setup guide's first step, which has to be answerable *before* a
+ *  provider exists. It says nothing about whether you are signed in — that
+ *  cannot be established without a real turn that spends plan allowance, so the
+ *  guide states it rather than showing a tick that means less than it looks. */
+export const claudeCodeStatus = (executable = ""): Promise<ClaudeCodeStatus> =>
+  invoke("claude_code_status", { executable });
+
+/** Installs Claude Code globally with npm, returning what npm said.
+ *
+ *  A global install on this machine — the one part of setting Claude up that
+ *  changes anything outside this app — so it only ever runs from a press.
+ *  Installing over a broken half-install repairs it, which is the common case:
+ *  the npm wrapper can land without its platform binary and leave `claude` on
+ *  PATH unable to run. */
+export const installClaudeCode = (): Promise<string> =>
+  invoke("install_claude_code");
+
 /** Adds Claude through the `claude` CLI already signed in on this machine.
  *
  *  This is the path for a Pro or Max subscription with no API credits: the

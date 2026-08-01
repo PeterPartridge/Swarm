@@ -181,7 +181,12 @@ describe("Marketing & Design", () => {
 
   /// The 403 from a non-Enterprise plan is the expected case, and its
   /// explanation must reach the user whole rather than becoming "failed".
-  it("shows the plan explanation when a token push is refused", async () => {
+  // 15s rather than the default 5: this one renders the heaviest component in
+  // the file and takes ~1.5s on its own, which crosses 5s once enough files run
+  // in parallel on a busy machine. Nothing here is slow because it is wrong —
+  // it is contention, and a timeout that fails on load rather than on behaviour
+  // teaches people to ignore a red suite.
+  it("shows the plan explanation when a token push is refused", { timeout: 15_000 }, async () => {
     const user = userEvent.setup();
     mocked.listDesignAssets.mockResolvedValue([asset({})]);
     mocked.pushDesignTokens.mockRejectedValue(

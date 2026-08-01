@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import AiConcurrencySetting from "../components/ai/AiConcurrencySetting";
+import ClaudeSetup from "../components/ai/ClaudeSetup";
 import DeveloperRulesEditor from "../components/ai/DeveloperRulesEditor";
 import ProductAiPolicy from "../components/ai/ProductAiPolicy";
 import ThemeSetting from "../components/common/ThemeSetting";
@@ -140,6 +141,11 @@ export default function AdminArea() {
                     planning, Development planning and Testing alike. Moved out
                     of the Product Strategy screen so it is set by Admin, not by
                     whoever is doing the planning. */}
+                {/* Which Claude, and what it takes to make it work. First,
+                    because a policy that permits the AI to do something is no
+                    use until there is an AI it can reach — and the two ways of
+                    paying for Claude need different setting up. */}
+                <ClaudeSetup productId={Number(policyProduct)} />
                 <ProductAiPolicy productId={Number(policyProduct)} />
                 <DeveloperRulesEditor productId={Number(policyProduct)} />
               </>

@@ -90,6 +90,75 @@ pub async fn version(configured_exe: &str) -> Result<String, String> {
     })
 }
 
+/// Installs Claude Code globally with npm, and returns what npm said.
+///
+/// Run on a press, never on its own. This is a global install on somebody's
+/// machine — the one step of the setup that changes anything outside this app —
+/// so it happens because a button was pressed and its output is handed back
+/// whole rather than reduced to "done".
+///
+/// **Repairs the shipped half-install too.** The npm wrapper can land without
+/// its platform-native binary (`--ignore-scripts`, `--omit=optional`, some pnpm
+/// configs), which leaves `claude` on PATH and unable to run — the exact state
+/// this machine was in. Installing over the top runs the postinstall that was
+/// skipped, so one path covers "missing" and "broken".
+pub async fn install() -> Result<String, String> {
+    // Ten minutes: a cold global install pulling a platform binary is slow on a
+    // thin connection, and a timeout that fires mid-install leaves a worse mess
+    // than waiting does.
+    let output = tokio::time::timeout(
+        Duration::from_secs(600),
+        npm_command().args(["install", "-g", "@anthropic-ai/claude-code"]).output(),
+    )
+    .await
+    .map_err(|_| "npm did not finish within ten minutes and was given up on".to_string())?
+    .map_err(|e| {
+        format!(
+            "could not run npm ({e}). Node and npm have to be installed for this — \
+             the app cannot install them for you."
+        )
+    })?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let detail = if stderr.trim().is_empty() { &stdout } else { stderr.trim() };
+        // npm's own words, trimmed to something readable: they name the real
+        // problem (permissions, a proxy, a registry that is unreachable) far
+        // better than anything this app could infer from an exit code.
+        return Err(format!(
+            "npm could not install Claude Code: {}",
+            tail(detail, 600)
+        ));
+    }
+    Ok(if stdout.is_empty() { "installed".into() } else { tail(&stdout, 600) })
+}
+
+/// npm is a shell script on Windows, so it is invoked through the shell rather
+/// than spawned directly — `Command::new("npm")` fails there with "program not
+/// found" even when npm is plainly on PATH.
+fn npm_command() -> tokio::process::Command {
+    if cfg!(windows) {
+        let mut c = tokio::process::Command::new("cmd");
+        c.arg("/C").arg("npm");
+        c
+    } else {
+        tokio::process::Command::new("npm")
+    }
+}
+
+/// The **end** of a long output, not the beginning: npm's summary and its errors
+/// are the last thing it prints, and a head would show the banner instead.
+fn tail(text: &str, limit: usize) -> String {
+    let trimmed = text.trim();
+    let count = trimmed.chars().count();
+    if count <= limit {
+        return trimmed.to_string();
+    }
+    let kept: String = trimmed.chars().skip(count - limit).collect();
+    format!("…{kept}")
+}
+
 /// Pulls the JSON object out of whatever the CLI printed.
 ///
 /// The API can be told to emit nothing but JSON; the CLI cannot, so its reply may
