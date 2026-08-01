@@ -3924,3 +3924,13 @@ code {
 .plan-approval.pending {
   background: color-mix(in srgb, var(--warn) 22%, transparent);
 }
+
+/* Admin's section tabs. Four errands, not one scroll — and settings from
+   Develop folded in, so "where is that setting?" has one answer. */
+.admin-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid var(--line);
+}

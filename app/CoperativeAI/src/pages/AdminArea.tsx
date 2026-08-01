@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import AiConcurrencySetting from "../components/ai/AiConcurrencySetting";
+import AiSettings from "../components/ai/AiSettings";
 import ClaudeSetup from "../components/ai/ClaudeSetup";
+import GithubCard from "../components/product/GithubCard";
+import ModelInstalls from "../components/ai/ModelInstalls";
+import SshCard from "../components/product/SshCard";
 import DeveloperRulesEditor from "../components/ai/DeveloperRulesEditor";
 import ProductAiPolicy from "../components/ai/ProductAiPolicy";
 import ThemeSetting from "../components/common/ThemeSetting";
@@ -39,9 +43,26 @@ const FIELD_FLAGS = [
   ["canManageBudget", "Manage budget"],
 ] as const;
 
-/** Admin area: manage team members + their roles, and edit what each role can
- *  access (areas) and see (cost/profit/chargeable fields). */
+/** The four things anyone comes to this page for.
+ *
+ *  Sections rather than one scroll, and named for the errand rather than the
+ *  model: somebody arrives wanting "the AI working" or "GitHub connected", not
+ *  "provider rows" or "policies". Develop's own Settings tab folded in here —
+ *  settings living in two places meant knowing which before you could look. */
+const ADMIN_SECTIONS = [
+  { id: "ai", label: "AI" },
+  { id: "connections", label: "Connections" },
+  { id: "people", label: "People" },
+  { id: "appearance", label: "Appearance" },
+] as const;
+
+type AdminSection = (typeof ADMIN_SECTIONS)[number]["id"];
+
+/** Admin: the AI, the connections, the people, and how it looks. Every setting
+ *  in the app is on this page — including the ones that used to sit in Develop —
+ *  because "where is that setting?" should have one answer. */
 export default function AdminArea() {
+  const [section, setSection] = useState<AdminSection>("ai");
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -106,54 +127,80 @@ export default function AdminArea() {
     <div className="admin-area">
       {error && <p role="alert">{error}</p>}
 
-      {/* Every policy lives here rather than in the area it governs: the
-          people who set what developers and the AI may do are not the same
-          people it constrains. Product, Develop and Test all read these; only
-          Admin edits them. */}
-      <ThemeSetting />
+      {/* Four sections rather than one long scroll. Everything that was in
+          Develop → Settings is here too: settings were in two places, which
+          meant knowing which before you could look. */}
+      <nav role="tablist" aria-label="Settings sections" className="admin-tabs">
+        {ADMIN_SECTIONS.map((s) => (
+          <button
+            key={s.id}
+            role="tab"
+            aria-selected={section === s.id}
+            className={section === s.id ? "view-active" : ""}
+            onClick={() => setSection(s.id)}
+          >
+            {s.label}
+          </button>
+        ))}
+      </nav>
 
-      <AiConcurrencySetting />
+      {/* One picker for every per-Product setting on this page, at the top
+          rather than repeated inside each card. */}
+      {section === "ai" && products.length > 0 && (
+        <label className="develop-product-picker">
+          Product
+          <select
+            aria-label="Policy product"
+            value={policyProduct}
+            onChange={(e) => setPolicyProduct(Number(e.target.value))}
+          >
+            {products.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
 
-      <section className="admin-card" aria-label="Product and development policies">
-        <h2>Policies</h2>
-        {products.length === 0 ? (
-          <p>No Products yet — policies are set per Product.</p>
-        ) : (
-          <>
-            <label className="develop-product-picker">
-              Product
-              <select
-                aria-label="Policy product"
-                value={policyProduct}
-                onChange={(e) => setPolicyProduct(Number(e.target.value))}
-              >
-                {products.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {policyProduct !== "" && (
+      {section === "ai" && (
+        <>
+          {/* Setting Claude up comes first: a policy permitting the AI to do
+              something is no use until there is an AI it can reach. */}
+          {policyProduct !== "" && <ClaudeSetup productId={Number(policyProduct)} />}
+          <AiSettings />
+          <ModelInstalls productId={policyProduct === "" ? null : Number(policyProduct)} />
+          <AiConcurrencySetting />
+          {products.length === 0 ? (
+            <p className="hint">
+              No Products yet — the per-Product AI policies appear once there is
+              one.
+            </p>
+          ) : (
+            policyProduct !== "" && (
               <>
-                {/* The AI planning policy: deny-by-default, and what lets the
-                    AI read a Product and generate its work — for Product
-                    planning, Development planning and Testing alike. Moved out
-                    of the Product Strategy screen so it is set by Admin, not by
-                    whoever is doing the planning. */}
-                {/* Which Claude, and what it takes to make it work. First,
-                    because a policy that permits the AI to do something is no
-                    use until there is an AI it can reach — and the two ways of
-                    paying for Claude need different setting up. */}
-                <ClaudeSetup productId={Number(policyProduct)} />
+                {/* Deny-by-default: what lets the AI read a Product and generate
+                    its work, for Product, Development and Testing alike. Set by
+                    Admin rather than by whoever is doing the planning. */}
                 <ProductAiPolicy productId={Number(policyProduct)} />
                 <DeveloperRulesEditor productId={Number(policyProduct)} />
               </>
-            )}
-          </>
-        )}
-      </section>
+            )
+          )}
+        </>
+      )}
 
+      {section === "connections" && (
+        <>
+          <GithubCard onChange={refresh} />
+          <SshCard />
+        </>
+      )}
+
+      {section === "appearance" && <ThemeSetting />}
+
+      {section === "people" && (
+        <>
       <section className="admin-card" aria-label="Team members">
         <h2>Team members</h2>
         <form onSubmit={onAddMember} aria-label="Add team member">
@@ -260,6 +307,8 @@ export default function AdminArea() {
           </tbody>
         </table>
       </section>
+        </>
+      )}
     </div>
   );
 }

@@ -1,15 +1,11 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import AiSettings from "../components/ai/AiSettings";
 
 import DeveloperPlanning from "../components/planning/DeveloperPlanning";
 import DeveloperRulesEditor from "../components/ai/DeveloperRulesEditor";
 import FrameworkFiles from "../components/product/FrameworkFiles";
 import GitExplorer from "../components/vcs/GitExplorer";
-import GithubCard from "../components/product/GithubCard";
-import ModelInstalls from "../components/ai/ModelInstalls";
 import SolutionBox from "../components/product/SolutionBox";
 import SolutionRepo from "../components/vcs/SolutionRepo";
-import SshCard from "../components/product/SshCard";
 import StrategyEditor from "../components/planning/StrategyEditor";
 import TestExplorer from "../components/testing/TestExplorer";
 import WorkItemViews from "../components/planning/WorkItemViews";
@@ -42,8 +38,7 @@ type DevelopView =
   | "agents"
   | "architecture"
   | "tests"
-  | "git"
-  | "settings";
+  | "git";
 
 const DEVELOP_TABS: { id: DevelopView; label: string }[] = [
   { id: "strategy", label: "Strategy and Rules" },
@@ -57,12 +52,15 @@ const DEVELOP_TABS: { id: DevelopView; label: string }[] = [
   { id: "architecture", label: "Planning and Architecture" },
   { id: "tests", label: "Tests" },
   { id: "git", label: "Git" },
-  { id: "settings", label: "Settings" },
+  // No Settings tab: GitHub, SSH, models and AI providers all moved to Admin,
+  // which is where every other setting already was. Two places to look for a
+  // setting meant knowing which before you could look.
 ];
 
 /** The Develop environment: pick a Product, then work in one of four tabs —
  *  Planning (strategy, rules, architecture), Work (board/sprint/list),
- *  Workspace (solutions, editor, review), Settings (GitHub, models, AI). */
+ *  Workspace (solutions, editor, review). Settings of every kind live in
+ *  Admin. */
 export default function DevelopSolutions({
   requestedView,
 }: {
@@ -275,14 +273,6 @@ export default function DevelopSolutions({
         <GitExplorer productId={Number(activeProduct)} />
       )}
 
-      {view === "settings" && (
-        <>
-          <GithubCard onChange={refresh} />
-          <SshCard />
-          <ModelInstalls productId={activeProduct === "" ? null : Number(activeProduct)} />
-          <AiSettings />
-        </>
-      )}
     </div>
   );
 
