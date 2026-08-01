@@ -152,11 +152,34 @@ pub fn tool_on_path(name: &str) -> bool {
     if name.trim().is_empty() {
         return true;
     }
-    let Some(path) = std::env::var_os("PATH") else {
-        // No PATH to search is not evidence the tool is absent, and claiming it
-        // is missing would be a worse guess than staying quiet.
-        return true;
-    };
+    // No PATH to search is not evidence the tool is absent, and claiming it is
+    // missing would be a worse guess than staying quiet.
+    std::env::var_os("PATH").is_none() || which(name).is_some()
+}
+
+/// Where an executable actually is, extension and all.
+///
+/// **Finding the file is not the same as being able to run it**, and on Windows
+/// that gap is a real bug rather than a nicety. `claude` installs as
+/// `claude.cmd`; `Command::new("claude")` tries only `claude` and `claude.exe`,
+/// so it fails with "program not found" against an install that is perfectly
+/// good. Anything spawning a tool by name has to resolve it through PATHEXT
+/// first and spawn the full path it gets back.
+///
+/// Returns `None` when there is no PATH or nothing matches — callers decide
+/// whether that means "not installed" or "cannot tell".
+pub fn which(name: &str) -> Option<std::path::PathBuf> {
+    if name.trim().is_empty() {
+        return None;
+    }
+    // An explicit path is already the answer; searching PATH for something with
+    // a separator in it would find nothing.
+    let given = std::path::Path::new(name);
+    if given.is_absolute() || name.contains('/') || name.contains('\\') {
+        return given.is_file().then(|| given.to_path_buf());
+    }
+
+    let path = std::env::var_os("PATH")?;
     let extensions: Vec<String> = if cfg!(windows) {
         std::env::var("PATHEXT")
             .unwrap_or_else(|_| ".EXE;.CMD;.BAT;.COM".into())
@@ -168,13 +191,17 @@ pub fn tool_on_path(name: &str) -> bool {
         Vec::new()
     };
 
-    std::env::split_paths(&path).any(|dir| {
-        if dir.join(name).is_file() {
-            return true;
+    std::env::split_paths(&path).find_map(|dir| {
+        // The bare name first: on Unix that is the whole story, and on Windows a
+        // file with no extension is still what an explicit call would find.
+        let bare = dir.join(name);
+        if bare.is_file() {
+            return Some(bare);
         }
-        extensions
-            .iter()
-            .any(|ext| dir.join(format!("{name}{ext}")).is_file())
+        extensions.iter().find_map(|ext| {
+            let candidate = dir.join(format!("{name}{ext}"));
+            candidate.is_file().then_some(candidate)
+        })
     })
 }
 

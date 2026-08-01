@@ -59,9 +59,16 @@ fn executable(configured: &str) -> &str {
 /// says plainly that the sign-in is not covered.
 pub async fn version(configured_exe: &str) -> Result<String, String> {
     let exe = executable(configured_exe);
+    let mut command = tool_command(exe).map_err(|e| {
+        format!(
+            "{e}. Install Claude Code with `npm i -g @anthropic-ai/claude-code`, then run \
+             `claude` once to sign in. If you have just installed it, this app may need \
+             restarting to see the change."
+        )
+    })?;
     let output = tokio::time::timeout(
         Duration::from_secs(30),
-        tokio::process::Command::new(exe).arg("--version").output(),
+        command.arg("--version").output(),
     )
     .await
     .map_err(|_| format!("'{exe} --version' did not answer within 30 seconds"))?
@@ -106,18 +113,16 @@ pub async fn install() -> Result<String, String> {
     // Ten minutes: a cold global install pulling a platform binary is slow on a
     // thin connection, and a timeout that fires mid-install leaves a worse mess
     // than waiting does.
+    let mut npm = npm_command().map_err(|e| {
+        format!("{e}. Node and npm have to be installed for this — the app cannot install them for you.")
+    })?;
     let output = tokio::time::timeout(
         Duration::from_secs(600),
-        npm_command().args(["install", "-g", "@anthropic-ai/claude-code"]).output(),
+        npm.args(["install", "-g", "@anthropic-ai/claude-code"]).output(),
     )
     .await
     .map_err(|_| "npm did not finish within ten minutes and was given up on".to_string())?
-    .map_err(|e| {
-        format!(
-            "could not run npm ({e}). Node and npm have to be installed for this — \
-             the app cannot install them for you."
-        )
-    })?;
+    .map_err(|e| format!("npm would not run ({e})"))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if !output.status.success() {
@@ -134,17 +139,26 @@ pub async fn install() -> Result<String, String> {
     Ok(if stdout.is_empty() { "installed".into() } else { tail(&stdout, 600) })
 }
 
-/// npm is a shell script on Windows, so it is invoked through the shell rather
-/// than spawned directly — `Command::new("npm")` fails there with "program not
-/// found" even when npm is plainly on PATH.
-fn npm_command() -> tokio::process::Command {
-    if cfg!(windows) {
-        let mut c = tokio::process::Command::new("cmd");
-        c.arg("/C").arg("npm");
-        c
-    } else {
-        tokio::process::Command::new("npm")
-    }
+/// A command for a tool that may be a script rather than a real executable.
+///
+/// **The bug this exists to stop.** On Windows both `npm` and `claude` install
+/// as `.cmd` shims. `Command::new("claude")` tries `claude` and `claude.exe`,
+/// finds neither, and reports "program not found" against an install that is
+/// perfectly good — which is exactly what a fresh, successful `npm i -g` looked
+/// like from inside this app. Resolving through PATHEXT and spawning the full
+/// path is what makes the shim runnable.
+///
+/// The resolved path is spawned directly rather than through `cmd /C`: passing a
+/// model name or a path into a shell string is an injection waiting to happen,
+/// and the standard library already knows how to launch a `.cmd` safely.
+fn tool_command(name: &str) -> Result<tokio::process::Command, String> {
+    let resolved = crate::tooling::dev_runner::which(name)
+        .ok_or_else(|| format!("'{name}' is not on this machine's PATH"))?;
+    Ok(tokio::process::Command::new(resolved))
+}
+
+fn npm_command() -> Result<tokio::process::Command, String> {
+    tool_command("npm")
 }
 
 /// The **end** of a long output, not the beginning: npm's summary and its errors
@@ -237,7 +251,12 @@ async fn print_turn(
     schema: serde_json::Value,
 ) -> Result<String, String> {
     let exe = executable(configured_exe);
-    let mut command = tokio::process::Command::new(exe);
+    let mut command = tool_command(exe).map_err(|e| {
+        format!(
+            "{e}. Claude Code has to be installed and signed in for this provider — \
+             set it up in Admin, then run `claude` once to sign in."
+        )
+    })?;
     command
         .arg("--print")
         .stdin(Stdio::piped())
@@ -533,15 +552,59 @@ mod tests {
         assert!(err.contains("1 mockup"), "should count them: {err}");
     }
 
-    /// A missing CLI is the most likely first failure, so the message has to say
-    /// how to fix it instead of surfacing a bare OS error.
+    /// A missing CLI is the most likely first failure, so the message names the
+    /// tool it looked for and where to fix it, rather than surfacing a bare OS
+    /// error. It points at the setup panel because that is now the thing that
+    /// installs it — telling someone to type a command the app has a button for
+    /// would be worse advice.
     #[tokio::test]
-    async fn a_missing_executable_explains_how_to_install_it() {
+    async fn a_missing_executable_says_what_to_do_about_it() {
         let err = generate_stories("claude-code-that-is-not-installed", "m", &prompt())
             .await
             .expect_err("must fail");
         assert!(err.contains("claude-code-that-is-not-installed"), "got: {err}");
-        assert!(err.contains("npm i -g"), "should say how to install: {err}");
+        assert!(err.contains("not on this machine's PATH"), "should say why: {err}");
+        assert!(err.contains("Admin"), "should point at the setup panel: {err}");
         assert!(err.contains("sign in"), "and that signing in is needed: {err}");
+    }
+
+    /// **The bug that made a good install look like a missing one.** On Windows
+    /// `claude` is `claude.cmd`, and spawning the bare name finds neither
+    /// `claude` nor `claude.exe` — so a fresh, successful `npm i -g` reported
+    /// "program not found". Resolution has to go through PATHEXT.
+    ///
+    /// Proved against a real shim on disk rather than a mock, because the whole
+    /// failure was a gap between "the file is there" and "this can spawn it".
+    #[test]
+    fn a_windows_cmd_shim_is_found_by_name() {
+        if !cfg!(windows) {
+            return; // PATHEXT is a Windows idea; there is nothing to prove here.
+        }
+        let dir = std::env::temp_dir().join(format!("coperativeai-which-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let shim = dir.join("pretend-tool.cmd");
+        std::fs::write(&shim, "@echo off\r\n").expect("write shim");
+
+        let previous = std::env::var_os("PATH");
+        let mut paths = vec![dir.clone()];
+        if let Some(p) = &previous {
+            paths.extend(std::env::split_paths(p));
+        }
+        // SAFETY-of-intent: this test is single-threaded over PATH and restores
+        // it below; the alternative is not testing the thing that broke.
+        std::env::set_var("PATH", std::env::join_paths(paths).expect("join"));
+
+        let found = crate::tooling::dev_runner::which("pretend-tool");
+
+        if let Some(p) = previous {
+            std::env::set_var("PATH", p);
+        }
+        std::fs::remove_dir_all(&dir).ok();
+
+        assert_eq!(
+            found.as_deref(),
+            Some(shim.as_path()),
+            "a .cmd shim must be found by its bare name, extension and all"
+        );
     }
 }
