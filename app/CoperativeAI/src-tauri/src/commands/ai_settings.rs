@@ -132,6 +132,28 @@ pub async fn add_ollama_cloud_provider(
     Ok(id)
 }
 
+/// Whether calls that cost money may be made at all.
+///
+/// Off until somebody says otherwise. A Claude plan and API credits are
+/// separate purchases, so a person with the plan and no credits has no use for
+/// a metered provider — and a fresh install should not be able to spend before
+/// anyone has agreed it may.
+#[tauri::command]
+pub async fn get_paid_api_allowed(db: State<'_, AppDb>) -> Result<bool, String> {
+    let conn = db.0.lock().await;
+    crate::db::system_setting::paid_api_allowed(&conn)
+        .await
+        .map_err(to_message)
+}
+
+#[tauri::command]
+pub async fn set_paid_api_allowed(db: State<'_, AppDb>, allowed: bool) -> Result<(), String> {
+    let conn = db.0.lock().await;
+    crate::db::system_setting::set_paid_api_allowed(&conn, allowed)
+        .await
+        .map_err(to_message)
+}
+
 /// Whether the `claude` CLI on this machine can run, for the setup steps.
 ///
 /// Separate from `test_ai_provider` because the setup guide has to answer this

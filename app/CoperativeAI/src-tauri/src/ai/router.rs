@@ -81,8 +81,19 @@ pub fn route(
     providers: &[ProviderOption],
     fallback_provider_id: i64,
     effort: &str,
+    // `allow_paid`: whether providers that cost money may run at all — the
+    // Admin switch. Enforced here rather than by hiding a form, because this is
+    // the one place every call passes through. A switch that only tidied the UI
+    // would be a suggestion: a provider already in a Product's chain would keep
+    // being billed by a queue nobody was watching.
+    allow_paid: bool,
 ) -> Decision {
-    let find = |id: i64| providers.iter().find(|p| p.id == id);
+    let find = |id: i64| {
+        providers
+            .iter()
+            .find(|p| p.id == id)
+            .filter(|p| allow_paid || !p.metered)
+    };
 
     // No budget: behave as before, governed only by the item's policy. Adding
     // a budget is what opts a Product into cost control.
@@ -96,9 +107,22 @@ pub fn route(
                 handed_over: false,
                 reason: "no AI budget is set for this Product".into(),
             },
+            // Two very different reasons land here, and saying the wrong one
+            // sends somebody to check a model list that was never the problem.
             None => Decision::Blocked {
                 used_pct: 0,
-                reason: "the AI provider has no models configured".into(),
+                reason: if !allow_paid
+                    && providers
+                        .iter()
+                        .any(|p| p.id == fallback_provider_id && p.metered)
+                {
+                    "paid API calls are switched off in Admin, and this Product's provider \
+                     costs money. Turn them on there, or use Claude Code on your plan or a \
+                     local Ollama — neither is billed."
+                        .into()
+                } else {
+                    "the AI provider has no models configured".into()
+                },
             },
         };
     };
@@ -164,6 +188,14 @@ pub fn route(
                  Add a provider to the chain in the Product's budget.",
                 budget.handover_pct
             )
+        } else if !allow_paid && providers.iter().any(|p| p.metered) {
+            // Naming the switch matters: without it this reads as a broken
+            // setup, and somebody goes looking for a fault in a chain that is
+            // fine. It is off, and off is the default.
+            "paid API calls are switched off in Admin, and the providers set up here all \
+             cost money. Turn them on there, or use Claude Code on your plan or a local \
+             Ollama — neither is billed."
+                .into()
         } else {
             "no usable AI provider — check the provider chain and that each provider has models"
                 .into()
@@ -214,7 +246,7 @@ mod tests {
 
     #[test]
     fn with_no_budget_the_policys_provider_is_used() {
-        let decision = route(None, &[claude()], 1, "high");
+        let decision = route(None, &[claude()], 1, "high", true);
         match decision {
             Decision::Use { provider_id, model, warn, handed_over, .. } => {
                 assert_eq!(provider_id, 1);
@@ -227,7 +259,7 @@ mod tests {
 
     #[test]
     fn under_the_warn_threshold_the_first_provider_runs_quietly() {
-        let decision = route(Some(&budget_at(10)), &[claude(), ollama()], 1, "low");
+        let decision = route(Some(&budget_at(10)), &[claude(), ollama()], 1, "low", true);
         match decision {
             Decision::Use { provider_id, model, warn, handed_over, used_pct, .. } => {
                 assert_eq!(provider_id, 1);
@@ -241,7 +273,7 @@ mod tests {
 
     #[test]
     fn past_the_warn_threshold_the_call_proceeds_but_is_flagged() {
-        let decision = route(Some(&budget_at(80)), &[claude(), ollama()], 1, "low");
+        let decision = route(Some(&budget_at(80)), &[claude(), ollama()], 1, "low", true);
         match decision {
             Decision::Use { provider_id, warn, handed_over, .. } => {
                 assert_eq!(provider_id, 1, "warning must not change the provider");
@@ -255,7 +287,7 @@ mod tests {
     /// The headline rule: Claude until 90%, then Ollama.
     #[test]
     fn at_the_handover_threshold_the_chain_moves_to_the_next_provider() {
-        let decision = route(Some(&budget_at(90)), &[claude(), ollama()], 1, "high");
+        let decision = route(Some(&budget_at(90)), &[claude(), ollama()], 1, "high", true);
         match decision {
             Decision::Use { provider_id, model, handed_over, reason, .. } => {
                 assert_eq!(provider_id, 2, "should have handed over to Ollama");
@@ -271,7 +303,7 @@ mod tests {
     /// cannot breach a money budget.
     #[test]
     fn past_the_hard_stop_a_free_provider_still_runs() {
-        let decision = route(Some(&budget_at(120)), &[claude(), ollama()], 1, "low");
+        let decision = route(Some(&budget_at(120)), &[claude(), ollama()], 1, "low", true);
         match decision {
             Decision::Use { provider_id, reason, .. } => {
                 assert_eq!(provider_id, 2);
@@ -285,7 +317,7 @@ mod tests {
     fn past_the_hard_stop_with_only_metered_providers_the_call_is_blocked() {
         let mut budget = budget_at(120);
         budget.chain = vec![1]; // Claude only
-        let decision = route(Some(&budget), &[claude()], 1, "low");
+        let decision = route(Some(&budget), &[claude()], 1, "low", true);
         match decision {
             Decision::Blocked { used_pct, reason } => {
                 assert_eq!(used_pct, 120);
@@ -299,7 +331,7 @@ mod tests {
     fn past_handover_with_nothing_left_in_the_chain_is_blocked() {
         let mut budget = budget_at(95);
         budget.chain = vec![1]; // nothing to hand over to
-        let decision = route(Some(&budget), &[claude()], 1, "low");
+        let decision = route(Some(&budget), &[claude()], 1, "low", true);
         match decision {
             Decision::Blocked { reason, .. } => {
                 assert!(reason.contains("nothing to hand over to"), "got: {reason}");
@@ -312,7 +344,7 @@ mod tests {
     fn an_empty_chain_falls_back_to_the_policys_provider_while_in_budget() {
         let mut budget = budget_at(10);
         budget.chain = vec![];
-        let decision = route(Some(&budget), &[claude()], 1, "medium");
+        let decision = route(Some(&budget), &[claude()], 1, "medium", true);
         match decision {
             Decision::Use { provider_id, model, .. } => {
                 assert_eq!(provider_id, 1);
@@ -335,7 +367,7 @@ mod tests {
             hard_stop_pct: 100,
             chain: vec![1, 2],
         };
-        match route(Some(&budget), &[claude(), ollama()], 1, "low") {
+        match route(Some(&budget), &[claude(), ollama()], 1, "low", true) {
             Decision::Use { provider_id, used_pct, .. } => {
                 assert_eq!(provider_id, 2);
                 assert_eq!(used_pct, 95);
@@ -359,7 +391,7 @@ mod tests {
             chain: vec![1, 2],
         };
         assert_eq!(used_pct(&budget), 0);
-        match route(Some(&budget), &[claude(), ollama()], 1, "low") {
+        match route(Some(&budget), &[claude(), ollama()], 1, "low", true) {
             Decision::Use { provider_id, .. } => assert_eq!(provider_id, 1),
             other => panic!("expected Use, got {other:?}"),
         }
@@ -375,7 +407,7 @@ mod tests {
         };
         let mut budget = budget_at(10);
         budget.chain = vec![1, 2];
-        match route(Some(&budget), &[empty, ollama()], 1, "low") {
+        match route(Some(&budget), &[empty, ollama()], 1, "low", true) {
             Decision::Use { provider_id, .. } => assert_eq!(provider_id, 2),
             other => panic!("expected Use, got {other:?}"),
         }
@@ -385,15 +417,81 @@ mod tests {
     fn a_chain_naming_a_deleted_provider_is_skipped_not_fatal() {
         let mut budget = budget_at(10);
         budget.chain = vec![99, 2]; // 99 no longer exists
-        match route(Some(&budget), &[ollama()], 1, "low") {
+        match route(Some(&budget), &[ollama()], 1, "low", true) {
             Decision::Use { provider_id, .. } => assert_eq!(provider_id, 2),
             other => panic!("expected Use, got {other:?}"),
         }
     }
 
+    /// **The switch, where it has to bite.** Hiding a form would leave a
+    /// provider already in a Product's chain being billed by a queue nobody was
+    /// watching. Off means the metered provider is not chosen, whatever the
+    /// chain says.
+    #[test]
+    fn with_paid_calls_off_a_metered_provider_is_not_chosen() {
+        let decision = route(Some(&budget_at(10)), &[claude(), ollama()], 1, "low", false);
+        match decision {
+            // Claude is first in the chain and costs money; Ollama is behind it
+            // and does not.
+            Decision::Use { provider_id, model, .. } => {
+                assert_eq!(provider_id, 2, "the free provider runs instead");
+                assert_eq!(model, "llama3");
+            }
+            other => panic!("expected the free provider, got {other:?}"),
+        }
+    }
+
+    /// With nothing free to fall back to, the call is refused — and the reason
+    /// names the switch. Without that it reads as a broken chain, and somebody
+    /// goes hunting a fault that is not there.
+    #[test]
+    fn with_paid_calls_off_and_nothing_free_the_reason_names_the_switch() {
+        let decision = route(Some(&budget_at(10)), &[claude()], 1, "low", false);
+        match decision {
+            Decision::Blocked { reason, .. } => {
+                assert!(
+                    reason.contains("switched off in Admin"),
+                    "the refusal must name the switch: {reason}"
+                );
+                assert!(
+                    reason.contains("Claude Code") || reason.contains("Ollama"),
+                    "and say what would work instead: {reason}"
+                );
+            }
+            other => panic!("expected Blocked, got {other:?}"),
+        }
+    }
+
+    /// The switch governs money, not Claude specifically: a hosted Ollama bills
+    /// for somebody else's hardware just as surely as an API key does.
+    #[test]
+    fn the_switch_stops_any_metered_provider_not_just_claude() {
+        let hosted = ProviderOption {
+            id: 3,
+            name: "Ollama Cloud".into(),
+            models: vec!["gpt-oss".into()],
+            metered: true,
+        };
+        let decision = route(None, &[hosted], 3, "low", false);
+        assert!(
+            matches!(decision, Decision::Blocked { .. }),
+            "a metered Ollama is still a metered provider"
+        );
+    }
+
+    /// And with the switch on, nothing changes — the budget rules still decide.
+    #[test]
+    fn with_paid_calls_on_the_budget_rules_are_unchanged() {
+        let decision = route(Some(&budget_at(10)), &[claude(), ollama()], 1, "low", true);
+        assert!(matches!(
+            decision,
+            Decision::Use { provider_id: 1, .. }
+        ));
+    }
+
     #[test]
     fn no_usable_provider_at_all_is_blocked() {
-        let decision = route(Some(&budget_at(10)), &[], 1, "low");
+        let decision = route(Some(&budget_at(10)), &[], 1, "low", true);
         assert!(matches!(decision, Decision::Blocked { .. }));
     }
 }

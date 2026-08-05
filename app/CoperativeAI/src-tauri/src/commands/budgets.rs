@@ -158,7 +158,12 @@ pub async fn get_spend_summary(
     // Ask the router what it would actually do, with the chain head as the
     // fallback so the answer reflects a real call.
     let fallback = budget.provider_chain.first().copied().unwrap_or(0);
-    let decision = router::route(Some(&state), &providers, fallback, "medium");
+    // Same switch the real call obeys, so the summary reflects what would
+    // actually happen rather than what the chain looks like on paper.
+    let allow_paid = crate::db::system_setting::paid_api_allowed(&conn)
+        .await
+        .unwrap_or(false);
+    let decision = router::route(Some(&state), &providers, fallback, "medium", allow_paid);
 
     let (label, active_provider, reason) = match decision {
         Decision::Use {

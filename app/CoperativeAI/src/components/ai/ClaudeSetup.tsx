@@ -6,8 +6,11 @@ import {
   installClaudeCode,
   listAiProviders,
   setProductBudget,
+  getPaidApiAllowed,
+  setPaidApiAllowed,
   type AiProvider,
 } from "../../lib/backend";
+import AiSettings from "./AiSettings";
 
 /** How Claude gets paid for. The two are separate purchases, which is the whole
  *  reason this is a choice rather than one "Claude" setting. */
@@ -62,6 +65,10 @@ export default function ClaudeSetup({ productId }: { productId: number }) {
   /// install fails, they name the cause far better than an exit code.
   const [log, setLog] = useState<string>("");
 
+  /// Whether calls that cost money may run. Off until somebody says otherwise,
+  /// and enforced in the router — this control reflects that setting rather
+  /// than being the whole of it.
+  const [paidAllowed, setPaidAllowed] = useState(false);
   const [executable, setExecutable] = useState("");
   const [models, setModels] = useState("claude-opus-5");
 
@@ -78,6 +85,13 @@ export default function ClaudeSetup({ productId }: { productId: number }) {
     }
     // Separately: not having the CLI is an answer, not a failure, and a machine
     // that cannot be asked must not blank the rest of the panel.
+    try {
+      setPaidAllowed(await getPaidApiAllowed());
+    } catch {
+      // Unreadable means treat it as off, which is the safe direction: it
+      // cannot start spending because a setting failed to load.
+      setPaidAllowed(false);
+    }
     try {
       const status = await claudeCodeStatus(executable);
       setCli({ installed: status.installed, version: status.version, path: status.path });
@@ -207,9 +221,46 @@ export default function ClaudeSetup({ productId }: { productId: number }) {
           disabled={stage !== null}
         >
           <option value="plan">My Claude plan (Pro or Max)</option>
-          <option value="api">API credits</option>
+          {/* Only offered when paid calls are switched on. Offering a route
+              that the router would refuse is how you end up debugging a chain
+              that was never the problem. */}
+          {paidAllowed && <option value="api">API credits</option>}
         </select>
       </label>
+
+      {/* The switch. Off by default, because a plan and API credits are
+          separate purchases and somebody with the plan alone has no use for a
+          metered provider — every call it makes fails, and every prompt to set
+          one up is noise. */}
+      <label className="setup-paid switch">
+        <input
+          type="checkbox"
+          aria-label="Allow calls that cost money"
+          checked={paidAllowed}
+          disabled={stage !== null}
+          onChange={async (e) => {
+            const next = e.target.checked;
+            setPaidAllowed(next);
+            // Back to the plan route immediately: leaving the API route
+            // selected while the router refuses it would show a setup flow
+            // that cannot complete.
+            if (!next) setRoute("plan");
+            try {
+              await setPaidApiAllowed(next);
+              setError(null);
+            } catch (err) {
+              setPaidAllowed(!next); // put it back rather than lie about it
+              setError(String(err));
+            }
+          }}
+        />
+        Allow calls that cost money
+      </label>
+      <p className="hint">
+        {paidAllowed
+          ? "Metered providers may run — the Claude API and Ollama's hosted service both bill. Product budgets still apply."
+          : "Off: nothing that charges will be called, and you will not be asked to set one up. Claude Code on your plan and a local Ollama both still work, because neither is billed."}
+      </p>
 
       {/* The distinction the whole panel exists for, said once, up front. */}
       <p className="hint">
@@ -234,9 +285,9 @@ export default function ClaudeSetup({ productId }: { productId: number }) {
 
       {route === "api" && !apiProvider && (
         <p className="hint">
-          Add the provider and its key first, in Develop → Settings → AI
-          Settings. The key goes straight to this machine's credential store —
-          this app never writes it to the database and cannot show it back.
+          Add the provider and its key first, under <strong>Advanced</strong>{" "}
+          below. The key goes straight to this machine's credential store — this
+          app never writes it to the database and cannot show it back.
         </p>
       )}
 
@@ -374,6 +425,14 @@ export default function ClaudeSetup({ productId }: { productId: number }) {
             </pre>
           </>
         )}
+
+        {/* Every provider, by hand. This used to be a second panel of its own,
+            which meant two places doing the same job — the button above covers
+            what almost everyone needs, and this is here for the rest: a second
+            Claude account, a hosted Ollama, a base URL that is not the default.
+            Folded, because needing it is the exception. */}
+        <h4>Providers, in full</h4>
+        <AiSettings />
       </details>
     </section>
   );

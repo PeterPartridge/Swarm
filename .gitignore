@@ -18,3 +18,6 @@ Thumbs.db
 
 # Backup files
 *~
+
+# Machine-local MCP server config (real config lives in ~/.claude.json, local scope)
+.mcp.json

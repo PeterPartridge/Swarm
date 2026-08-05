@@ -1,7 +1,6 @@
 import SectionTabs from "../components/common/SectionTabs";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import AiConcurrencySetting from "../components/ai/AiConcurrencySetting";
-import AiSettings from "../components/ai/AiSettings";
 import ClaudeSetup from "../components/ai/ClaudeSetup";
 import GithubCard from "../components/product/GithubCard";
 import ModelInstalls from "../components/ai/ModelInstalls";
@@ -162,8 +161,10 @@ export default function AdminArea() {
         <>
           {/* Setting Claude up comes first: a policy permitting the AI to do
               something is no use until there is an AI it can reach. */}
+          {/* One panel. The provider forms live inside its Advanced fold now —
+              two panels doing the same job meant reading both to find out which
+              one you wanted. */}
           {policyProduct !== "" && <ClaudeSetup productId={Number(policyProduct)} />}
-          <AiSettings />
           <ModelInstalls productId={policyProduct === "" ? null : Number(policyProduct)} />
           <AiConcurrencySetting />
           {products.length === 0 ? (

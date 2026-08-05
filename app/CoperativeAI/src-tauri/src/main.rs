@@ -233,6 +233,8 @@ fn main() {
             commands::ai_settings::add_ollama_cloud_provider,
             commands::ai_settings::claude_code_status,
             commands::ai_settings::install_claude_code,
+            commands::ai_settings::get_paid_api_allowed,
+            commands::ai_settings::set_paid_api_allowed,
             commands::ai_settings::remove_ai_provider,
             commands::ai_settings::test_ai_provider,
             commands::policies::get_work_item_policy,

@@ -90,6 +90,31 @@ pub const AI_CONCURRENCY_DEFAULT: i64 = 1;
 /// budget is still meaningfully checked between calls.
 pub const AI_CONCURRENCY_MAX: i64 = 8;
 
+/// Whether calls that cost money may be made at all.
+///
+/// **Off by default, which is the whole point.** A Claude plan and API credits
+/// are separate purchases, and somebody with the plan and no credits has no use
+/// for a metered provider — every call it makes fails, and every prompt asking
+/// them to set one up is noise. Defaulting to off also means a fresh install
+/// cannot spend anything before a person has said it may.
+///
+/// It governs *every* metered provider, not only Claude's API: a hosted Ollama
+/// bills for somebody else's hardware just as surely. Turning it on is the
+/// deliberate act that opts into being charged.
+pub const API_USAGE_KEY: &str = "allowPaidApiCalls";
+
+pub async fn paid_api_allowed(conn: &Connection) -> Result<bool> {
+    Ok(match get(conn, API_USAGE_KEY).await? {
+        Some(json) => serde_json::from_str::<bool>(&json).unwrap_or(false),
+        None => false,
+    })
+}
+
+pub async fn set_paid_api_allowed(conn: &Connection, allowed: bool) -> Result<()> {
+    let json = serde_json::to_string(&allowed).expect("bool serialize");
+    set(conn, API_USAGE_KEY, &json).await
+}
+
 pub async fn ai_concurrency(conn: &Connection) -> Result<i64> {
     let raw = match get(conn, AI_CONCURRENCY_KEY).await? {
         Some(json) => serde_json::from_str::<i64>(&json).unwrap_or(AI_CONCURRENCY_DEFAULT),

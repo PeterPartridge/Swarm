@@ -14,6 +14,8 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     addClaudeCodeProvider: vi.fn(),
     getProductBudget: vi.fn(),
     setProductBudget: vi.fn(),
+    getPaidApiAllowed: vi.fn(),
+    setPaidApiAllowed: vi.fn(),
   };
 });
 
@@ -58,6 +60,9 @@ describe("ClaudeSetup", () => {
     vi.clearAllMocks();
     mocked.listAiProviders.mockResolvedValue([]);
     mocked.getProductBudget.mockResolvedValue(budget([]));
+    // Off is the shipped default; the tests that need the API turn it on.
+    mocked.getPaidApiAllowed.mockResolvedValue(false);
+    mocked.setPaidApiAllowed.mockResolvedValue(undefined);
     mocked.claudeCodeStatus.mockResolvedValue({
       installed: false,
       version: "",
@@ -70,10 +75,12 @@ describe("ClaudeSetup", () => {
   /// has to come away knowing a plan does not pay for API credits.
   it("says a plan and API credits are different purchases", async () => {
     const user = userEvent.setup();
+    mocked.getPaidApiAllowed.mockResolvedValue(true);
     render(<ClaudeSetup productId={1} />);
 
     expect(await screen.findByText(/Your plan pays for Claude Code/)).toBeInTheDocument();
 
+    await screen.findByRole("option", { name: "API credits" });
     await user.selectOptions(screen.getByLabelText("How you pay for Claude"), "api");
     expect(
       await screen.findByText(/A Claude plan does not pay for these/),
@@ -222,13 +229,17 @@ describe("ClaudeSetup", () => {
   /// put one rather than offering a button that would fail.
   it("will not run the API route until a key is stored", async () => {
     const user = userEvent.setup();
+    mocked.getPaidApiAllowed.mockResolvedValue(true);
     render(<ClaudeSetup productId={1} />);
 
+    await screen.findByRole("option", { name: "API credits" });
     await user.selectOptions(screen.getByLabelText("How you pay for Claude"), "api");
     expect(
       await screen.findByLabelText("Use the API for this Product"),
     ).toBeDisabled();
-    expect(screen.getByText(/Develop → Settings → AI Settings/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Add the provider and its key first/),
+    ).toBeInTheDocument();
   });
 
   /// With a key stored the app can do its one API step: the ordering.
@@ -236,8 +247,10 @@ describe("ClaudeSetup", () => {
     const user = userEvent.setup();
     mocked.listAiProviders.mockResolvedValue([apiProvider]);
     mocked.setProductBudget.mockResolvedValue(undefined);
+    mocked.getPaidApiAllowed.mockResolvedValue(true);
 
     render(<ClaudeSetup productId={1} />);
+    await screen.findByRole("option", { name: "API credits" });
     await user.selectOptions(screen.getByLabelText("How you pay for Claude"), "api");
     await user.click(await screen.findByLabelText("Use the API for this Product"));
 
@@ -255,8 +268,10 @@ describe("ClaudeSetup", () => {
     mocked.listAiProviders.mockResolvedValue([apiProvider]);
     mocked.getProductBudget.mockResolvedValue(budget([9, 3, 11]));
     mocked.setProductBudget.mockResolvedValue(undefined);
+    mocked.getPaidApiAllowed.mockResolvedValue(true);
 
     render(<ClaudeSetup productId={1} />);
+    await screen.findByRole("option", { name: "API credits" });
     await user.selectOptions(screen.getByLabelText("How you pay for Claude"), "api");
     await user.click(await screen.findByLabelText("Use the API for this Product"));
 
@@ -265,5 +280,60 @@ describe("ClaudeSetup", () => {
         expect.objectContaining({ providerChain: [3, 9, 11] }),
       ),
     );
+  });
+});
+
+describe("the paid-calls switch", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocked.listAiProviders.mockResolvedValue([]);
+    mocked.getProductBudget.mockResolvedValue(budget([]));
+    mocked.setPaidApiAllowed.mockResolvedValue(undefined);
+    mocked.claudeCodeStatus.mockResolvedValue({
+      installed: true,
+      version: "2.1.219",
+      path: "C:/claude.exe",
+      problem: "",
+    });
+  });
+
+  /// **Off by default.** A plan and API credits are separate purchases, and
+  /// somebody with the plan alone has no use for a metered provider — every
+  /// call it makes fails, and every prompt to set one up is noise. A fresh
+  /// install also cannot spend before anyone has agreed it may.
+  it("is off to begin with, and the API route is not even offered", async () => {
+    mocked.getPaidApiAllowed.mockResolvedValue(false);
+    render(<ClaudeSetup productId={1} />);
+
+    expect(await screen.findByLabelText("Allow calls that cost money")).not.toBeChecked();
+    expect(screen.queryByRole("option", { name: "API credits" })).not.toBeInTheDocument();
+    expect(screen.getByText(/nothing that charges will be called/)).toBeInTheDocument();
+  });
+
+  /// Turning it on saves the setting — the router reads that, so the control
+  /// has to actually write it rather than only re-rendering.
+  it("saves the setting when switched on", async () => {
+    const user = userEvent.setup();
+    mocked.getPaidApiAllowed.mockResolvedValue(false);
+    render(<ClaudeSetup productId={1} />);
+
+    await user.click(await screen.findByLabelText("Allow calls that cost money"));
+    await waitFor(() => expect(mocked.setPaidApiAllowed).toHaveBeenCalledWith(true));
+    expect(await screen.findByRole("option", { name: "API credits" })).toBeInTheDocument();
+  });
+
+  /// A save that fails must not leave the control claiming something untrue —
+  /// the switch says what the setting *is*, and the router obeys the setting.
+  it("puts itself back if the setting will not save", async () => {
+    const user = userEvent.setup();
+    mocked.getPaidApiAllowed.mockResolvedValue(false);
+    mocked.setPaidApiAllowed.mockRejectedValue("the database is read-only");
+    render(<ClaudeSetup productId={1} />);
+
+    const toggle = await screen.findByLabelText("Allow calls that cost money");
+    await user.click(toggle);
+
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/read-only/));
+    expect(toggle).not.toBeChecked();
   });
 });

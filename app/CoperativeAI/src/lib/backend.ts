@@ -1247,6 +1247,19 @@ export interface ClaudeCodeStatus {
  *  provider exists. It says nothing about whether you are signed in — that
  *  cannot be established without a real turn that spends plan allowance, so the
  *  guide states it rather than showing a tick that means less than it looks. */
+/** Whether calls that cost money may be made at all.
+ *
+ *  Off until somebody says otherwise, and enforced in the router rather than by
+ *  hiding a form — a switch that only tidied the UI would leave a provider
+ *  already in a Product's chain being billed by a queue nobody was watching.
+ *
+ *  It governs every metered provider, not only Claude's API: a hosted Ollama
+ *  bills for someone else's hardware just as surely. */
+export const getPaidApiAllowed = (): Promise<boolean> =>
+  invoke("get_paid_api_allowed");
+export const setPaidApiAllowed = (allowed: boolean): Promise<void> =>
+  invoke("set_paid_api_allowed", { allowed });
+
 export const claudeCodeStatus = (executable = ""): Promise<ClaudeCodeStatus> =>
   invoke("claude_code_status", { executable });
 

@@ -63,7 +63,7 @@ export default function ProductAiPolicy({ productId }: { productId: number }) {
       </p>
       {error && <p role="alert">{error}</p>}
 
-      <label>
+      <label className="switch">
         <input
           type="checkbox"
           aria-label="Allow AI to read this Product"
@@ -72,7 +72,7 @@ export default function ProductAiPolicy({ productId }: { productId: number }) {
         />
         Allow reading the Product brief and strategy
       </label>
-      <label>
+      <label className="switch">
         <input
           type="checkbox"
           aria-label="Allow AI to generate work items"

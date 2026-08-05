@@ -72,7 +72,11 @@ pub(crate) async fn plan(
         None => None,
     };
 
-    match router::route(state.as_ref(), &providers, fallback_provider_id, effort) {
+    // The Admin switch, read here so every metered call passes through it.
+    let allow_paid = crate::db::system_setting::paid_api_allowed(conn)
+        .await
+        .unwrap_or(false);
+    match router::route(state.as_ref(), &providers, fallback_provider_id, effort, allow_paid) {
         Decision::Use {
             provider_id,
             model,
@@ -235,7 +239,35 @@ mod tests {
             .await
             .expect("provider");
         install_all(conn, id, &["haiku", "opus"]).await;
+        // Paid calls are off by default, and these tests are about budgets and
+        // policies rather than that switch — a metered provider has to be
+        // allowed before any of them can reach it. The switch has its own tests
+        // in `ai::router`, and one below proving it reaches this far.
+        crate::db::system_setting::set_paid_api_allowed(conn, true)
+            .await
+            .expect("allow paid calls");
         id
+    }
+
+    /// **The switch, proved end to end through the database.** The router tests
+    /// cover the decision; this covers the wiring — that `plan` reads the
+    /// setting at all, rather than defaulting to permissive somewhere between
+    /// here and there.
+    #[tokio::test]
+    async fn with_paid_calls_off_a_metered_provider_is_refused() {
+        let (conn, product_id) = db_with_product().await;
+        let claude_id = claude(&conn).await;
+        crate::db::system_setting::set_paid_api_allowed(&conn, false)
+            .await
+            .expect("switch off");
+
+        let err = plan(&conn, product_id, claude_id, "high", "storyGeneration")
+            .await
+            .expect_err("a metered provider must not be reachable");
+        assert!(
+            err.contains("switched off in Admin"),
+            "the refusal must name the switch rather than blaming the model list: {err}"
+        );
     }
 
     async fn local(conn: &Connection) -> i64 {
@@ -304,6 +336,11 @@ mod tests {
         .await
         .expect("provider");
         // deliberately not installed
+        // Allowed, so the refusal under test is the install gate rather than the
+        // paid-calls switch in front of it.
+        crate::db::system_setting::set_paid_api_allowed(&conn, true)
+            .await
+            .expect("allow paid calls");
 
         let err = plan(&conn, product_id, claude_id, "low", "storyGeneration")
             .await
