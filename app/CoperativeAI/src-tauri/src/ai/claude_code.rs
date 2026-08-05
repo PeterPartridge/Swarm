@@ -731,13 +731,18 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
 
         match outcome {
+            // A machine with a real install elsewhere: that one is returned,
+            // and the stub is not.
             Ok((exe, _)) => assert_ne!(
                 exe, stub,
                 "the stub must never be reported as a working install"
             ),
+            // A machine with nothing else — CI, for instance. The refusal has to
+            // name the copy it tried, or "it did not work" is unactionable when
+            // several copies exist and only one is broken.
             Err(why) => assert!(
-                why.contains("would not run") || why.contains("not on this machine"),
-                "the refusal should say what was wrong: {why}"
+                why.contains(&stub.display().to_string()),
+                "the refusal should name which copy failed: {why}"
             ),
         }
     }
