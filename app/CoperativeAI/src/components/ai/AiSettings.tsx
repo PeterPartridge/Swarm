@@ -1,3 +1,6 @@
+import SectionTabs from "../common/SectionTabs";
+import ModelTierPicker from "./ModelTierPicker";
+import { modelsForTiers } from "../../lib/models";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   addAiProvider,
@@ -20,7 +23,11 @@ export default function AiSettings() {
   const [notice, setNotice] = useState<string | null>(null);
   const [name, setName] = useState(DEFAULT_PROVIDER.name);
   const [apiBaseUrl, setApiBaseUrl] = useState(DEFAULT_PROVIDER.apiBaseUrl);
-  const [models, setModels] = useState(DEFAULT_PROVIDER.models);
+  const [tiers, setTiers] = useState({
+    low: "claude-sonnet-5",
+    medium: "claude-sonnet-5",
+    high: "claude-fable-5",
+  });
   const [apiKey, setApiKey] = useState("");
   const [ollamaName, setOllamaName] = useState("Ollama (local)");
   const [ollamaUrl, setOllamaUrl] = useState(DEFAULT_OLLAMA_URL);
@@ -29,7 +36,15 @@ export default function AiSettings() {
   const [cloudKey, setCloudKey] = useState("");
   const [cliName, setCliName] = useState("Claude Code (my plan)");
   const [cliExe, setCliExe] = useState("");
-  const [cliModels, setCliModels] = useState("claude-opus-5");
+  const [cliTiers, setCliTiers] = useState({
+    low: "claude-sonnet-5",
+    medium: "claude-sonnet-5",
+    high: "claude-fable-5",
+  });
+  /// Which provider family is showing. Claude and Ollama are different
+  /// purchases with different setup, and one page of four forms made you read
+  /// all of them to find the one you wanted.
+  const [family, setFamily] = useState<"claude" | "ollama">("claude");
 
   const refresh = useCallback(async () => {
     try {
@@ -51,10 +66,7 @@ export default function AiSettings() {
       await addAiProvider({
         name,
         apiBaseUrl,
-        models: models
-          .split(",")
-          .map((m) => m.trim())
-          .filter(Boolean),
+        models: modelsForTiers(tiers.low, tiers.medium, tiers.high),
         apiKey,
       });
       setApiKey(""); // the key leaves the form for the credential store
@@ -99,10 +111,7 @@ export default function AiSettings() {
       await addClaudeCodeProvider(
         cliName,
         cliExe,
-        cliModels
-          .split(",")
-          .map((m) => m.trim())
-          .filter(Boolean),
+        modelsForTiers(cliTiers.low, cliTiers.medium, cliTiers.high),
       );
       setNotice(null);
       setError(null);
@@ -136,6 +145,21 @@ export default function AiSettings() {
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
 
+      {/* Two families, two tabs. Claude and Ollama are different purchases
+          with different setup, and one page of four forms made you read all
+          of them to find the one you wanted. */}
+      <SectionTabs
+        label="Provider family"
+        options={[
+          { id: "claude", label: "Claude" },
+          { id: "ollama", label: "Ollama" },
+        ]}
+        active={family}
+        onSelect={(id) => setFamily(id as "claude" | "ollama")}
+      />
+
+      {family === "claude" && (
+        <>
       <form onSubmit={onAdd} aria-label="Add AI provider">
         <input
           aria-label="Provider name"
@@ -149,17 +173,7 @@ export default function AiSettings() {
           value={apiBaseUrl}
           onChange={(e) => setApiBaseUrl(e.target.value)}
         />
-        <input
-          aria-label="Models (comma separated)"
-          placeholder="claude-haiku-4-5, claude-sonnet-5, claude-opus-4-8"
-          value={models}
-          onChange={(e) => setModels(e.target.value)}
-        />
-        <p className="hint">
-          List models <strong>cheapest first</strong>. A work item's effort tier
-          picks from this order — low uses the first, high the last — so the
-          ordering decides what each task costs.
-        </p>
+        <ModelTierPicker value={tiers} onChange={setTiers} />
         <input
           aria-label="API key"
           type="password"
@@ -170,9 +184,40 @@ export default function AiSettings() {
         <button type="submit">Add provider</button>
       </form>
 
+      <form onSubmit={onAddClaudeCode} aria-label="Add Claude Code provider">
+        <p className="hint">
+          Or use <strong>Claude Code on this machine</strong>, signed in with your
+          own Claude subscription. A Pro or Max plan covers the CLI but{" "}
+          <strong>not</strong> the API above — that bills separate API credits
+          against a key — so this is the way to use Claude with a plan and no
+          credits. No key is asked for, and no spend is recorded against a budget:
+          your plan's allowance is charged where this app cannot see it, and a
+          figure it invented would be worse than none.
+        </p>
+        <input
+          aria-label="Claude Code provider name"
+          placeholder="Claude Code (my plan)"
+          value={cliName}
+          onChange={(e) => setCliName(e.target.value)}
+        />
+        <input
+          aria-label="Claude Code executable"
+          placeholder="claude — or a full path if it is not on PATH"
+          value={cliExe}
+          onChange={(e) => setCliExe(e.target.value)}
+        />
+        <ModelTierPicker value={cliTiers} onChange={setCliTiers} />
+        <button type="submit">Add Claude Code</button>
+      </form>
+
+        </>
+      )}
+
+      {family === "ollama" && (
+        <>
       <form onSubmit={onAddOllama} aria-label="Add local Ollama provider">
         <p className="hint">
-          Or add a <strong>local Ollama</strong> server — no key, no cost. Put it
+          A <strong>local Ollama</strong> server — no key, no cost. Put it
           last in a Product's provider order and work carries on after the AI
           budget runs out.
         </p>
@@ -196,7 +241,7 @@ export default function AiSettings() {
           one costs money and that one does not. */}
       <form onSubmit={onAddOllamaCloud} aria-label="Add hosted Ollama provider">
         <p className="hint">
-          Or use <strong>Ollama's hosted service</strong> — bigger models than
+          <strong>Ollama's hosted service</strong> — bigger models than
           this machine can run. It is <strong>metered</strong>: it goes through
           the same budget and ledger as Claude, because it is someone else's
           hardware being paid for. Any free allowance on your account is not
@@ -229,36 +274,8 @@ export default function AiSettings() {
       {/* The subscription path. Worth its own form and its own explanation,
           because "I have Claude Pro" and "I have API credits" are different
           purchases and the form above quietly assumes the second one. */}
-      <form onSubmit={onAddClaudeCode} aria-label="Add Claude Code provider">
-        <p className="hint">
-          Or use <strong>Claude Code on this machine</strong>, signed in with your
-          own Claude subscription. A Pro or Max plan covers the CLI but{" "}
-          <strong>not</strong> the API above — that bills separate API credits
-          against a key — so this is the way to use Claude with a plan and no
-          credits. No key is asked for, and no spend is recorded against a budget:
-          your plan's allowance is charged where this app cannot see it, and a
-          figure it invented would be worse than none.
-        </p>
-        <input
-          aria-label="Claude Code provider name"
-          placeholder="Claude Code (my plan)"
-          value={cliName}
-          onChange={(e) => setCliName(e.target.value)}
-        />
-        <input
-          aria-label="Claude Code executable"
-          placeholder="claude — or a full path if it is not on PATH"
-          value={cliExe}
-          onChange={(e) => setCliExe(e.target.value)}
-        />
-        <input
-          aria-label="Claude Code models (comma separated)"
-          placeholder="claude-opus-5"
-          value={cliModels}
-          onChange={(e) => setCliModels(e.target.value)}
-        />
-        <button type="submit">Add Claude Code</button>
-      </form>
+        </>
+      )}
 
       <ul>
         {providers.map((p) => (

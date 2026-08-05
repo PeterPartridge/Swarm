@@ -32,6 +32,15 @@ const provider: AiProvider = {
   metered: true,
 };
 
+/** The forms are split by provider family now, so a test reaches the one it
+ *  wants the way a person does. Claude is the default. */
+async function openFamily(
+  user: ReturnType<typeof userEvent.setup>,
+  name: "Claude" | "Ollama",
+) {
+  await user.click(await screen.findByRole("tab", { name }));
+}
+
 describe("AiSettings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -57,8 +66,9 @@ describe("AiSettings", () => {
       expect(mocked.addAiProvider).toHaveBeenCalledWith({
         name: "Claude",
         apiBaseUrl: "https://api.anthropic.com",
-        // cheapest first — the effort tier indexes into this order
-        models: ["claude-haiku-4-5-20251001", "claude-sonnet-5", "claude-opus-4-8"],
+        // one per effort tier, in the order ai::tiering indexes: low, medium,
+        // high — the defaults the Project brief asks for
+        models: ["claude-sonnet-5", "claude-sonnet-5", "claude-fable-5"],
         apiKey: "sk-test-key",
       }),
     );
@@ -69,6 +79,7 @@ describe("AiSettings", () => {
     const user = userEvent.setup();
     mocked.addOllamaProvider.mockResolvedValue(2);
     render(<AiSettings />);
+    await openFamily(user, "Ollama");
 
     await user.click(await screen.findByRole("button", { name: "Add Ollama" }));
 
@@ -107,6 +118,7 @@ describe("AiSettings", () => {
     const user = userEvent.setup();
     mocked.addOllamaCloudProvider.mockResolvedValue(3);
     render(<AiSettings />);
+    await openFamily(user, "Ollama");
 
     const keyField = await screen.findByLabelText("Hosted Ollama API key");
     await user.type(keyField, "ollama-secret");

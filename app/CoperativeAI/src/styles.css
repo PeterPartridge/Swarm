@@ -3985,3 +3985,47 @@ code {
   word-break: break-all;
   color: var(--fg-muted);
 }
+
+/* Which model does which size of job. Three named choices rather than a list
+   to put in the right order — the order is the contract, so the UI says it. */
+.model-tiers {
+  margin: 0.5rem 0;
+  padding: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.model-tiers legend {
+  padding: 0 0.35rem;
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+}
+
+.model-tier {
+  margin-bottom: 0.6rem;
+}
+
+.model-tier label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+/* What the tier is for, then what the chosen model is good at. Two lines,
+   because "high effort" and "Fable 5" answer different questions. */
+.model-tier-for,
+.model-tier-note {
+  margin: 0.15rem 0 0;
+  font-size: 0.75rem;
+}
+
+.model-tier-note {
+  color: var(--fg-muted);
+}
+
+.model-tier-back {
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+}
