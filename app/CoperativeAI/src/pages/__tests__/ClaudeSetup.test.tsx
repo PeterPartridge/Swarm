@@ -61,6 +61,7 @@ describe("ClaudeSetup", () => {
     mocked.claudeCodeStatus.mockResolvedValue({
       installed: false,
       version: "",
+      path: "",
       problem: "claude native binary not installed",
     });
   });
@@ -86,8 +87,8 @@ describe("ClaudeSetup", () => {
     const user = userEvent.setup();
     mocked.installClaudeCode.mockResolvedValue("added 1 package");
     mocked.claudeCodeStatus
-      .mockResolvedValueOnce({ installed: false, version: "", problem: "not installed" })
-      .mockResolvedValue({ installed: true, version: "2.1.0", problem: "" });
+      .mockResolvedValueOnce({ installed: false, version: "", path: "", problem: "not installed" })
+      .mockResolvedValue({ installed: true, version: "2.1.0", path: "", problem: "" });
     mocked.addClaudeCodeProvider.mockResolvedValue(7);
     mocked.setProductBudget.mockResolvedValue(undefined);
 
@@ -105,6 +106,28 @@ describe("ClaudeSetup", () => {
     );
   });
 
+  /// **"I have it installed" — and they did.** The Claude desktop app keeps its
+  /// own copy under %APPDATA% and never puts it on PATH, so a machine with a
+  /// perfectly good Claude Code was being told it had none. Detection finds it,
+  /// and says *which* copy, because there is usually more than one and they do
+  /// not all work.
+  it("reports an install found off the PATH, and names it", async () => {
+    mocked.claudeCodeStatus.mockResolvedValue({
+      installed: true,
+      version: "2.1.219 (Claude Code)",
+      path: "C:\\Users\\me\\AppData\\Roaming\\Claude\\claude-code\\2.1.219\\claude.exe",
+      problem: "",
+    });
+    render(<ClaudeSetup productId={1} />);
+
+    expect(
+      await screen.findByText(/Claude Code is installed — 2\.1\.219/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/claude-code\\2\.1\.219\\claude\.exe/)).toBeInTheDocument();
+    // And it does not offer to install what is already there.
+    expect(mocked.installClaudeCode).not.toHaveBeenCalled();
+  });
+
   /// Already installed means don't install again — pressing after a partial
   /// failure resumes rather than starting over.
   it("skips the install when the tool is already there", async () => {
@@ -112,6 +135,7 @@ describe("ClaudeSetup", () => {
     mocked.claudeCodeStatus.mockResolvedValue({
       installed: true,
       version: "2.1.0",
+      path: "",
       problem: "",
     });
     mocked.addClaudeCodeProvider.mockResolvedValue(7);
@@ -160,6 +184,7 @@ describe("ClaudeSetup", () => {
     mocked.claudeCodeStatus.mockResolvedValue({
       installed: false,
       version: "",
+      path: "",
       problem: "claude native binary not installed",
     });
 
@@ -177,6 +202,7 @@ describe("ClaudeSetup", () => {
     mocked.claudeCodeStatus.mockResolvedValue({
       installed: true,
       version: "2.1.0",
+      path: "",
       problem: "",
     });
     mocked.listAiProviders.mockResolvedValue([cliProvider]);

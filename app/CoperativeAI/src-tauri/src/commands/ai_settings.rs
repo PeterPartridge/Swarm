@@ -147,16 +147,21 @@ pub struct ClaudeCodeStatus {
     pub installed: bool,
     /// What `claude --version` printed, when it ran.
     pub version: String,
+    /// Which copy answered. Worth showing: the Claude desktop app keeps its own
+    /// under `%APPDATA%` and npm puts different ones on the PATH, so "installed"
+    /// is only half an answer without saying *which*.
+    pub path: String,
     /// Why it did not, in words that say what to do next.
     pub problem: String,
 }
 
 #[tauri::command]
 pub async fn claude_code_status(executable: String) -> Result<ClaudeCodeStatus, String> {
-    match crate::ai::claude_code::version(&executable).await {
-        Ok(version) => Ok(ClaudeCodeStatus {
+    match crate::ai::claude_code::discover(&executable).await {
+        Ok((path, version)) => Ok(ClaudeCodeStatus {
             installed: true,
             version,
+            path: path.display().to_string(),
             problem: String::new(),
         }),
         // Not an `Err`: "it is not installed" is the answer to this question,
@@ -165,6 +170,7 @@ pub async fn claude_code_status(executable: String) -> Result<ClaudeCodeStatus, 
         Err(problem) => Ok(ClaudeCodeStatus {
             installed: false,
             version: String::new(),
+            path: String::new(),
             problem,
         }),
     }

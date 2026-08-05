@@ -192,16 +192,26 @@ pub fn which(name: &str) -> Option<std::path::PathBuf> {
     };
 
     std::env::split_paths(&path).find_map(|dir| {
-        // The bare name first: on Unix that is the whole story, and on Windows a
-        // file with no extension is still what an explicit call would find.
-        let bare = dir.join(name);
-        if bare.is_file() {
-            return Some(bare);
-        }
-        extensions.iter().find_map(|ext| {
-            let candidate = dir.join(format!("{name}{ext}"));
-            candidate.is_file().then_some(candidate)
-        })
+        // **Extensions before the bare name, and the order matters more than it
+        // looks.** npm and Claude Code both ship *two* files in the same folder:
+        // `npm` with no extension, which is a shell script for Git Bash, and
+        // `npm.cmd`, which is the one Windows can actually execute. Preferring
+        // the bare name finds the shell script and spawning it fails with
+        // "%1 is not a valid Win32 application" — a good install that reports
+        // itself as broken, again, one error further along than before.
+        //
+        // On Unix `extensions` is empty, so this falls straight through to the
+        // bare name, which is the whole story there.
+        extensions
+            .iter()
+            .find_map(|ext| {
+                let candidate = dir.join(format!("{name}{ext}"));
+                candidate.is_file().then_some(candidate)
+            })
+            .or_else(|| {
+                let bare = dir.join(name);
+                bare.is_file().then_some(bare)
+            })
     })
 }
 

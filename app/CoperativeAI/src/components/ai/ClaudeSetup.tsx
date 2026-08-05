@@ -48,7 +48,11 @@ export default function ClaudeSetup({ productId }: { productId: number }) {
   const [route, setRoute] = useState<Route>("plan");
   const [providers, setProviders] = useState<AiProvider[]>([]);
   const [chain, setChain] = useState<number[]>([]);
-  const [cli, setCli] = useState<{ installed: boolean; version: string } | null>(null);
+  const [cli, setCli] = useState<{
+    installed: boolean;
+    version: string;
+    path: string;
+  } | null>(null);
   /// Which stage is running, or null when nothing is. Drives the button's own
   /// label, so "what is it doing?" is answered where the press happened.
   const [stage, setStage] = useState<Stage | null>(null);
@@ -76,7 +80,7 @@ export default function ClaudeSetup({ productId }: { productId: number }) {
     // that cannot be asked must not blank the rest of the panel.
     try {
       const status = await claudeCodeStatus(executable);
-      setCli({ installed: status.installed, version: status.version });
+      setCli({ installed: status.installed, version: status.version, path: status.path });
     } catch {
       setCli(null);
     }
@@ -126,7 +130,7 @@ export default function ClaudeSetup({ productId }: { productId: number }) {
         setStage("install");
         setLog(await installClaudeCode());
         const after = await claudeCodeStatus(executable);
-        setCli({ installed: after.installed, version: after.version });
+        setCli({ installed: after.installed, version: after.version, path: after.path });
         if (!after.installed) {
           // npm reported success and the tool still will not run. Saying so is
           // better than adding a provider that cannot work.
@@ -246,9 +250,18 @@ export default function ClaudeSetup({ productId }: { productId: number }) {
         {route === "plan" ? (
           <>
             <li className={cli?.installed ? "is-done" : "is-todo"}>
-              {cli?.installed
-                ? `Claude Code is installed — ${cli.version}.`
-                : "Claude Code is not installed yet."}
+              {cli?.installed ? (
+                <>
+                  Claude Code is installed — {cli.version}.{" "}
+                  {/* Which copy, because there is very often more than one: the
+                      desktop app keeps its own, npm puts others on the PATH, and
+                      they do not all work. Naming it turns "is it installed?"
+                      into a question with a checkable answer. */}
+                  <code className="setup-path">{cli.path}</code>
+                </>
+              ) : (
+                "Claude Code was not found on this machine."
+              )}
             </li>
             <li className={cliProvider ? "is-done" : "is-todo"}>
               {cliProvider

@@ -3977,3 +3977,11 @@ code {
      control that happens to sit at the top. */
   width: 100%;
 }
+
+/* The path of whichever Claude Code answered. Small and wrappable — it is
+   reference, not a heading, and these paths are long. */
+.setup-path {
+  font-size: 0.75rem;
+  word-break: break-all;
+  color: var(--fg-muted);
+}

@@ -1233,6 +1233,10 @@ export interface ClaudeCodeStatus {
   installed: boolean;
   /** What `claude --version` printed, when it ran. */
   version: string;
+  /** Which copy answered. The Claude desktop app keeps its own under %APPDATA%
+   *  and never puts it on PATH, while npm puts shims on PATH that may not run —
+   *  so "installed" is only half an answer without saying which one. */
+  path: string;
   /** Why it did not, phrased as what to do next. */
   problem: string;
 }

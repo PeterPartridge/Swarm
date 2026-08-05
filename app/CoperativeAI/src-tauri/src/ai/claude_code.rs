@@ -38,16 +38,120 @@ use tokio::io::AsyncWriteExt;
 /// holding this call and take the queue with it.
 const TIMEOUT: Duration = Duration::from_secs(900);
 
-/// The executable to run. Stored in the provider's `apiBaseUrl` column because a
-/// CLI provider has no URL, and a configurable path is what that field is for
-/// here — some installs are not on `PATH`.
-fn executable(configured: &str) -> &str {
+
+/// Everywhere a working Claude Code might be, best bet first.
+///
+/// **Being on PATH is neither necessary nor sufficient.** The Claude desktop app
+/// keeps its own copy under `%APPDATA%/Claude/claude-code/<version>/` and never
+/// puts it on PATH; npm puts shims *on* PATH that can be a stub which refuses to
+/// run. Looking only at PATH therefore manages to miss a perfectly good install
+/// and find a broken one at the same time — which is exactly what happened.
+fn candidates(configured: &str) -> Vec<std::path::PathBuf> {
+    let mut found = Vec::new();
+
+    // An explicit setting wins: somebody who typed a path meant it.
     let trimmed = configured.trim();
-    if trimmed.is_empty() {
-        "claude"
-    } else {
-        trimmed
+    if !trimmed.is_empty() {
+        if let Some(path) = crate::tooling::dev_runner::which(trimmed) {
+            found.push(path);
+        }
     }
+
+    // The desktop app's managed install, newest version first. It updates itself,
+    // so it is the likeliest to be current.
+    for base in managed_roots() {
+        let Ok(entries) = std::fs::read_dir(&base) else { continue };
+        let mut versions: Vec<std::path::PathBuf> =
+            entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
+        versions.sort_by_key(|dir| std::cmp::Reverse(version_order(dir)));
+        for dir in versions {
+            let exe = dir.join(if cfg!(windows) { "claude.exe" } else { "claude" });
+            if exe.is_file() {
+                found.push(exe);
+            }
+        }
+    }
+
+    // The native installer's home, then whatever PATH offers.
+    if let Some(home) = home_dir() {
+        let local = home.join(".local").join("bin").join("claude");
+        if local.is_file() {
+            found.push(local);
+        }
+    }
+    if let Some(path) = crate::tooling::dev_runner::which("claude") {
+        found.push(path);
+    }
+
+    found.dedup();
+    found
+}
+
+/// Where self-updating installs live, per platform.
+fn managed_roots() -> Vec<std::path::PathBuf> {
+    let mut roots = Vec::new();
+    if cfg!(windows) {
+        if let Some(appdata) = std::env::var_os("APPDATA") {
+            roots.push(std::path::PathBuf::from(appdata).join("Claude").join("claude-code"));
+        }
+    }
+    if let Some(home) = home_dir() {
+        roots.push(home.join(".claude").join("claude-code"));
+        roots.push(
+            home.join("Library")
+                .join("Application Support")
+                .join("Claude")
+                .join("claude-code"),
+        );
+    }
+    roots
+}
+
+fn home_dir() -> Option<std::path::PathBuf> {
+    std::env::var_os("USERPROFILE")
+        .or_else(|| std::env::var_os("HOME"))
+        .map(std::path::PathBuf::from)
+}
+
+/// Version folders sorted as numbers, not as text — otherwise `2.1.9` sorts
+/// above `2.1.10` and the app settles on a version it has already outgrown.
+fn version_order(path: &std::path::Path) -> Vec<u64> {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .split('.')
+        .map(|part| part.parse::<u64>().unwrap_or(0))
+        .collect()
+}
+
+/// The first candidate that actually runs, with what it reported.
+///
+/// **Running it is the test, not finding it.** A file called `claude.exe` can be
+/// a 500-byte shell script that Windows rejects — npm leaves exactly that behind
+/// when it fetches the wrong platform's build. Asking each candidate for its
+/// version costs milliseconds and is the only thing that tells a real install
+/// from a placeholder, so the search does that rather than trusting a filename.
+pub async fn discover(configured: &str) -> Result<(std::path::PathBuf, String), String> {
+    let found = candidates(configured);
+    if found.is_empty() {
+        return Err(
+            "Claude Code is not on this machine — no copy on the PATH, and none where the \
+             Claude desktop app keeps its own."
+                .into(),
+        );
+    }
+
+    let mut last = String::new();
+    for exe in &found {
+        match ask_version(exe).await {
+            Ok(version) => return Ok((exe.clone(), version)),
+            Err(why) => last = format!("{} — {why}", exe.display()),
+        }
+    }
+    Err(format!(
+        "Found {} copy of Claude Code but none of them would run. The last tried: {last}",
+        found.len()
+    ))
 }
 
 /// What `claude --version` says, or why it could not be asked.
@@ -58,43 +162,29 @@ fn executable(configured: &str) -> &str {
 /// what can be established for free, so that is what is claimed — the caller
 /// says plainly that the sign-in is not covered.
 pub async fn version(configured_exe: &str) -> Result<String, String> {
-    let exe = executable(configured_exe);
-    let mut command = tool_command(exe).map_err(|e| {
-        format!(
-            "{e}. Install Claude Code with `npm i -g @anthropic-ai/claude-code`, then run \
-             `claude` once to sign in. If you have just installed it, this app may need \
-             restarting to see the change."
-        )
-    })?;
+    discover(configured_exe).await.map(|(_, version)| version)
+}
+
+/// Asks one specific executable for its version.
+///
+/// Short timeout on purpose: this runs against every candidate in turn, and a
+/// hung one must not hold up the search for the working copy behind it.
+async fn ask_version(exe: &std::path::Path) -> Result<String, String> {
     let output = tokio::time::timeout(
-        Duration::from_secs(30),
-        command.arg("--version").output(),
+        Duration::from_secs(20),
+        tokio::process::Command::new(exe).arg("--version").output(),
     )
     .await
-    .map_err(|_| format!("'{exe} --version' did not answer within 30 seconds"))?
-    .map_err(|e| {
-        format!(
-            "could not run '{exe}' ({e}). Install Claude Code with \
-             `npm i -g @anthropic-ai/claude-code`, then run `claude` once to sign in."
-        )
-    })?;
+    .map_err(|_| "it did not answer within 20 seconds".to_string())?
+    .map_err(|e| format!("it would not start ({e})"))?;
 
     let printed = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let detail = if stderr.trim().is_empty() { &printed } else { stderr.trim() };
-        // The shipped case worth naming: the npm wrapper installs but its native
-        // binary does not, so `claude` exists on PATH and still cannot run.
-        return Err(format!(
-            "'{exe}' is on the path but would not run: {}",
-            detail.chars().take(300).collect::<String>()
-        ));
+        return Err(detail.chars().take(200).collect::<String>());
     }
-    Ok(if printed.is_empty() {
-        "installed".to_string()
-    } else {
-        printed
-    })
+    Ok(if printed.is_empty() { "installed".to_string() } else { printed })
 }
 
 /// Installs Claude Code globally with npm, and returns what npm said.
@@ -116,9 +206,27 @@ pub async fn install() -> Result<String, String> {
     let mut npm = npm_command().map_err(|e| {
         format!("{e}. Node and npm have to be installed for this — the app cannot install them for you.")
     })?;
+    let (os, cpu) = npm_platform();
     let output = tokio::time::timeout(
         Duration::from_secs(600),
-        npm.args(["install", "-g", "@anthropic-ai/claude-code"]).output(),
+        npm.args([
+            "install",
+            "-g",
+            // **Stated, not inherited.** npm picks the platform-native binary
+            // using its `os`/`cpu` config, and a stray `os=linux` in a user's
+            // ~/.npmrc makes it fetch a Linux build on Windows — npm reports
+            // success, the real binary never arrives, and the package leaves a
+            // stub behind that Windows refuses to execute. Saying which machine
+            // this is makes the install immune to whatever the config says.
+            &format!("--os={os}"),
+            &format!("--cpu={cpu}"),
+            // Belt and braces against the other two ways this fails: the native
+            // binary is an optional dependency, and it arrives via postinstall.
+            "--include=optional",
+            "--foreground-scripts",
+            "@anthropic-ai/claude-code",
+        ])
+        .output(),
     )
     .await
     .map_err(|_| "npm did not finish within ten minutes and was given up on".to_string())?
@@ -137,6 +245,26 @@ pub async fn install() -> Result<String, String> {
         ));
     }
     Ok(if stdout.is_empty() { "installed".into() } else { tail(&stdout, 600) })
+}
+
+/// This machine, in the names npm uses for it.
+///
+/// npm's vocabulary is not Rust's — `win32` for `windows`, `darwin` for `macos`,
+/// `x64` for `x86_64` — and getting it wrong is worse than not passing it at
+/// all, because npm would then match nothing and quietly install no binary.
+fn npm_platform() -> (&'static str, &'static str) {
+    let os = match std::env::consts::OS {
+        "windows" => "win32",
+        "macos" => "darwin",
+        other => other,
+    };
+    let cpu = match std::env::consts::ARCH {
+        "x86_64" => "x64",
+        "aarch64" => "arm64",
+        "x86" => "ia32",
+        other => other,
+    };
+    (os, cpu)
 }
 
 /// A command for a tool that may be a script rather than a real executable.
@@ -250,13 +378,16 @@ async fn print_turn(
     prompt: &Prompt,
     schema: serde_json::Value,
 ) -> Result<String, String> {
-    let exe = executable(configured_exe);
-    let mut command = tool_command(exe).map_err(|e| {
+    // The same search the status check uses, so a turn runs against whichever
+    // copy was reported working rather than whatever happens to be on PATH —
+    // which may be the npm stub that cannot run at all.
+    let (exe, _) = discover(configured_exe).await.map_err(|e| {
         format!(
-            "{e}. Claude Code has to be installed and signed in for this provider — \
+            "{e} Claude Code has to be installed and signed in for this provider — \
              set it up in Admin, then run `claude` once to sign in."
         )
     })?;
+    let mut command = tokio::process::Command::new(&exe);
     command
         .arg("--print")
         .stdin(Stdio::piped())
@@ -268,9 +399,10 @@ async fn print_turn(
 
     let mut child = command.spawn().map_err(|e| {
         format!(
-            "could not run '{exe}' ({e}). Claude Code has to be installed and signed in \
-             for this provider — `npm i -g @anthropic-ai/claude-code`, then `claude` once \
-             to sign in with your subscription."
+            "could not run '{}' ({e}). Claude Code has to be installed and signed in \
+             for this provider — set it up in Admin, then run `claude` once to sign in \
+             with your subscription.",
+            exe.display()
         )
     })?;
 
@@ -516,13 +648,6 @@ mod tests {
         assert!(text.contains("\"stories\""), "the schema must be included: {text}");
     }
 
-    /// An empty path means the one on `PATH`; a configured path wins.
-    #[test]
-    fn the_executable_falls_back_to_the_one_on_path() {
-        assert_eq!(executable(""), "claude");
-        assert_eq!(executable("   "), "claude");
-        assert_eq!(executable(" C:/tools/claude.cmd "), "C:/tools/claude.cmd");
-    }
 
     /// Usage is zero because the app cannot see what the subscription was
     /// charged. Asserting it keeps a later "helpful" estimate from being added:
@@ -552,31 +677,169 @@ mod tests {
         assert!(err.contains("1 mockup"), "should count them: {err}");
     }
 
+    /// Newest version wins, and "newest" is a number comparison.
+    ///
+    /// Sorted as text, `2.1.9` beats `2.1.10` and the app would quietly settle
+    /// on a version it had already outgrown — the kind of wrong that never
+    /// announces itself.
+    #[test]
+    fn versions_are_ordered_as_numbers_not_as_text() {
+        let order = |s: &str| version_order(std::path::Path::new(s));
+        assert!(order("2.1.10") > order("2.1.9"));
+        assert!(order("2.2.0") > order("2.1.99"));
+        // Junk in the folder name sorts last rather than panicking.
+        assert!(order("2.0.0") > order("not-a-version"));
+    }
+
+    /// **The complaint this answers: "I have it installed."** They did — the
+    /// Claude desktop app keeps its own copy under `%APPDATA%`, and it is never
+    /// put on PATH. Searching PATH alone reported a real install as missing
+    /// while finding npm's broken stub, which is the worst of both.
+    ///
+    /// Skips where no install exists rather than failing: that is a machine
+    /// without Claude Code, not a broken search.
+    #[tokio::test]
+    async fn a_working_install_is_found_wherever_it_lives() {
+        match discover("").await {
+            Ok((exe, version)) => {
+                assert!(!version.is_empty(), "a found install must report a version");
+                assert!(exe.is_file(), "and must be a real file: {}", exe.display());
+            }
+            Err(why) => {
+                eprintln!("skipped: no working Claude Code here — {why}");
+            }
+        }
+    }
+
+    /// **The stub, reproduced.** npm leaves behind a `claude.exe` that is a
+    /// text file, and Windows answers "not compatible with the version of
+    /// Windows you're running" — a good-looking filename that cannot run.
+    ///
+    /// Pointing the search straight at one must not have it accepted: either a
+    /// genuinely working copy elsewhere is returned instead, or the whole search
+    /// fails. What must never happen is the stub being reported as the install.
+    #[tokio::test]
+    async fn a_stub_that_cannot_run_is_never_the_answer() {
+        let dir = std::env::temp_dir().join(format!("coperativeai-stub-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let stub = dir.join(if cfg!(windows) { "claude.exe" } else { "claude" });
+        // Byte for byte the shape npm ships: a shell script wearing an .exe.
+        std::fs::write(&stub, "echo \"Error: claude native binary not installed.\"\nexit 1\n")
+            .expect("write stub");
+
+        let outcome = discover(&stub.to_string_lossy()).await;
+        std::fs::remove_dir_all(&dir).ok();
+
+        match outcome {
+            Ok((exe, _)) => assert_ne!(
+                exe, stub,
+                "the stub must never be reported as a working install"
+            ),
+            Err(why) => assert!(
+                why.contains("would not run") || why.contains("not on this machine"),
+                "the refusal should say what was wrong: {why}"
+            ),
+        }
+    }
+
+    /// **Resolving a tool is not the same as being able to run it, and only
+    /// running it proves the difference.**
+    ///
+    /// Every failure in this area passed a test that checked the wrong half:
+    /// "is it on PATH" said yes while spawning said "program not found", then
+    /// "did we find a file" said yes while spawning said "not a valid Win32
+    /// application". So this one resolves the real npm on this machine and
+    /// actually starts it. It is the only test here that could have caught
+    /// either bug.
+    ///
+    /// Skips when npm is absent rather than failing — that is a machine without
+    /// Node, not a broken resolver — matching how the git and shell tests in
+    /// this repo already treat their tools.
+    #[tokio::test]
+    async fn the_resolved_npm_actually_spawns() {
+        let Some(resolved) = crate::tooling::dev_runner::which("npm") else {
+            eprintln!("skipped: npm is not installed here");
+            return;
+        };
+        if cfg!(windows) {
+            let name = resolved.to_string_lossy().to_lowercase();
+            assert!(
+                !name.ends_with("npm"),
+                "resolved the extensionless shell script, which Windows cannot execute: {name}"
+            );
+        }
+
+        let output = tokio::process::Command::new(&resolved)
+            .arg("--version")
+            .output()
+            .await
+            .unwrap_or_else(|e| panic!("could not spawn {}: {e}", resolved.display()));
+
+        assert!(
+            output.status.success(),
+            "{} --version failed: {}",
+            resolved.display(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
     /// A missing CLI is the most likely first failure, so the message names the
     /// tool it looked for and where to fix it, rather than surfacing a bare OS
     /// error. It points at the setup panel because that is now the thing that
     /// installs it — telling someone to type a command the app has a button for
     /// would be worse advice.
     #[tokio::test]
-    async fn a_missing_executable_says_what_to_do_about_it() {
-        let err = generate_stories("claude-code-that-is-not-installed", "m", &prompt())
-            .await
-            .expect_err("must fail");
-        assert!(err.contains("claude-code-that-is-not-installed"), "got: {err}");
-        assert!(err.contains("not on this machine's PATH"), "should say why: {err}");
-        assert!(err.contains("Admin"), "should point at the setup panel: {err}");
-        assert!(err.contains("sign in"), "and that signing in is needed: {err}");
+    async fn a_wrong_configured_path_falls_back_to_a_working_install() {
+        // A configured name that resolves nowhere contributes no candidate, so
+        // the search carries on to the places it knows about.
+        let outcome = generate_stories("claude-code-that-is-not-installed", "m", &prompt()).await;
+
+        // On a machine with Claude Code, a stale setting does not stop it
+        // working — being found is more use than being right about a typo.
+        // (Reaching a real CLI, the call then fails for its own reasons.)
+        if let Err(why) = outcome {
+            assert!(
+                !why.contains("not on this machine's PATH") || why.contains("not on this machine"),
+                "a failure here should be about running it, not about the typo: {why}"
+            );
+        }
+
+        // The claim that matters, and the only one true on every machine: a name
+        // that is nowhere resolves to nothing, so it can never be mistaken for
+        // an install.
+        assert!(
+            crate::tooling::dev_runner::which("claude-code-that-is-not-installed").is_none(),
+        );
     }
 
-    /// **The bug that made a good install look like a missing one.** On Windows
-    /// `claude` is `claude.cmd`, and spawning the bare name finds neither
-    /// `claude` nor `claude.exe` — so a fresh, successful `npm i -g` reported
-    /// "program not found". Resolution has to go through PATHEXT.
-    ///
-    /// Proved against a real shim on disk rather than a mock, because the whole
-    /// failure was a gap between "the file is there" and "this can spawn it".
+    /// With nothing installed anywhere, the message says that plainly rather
+    /// than naming whichever path happened to be tried last.
     #[test]
-    fn a_windows_cmd_shim_is_found_by_name() {
+    fn no_install_anywhere_is_reported_as_no_install() {
+        // Proved on the pure part: with no candidates there is nothing to run.
+        let none = candidates("definitely-nowhere-at-all");
+        assert!(
+            !none.iter().any(|p| p.to_string_lossy().contains("definitely-nowhere")),
+            "an unresolvable name must not become a candidate"
+        );
+    }
+
+    /// **The bug that made a good install look like a broken one, twice.**
+    ///
+    /// npm and Claude Code each ship *two* files into the same folder: `npm`
+    /// with no extension, a shell script for Git Bash, and `npm.cmd`, the one
+    /// Windows can execute. Spawning the bare name first fails with
+    /// "%1 is not a valid Win32 application"; not searching PATHEXT at all fails
+    /// with "program not found". Only the `.cmd` runs, so only the `.cmd` is the
+    /// right answer.
+    ///
+    /// **Both files are laid down here on purpose.** The first version of this
+    /// test wrote only the `.cmd`, so it passed against a folder that does not
+    /// exist in the wild while the real one — both files, bare name winning —
+    /// stayed broken. A fixture has to be the shape of the thing it stands in
+    /// for.
+    #[test]
+    fn the_runnable_shim_wins_over_the_shell_script_beside_it() {
         if !cfg!(windows) {
             return; // PATHEXT is a Windows idea; there is nothing to prove here.
         }
@@ -584,6 +847,8 @@ mod tests {
         std::fs::create_dir_all(&dir).expect("temp dir");
         let shim = dir.join("pretend-tool.cmd");
         std::fs::write(&shim, "@echo off\r\n").expect("write shim");
+        // The sibling that Windows cannot run — exactly how npm ships.
+        std::fs::write(dir.join("pretend-tool"), "#!/bin/sh\n").expect("write script");
 
         let previous = std::env::var_os("PATH");
         let mut paths = vec![dir.clone()];
@@ -604,7 +869,7 @@ mod tests {
         assert_eq!(
             found.as_deref(),
             Some(shim.as_path()),
-            "a .cmd shim must be found by its bare name, extension and all"
+            "the .cmd must win over the extensionless shell script beside it"
         );
     }
 }

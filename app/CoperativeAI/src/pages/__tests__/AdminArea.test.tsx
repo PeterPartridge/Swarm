@@ -108,6 +108,7 @@ describe("AdminArea", () => {
     mocked.claudeCodeStatus.mockResolvedValue({
       installed: false,
       version: "",
+      path: "",
       problem: "not installed",
     });
     mocked.getActivePermissions.mockResolvedValue({
