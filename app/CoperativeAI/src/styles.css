@@ -4231,3 +4231,89 @@ code {
   margin: 0 0 0.4rem;
   font-size: 0.75rem;
 }
+
+/* ---------------------------------------------------------------------------
+   File icons and the explorer's right-click menu.
+   --------------------------------------------------------------------------- */
+
+.file-icon {
+  flex: none;
+  margin-right: 0.3rem;
+  vertical-align: -0.18em;
+  /* Muted by default: an icon that shouted would compete with the file name,
+     which is the thing actually being read. Colour is a scanning aid, not a
+     label — every row says what it is in words beside it. */
+  opacity: 0.85;
+}
+
+.file-icon.kind-folder { color: var(--warn); }
+.file-icon.kind-code { color: var(--accent); }
+.file-icon.kind-markup { color: #e06c4f; }
+.file-icon.kind-style { color: #c678dd; }
+.file-icon.kind-config { color: var(--fg-muted); }
+.file-icon.kind-doc { color: var(--fg-muted); }
+.file-icon.kind-image { color: var(--ok); }
+/* Dimmer still: a lockfile is generated, and not yours to edit by hand. */
+.file-icon.kind-lock { color: var(--fg-dim); }
+.file-icon.kind-plain { color: var(--fg-dim); }
+
+/* Fixed to the viewport, using the coordinates the event gave us, so the menu
+   is not clipped by the explorer's own scrolling. */
+.tree-menu {
+  position: fixed;
+  z-index: 40;
+  min-width: 10rem;
+  padding: 0.25rem;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+
+/* Where the new thing will go, said before the choice rather than after it —
+   the whole point of a right-click menu is that the place is already decided. */
+.tree-menu-where {
+  margin: 0.1rem 0.4rem 0.3rem;
+  font-size: 0.7rem;
+  color: var(--fg-muted);
+  word-break: break-all;
+}
+
+.tree-menu button {
+  display: block;
+  width: 100%;
+  padding: 0.3rem 0.4rem;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.tree-menu button:hover {
+  background: var(--sunken);
+}
+
+.tree-adding {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.4rem;
+  margin: 0.3rem 0;
+  background: var(--sunken);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
+.tree-adding label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.tree-adding-actions {
+  display: flex;
+  gap: 0.3rem;
+}

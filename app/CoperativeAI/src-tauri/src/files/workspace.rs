@@ -195,32 +195,36 @@ pub fn write_file(root: &str, relative: &str, contents: &str) -> Result<(), Stri
 /// must already exist — the very thing creation cannot assume. So the *parent*
 /// is resolved and contained instead, and the new name is checked for the
 /// tricks a filename should never contain.
-pub fn create_file(root: &str, relative: &str) -> Result<(), String> {
+/// Where a new file or folder may go, having checked it may go there.
+///
+/// The checks are the same for both and were worth stating once: a path that is
+/// absolute, walks upward, or lands under `.git` is refused whatever is about
+/// to be written at the end of it. `..` in a *new* path is always an escape
+/// attempt — there is no legitimate reason to create something by walking up.
+fn place_for_new(root: &str, relative: &str) -> Result<std::path::PathBuf, String> {
     let root_path = Path::new(root)
         .canonicalize()
         .map_err(|_| format!("the folder for this Solution is not there any more: {root}"))?;
     let candidate = Path::new(relative);
     if candidate.is_absolute() {
-        return Err("that path is outside the Solution's folder".into());
+        return Err("that path is outside the Solution’s folder".into());
     }
-    // `..` anywhere in a *new* path is always an escape attempt: there is no
-    // legitimate reason to create a file by walking upward.
     if candidate
         .components()
         .any(|c| matches!(c, std::path::Component::ParentDir))
     {
-        return Err("that path is outside the Solution's folder".into());
+        return Err("that path is outside the Solution’s folder".into());
     }
-    let file_name = candidate
+    let name = candidate
         .file_name()
-        .ok_or("that is not a file name")?
+        .ok_or("that is not a name")?
         .to_string_lossy()
         .to_string();
-    if file_name.trim().is_empty() {
-        return Err("a new file needs a name".into());
+    if name.trim().is_empty() {
+        return Err("a new file or folder needs a name".into());
     }
 
-    // The parent must already exist and be inside the root — creating a file
+    // The parent must already exist and be inside the root — creating something
     // does not create a tree of folders nobody asked for.
     let parent_rel = candidate.parent().unwrap_or(Path::new(""));
     let parent = if parent_rel.as_os_str().is_empty() {
@@ -238,7 +242,7 @@ pub fn create_file(root: &str, relative: &str) -> Result<(), String> {
         .strip_prefix(&root_path)
         .map(|p| p.components().any(|c| c.as_os_str() == ".git"))
         .unwrap_or(true)
-        || file_name == ".git"
+        || name == ".git"
     {
         return Err(
             "nothing is written under .git — that would change the repository itself, not the code"
@@ -246,12 +250,28 @@ pub fn create_file(root: &str, relative: &str) -> Result<(), String> {
         );
     }
 
-    let target = parent.join(&file_name);
+    let target = parent.join(&name);
     if target.exists() {
         return Err(format!("{relative} already exists"));
     }
+    Ok(target)
+}
+
+pub fn create_file(root: &str, relative: &str) -> Result<(), String> {
+    let target = place_for_new(root, relative)?;
     std::fs::write(&target, "").map_err(|e| format!("could not create {relative}: {e}"))
 }
+
+/// Makes one folder, and only one.
+///
+/// `create_dir` rather than `create_dir_all`: the parent has already been
+/// checked to exist and to be inside the root, and creating a chain of missing
+/// folders would quietly build a tree nobody asked for from a typo.
+pub fn create_folder(root: &str, relative: &str) -> Result<(), String> {
+    let target = place_for_new(root, relative)?;
+    std::fs::create_dir(&target).map_err(|e| format!("could not create {relative}: {e}"))
+}
+
 
 /// What the explorer shows about the selected file.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]

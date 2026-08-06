@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import CodeEditor from "../../components/code/CodeEditor";
@@ -12,6 +12,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     readSolutionFile: vi.fn(),
     writeSolutionFile: vi.fn(),
     createSolutionFile: vi.fn(),
+    createSolutionFolder: vi.fn(),
     askCodingPal: vi.fn(),
     productChangedFiles: vi.fn(),
     suggestDevCommand: vi.fn(),
@@ -363,5 +364,64 @@ describe("CodeEditor", () => {
     const diff = await screen.findByRole("region", { name: "Changes to src/main.rs" });
     expect(within(diff).getByText(/\+new line/)).toBeInTheDocument();
     expect(within(diff).getByText(/-old line/)).toBeInTheDocument();
+  });
+
+  /// **Where it goes is decided by the click.** The old form always created at
+  /// the root and asked for the whole path; right-clicking a folder means "in
+  /// here", and the prompt asks only for a name.
+  it("creates a file in the folder that was right-clicked", async () => {
+    const user = userEvent.setup();
+    mocked.createSolutionFile.mockResolvedValue(undefined);
+    mocked.readSolutionFile.mockResolvedValue("");
+    render(<CodeEditor solutions={[solution()]} opened={solution()} />);
+
+    const folder = await screen.findByLabelText("Collapse src");
+    fireEvent.contextMenu(folder);
+
+    // The menu says where before offering the choice.
+    expect(await screen.findByRole("menu", { name: "File actions" })).toHaveTextContent(
+      "in src",
+    );
+    await user.click(screen.getByRole("menuitem", { name: "New file" }));
+
+    await user.type(await screen.findByLabelText("Name of the new file"), "thing.ts");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    // Joined to the clicked folder, not created at the root.
+    await waitFor(() =>
+      expect(mocked.createSolutionFile).toHaveBeenCalledWith(3, "src/thing.ts"),
+    );
+  });
+
+  /// Right-clicking a *file* means the folder it sits in — the sibling case,
+  /// which is what people actually do.
+  it("creates beside a file when the file was right-clicked", async () => {
+    const user = userEvent.setup();
+    mocked.createSolutionFolder.mockResolvedValue(undefined);
+    render(<CodeEditor solutions={[solution()]} opened={solution()} />);
+
+    fireEvent.contextMenu(await screen.findByLabelText("Open src/main.rs"));
+    await user.click(await screen.findByRole("menuitem", { name: "New folder" }));
+    await user.type(await screen.findByLabelText("Name of the new folder"), "helpers");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() =>
+      expect(mocked.createSolutionFolder).toHaveBeenCalledWith(3, "src/helpers"),
+    );
+    // A folder has nothing to open, so it must not try.
+    expect(mocked.readSolutionFile).not.toHaveBeenCalled();
+  });
+
+  /// A menu that outlived the click that opened it would follow you around.
+  it("closes the menu on Escape", async () => {
+    render(<CodeEditor solutions={[solution()]} opened={solution()} />);
+
+    fireEvent.contextMenu(await screen.findByLabelText("Collapse src"));
+    expect(await screen.findByRole("menu", { name: "File actions" })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByRole("menu", { name: "File actions" })).not.toBeInTheDocument(),
+    );
   });
 });

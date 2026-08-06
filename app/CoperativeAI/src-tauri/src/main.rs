@@ -160,6 +160,7 @@ fn main() {
             commands::workspace::review_solution_changes,
             commands::workspace::write_solution_file,
             commands::workspace::create_solution_file,
+            commands::workspace::create_solution_folder,
             commands::workspace::ask_coding_pal,
             commands::workspace::prepare_handover,
             commands::workspace::settle_change_run,

@@ -82,6 +82,24 @@ pub async fn create_solution_file(
     workspace::create_file(&root, &path)
 }
 
+/// Makes one folder inside a Solution.
+///
+/// Its own command rather than a flag on file creation: an empty folder and
+/// an empty file are different things to ask for, and a boolean at the call
+/// site would read as neither.
+#[tauri::command]
+pub async fn create_solution_folder(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+    path: String,
+) -> Result<(), String> {
+    let root = {
+        let conn = db.0.lock().await;
+        root_for(&conn, solution_id).await?
+    };
+    workspace::create_folder(&root, &path)
+}
+
 /// What the coding pal said. `replacement` never touches disk from here — it
 /// goes into the editor buffer, and the developer's own save is the gate.
 #[derive(Serialize)]

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   autoCommitSolution,
   createSolutionFile,
+  createSolutionFolder,
   fileProperties,
   getCommitPolicy,
   productChangedFiles,
@@ -14,6 +15,7 @@ import {
 } from "../../lib/backend";
 import AiPanel, { type AiChoice } from "../ai/AiPanel";
 import CodeWindow from "../code/CodeWindow";
+import FileIcon from "./FileIcon";
 import DevServerPanel from "../code/DevServerPanel";
 import GitPanel from "../vcs/GitPanel";
 import TerminalPanel from "../code/TerminalPanel";
@@ -200,6 +202,31 @@ export default function CodeEditor({
   /// A command the AI panel wants the terminal to run, cleared once sent.
   const [pendingCommand, setPendingCommand] = useState<string | null>(null);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  /// Where a right-click landed: the screen position to draw at, and the folder
+  /// the new thing would go in. Null when no menu is showing.
+  const [menu, setMenu] = useState<{ x: number; y: number; dir: string } | null>(null);
+  /// The name being typed, once a menu item has been chosen. Held apart from
+  /// the menu so choosing "New folder" replaces the menu rather than stacking
+  /// a second thing on top of it.
+  const [adding, setAdding] = useState<{ dir: string; kind: "file" | "folder" } | null>(null);
+  const [addName, setAddName] = useState("");
+
+  // A context menu that outlived the click that opened it would follow you
+  // around the screen. Escape closes it too — it is a menu, and that is what
+  // Escape means.
+  useEffect(() => {
+    if (!menu) return;
+    const dismiss = () => setMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenu(null);
+    };
+    window.addEventListener("mousedown", dismiss);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", dismiss);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [menu]);
 
   const updateSession = useCallback(
     (id: number, change: (s: SolutionSession) => SolutionSession) =>
@@ -369,6 +396,42 @@ export default function CodeEditor({
             : s.activePath,
       };
     });
+  }
+
+  /// The folder a tree entry sits in — a folder is its own parent for this
+  /// purpose, because right-clicking a folder means "in here".
+  function folderOf(path: string, isDir: boolean): string {
+    if (isDir) return path;
+    const cut = path.lastIndexOf("/");
+    return cut === -1 ? "" : path.slice(0, cut);
+  }
+
+  /// Creates whatever the menu was opened for, at the place it was opened.
+  async function onAdd() {
+    const name = addName.trim();
+    if (name === "" || !active || !adding) return;
+    const id = active.solution.id;
+    // Joined here rather than asked for as a whole path: the point of the menu
+    // is that you clicked where it goes.
+    const full = adding.dir === "" ? name : `${adding.dir}/${name}`;
+    setCreating(true);
+    try {
+      if (adding.kind === "folder") {
+        await createSolutionFolder(id, full);
+      } else {
+        await createSolutionFile(id, full);
+      }
+      setAdding(null);
+      setAddName("");
+      updateSession(id, (s) => ({ ...s, error: null }));
+      await loadTree(active.solution);
+      // A new file is opened; a new folder has nothing to open.
+      if (adding.kind === "file") await onOpenFile(full);
+    } catch (e) {
+      updateSession(id, (s) => ({ ...s, error: String(e) }));
+    } finally {
+      setCreating(false);
+    }
   }
 
   async function onCreate() {
@@ -587,9 +650,32 @@ export default function CodeEditor({
                 ))}
               </ul>
             ) : (
-            <ul className="file-tree" aria-label={`Files in ${active?.solution.name}`}>
+            <ul
+              className="file-tree"
+              aria-label={`Files in ${active?.solution.name}`}
+              onContextMenu={(e) => {
+                // Only when the click missed every row — otherwise the row's own
+                // handler has already said which folder was meant.
+                if (e.target !== e.currentTarget) return;
+                e.preventDefault();
+                setAdding(null);
+                setMenu({ x: e.clientX, y: e.clientY, dir: "" });
+              }}
+            >
               {visibleEntries.map((entry) => (
-                <li key={entry.path} style={{ paddingLeft: `${entry.depth * 0.75}rem` }}>
+                <li
+                  key={entry.path}
+                  style={{ paddingLeft: `${entry.depth * 0.75}rem` }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setAdding(null);
+                    setMenu({
+                      x: e.clientX,
+                      y: e.clientY,
+                      dir: folderOf(entry.path, entry.isDir),
+                    });
+                  }}
+                >
                   {entry.isDir ? (
                     <button
                       className="tree-dir"
@@ -597,7 +683,9 @@ export default function CodeEditor({
                       aria-expanded={!active?.collapsed.has(entry.path)}
                       onClick={() => toggleFolder(entry.path)}
                     >
-                      {active?.collapsed.has(entry.path) ? "▸" : "▾"} {entry.name}/
+                      {active?.collapsed.has(entry.path) ? "▸" : "▾"}
+                      <FileIcon name={entry.name} isDir />
+                      {entry.name}/
                     </button>
                   ) : (
                     <button
@@ -605,6 +693,7 @@ export default function CodeEditor({
                       aria-label={`Open ${entry.path}`}
                       onClick={() => onOpenFile(entry.path)}
                     >
+                      <FileIcon name={entry.name} isDir={false} />
                       {entry.name}
                       {active?.open.some((f) => f.path === entry.path && f.value !== f.saved) && (
                         <span className="tree-dirty" aria-hidden="true"> ●</span>
@@ -613,7 +702,81 @@ export default function CodeEditor({
                   )}
                 </li>
               ))}
-              {active?.tree?.truncated && (
+              {/* The menu, drawn where the click landed. `position: fixed`
+                against the viewport coordinates the event gave us, so it is not
+                clipped by the explorer's own scrolling. */}
+            {menu && (
+              <div
+                className="tree-menu"
+                role="menu"
+                aria-label="File actions"
+                style={{ top: menu.y, left: menu.x }}
+                // The dismiss listener is on the window; without this the menu
+                // would close on the way to its own buttons.
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <p className="tree-menu-where">
+                  in {menu.dir === "" ? "the top level" : menu.dir}
+                </p>
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setAdding({ dir: menu.dir, kind: "file" });
+                    setAddName("");
+                    setMenu(null);
+                  }}
+                >
+                  New file
+                </button>
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setAdding({ dir: menu.dir, kind: "folder" });
+                    setAddName("");
+                    setMenu(null);
+                  }}
+                >
+                  New folder
+                </button>
+              </div>
+            )}
+
+            {/* Just the name: where it goes was decided by the click, and
+                asking for the path again would throw that away. */}
+            {adding && (
+              <form
+                className="tree-adding"
+                aria-label={`New ${adding.kind}`}
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void onAdd();
+                }}
+              >
+                <label>
+                  New {adding.kind} in {adding.dir === "" ? "the top level" : adding.dir}
+                  <input
+                    aria-label={`Name of the new ${adding.kind}`}
+                    autoFocus
+                    placeholder={adding.kind === "folder" ? "components" : "thing.ts"}
+                    value={addName}
+                    onChange={(e) => setAddName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") setAdding(null);
+                    }}
+                  />
+                </label>
+                <div className="tree-adding-actions">
+                  <button type="submit" disabled={creating || addName.trim() === ""}>
+                    {creating ? "Creating…" : "Create"}
+                  </button>
+                  <button type="button" onClick={() => setAdding(null)}>
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {active?.tree?.truncated && (
                 /* A partial tree that does not say so reads as a complete one. */
                 <li className="hint">…more files not shown</li>
               )}

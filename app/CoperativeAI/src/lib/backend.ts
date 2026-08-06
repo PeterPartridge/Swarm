@@ -2054,3 +2054,13 @@ export interface AiLog {
  *  disagree. */
 export const listAiCalls = (productId: number, limit = 100): Promise<AiLog> =>
   invoke("list_ai_calls", { productId, limit });
+
+/** Makes one folder inside a Solution.
+ *
+ *  Its own call rather than a flag on file creation: an empty folder and an
+ *  empty file are different things to ask for. Only one level — the parent must
+ *  already exist, so a typo cannot build a tree nobody asked for. */
+export const createSolutionFolder = (
+  solutionId: number,
+  path: string,
+): Promise<void> => invoke("create_solution_folder", { solutionId, path });
