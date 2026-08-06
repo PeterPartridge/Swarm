@@ -483,6 +483,15 @@ struct CliEnvelope {
     result: Option<String>,
     #[serde(default)]
     usage: Option<CliUsage>,
+    /// **Set while the process still exits 0.** A failed turn — an expired
+    /// sign-in, a refused request — comes back as a normal envelope with this
+    /// true and the reason in `result`. Checking only the exit status takes
+    /// that reason as the model's reply and then fails on it for not being
+    /// JSON, which buries the actual cause under a parser complaint.
+    ///
+    /// `subtype` is *not* the signal: it reads "success" on the same envelope.
+    #[serde(default)]
+    is_error: bool,
 }
 
 #[derive(Deserialize, Default)]
@@ -503,26 +512,44 @@ struct CliUsage {
 /// went through four million tokens on the plan" is a real answer, and it is one
 /// the app can honestly give. What it still must not do is turn that into money
 /// — the allowance is charged where this process cannot see it.
-fn read_output(output: &str) -> (String, Usage) {
+fn read_output(output: &str) -> Result<(String, Usage), String> {
     let Some(envelope) = extract_json(output)
         .ok()
         .and_then(|json| serde_json::from_str::<CliEnvelope>(json).ok())
         .filter(|e| e.result.is_some())
     else {
         // Not an envelope — a plain reply, which is what `--print` alone gives.
-        return (output.to_string(), unmetered());
+        return Ok((output.to_string(), unmetered()));
     };
 
+    let said = envelope.result.unwrap_or_default();
+    if envelope.is_error {
+        // Handed back as the error it is. The commonest one by far is an
+        // expired sign-in, which reads as nonsense if it reaches a JSON parser.
+        //
+        // A sign-in failure gets the one thing that fixes it appended, because
+        // the app cannot do that step itself: it has no terminal to run the
+        // login in, and `--version` keeps answering happily while the session
+        // is dead — so nothing else here will ever mention it.
+        let lower = said.to_lowercase();
+        let fix = if lower.contains("authenticate") || lower.contains("oauth") {
+            " Run `claude` in a terminal and sign in again."
+        } else {
+            ""
+        };
+        return Err(format!("Claude Code could not run this: {said}.{fix}"));
+    }
+
     let usage = envelope.usage.unwrap_or_default();
-    (
-        envelope.result.unwrap_or_default(),
+    Ok((
+        said,
         Usage {
             input_tokens: usage.input_tokens,
             output_tokens: usage.output_tokens,
             cache_creation_input_tokens: usage.cache_creation_input_tokens,
             cache_read_input_tokens: usage.cache_read_input_tokens,
         },
-    )
+    ))
 }
 
 /// Runs one turn and hands the JSON it printed to `parse`.
@@ -534,7 +561,7 @@ async fn turn<T>(
     parse: fn(&str) -> Result<T, String>,
 ) -> Result<(T, Usage), String> {
     let output = print_turn(exe, model, prompt, schema).await?;
-    let (reply, usage) = read_output(&output);
+    let (reply, usage) = read_output(&output)?;
     let json = extract_json(&reply)?;
     Ok((parse(json)?, usage))
 }
@@ -583,7 +610,7 @@ pub async fn generate_diagram(
         task: format!("{}\n\nProduce the diagram as {format}.", prompt.task),
     };
     let output = print_turn(exe, model, &with_format, ollama::diagram_schema()).await?;
-    let (reply, usage) = read_output(&output);
+    let (reply, usage) = read_output(&output)?;
     let json = extract_json(&reply)?;
     Ok((parse_diagram(json, format)?, usage))
 }
@@ -734,11 +761,53 @@ mod tests {
     #[test]
     fn the_json_envelope_yields_the_reply_and_its_token_counts() {
         let output = r#"{"result":"{\"stories\":[]}","usage":{"input_tokens":120,"output_tokens":45,"cache_read_input_tokens":900}}"#;
-        let (reply, usage) = read_output(output);
+        let (reply, usage) = read_output(output).expect("a good turn");
         assert_eq!(reply, r#"{"stories":[]}"#);
         assert_eq!(usage.input_tokens, 120);
         assert_eq!(usage.output_tokens, 45);
         assert_eq!(usage.cache_read_input_tokens, 900);
+    }
+
+    /// **Caught against the real CLI.** A failed turn exits 0 and comes back
+    /// as a normal envelope with `is_error` set and the reason in `result` —
+    /// an expired sign-in being far and away the commonest. Reading only the
+    /// exit status took that sentence as the model's reply and then failed on
+    /// it for not being JSON, burying the actual cause under a parser
+    /// complaint.
+    ///
+    /// The envelope below is the one this machine returned, trimmed.
+    #[test]
+    fn a_failed_turn_is_an_error_even_though_the_process_exited_cleanly() {
+        let output = r#"{"is_error":true,"subtype":"success","usage":{"input_tokens":0},"result":"Failed to authenticate: OAuth session expired and could not be refreshed"}"#;
+        let err = read_output(output).expect_err("a failed turn must not read as a reply");
+        assert!(
+            err.contains("OAuth session expired"),
+            "the CLI's own reason has to survive: {err}"
+        );
+        assert!(
+            err.contains("sign in again"),
+            "and a dead sign-in must say what fixes it, since nothing else will: {err}"
+        );
+    }
+
+    /// The hint belongs only on sign-in failures — pinned on every error it
+    /// would send people to a terminal to fix something else entirely.
+    #[test]
+    fn an_unrelated_failure_gets_no_sign_in_advice() {
+        let output = r#"{"is_error":true,"result":"Request too large for this model"}"#;
+        let err = read_output(output).expect_err("still an error");
+        assert!(err.contains("Request too large"));
+        assert!(!err.contains("sign in"), "misleading advice: {err}");
+    }
+
+    /// `subtype` says "success" on that same envelope, so it cannot be the
+    /// signal — pinned because it is exactly the field one would reach for.
+    #[test]
+    fn subtype_is_not_the_success_signal() {
+        let ok = r#"{"is_error":false,"subtype":"success","result":"{\"a\":1}"}"#;
+        assert!(read_output(ok).is_ok());
+        let bad = r#"{"is_error":true,"subtype":"success","result":"nope"}"#;
+        assert!(read_output(bad).is_err());
     }
 
     /// **An older CLI that ignores the flag must still work.** Plain output is
@@ -747,7 +816,7 @@ mod tests {
     #[test]
     fn plain_output_is_still_read_as_the_reply() {
         let output = r#"Here you go: {"stories":[]}"#;
-        let (reply, usage) = read_output(output);
+        let (reply, usage) = read_output(output).expect("plain output is a reply");
         assert_eq!(reply, output, "the whole thing is the reply");
         assert_eq!(usage.input_tokens, 0);
         assert_eq!(usage.output_tokens, 0);
@@ -757,7 +826,7 @@ mod tests {
     /// zero rather than the reply being thrown away over a missing field.
     #[test]
     fn an_envelope_without_usage_still_gives_up_its_reply() {
-        let (reply, usage) = read_output(r#"{"result":"{\"a\":1}"}"#);
+        let (reply, usage) = read_output(r#"{"result":"{\"a\":1}"}"#).expect("an envelope");
         assert_eq!(reply, r#"{"a":1}"#);
         assert_eq!(usage.output_tokens, 0);
     }
@@ -767,7 +836,7 @@ mod tests {
     #[test]
     fn a_bare_json_reply_is_not_mistaken_for_an_envelope() {
         let output = r#"{"stories":[{"title":"a","description":"b"}]}"#;
-        let (reply, _) = read_output(output);
+        let (reply, _) = read_output(output).expect("a bare reply");
         assert_eq!(reply, output);
     }
 
