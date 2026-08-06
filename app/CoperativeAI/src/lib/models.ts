@@ -70,34 +70,24 @@ export const EFFORT_TIERS = [
     forWhat: "Architecture changes, cross-file refactors, and complex implementation.",
     suggested: "claude-fable-5",
   },
+  // Above high the model has nowhere further to go — these differ by how hard
+  // it thinks, which is why each row sets an effort as well as a model.
+  {
+    id: "extra",
+    label: "Extra",
+    forWhat: "Work that needs the best model to take its time.",
+    suggested: "claude-fable-5",
+  },
+  {
+    id: "max",
+    label: "Max",
+    forWhat: "Unfamiliar systems, or a design that has to be got right first time.",
+    suggested: "claude-fable-5",
+  },
+  {
+    id: "ultra",
+    label: "Ultra",
+    forWhat: "The hardest thing you have: build the shape of a system from scratch.",
+    suggested: "claude-fable-5",
+  },
 ] as const;
-
-/** The stored `models` array for a set of tier choices.
- *
- *  The order is the contract: `ai::tiering` takes the first for low, the middle
- *  for medium and the last for high, so three entries in tier order is exactly
- *  what it expects — and is why this is three labelled choices in the UI rather
- *  than a comma-separated list somebody has to order correctly in their head. */
-export function modelsForTiers(low: string, medium: string, high: string): string[] {
-  return [low, medium, high];
-}
-
-/** The tier choices a stored `models` array represents.
- *
- *  The inverse of `modelsForTiers`, using the same rule as the Rust side so a
- *  provider saved by an older version still reads back sensibly — a list of one
- *  means that model does every tier. */
-export function tiersFromModels(models: string[]): {
-  low: string;
-  medium: string;
-  high: string;
-} {
-  if (models.length === 0) {
-    return { low: "", medium: "", high: "" };
-  }
-  return {
-    low: models[0],
-    medium: models[Math.floor(models.length / 2)],
-    high: models[models.length - 1],
-  };
-}

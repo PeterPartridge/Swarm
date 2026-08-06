@@ -395,7 +395,20 @@ export interface ProductPolicy {
   effortTier: string;
 }
 
-export const EFFORT_TIERS = ["low", "medium", "high"] as const;
+/** How hard a job is, cheapest first — mirrors `work_item_policy::EFFORT_TIERS`.
+ *
+ *  Six rather than three because "high" had become a ceiling: a cross-file
+ *  refactor and a from-scratch architecture landed on the same setting with no
+ *  way to say one was harder. Above "high" the model stops changing — there is
+ *  nothing above the most capable — so the extra levels differ by effort. */
+export const EFFORT_TIERS = [
+  "low",
+  "medium",
+  "high",
+  "extra",
+  "max",
+  "ultra",
+] as const;
 
 /** Suggested defaults for the AI Settings form (Claude first, pluggable).
  *  Models are listed **cheapest first** — the effort tier indexes into this

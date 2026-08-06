@@ -19,9 +19,16 @@ pub fn model_for_effort<'a>(models: &'a [String], effort: &str) -> Option<&'a st
         return None;
     }
     let last = models.len() - 1;
+    // **Everything above "high" still gets the most capable model.** There is
+    // nothing above the top of a list, so extra, max and ultra cannot mean a
+    // bigger model — they mean more effort, which is the Complexity setting's
+    // job. Spreading the six levels across the models instead would quietly
+    // demote work already marked "high" the day the new levels were added.
     let index = match effort {
-        "high" => last,
         "medium" => models.len() / 2,
+        "high" | "extra" | "max" | "ultra" => last,
+        // An unknown word, and "low", are treated as the cheapest — the
+        // cautious choice, since that is the one that cannot surprise a bill.
         _ => 0,
     };
     Some(models[index.min(last)].as_str())
@@ -62,6 +69,17 @@ mod tests {
         assert_eq!(model_for_effort(&m, "low"), Some("a"));
         assert_eq!(model_for_effort(&m, "medium"), Some("c"));
         assert_eq!(model_for_effort(&m, "high"), Some("e"));
+    }
+
+    /// **Above "high" the model stops changing.** There is nothing above the
+    /// top of a list, so the extra levels mean more effort rather than a bigger
+    /// model — and adding them must not demote work already marked "high".
+    #[test]
+    fn the_levels_above_high_still_get_the_most_capable_model() {
+        let m = models(&["haiku", "sonnet", "opus"]);
+        for level in ["high", "extra", "max", "ultra"] {
+            assert_eq!(model_for_effort(&m, level), Some("opus"), "for {level}");
+        }
     }
 
     #[test]

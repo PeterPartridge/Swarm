@@ -138,8 +138,8 @@ pub struct ClaudeTier {
     pub effort: String,
 }
 
-/// Low, medium and high, in that order — the same order `ai::tiering` indexes.
-pub type ClaudeTiers = [ClaudeTier; 3];
+/// One per complexity, in `work_item_policy::EFFORT_TIERS` order.
+pub type ClaudeTiers = [ClaudeTier; 6];
 
 /// The Project brief's own answer, used until somebody changes it: Sonnet for
 /// small and everyday work, Fable for architecture and complex UI.
@@ -147,6 +147,11 @@ pub fn default_claude_tiers() -> ClaudeTiers {
     [
         ClaudeTier { model: "claude-sonnet-5".into(), effort: "low".into() },
         ClaudeTier { model: "claude-sonnet-5".into(), effort: "medium".into() },
+        ClaudeTier { model: "claude-fable-5".into(), effort: "high".into() },
+        // Above high the model stops changing and the thinking does: Fable is
+        // already the most capable, so "harder" can only mean more effort.
+        ClaudeTier { model: "claude-fable-5".into(), effort: "high".into() },
+        ClaudeTier { model: "claude-fable-5".into(), effort: "high".into() },
         ClaudeTier { model: "claude-fable-5".into(), effort: "high".into() },
     ]
 }
@@ -183,12 +188,11 @@ pub async fn set_claude_tiers(conn: &Connection, tiers: &ClaudeTiers) -> Result<
 /// An unknown word is treated as `low` — the cautious choice, and the same rule
 /// `ai::tiering` already uses for a tier it does not recognise.
 pub fn tier_for(tiers: &ClaudeTiers, complexity: &str) -> ClaudeTier {
-    let index = match complexity {
-        "high" => 2,
-        "medium" => 1,
-        _ => 0,
-    };
-    tiers[index].clone()
+    let index = crate::db::work_item_policy::EFFORT_TIERS
+        .iter()
+        .position(|t| *t == complexity)
+        .unwrap_or(0);
+    tiers[index.min(tiers.len() - 1)].clone()
 }
 
 pub async fn ai_concurrency(conn: &Connection) -> Result<i64> {

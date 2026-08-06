@@ -8,7 +8,15 @@
 use crate::db::{now_millis, DbError, Result};
 use turso::Connection;
 
-pub const EFFORT_TIERS: &[&str] = &["low", "medium", "high"];
+/// How hard a job is, cheapest first.
+///
+/// Six rather than three because "high" had become a ceiling: everything from a
+/// cross-file refactor to a from-scratch architecture landed on the same
+/// setting, and there was no way to say *this one is harder than that*. What
+/// each level does is the Complexity setting's answer, not this list's — these
+/// are only the words a work item can be marked with.
+pub const EFFORT_TIERS: &[&str] =
+    &["low", "medium", "high", "extra", "max", "ultra"];
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WorkItemPolicy {

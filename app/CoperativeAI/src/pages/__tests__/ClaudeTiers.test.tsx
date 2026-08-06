@@ -16,6 +16,9 @@ const tiers = [
   { model: "claude-sonnet-5", effort: "low" },
   { model: "claude-sonnet-5", effort: "medium" },
   { model: "claude-fable-5", effort: "high" },
+  { model: "claude-fable-5", effort: "high" },
+  { model: "claude-fable-5", effort: "high" },
+  { model: "claude-fable-5", effort: "high" },
 ];
 
 describe("ClaudeTiers", () => {
@@ -32,7 +35,7 @@ describe("ClaudeTiers", () => {
   it("offers a model and an effort for each complexity", async () => {
     render(<ClaudeTiers />);
 
-    for (const level of ["low", "medium", "high"]) {
+    for (const level of ["low", "medium", "high", "extra", "max", "ultra"]) {
       expect(await screen.findByLabelText(`${level} complexity model`)).toBeInTheDocument();
       expect(screen.getByLabelText(`${level} complexity effort`)).toBeInTheDocument();
     }
@@ -54,8 +57,7 @@ describe("ClaudeTiers", () => {
     await waitFor(() =>
       expect(mocked.setClaudeTiers).toHaveBeenCalledWith([
         { model: "claude-haiku-4-5", effort: "low" },
-        { model: "claude-sonnet-5", effort: "medium" },
-        { model: "claude-fable-5", effort: "high" },
+        ...tiers.slice(1),
       ]),
     );
   });
@@ -73,9 +75,9 @@ describe("ClaudeTiers", () => {
 
     await waitFor(() =>
       expect(mocked.setClaudeTiers).toHaveBeenCalledWith([
-        { model: "claude-sonnet-5", effort: "low" },
+        tiers[0],
         { model: "claude-sonnet-5", effort: "high" },
-        { model: "claude-fable-5", effort: "high" },
+        ...tiers.slice(2),
       ]),
     );
   });
@@ -109,6 +111,27 @@ describe("ClaudeTiers", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/read-only/);
     await waitFor(() =>
       expect(screen.getByLabelText("low complexity model")).toHaveValue("claude-sonnet-5"),
+    );
+  });
+
+  /// **Above "high" the model has nowhere further to go.** Extra, Max and Ultra
+  /// exist because "high" had become a ceiling — a cross-file refactor and a
+  /// from-scratch architecture landed on the same setting. What separates them
+  /// is the effort, which is why every row sets one.
+  it("offers the levels above high, each with its own effort", async () => {
+    const user = userEvent.setup();
+    render(<ClaudeTiers />);
+
+    expect(await screen.findByText(/Ultra complexity/)).toBeInTheDocument();
+    expect(screen.getByText(/hardest thing you have/)).toBeInTheDocument();
+
+    // And each is independently settable, rather than following "high".
+    await user.selectOptions(screen.getByLabelText("ultra complexity effort"), "medium");
+    await waitFor(() =>
+      expect(mocked.setClaudeTiers).toHaveBeenCalledWith([
+        ...tiers.slice(0, 5),
+        { model: "claude-fable-5", effort: "medium" },
+      ]),
     );
   });
 });
