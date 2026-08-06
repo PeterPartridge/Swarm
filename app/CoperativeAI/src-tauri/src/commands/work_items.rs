@@ -255,7 +255,7 @@ pub async fn generate_user_stories(
 
     // Resolve gates, budget routing, and prompt inputs under the lock, then
     // release it for the network call so the rest of the app stays responsive.
-    let (context, routed, prompt, product_id) = {
+    let (_context, routed, prompt, product_id) = {
         let conn = db.0.lock().await;
         let context = resolve_story_generation(&conn, feature_id).await?;
         let product_id = context.feature.product_id;
@@ -301,7 +301,7 @@ pub async fn generate_user_stories(
     let result = backend::generate_stories(
         &routed.provider,
         &routed.model,
-        &context.effort_tier,
+        &routed.effort,
         &prompt,
     )
     .await;
@@ -605,7 +605,7 @@ pub async fn generate_deliverable_work(
     let result = backend::generate_stories(
         &routed.provider,
         &routed.model,
-        &context.effort_tier,
+        &routed.effort,
         &prompt,
     )
     .await;

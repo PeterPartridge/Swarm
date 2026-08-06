@@ -271,7 +271,7 @@ pub async fn generate_design_strategy(
         None => None,
     };
 
-    let (routed, prompt, effort_tier) = {
+    let (routed, prompt) = {
         let conn = db.0.lock().await;
         let Some(product_row) = product::find_by_id(&conn, product_id)
             .await
@@ -316,12 +316,12 @@ pub async fn generate_design_strategy(
             figma_digest.as_deref(),
             &solutions,
         );
-        (routed, prompt, policy.effort_tier)
+        (routed, prompt)
     };
 
     let started = std::time::Instant::now();
     let result =
-        backend::generate_design(&routed.provider, &routed.model, &effort_tier, &prompt).await;
+        backend::generate_design(&routed.provider, &routed.model, &routed.effort, &prompt).await;
     let latency_ms = started.elapsed().as_millis() as i64;
 
     match result {

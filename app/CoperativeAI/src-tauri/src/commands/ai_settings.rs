@@ -132,6 +132,62 @@ pub async fn add_ollama_cloud_provider(
     Ok(id)
 }
 
+/// The three models the Complexity setting names, in tier order.
+async fn tier_models(conn: &turso::Connection) -> Result<Vec<String>, String> {
+    Ok(crate::db::system_setting::claude_tiers(conn)
+        .await
+        .map_err(to_message)?
+        .iter()
+        .map(|t| t.model.clone())
+        .collect())
+}
+
+/// What Claude does for each size of job — one setting for both ways of
+/// reaching it.
+///
+/// Saving also writes the three models onto every Claude provider, because
+/// that list is what the router indexes to pick a model. Deriving it here
+/// keeps one source of truth: the setting is the answer, and the provider row
+/// is a consequence of it rather than a second place to disagree.
+#[tauri::command]
+pub async fn get_claude_tiers(
+    db: State<'_, AppDb>,
+) -> Result<Vec<crate::db::system_setting::ClaudeTier>, String> {
+    let conn = db.0.lock().await;
+    crate::db::system_setting::claude_tiers(&conn)
+        .await
+        .map(|t| t.to_vec())
+        .map_err(to_message)
+}
+
+#[tauri::command]
+pub async fn set_claude_tiers(
+    db: State<'_, AppDb>,
+    tiers: Vec<crate::db::system_setting::ClaudeTier>,
+) -> Result<(), String> {
+    let three: crate::db::system_setting::ClaudeTiers = tiers
+        .try_into()
+        .map_err(|_| "there must be exactly three: low, medium and high".to_string())?;
+
+    let conn = db.0.lock().await;
+    crate::db::system_setting::set_claude_tiers(&conn, &three)
+        .await
+        .map_err(to_message)?;
+
+    // The router picks a model by indexing the provider's own list, so the
+    // setting is pushed out to every Claude provider rather than being read
+    // in a second place at call time.
+    let models: Vec<String> = three.iter().map(|t| t.model.clone()).collect();
+    for provider in ai_provider::list_all(&conn).await.map_err(to_message)? {
+        if provider.kind == "anthropic" || provider.kind == "claudeCode" {
+            ai_provider::set_models(&conn, provider.id, &models)
+                .await
+                .map_err(to_message)?;
+        }
+    }
+    Ok(())
+}
+
 /// Whether calls that cost money may be made at all.
 ///
 /// Off until somebody says otherwise. A Claude plan and API credits are
@@ -228,16 +284,13 @@ pub async fn add_claude_code_provider(
     db: State<'_, AppDb>,
     name: String,
     executable: String,
-    models: Vec<String>,
 ) -> Result<i64, String> {
-    if models.is_empty() {
-        return Err("name at least one model, for example claude-opus-5".into());
-    }
     crate::ai::claude_code::version(&executable).await?;
 
     let alias = format!("coperativeai/{}", name.trim().to_lowercase().replace(' ', "-"));
-    let model_refs: Vec<&str> = models.iter().map(String::as_str).collect();
     let conn = db.0.lock().await;
+    let models = tier_models(&conn).await?;
+    let model_refs: Vec<&str> = models.iter().map(String::as_str).collect();
     ai_provider::add_of_kind(
         &conn,
         &name,
@@ -263,7 +316,6 @@ pub async fn add_ai_provider(
     db: State<'_, AppDb>,
     name: String,
     api_base_url: String,
-    models: Vec<String>,
     api_key: String,
 ) -> Result<i64, String> {
     if api_key.trim().is_empty() {
@@ -271,6 +323,10 @@ pub async fn add_ai_provider(
     }
     let alias = format!("coperativeai/{}", name.trim().to_lowercase().replace(' ', "-"));
     let conn = db.0.lock().await;
+    // Which models this provider offers is the Complexity setting's answer, not
+    // a second one collected here — two places to say it is two places to
+    // disagree.
+    let models = tier_models(&conn).await?;
     let model_refs: Vec<&str> = models.iter().map(String::as_str).collect();
     let id = ai_provider::add(&conn, &name, &api_base_url, &model_refs, &alias)
         .await

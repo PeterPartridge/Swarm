@@ -1200,10 +1200,14 @@ export const generateDeliverableWork = (
 // AI providers (keys live in the OS credential store — never returned)
 export const listAiProviders = (): Promise<AiProvider[]> =>
   invoke("list_ai_providers");
+/** Adds a metered Claude API provider.
+ *
+ *  No models argument: which models this offers is the Complexity setting's
+ *  answer, read on the backend. Two places to say it would be two places to
+ *  disagree. */
 export const addAiProvider = (args: {
   name: string;
   apiBaseUrl: string;
-  models: string[];
   apiKey: string;
 }): Promise<number> => invoke("add_ai_provider", args);
 /** Adds a local Ollama provider — no key, not metered; models are read from
@@ -1285,9 +1289,8 @@ export const installClaudeCode = (): Promise<string> =>
 export const addClaudeCodeProvider = (
   name: string,
   executable: string,
-  models: string[],
 ): Promise<number> =>
-  invoke("add_claude_code_provider", { name, executable, models });
+  invoke("add_claude_code_provider", { name, executable });
 export const removeAiProvider = (id: number): Promise<void> =>
   invoke("remove_ai_provider", { id });
 export const testAiProvider = (id: number): Promise<string> =>
@@ -2064,3 +2067,24 @@ export const createSolutionFolder = (
   solutionId: number,
   path: string,
 ): Promise<void> => invoke("create_solution_folder", { solutionId, path });
+
+/** What Claude does for one size of job. */
+export interface ClaudeTier {
+  model: string;
+  /** "low" | "medium" | "high" — the API's own `output_config.effort`. */
+  effort: string;
+}
+
+/** The three complexities, in order: low, medium, high.
+ *
+ *  **One setting for both ways of reaching Claude.** The API and a plan reach
+ *  the same models, so asking twice invited them to drift — nobody wants "high
+ *  complexity" to mean one thing through the API and another through the plan.
+ *
+ *  Saving also writes the models onto every Claude provider, because that list
+ *  is what the router indexes. The setting is the answer; the provider row is a
+ *  consequence of it. */
+export const getClaudeTiers = (): Promise<ClaudeTier[]> =>
+  invoke("get_claude_tiers");
+export const setClaudeTiers = (tiers: ClaudeTier[]): Promise<void> =>
+  invoke("set_claude_tiers", { tiers });

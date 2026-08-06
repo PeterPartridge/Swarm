@@ -167,7 +167,7 @@ pub async fn generate_solution_strategy(
 ) -> Result<super::work_items::GenerationResult, String> {
     const PURPOSE: &str = "solutionStrategy";
 
-    let (routed, prompt, product_id, disallowed, allowed, effort_tier) = {
+    let (routed, prompt, product_id, disallowed, allowed) = {
         let conn = db.0.lock().await;
         let Some(item) = work_item::find_by_id(&conn, work_item_id)
             .await
@@ -225,7 +225,6 @@ pub async fn generate_solution_strategy(
             product_id,
             rules.disallowed_tech,
             rules.allowed_tech,
-            effort_tier,
         )
     };
 
@@ -233,7 +232,7 @@ pub async fn generate_solution_strategy(
     // Dispatched by provider kind, so a budget handover mid-design reaches the
     // local model in its own request shape rather than failing.
     let result =
-        backend::generate_solution_strategy(&routed.provider, &routed.model, &effort_tier, &prompt)
+        backend::generate_solution_strategy(&routed.provider, &routed.model, &routed.effort, &prompt)
             .await;
     let latency_ms = started.elapsed().as_millis() as i64;
 

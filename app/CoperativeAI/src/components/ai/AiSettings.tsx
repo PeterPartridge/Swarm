@@ -1,6 +1,5 @@
 import SectionTabs from "../common/SectionTabs";
-import ModelTierPicker from "./ModelTierPicker";
-import { modelsForTiers } from "../../lib/models";
+import ClaudeTiers from "./ClaudeTiers";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   addAiProvider,
@@ -23,11 +22,6 @@ export default function AiSettings() {
   const [notice, setNotice] = useState<string | null>(null);
   const [name, setName] = useState(DEFAULT_PROVIDER.name);
   const [apiBaseUrl, setApiBaseUrl] = useState(DEFAULT_PROVIDER.apiBaseUrl);
-  const [tiers, setTiers] = useState({
-    low: "claude-sonnet-5",
-    medium: "claude-sonnet-5",
-    high: "claude-fable-5",
-  });
   const [apiKey, setApiKey] = useState("");
   const [ollamaName, setOllamaName] = useState("Ollama (local)");
   const [ollamaUrl, setOllamaUrl] = useState(DEFAULT_OLLAMA_URL);
@@ -36,11 +30,6 @@ export default function AiSettings() {
   const [cloudKey, setCloudKey] = useState("");
   const [cliName, setCliName] = useState("Claude Code (my plan)");
   const [cliExe, setCliExe] = useState("");
-  const [cliTiers, setCliTiers] = useState({
-    low: "claude-sonnet-5",
-    medium: "claude-sonnet-5",
-    high: "claude-fable-5",
-  });
   /// Which provider family is showing. Claude and Ollama are different
   /// purchases with different setup, and one page of four forms made you read
   /// all of them to find the one you wanted.
@@ -66,7 +55,6 @@ export default function AiSettings() {
       await addAiProvider({
         name,
         apiBaseUrl,
-        models: modelsForTiers(tiers.low, tiers.medium, tiers.high),
         apiKey,
       });
       setApiKey(""); // the key leaves the form for the credential store
@@ -108,11 +96,7 @@ export default function AiSettings() {
     e.preventDefault();
     if (!cliName.trim()) return;
     try {
-      await addClaudeCodeProvider(
-        cliName,
-        cliExe,
-        modelsForTiers(cliTiers.low, cliTiers.medium, cliTiers.high),
-      );
+      await addClaudeCodeProvider(cliName, cliExe);
       setNotice(null);
       setError(null);
       await refresh();
@@ -160,6 +144,7 @@ export default function AiSettings() {
 
       {family === "claude" && (
         <>
+      <ClaudeTiers />
       <form onSubmit={onAdd} aria-label="Add AI provider">
         <input
           aria-label="Provider name"
@@ -173,7 +158,6 @@ export default function AiSettings() {
           value={apiBaseUrl}
           onChange={(e) => setApiBaseUrl(e.target.value)}
         />
-        <ModelTierPicker value={tiers} onChange={setTiers} />
         <input
           aria-label="API key"
           type="password"
@@ -206,7 +190,6 @@ export default function AiSettings() {
           value={cliExe}
           onChange={(e) => setCliExe(e.target.value)}
         />
-        <ModelTierPicker value={cliTiers} onChange={setCliTiers} />
         <button type="submit">Add Claude Code</button>
       </form>
 

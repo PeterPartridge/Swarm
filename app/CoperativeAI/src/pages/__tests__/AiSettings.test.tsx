@@ -15,6 +15,8 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     addAiProvider: vi.fn(),
     removeAiProvider: vi.fn(),
     testAiProvider: vi.fn(),
+    getClaudeTiers: vi.fn(),
+    setClaudeTiers: vi.fn(),
   };
 });
 
@@ -45,6 +47,15 @@ describe("AiSettings", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocked.listAiProviders.mockResolvedValue([provider]);
+    // The Complexity setting now sits at the top of the Claude tab; left
+    // unmocked it falls through to the real invoke and renders an error alert
+    // that collides with the alerts these tests assert on.
+    mocked.getClaudeTiers.mockResolvedValue([
+      { model: "claude-sonnet-5", effort: "low" },
+      { model: "claude-sonnet-5", effort: "medium" },
+      { model: "claude-fable-5", effort: "high" },
+    ]);
+    mocked.setClaudeTiers.mockResolvedValue(undefined);
   });
 
   it("shows providers with key stored state, never the key value", async () => {
@@ -66,9 +77,6 @@ describe("AiSettings", () => {
       expect(mocked.addAiProvider).toHaveBeenCalledWith({
         name: "Claude",
         apiBaseUrl: "https://api.anthropic.com",
-        // one per effort tier, in the order ai::tiering indexes: low, medium,
-        // high — the defaults the Project brief asks for
-        models: ["claude-sonnet-5", "claude-sonnet-5", "claude-fable-5"],
         apiKey: "sk-test-key",
       }),
     );

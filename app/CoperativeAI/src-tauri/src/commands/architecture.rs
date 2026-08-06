@@ -158,7 +158,7 @@ pub async fn generate_architecture_doc(
 
     const PURPOSE: &str = "architectureDoc";
 
-    let (routed, prompt, effort_tier) = {
+    let (routed, prompt) = {
         let conn = db.0.lock().await;
         let Some(product_row) = product::find_by_id(&conn, product_id)
             .await
@@ -241,14 +241,14 @@ pub async fn generate_architecture_doc(
             &format,
             &brief,
         );
-        (routed, prompt, policy.effort_tier)
+        (routed, prompt)
     };
 
     let started = std::time::Instant::now();
     let result = backend::generate_diagram(
         &routed.provider,
         &routed.model,
-        &effort_tier,
+        &routed.effort,
         &prompt,
         &format,
     )

@@ -70,7 +70,6 @@ export default function ClaudeSetup({ productId }: { productId: number }) {
   /// than being the whole of it.
   const [paidAllowed, setPaidAllowed] = useState(false);
   const [executable, setExecutable] = useState("");
-  const [models, setModels] = useState("claude-opus-5");
 
   const refresh = useCallback(async () => {
     try {
@@ -157,11 +156,7 @@ export default function ClaudeSetup({ productId }: { productId: number }) {
       let providerId = cliProvider?.id ?? null;
       if (providerId === null) {
         setStage("provider");
-        providerId = await addClaudeCodeProvider(
-          "Claude Code (my plan)",
-          executable,
-          models.split(",").map((m) => m.trim()).filter(Boolean),
-        );
+        providerId = await addClaudeCodeProvider("Claude Code (my plan)", executable);
       }
 
       setStage("order");
@@ -369,19 +364,6 @@ export default function ClaudeSetup({ productId }: { productId: number }) {
           path only when the install is somewhere a terminal cannot find.
         </p>
 
-        <label>
-          Models, cheapest first
-          <input
-            aria-label="Claude Code models"
-            placeholder="claude-opus-5"
-            value={models}
-            onChange={(e) => setModels(e.target.value)}
-          />
-        </label>
-        <p className="hint">
-          A work item's effort tier picks from this order — low takes the first,
-          high the last — so the ordering decides what each task reaches for.
-        </p>
 
         <h4>What the button does, and what it will not</h4>
         <ul className="hint">

@@ -4317,3 +4317,29 @@ code {
   display: flex;
   gap: 0.3rem;
 }
+
+/* The Complexity setting: one row per size of job, two choices in each. */
+.claude-tier {
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.claude-tier-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.3rem;
+}
+
+.claude-tier-choices label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.8rem;
+}
+
+.claude-tier-note {
+  margin: 0.3rem 0 0;
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+}

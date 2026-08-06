@@ -199,7 +199,7 @@ pub(crate) async fn run_change_plan(
 
     const PURPOSE: &str = "changePlan";
 
-    let (routed, prompt, effort_tier, product_id, plans, solution_names, images, skipped, unassigned) = {
+    let (routed, prompt, product_id, plans, solution_names, images, skipped, unassigned) = {
         let conn = db.0.lock().await;
         let Some(item) = work_item::find_by_id(&conn, work_item_id)
             .await
@@ -385,12 +385,12 @@ pub(crate) async fn run_change_plan(
                 )
             })
             .collect();
-        (routed, prompt, effort_tier, product_id, plans, names, images, skipped, unassigned)
+        (routed, prompt, product_id, plans, names, images, skipped, unassigned)
     };
 
     let started = std::time::Instant::now();
     let result = backend::generate_change_plan(
-        &routed.provider, &routed.model, &effort_tier, &prompt, &images,
+        &routed.provider, &routed.model, &routed.effort, &prompt, &images,
     )
     .await;
     let latency_ms = started.elapsed().as_millis() as i64;

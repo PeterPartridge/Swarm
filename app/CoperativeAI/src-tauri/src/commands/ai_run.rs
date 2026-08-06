@@ -15,7 +15,7 @@ use super::to_message;
 use crate::ai::client::Usage;
 use crate::ai::router::{self, BudgetState, Decision, ProviderOption};
 use crate::db::ai_usage::{self, Exchange, TokenCounts};
-use crate::db::{ai_provider, model_install, model_price, product_budget};
+use crate::db::{ai_provider, model_install, model_price, product_budget, system_setting};
 use crate::db::ai_provider::AiProvider;
 use turso::Connection;
 
@@ -24,6 +24,11 @@ use turso::Connection;
 pub(crate) struct Routed {
     pub provider: AiProvider,
     pub model: String,
+    /// How hard the model should think, for the complexity this call was
+    /// planned at. Resolved here rather than passed straight through, so the
+    /// work item says *how hard the job is* and Admin says *what to do about
+    /// it* — two different decisions that were previously one word.
+    pub effort: String,
     /// Plain-English explanation, shown to the user with the result.
     pub reason: String,
 }
@@ -108,9 +113,22 @@ pub(crate) async fn plan(
                 ));
             }
 
+            // For Claude, the Admin setting decides both: it holds a model
+            // and an effort per complexity, shared by the API and the plan so
+            // "high" cannot mean two different things depending on how the
+            // call happens to be paid for. Other providers keep the word they
+            // were given — Ollama has no effort parameter to set.
+            let effort = if provider.kind == "anthropic" || provider.kind == "claudeCode" {
+                let tiers = system_setting::claude_tiers(conn).await.map_err(to_message)?;
+                system_setting::tier_for(&tiers, effort).effort
+            } else {
+                effort.to_string()
+            };
+
             Ok(Routed {
                 provider,
                 model,
+                effort,
                 reason,
             })
         }

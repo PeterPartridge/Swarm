@@ -236,6 +236,8 @@ fn main() {
             commands::ai_settings::claude_code_status,
             commands::ai_settings::install_claude_code,
             commands::ai_settings::get_paid_api_allowed,
+            commands::ai_settings::get_claude_tiers,
+            commands::ai_settings::set_claude_tiers,
             commands::ai_settings::set_paid_api_allowed,
             commands::ai_settings::remove_ai_provider,
             commands::ai_settings::test_ai_provider,

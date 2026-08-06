@@ -16,6 +16,8 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     setProductBudget: vi.fn(),
     getPaidApiAllowed: vi.fn(),
     setPaidApiAllowed: vi.fn(),
+    getClaudeTiers: vi.fn(),
+    setClaudeTiers: vi.fn(),
   };
 });
 
@@ -58,6 +60,14 @@ const budget = (chain: number[]) => ({
 describe("ClaudeSetup", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // AiSettings lives inside this panel's Advanced fold and brings the
+    // Complexity setting with it; unmocked it renders a second alert.
+    mocked.getClaudeTiers.mockResolvedValue([
+      { model: "claude-sonnet-5", effort: "low" },
+      { model: "claude-sonnet-5", effort: "medium" },
+      { model: "claude-fable-5", effort: "high" },
+    ]);
+    mocked.setClaudeTiers.mockResolvedValue(undefined);
     mocked.listAiProviders.mockResolvedValue([]);
     mocked.getProductBudget.mockResolvedValue(budget([]));
     // Off is the shipped default; the tests that need the API turn it on.
@@ -286,6 +296,14 @@ describe("ClaudeSetup", () => {
 describe("the paid-calls switch", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // AiSettings lives inside this panel's Advanced fold and brings the
+    // Complexity setting with it; unmocked it renders a second alert.
+    mocked.getClaudeTiers.mockResolvedValue([
+      { model: "claude-sonnet-5", effort: "low" },
+      { model: "claude-sonnet-5", effort: "medium" },
+      { model: "claude-fable-5", effort: "high" },
+    ]);
+    mocked.setClaudeTiers.mockResolvedValue(undefined);
     mocked.listAiProviders.mockResolvedValue([]);
     mocked.getProductBudget.mockResolvedValue(budget([]));
     mocked.setPaidApiAllowed.mockResolvedValue(undefined);

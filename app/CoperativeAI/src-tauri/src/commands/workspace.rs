@@ -143,7 +143,7 @@ pub async fn ask_coding_pal(
         ));
     }
 
-    let (routed, prompt, effort_tier, product_id, disallowed) = {
+    let (routed, prompt, product_id, disallowed) = {
         let conn = db.0.lock().await;
         let Some(solution_row) = solution::find_by_id(&conn, solution_id)
             .await
@@ -189,12 +189,12 @@ pub async fn ask_coding_pal(
             &instruction,
             selection.as_deref(),
         );
-        (routed, prompt, policy.effort_tier, product_id, disallowed)
+        (routed, prompt, product_id, disallowed)
     };
 
     let started = std::time::Instant::now();
     let result =
-        backend::generate_pal(&routed.provider, &routed.model, &effort_tier, &prompt).await;
+        backend::generate_pal(&routed.provider, &routed.model, &routed.effort, &prompt).await;
     let latency_ms = started.elapsed().as_millis() as i64;
 
     match result {

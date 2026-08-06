@@ -115,6 +115,82 @@ pub async fn set_paid_api_allowed(conn: &Connection, allowed: bool) -> Result<()
     set(conn, API_USAGE_KEY, &json).await
 }
 
+/// What Claude does for each size of job: which model, and how hard it thinks.
+///
+/// **One setting, not one per provider.** A Claude API provider and Claude Code
+/// on a plan are two ways of reaching the same models, so asking for the choice
+/// twice invited them to drift apart — and nobody wants "high complexity" to
+/// mean one thing through the API and another through the plan.
+///
+/// Complexity comes from the work item; this says what to do about it. Keeping
+/// the two apart is the point: a work item's author knows the job is hard, and
+/// this page decides what "hard" costs.
+pub const CLAUDE_TIERS_KEY: &str = "claudeTiers";
+
+/// The efforts the Messages API accepts, cheapest first. Fixed rather than
+/// free text: `output_config.effort` rejects anything else, and a typo there
+/// fails the call rather than degrading.
+pub const EFFORTS: &[&str] = &["low", "medium", "high"];
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ClaudeTier {
+    pub model: String,
+    pub effort: String,
+}
+
+/// Low, medium and high, in that order — the same order `ai::tiering` indexes.
+pub type ClaudeTiers = [ClaudeTier; 3];
+
+/// The Project brief's own answer, used until somebody changes it: Sonnet for
+/// small and everyday work, Fable for architecture and complex UI.
+pub fn default_claude_tiers() -> ClaudeTiers {
+    [
+        ClaudeTier { model: "claude-sonnet-5".into(), effort: "low".into() },
+        ClaudeTier { model: "claude-sonnet-5".into(), effort: "medium".into() },
+        ClaudeTier { model: "claude-fable-5".into(), effort: "high".into() },
+    ]
+}
+
+pub async fn claude_tiers(conn: &Connection) -> Result<ClaudeTiers> {
+    Ok(match get(conn, CLAUDE_TIERS_KEY).await? {
+        // A stored value that will not parse is treated as unset rather than
+        // fatal: the defaults work, and refusing to run over a bad settings row
+        // would be a worse failure than quietly using them.
+        Some(json) => serde_json::from_str::<ClaudeTiers>(&json)
+            .unwrap_or_else(|_| default_claude_tiers()),
+        None => default_claude_tiers(),
+    })
+}
+
+pub async fn set_claude_tiers(conn: &Connection, tiers: &ClaudeTiers) -> Result<()> {
+    for tier in tiers {
+        if tier.model.trim().is_empty() {
+            return Err(DbError::Validation("every complexity needs a model".into()));
+        }
+        if !EFFORTS.contains(&tier.effort.as_str()) {
+            return Err(DbError::Validation(format!(
+                "effort must be one of {EFFORTS:?}, got '{}'",
+                tier.effort
+            )));
+        }
+    }
+    let json = serde_json::to_string(tiers).expect("tiers serialize");
+    set(conn, CLAUDE_TIERS_KEY, &json).await
+}
+
+/// The model and effort for one complexity.
+///
+/// An unknown word is treated as `low` — the cautious choice, and the same rule
+/// `ai::tiering` already uses for a tier it does not recognise.
+pub fn tier_for(tiers: &ClaudeTiers, complexity: &str) -> ClaudeTier {
+    let index = match complexity {
+        "high" => 2,
+        "medium" => 1,
+        _ => 0,
+    };
+    tiers[index].clone()
+}
+
 pub async fn ai_concurrency(conn: &Connection) -> Result<i64> {
     let raw = match get(conn, AI_CONCURRENCY_KEY).await? {
         Some(json) => serde_json::from_str::<i64>(&json).unwrap_or(AI_CONCURRENCY_DEFAULT),
