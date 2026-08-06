@@ -2,6 +2,7 @@
 //! what has changed in it against the developer rules.
 
 use super::{to_message, AppDb};
+use crate::db::ai_usage::Exchange;
 use crate::db::{developer_rules, solution};
 use crate::agent::review;
 use crate::files::workspace;
@@ -184,6 +185,8 @@ pub async fn ask_coding_pal(
             ai_run::record(
                 &conn, product_id, None, &routed.provider, &routed.model,
                 PURPOSE, &usage, latency_ms, "ok",
+            
+                Exchange::default(),
             )
             .await;
             // Checked two ways, both against what the proposal would introduce:
@@ -213,6 +216,8 @@ pub async fn ask_coding_pal(
             ai_run::record(
                 &conn, product_id, None, &routed.provider, &routed.model,
                 PURPOSE, &usage, latency_ms, "declined",
+            
+                Exchange::default(),
             )
             .await;
             Ok(PalDto {
@@ -235,6 +240,8 @@ pub async fn ask_coding_pal(
             ai_run::record(
                 &conn, product_id, None, &routed.provider, &routed.model,
                 PURPOSE, &Default::default(), latency_ms, outcome,
+            
+                Exchange::default(),
             )
             .await;
             Err(e)

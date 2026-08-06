@@ -7,14 +7,18 @@
 //! credits cannot use [`crate::ai::client`] at all — but they can use this,
 //! because the CLI is what their subscription already covers.
 //!
-//! **The cost consequence, which is deliberate.** Nothing here reports token
-//! counts or a price: the CLI bills against the plan's allowance, and the app
-//! cannot see how much of that allowance a call consumed. [`Usage`] therefore
-//! comes back zero, exactly as it does for a local model, and providers of this
-//! kind are stored `metered: false`. That is not a claim the call was free — it
-//! is the app refusing to invent a figure it has no way to know. The same rule
-//! already governs the handover path, which shows no spend for work Claude Code
-//! did.
+//! **Tokens yes, money no — and the difference is the point.** Asking for
+//! `--output-format json` gets real token counts back, so "this month went
+//! through four million tokens on the plan" is an answer the app can honestly
+//! give. What it still will not do is turn that into a price: the plan's
+//! allowance is charged where this process cannot see it, and there is no
+//! per-token rate to multiply by. Providers of this kind stay
+//! `metered: false` — not a claim the call was free, but a refusal to invent a
+//! figure. The same rule governs the handover path, which shows no spend for
+//! work Claude Code did.
+//!
+//! An older CLI that ignores `--output-format` still works: the reply is read
+//! as plain text and the counts stay zero, which is where they were before.
 //!
 //! **Why the prompt asks for JSON instead of a schema parameter.** The API
 //! constrains output with `output_config.format`; the CLI has no equivalent we
@@ -29,6 +33,7 @@ use crate::ai::client::{
     GeneratedPal, GeneratedStrategy, Prompt, Usage,
 };
 use crate::ai::ollama;
+use serde::Deserialize;
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
@@ -390,6 +395,10 @@ async fn print_turn(
     let mut command = tokio::process::Command::new(&exe);
     command
         .arg("--print")
+        // Asked for so the reply carries token counts. `read_output` treats
+        // anything that is not an envelope as a plain reply, so an older CLI
+        // that ignores this keeps working with counts at zero.
+        .args(["--output-format", "json"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -460,6 +469,62 @@ fn unmetered() -> Usage {
     }
 }
 
+/// What `--output-format json` wraps a reply in, when it is used.
+///
+/// **Read defensively, because this shape is not ours.** Asking for JSON is how
+/// token counts become available at all — plain `--print` reports none — but the
+/// envelope belongs to the CLI and can change under us. So every field is
+/// optional, and anything that does not look like an envelope is treated as a
+/// plain reply rather than an error. The worst case is the counts stay zero,
+/// which is exactly where they were before.
+#[derive(Deserialize, Default)]
+struct CliEnvelope {
+    #[serde(default)]
+    result: Option<String>,
+    #[serde(default)]
+    usage: Option<CliUsage>,
+}
+
+#[derive(Deserialize, Default)]
+struct CliUsage {
+    #[serde(default)]
+    input_tokens: i64,
+    #[serde(default)]
+    output_tokens: i64,
+    #[serde(default)]
+    cache_creation_input_tokens: i64,
+    #[serde(default)]
+    cache_read_input_tokens: i64,
+}
+
+/// The reply text and what it consumed, from whatever the CLI printed.
+///
+/// Tokens are worth having even though no price can be put on them: "this month
+/// went through four million tokens on the plan" is a real answer, and it is one
+/// the app can honestly give. What it still must not do is turn that into money
+/// — the allowance is charged where this process cannot see it.
+fn read_output(output: &str) -> (String, Usage) {
+    let Some(envelope) = extract_json(output)
+        .ok()
+        .and_then(|json| serde_json::from_str::<CliEnvelope>(json).ok())
+        .filter(|e| e.result.is_some())
+    else {
+        // Not an envelope — a plain reply, which is what `--print` alone gives.
+        return (output.to_string(), unmetered());
+    };
+
+    let usage = envelope.usage.unwrap_or_default();
+    (
+        envelope.result.unwrap_or_default(),
+        Usage {
+            input_tokens: usage.input_tokens,
+            output_tokens: usage.output_tokens,
+            cache_creation_input_tokens: usage.cache_creation_input_tokens,
+            cache_read_input_tokens: usage.cache_read_input_tokens,
+        },
+    )
+}
+
 /// Runs one turn and hands the JSON it printed to `parse`.
 async fn turn<T>(
     exe: &str,
@@ -469,8 +534,9 @@ async fn turn<T>(
     parse: fn(&str) -> Result<T, String>,
 ) -> Result<(T, Usage), String> {
     let output = print_turn(exe, model, prompt, schema).await?;
-    let json = extract_json(&output)?;
-    Ok((parse(json)?, unmetered()))
+    let (reply, usage) = read_output(&output);
+    let json = extract_json(&reply)?;
+    Ok((parse(json)?, usage))
 }
 
 pub async fn generate_stories(
@@ -517,8 +583,9 @@ pub async fn generate_diagram(
         task: format!("{}\n\nProduce the diagram as {format}.", prompt.task),
     };
     let output = print_turn(exe, model, &with_format, ollama::diagram_schema()).await?;
-    let json = extract_json(&output)?;
-    Ok((parse_diagram(json, format)?, unmetered()))
+    let (reply, usage) = read_output(&output);
+    let json = extract_json(&reply)?;
+    Ok((parse_diagram(json, format)?, usage))
 }
 
 pub async fn generate_pal(
@@ -649,9 +716,9 @@ mod tests {
     }
 
 
-    /// Usage is zero because the app cannot see what the subscription was
-    /// charged. Asserting it keeps a later "helpful" estimate from being added:
-    /// a made-up figure here would show up as real money in the ledger.
+    /// Usage is zero when nothing reported it. Asserting it keeps a later
+    /// "helpful" estimate from being added: a made-up figure here would show up
+    /// as real money in the ledger.
     #[test]
     fn nothing_is_reported_as_spent_because_nothing_can_be_known() {
         let usage = unmetered();
@@ -659,6 +726,49 @@ mod tests {
         assert_eq!(usage.output_tokens, 0);
         assert_eq!(usage.cache_creation_input_tokens, 0);
         assert_eq!(usage.cache_read_input_tokens, 0);
+    }
+
+    /// **Tokens come back when the CLI reports them.** Counting them is worth
+    /// doing even though no price can be put on them — "four million tokens
+    /// this month on the plan" is a real answer.
+    #[test]
+    fn the_json_envelope_yields_the_reply_and_its_token_counts() {
+        let output = r#"{"result":"{\"stories\":[]}","usage":{"input_tokens":120,"output_tokens":45,"cache_read_input_tokens":900}}"#;
+        let (reply, usage) = read_output(output);
+        assert_eq!(reply, r#"{"stories":[]}"#);
+        assert_eq!(usage.input_tokens, 120);
+        assert_eq!(usage.output_tokens, 45);
+        assert_eq!(usage.cache_read_input_tokens, 900);
+    }
+
+    /// **An older CLI that ignores the flag must still work.** Plain output is
+    /// not an envelope, so it is the reply — with counts at zero, which is
+    /// where they were before any of this.
+    #[test]
+    fn plain_output_is_still_read_as_the_reply() {
+        let output = r#"Here you go: {"stories":[]}"#;
+        let (reply, usage) = read_output(output);
+        assert_eq!(reply, output, "the whole thing is the reply");
+        assert_eq!(usage.input_tokens, 0);
+        assert_eq!(usage.output_tokens, 0);
+    }
+
+    /// An envelope missing its usage block is still an envelope. Counts stay
+    /// zero rather than the reply being thrown away over a missing field.
+    #[test]
+    fn an_envelope_without_usage_still_gives_up_its_reply() {
+        let (reply, usage) = read_output(r#"{"result":"{\"a\":1}"}"#);
+        assert_eq!(reply, r#"{"a":1}"#);
+        assert_eq!(usage.output_tokens, 0);
+    }
+
+    /// A JSON reply that is *not* an envelope — no `result` field — must not be
+    /// mistaken for one, or the model's own answer would be discarded.
+    #[test]
+    fn a_bare_json_reply_is_not_mistaken_for_an_envelope() {
+        let output = r#"{"stories":[{"title":"a","description":"b"}]}"#;
+        let (reply, _) = read_output(output);
+        assert_eq!(reply, output);
     }
 
     /// Mockups cannot ride along, and the caller is told rather than getting a

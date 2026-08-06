@@ -2,6 +2,8 @@
 //! `db::work_item` module (see its unit tests for the behaviour).
 
 use super::{to_message, AppDb};
+use crate::commands::ai_run::asked;
+use crate::db::ai_usage::Exchange;
 use crate::db::work_item::{self, WorkItem};
 use crate::db::{system_setting, work_item_policy};
 use serde::Serialize;
@@ -313,6 +315,8 @@ pub async fn generate_user_stories(
             ai_run::record(
                 &conn, product_id, Some(feature_id), &routed.provider, &routed.model,
                 PURPOSE, &usage, latency_ms, "ok",
+            
+                Exchange::new(&asked(&prompt), &listed(&drafts)),
             )
             .await;
             drafts
@@ -325,6 +329,9 @@ pub async fn generate_user_stories(
             ai_run::record(
                 &conn, product_id, Some(feature_id), &routed.provider, &routed.model,
                 PURPOSE, &usage, latency_ms, "declined",
+            
+                Exchange::new(&asked(&prompt), &format!("Declined: {reason}
+{what_is_needed}")),
             )
             .await;
             let feedback_id = crate::db::ai_feedback::record(
@@ -346,6 +353,8 @@ pub async fn generate_user_stories(
             ai_run::record(
                 &conn, product_id, Some(feature_id), &routed.provider, &routed.model,
                 PURPOSE, &Default::default(), latency_ms, outcome,
+            
+                Exchange::new(&asked(&prompt), &e),
             )
             .await;
             return Err(e);
@@ -608,6 +617,8 @@ pub async fn generate_deliverable_work(
             ai_run::record(
                 &conn, product_id, None, &routed.provider, &routed.model,
                 PURPOSE, &usage, latency_ms, "ok",
+            
+                Exchange::new(&asked(&prompt), &listed(&drafts)),
             )
             .await;
             drafts
@@ -620,6 +631,9 @@ pub async fn generate_deliverable_work(
             ai_run::record(
                 &conn, product_id, None, &routed.provider, &routed.model,
                 PURPOSE, &usage, latency_ms, "declined",
+            
+                Exchange::new(&asked(&prompt), &format!("Declined: {reason}
+{what_is_needed}")),
             )
             .await;
             return Ok(GenerationResult {
@@ -636,6 +650,8 @@ pub async fn generate_deliverable_work(
             ai_run::record(
                 &conn, product_id, None, &routed.provider, &routed.model,
                 PURPOSE, &Default::default(), latency_ms, outcome,
+            
+                Exchange::new(&asked(&prompt), &e),
             )
             .await;
             return Err(e);
@@ -685,6 +701,22 @@ fn human_level(item_type: &str) -> &'static str {
         "task" => "task",
         _ => "feature",
     }
+}
+
+/// What came back, as a line per draft.
+///
+/// The parsed result rather than the provider's raw JSON: the raw text is
+/// mostly schema scaffolding, and what somebody reading the log wants to know
+/// is what the model actually proposed.
+fn listed(drafts: &[crate::ai::client::StoryDraft]) -> String {
+    if drafts.is_empty() {
+        return "Nothing came back.".into();
+    }
+    drafts
+        .iter()
+        .map(|d| format!("- {}: {}", d.title, d.description))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[cfg(test)]

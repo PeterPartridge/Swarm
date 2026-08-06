@@ -11,6 +11,7 @@ use crate::ai::backend;
 use crate::ai::client::{Prompt, Usage};
 use crate::ai::validation::{self, ValidationReport};
 use crate::commands::ai_run;
+use crate::db::ai_usage::Exchange;
 use crate::db::{
     ai_provider, ai_usage, developer_rules, model_install, product, product_budget,
     solution_management, strategy,
@@ -248,6 +249,8 @@ pub async fn install_model(
             &usage,
             latency_ms,
             if report.passed { "ok" } else { "declined" },
+        
+            Exchange::default(),
         )
         .await;
     }

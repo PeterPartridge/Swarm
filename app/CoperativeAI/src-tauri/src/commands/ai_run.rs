@@ -8,12 +8,13 @@
 //!    if the budget says no.
 //! 2. the caller makes the network call **without the lock held**, so the rest
 //!    of the app stays responsive.
-//! 3. `record()` — under the lock again: price the tokens and write the ledger.
+//! 3. `record()` — under the lock again: price the tokens, write the ledger,
+//!    and keep the exchange so the log is the back and forth, not just a tally.
 
 use super::to_message;
 use crate::ai::client::Usage;
 use crate::ai::router::{self, BudgetState, Decision, ProviderOption};
-use crate::db::ai_usage::{self, TokenCounts};
+use crate::db::ai_usage::{self, Exchange, TokenCounts};
 use crate::db::{ai_provider, model_install, model_price, product_budget};
 use crate::db::ai_provider::AiProvider;
 use turso::Connection;
@@ -97,7 +98,7 @@ pub(crate) async fn plan(
             {
                 let _ = ai_usage::record(
                     conn, Some(product_id), None, Some(provider.id), &model, purpose,
-                    TokenCounts::default(), 0, 0, "blocked",
+                    TokenCounts::default(), 0, 0, "blocked", Exchange::default(),
                 )
                 .await;
                 return Err(format!(
@@ -126,6 +127,7 @@ pub(crate) async fn plan(
                 0,
                 0,
                 "blocked",
+                Exchange::default(),
             )
             .await;
             Err(reason)
@@ -147,6 +149,9 @@ pub(crate) async fn record(
     usage: &Usage,
     latency_ms: i64,
     outcome: &str,
+    // `exchange`: what was asked and what came back, so the log is the back and
+    // forth rather than only a tally. Capped by `Exchange::new`.
+    exchange: Exchange,
 ) {
     let tokens = TokenCounts {
         input_tokens: usage.input_tokens,
@@ -172,8 +177,18 @@ pub(crate) async fn record(
         cost,
         latency_ms,
         outcome,
+        exchange,
     )
     .await;
+}
+
+/// The two halves of a prompt as one readable block, for the log.
+///
+/// The provider sees them as separate messages — the context is cached and the
+/// task is not — but a person reading back what was asked wants the whole
+/// thing, in the order it was sent.
+pub(crate) fn asked(prompt: &crate::ai::client::Prompt) -> String {
+    format!("{}\n\n{}", prompt.context, prompt.task)
 }
 
 #[cfg(test)]
@@ -211,7 +226,7 @@ mod tests {
             record(
                 &conn, product_id, None, &provider, "haiku", purpose,
                 &Usage { input_tokens: 10, output_tokens: 5, ..Default::default() },
-                1, "ok",
+                1, "ok", Exchange::default(),
             )
             .await;
         }
@@ -313,7 +328,7 @@ mod tests {
         // 95% of the AI budget already spent
         ai_usage::record(
             &conn, Some(product_id), None, Some(claude_id), "haiku", "storyGeneration",
-            TokenCounts::default(), 950_000, 10, "ok",
+            TokenCounts::default(), 950_000, 10, "ok", Exchange::default(),
         )
         .await
         .expect("record");
@@ -374,7 +389,7 @@ mod tests {
         .expect("budget");
         ai_usage::record(
             &conn, Some(product_id), None, Some(claude_id), "haiku", "storyGeneration",
-            TokenCounts::default(), 950_000, 10, "ok",
+            TokenCounts::default(), 950_000, 10, "ok", Exchange::default(),
         )
         .await
         .expect("record");
@@ -399,7 +414,7 @@ mod tests {
         .expect("budget");
         ai_usage::record(
             &conn, Some(product_id), None, Some(claude_id), "haiku", "storyGeneration",
-            TokenCounts::default(), 1_200_000, 10, "ok",
+            TokenCounts::default(), 1_200_000, 10, "ok", Exchange::default(),
         )
         .await
         .expect("record");
@@ -443,6 +458,7 @@ mod tests {
             },
             1234,
             "ok",
+            Exchange::default(),
         )
         .await;
 
@@ -466,6 +482,8 @@ mod tests {
             &conn, product_id, None, &provider, "llama3", "storyGeneration",
             &Usage { input_tokens: 10_000, output_tokens: 5_000, ..Default::default() },
             999, "ok",
+        
+            Exchange::default(),
         )
         .await;
 

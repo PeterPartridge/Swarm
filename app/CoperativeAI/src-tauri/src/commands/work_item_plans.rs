@@ -2,6 +2,7 @@
 //! converts that writing into schemas a developer can build from.
 
 use super::{to_message, AppDb};
+use crate::db::ai_usage::Exchange;
 use crate::db::{solution, work_item, work_item_plan};
 use serde::Serialize;
 use tauri::State;
@@ -400,6 +401,8 @@ pub(crate) async fn run_change_plan(
             ai_run::record(
                 &conn, product_id, Some(work_item_id), &routed.provider, &routed.model,
                 PURPOSE, &usage, latency_ms, "ok",
+            
+                Exchange::default(),
             )
             .await;
 
@@ -476,6 +479,8 @@ pub(crate) async fn run_change_plan(
             ai_run::record(
                 &conn, product_id, Some(work_item_id), &routed.provider, &routed.model,
                 PURPOSE, &usage, latency_ms, "declined",
+            
+                Exchange::default(),
             )
             .await;
             // Recorded against the item, so the question joins the others the
@@ -503,6 +508,8 @@ pub(crate) async fn run_change_plan(
             ai_run::record(
                 &conn, product_id, Some(work_item_id), &routed.provider, &routed.model,
                 PURPOSE, &Default::default(), latency_ms, outcome,
+            
+                Exchange::default(),
             )
             .await;
             Err(e)

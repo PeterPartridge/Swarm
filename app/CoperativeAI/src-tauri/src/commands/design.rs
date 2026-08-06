@@ -5,6 +5,7 @@
 //! rest of the platform — a new area does not get its own unmetered path.
 
 use super::{to_message, AppDb};
+use crate::db::ai_usage::Exchange;
 use crate::db::design_asset;
 use crate::design::figma;
 use serde::Serialize;
@@ -329,6 +330,8 @@ pub async fn generate_design_strategy(
             ai_run::record(
                 &conn, product_id, None, &routed.provider, &routed.model,
                 purpose, &usage, latency_ms, "ok",
+            
+                Exchange::default(),
             )
             .await;
 
@@ -410,6 +413,8 @@ pub async fn generate_design_strategy(
             ai_run::record(
                 &conn, product_id, None, &routed.provider, &routed.model,
                 purpose, &usage, latency_ms, "declined",
+            
+                Exchange::default(),
             )
             .await;
             Ok(super::work_items::GenerationResult {
@@ -430,6 +435,8 @@ pub async fn generate_design_strategy(
             ai_run::record(
                 &conn, product_id, None, &routed.provider, &routed.model,
                 purpose, &Default::default(), latency_ms, outcome,
+            
+                Exchange::default(),
             )
             .await;
             Err(e)

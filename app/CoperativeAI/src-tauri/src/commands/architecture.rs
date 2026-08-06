@@ -2,6 +2,7 @@
 //! depend on one another.
 
 use super::{to_message, AppDb};
+use crate::db::ai_usage::Exchange;
 use crate::db::{architecture_doc, repo_link};
 use serde::Serialize;
 use tauri::State;
@@ -260,6 +261,8 @@ pub async fn generate_architecture_doc(
             ai_run::record(
                 &conn, product_id, None, &routed.provider, &routed.model,
                 PURPOSE, &usage, latency_ms, "ok",
+            
+                Exchange::default(),
             )
             .await;
             // The store validates the notation. A model that returned prose has
@@ -292,6 +295,8 @@ pub async fn generate_architecture_doc(
             ai_run::record(
                 &conn, product_id, None, &routed.provider, &routed.model,
                 PURPOSE, &usage, latency_ms, "declined",
+            
+                Exchange::default(),
             )
             .await;
             Ok(super::work_items::GenerationResult {
@@ -312,6 +317,8 @@ pub async fn generate_architecture_doc(
             ai_run::record(
                 &conn, product_id, None, &routed.provider, &routed.model,
                 PURPOSE, &Default::default(), latency_ms, outcome,
+            
+                Exchange::default(),
             )
             .await;
             Err(e)

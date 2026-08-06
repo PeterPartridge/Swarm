@@ -4,6 +4,7 @@ use super::{to_message, AppDb};
 use crate::ai::backend;
 use crate::ai::client::{self, DeveloperRulesPrompt, GeneratedStrategy};
 use crate::commands::ai_run;
+use crate::db::ai_usage::Exchange;
 use crate::db::{ai_feedback, developer_rules, product, solution, solution_strategy, work_item};
 use serde::Serialize;
 use tauri::State;
@@ -242,6 +243,8 @@ pub async fn generate_solution_strategy(
             ai_run::record(
                 &conn, product_id, Some(work_item_id), &routed.provider, &routed.model,
                 PURPOSE, &usage, latency_ms, "ok",
+            
+                Exchange::default(),
             )
             .await;
             let options_json = serde_json::to_string(
@@ -319,6 +322,8 @@ pub async fn generate_solution_strategy(
             ai_run::record(
                 &conn, product_id, Some(work_item_id), &routed.provider, &routed.model,
                 PURPOSE, &usage, latency_ms, "declined",
+            
+                Exchange::default(),
             )
             .await;
             let feedback_id = ai_feedback::record(
@@ -343,6 +348,8 @@ pub async fn generate_solution_strategy(
             ai_run::record(
                 &conn, product_id, Some(work_item_id), &routed.provider, &routed.model,
                 PURPOSE, &Default::default(), latency_ms, "error",
+            
+                Exchange::default(),
             )
             .await;
             Err(e)
