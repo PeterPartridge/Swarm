@@ -594,6 +594,16 @@ export default function CodeEditor({
                 onChange={(e) => setNewName(e.target.value)}
               />
               <button
+                aria-label="Add a file or folder"
+                onClick={(e) => {
+                  const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  setAdding(null);
+                  setMenu({ x: box.left, y: box.bottom, dir: "" });
+                }}
+              >
+                Add…
+              </button>
+              <button
                 aria-label="Create file"
                 disabled={creating || newName.trim() === ""}
                 onClick={onCreate}
@@ -674,6 +684,24 @@ export default function CodeEditor({
                       y: e.clientY,
                       dir: folderOf(entry.path, entry.isDir),
                     });
+                  }}
+                  onKeyDown={(e) => {
+                    // The keyboard route to the same menu. Shift+F10 and the
+                    // Menu key are what every tree on this platform uses, so
+                    // this is the shortcut people already have rather than one
+                    // they would have to be told about.
+                    if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+                      e.preventDefault();
+                      const box = (e.target as HTMLElement).getBoundingClientRect();
+                      setAdding(null);
+                      // Anchored to the row rather than to a pointer there is
+                      // no position for.
+                      setMenu({
+                        x: box.left,
+                        y: box.bottom,
+                        dir: folderOf(entry.path, entry.isDir),
+                      });
+                    }
                   }}
                 >
                   {entry.isDir ? (

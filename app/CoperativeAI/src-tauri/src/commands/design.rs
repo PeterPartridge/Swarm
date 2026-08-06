@@ -331,7 +331,7 @@ pub async fn generate_design_strategy(
                 &conn, product_id, None, &routed.provider, &routed.model,
                 purpose, &usage, latency_ms, "ok",
             
-                Exchange::default(),
+                Exchange::new(&ai_run::asked(&prompt), &draft.strategy),
             )
             .await;
 
@@ -414,7 +414,14 @@ pub async fn generate_design_strategy(
                 &conn, product_id, None, &routed.provider, &routed.model,
                 purpose, &usage, latency_ms, "declined",
             
-                Exchange::default(),
+                Exchange::new(
+            
+                    &ai_run::asked(&prompt),
+            
+                    &format!("Declined: {reason}
+{what_is_needed}"),
+            
+                ),
             )
             .await;
             Ok(super::work_items::GenerationResult {
@@ -436,7 +443,7 @@ pub async fn generate_design_strategy(
                 &conn, product_id, None, &routed.provider, &routed.model,
                 purpose, &Default::default(), latency_ms, outcome,
             
-                Exchange::default(),
+                Exchange::new(&ai_run::asked(&prompt), &e),
             )
             .await;
             Err(e)

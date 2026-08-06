@@ -425,3 +425,58 @@ describe("CodeEditor", () => {
     );
   });
 });
+
+describe("reaching the file menu without a mouse", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocked.readSolutionTree.mockResolvedValue(tree);
+    mocked.suggestDevCommand.mockResolvedValue({
+      kind: "vite",
+      start: "npm run dev",
+      watch: "",
+      watchNeeds: "",
+      foundBy: "package.json",
+      custom: false,
+      watchReady: true,
+      unavailable: null,
+    } as never);
+    mocked.productChangedFiles.mockResolvedValue([]);
+  });
+
+  /// **Right-click was the only way in**, which makes the tree unusable for
+  /// anyone not driving a mouse. Shift+F10 and the Menu key are what every tree
+  /// on this platform already uses, so this is a shortcut people have rather
+  /// than one they must be told about.
+  it("opens the menu with Shift+F10 on a row", async () => {
+    render(<CodeEditor solutions={[solution()]} opened={solution()} />);
+
+    const folder = await screen.findByLabelText("Collapse src");
+    fireEvent.keyDown(folder, { key: "F10", shiftKey: true });
+
+    expect(await screen.findByRole("menu", { name: "File actions" })).toHaveTextContent(
+      "in src",
+    );
+  });
+
+  it("opens it with the Menu key too", async () => {
+    render(<CodeEditor solutions={[solution()]} opened={solution()} />);
+
+    fireEvent.keyDown(await screen.findByLabelText("Open README.md"), {
+      key: "ContextMenu",
+    });
+    // README.md is at the top level, so that is where a new thing would go.
+    expect(await screen.findByRole("menu", { name: "File actions" })).toHaveTextContent(
+      "the top level",
+    );
+  });
+
+  /// A shortcut nobody knows about is not a route. The button is the one people
+  /// will actually find.
+  it("offers a plain button as well as the shortcut", async () => {
+    const user = userEvent.setup();
+    render(<CodeEditor solutions={[solution()]} opened={solution()} />);
+
+    await user.click(await screen.findByLabelText("Add a file or folder"));
+    expect(await screen.findByRole("menu", { name: "File actions" })).toBeInTheDocument();
+  });
+});

@@ -204,7 +204,7 @@ pub async fn ask_coding_pal(
                 &conn, product_id, None, &routed.provider, &routed.model,
                 PURPOSE, &usage, latency_ms, "ok",
             
-                Exchange::default(),
+                Exchange::new(&ai_run::asked(&prompt), &draft.explanation),
             )
             .await;
             // Checked two ways, both against what the proposal would introduce:
@@ -235,7 +235,14 @@ pub async fn ask_coding_pal(
                 &conn, product_id, None, &routed.provider, &routed.model,
                 PURPOSE, &usage, latency_ms, "declined",
             
-                Exchange::default(),
+                Exchange::new(
+            
+                    &ai_run::asked(&prompt),
+            
+                    &format!("Declined: {reason}
+{what_is_needed}"),
+            
+                ),
             )
             .await;
             Ok(PalDto {
@@ -259,7 +266,7 @@ pub async fn ask_coding_pal(
                 &conn, product_id, None, &routed.provider, &routed.model,
                 PURPOSE, &Default::default(), latency_ms, outcome,
             
-                Exchange::default(),
+                Exchange::new(&ai_run::asked(&prompt), &e),
             )
             .await;
             Err(e)

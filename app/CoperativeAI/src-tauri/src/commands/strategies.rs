@@ -244,7 +244,7 @@ pub async fn generate_solution_strategy(
                 &conn, product_id, Some(work_item_id), &routed.provider, &routed.model,
                 PURPOSE, &usage, latency_ms, "ok",
             
-                Exchange::default(),
+                Exchange::new(&ai_run::asked(&prompt), &draft.strategy),
             )
             .await;
             let options_json = serde_json::to_string(
@@ -323,7 +323,14 @@ pub async fn generate_solution_strategy(
                 &conn, product_id, Some(work_item_id), &routed.provider, &routed.model,
                 PURPOSE, &usage, latency_ms, "declined",
             
-                Exchange::default(),
+                Exchange::new(
+            
+                    &ai_run::asked(&prompt),
+            
+                    &format!("Declined: {reason}
+{what_is_needed}"),
+            
+                ),
             )
             .await;
             let feedback_id = ai_feedback::record(
@@ -349,7 +356,7 @@ pub async fn generate_solution_strategy(
                 &conn, product_id, Some(work_item_id), &routed.provider, &routed.model,
                 PURPOSE, &Default::default(), latency_ms, "error",
             
-                Exchange::default(),
+                Exchange::new(&ai_run::asked(&prompt), &e),
             )
             .await;
             Err(e)

@@ -262,7 +262,9 @@ pub async fn generate_architecture_doc(
                 &conn, product_id, None, &routed.provider, &routed.model,
                 PURPOSE, &usage, latency_ms, "ok",
             
-                Exchange::default(),
+                Exchange::new(&ai_run::asked(&prompt), &format!("{}
+
+{}", draft.name, draft.content)),
             )
             .await;
             // The store validates the notation. A model that returned prose has
@@ -296,7 +298,14 @@ pub async fn generate_architecture_doc(
                 &conn, product_id, None, &routed.provider, &routed.model,
                 PURPOSE, &usage, latency_ms, "declined",
             
-                Exchange::default(),
+                Exchange::new(
+            
+                    &ai_run::asked(&prompt),
+            
+                    &format!("Declined: {reason}
+{what_is_needed}"),
+            
+                ),
             )
             .await;
             Ok(super::work_items::GenerationResult {
@@ -318,7 +327,7 @@ pub async fn generate_architecture_doc(
                 &conn, product_id, None, &routed.provider, &routed.model,
                 PURPOSE, &Default::default(), latency_ms, outcome,
             
-                Exchange::default(),
+                Exchange::new(&ai_run::asked(&prompt), &e),
             )
             .await;
             Err(e)

@@ -249,8 +249,14 @@ pub async fn install_model(
             &usage,
             latency_ms,
             if report.passed { "ok" } else { "declined" },
-        
-            Exchange::default(),
+            // Validation runs several probes into one ledger row, so there is
+            // no single prompt to quote. What it has instead — which probes ran
+            // and how each went — is the thing worth reading back when a model
+            // was refused.
+            Exchange::new(
+                &format!("{} validation probes against {model}", report.probes.len()),
+                &probe_summary(&report),
+            ),
         )
         .await;
     }
@@ -358,4 +364,20 @@ async fn run_probes(
     ));
 
     (ValidationReport::finish(model, probes), total)
+}
+
+/// Each probe and how it went, one per line.
+///
+/// The detail matters more here than anywhere else in the log: a refused model
+/// is refused for a reason, and "which probe failed and what it said" is the
+/// only thing that tells you whether to try a different model or a different
+/// prompt.
+fn probe_summary(report: &ValidationReport) -> String {
+    report
+        .probes
+        .iter()
+        .map(|p| format!("{} {}: {}", if p.passed { "PASS" } else { "FAIL" }, p.probe, p.detail))
+        .collect::<Vec<_>>()
+        .join("
+")
 }
