@@ -2007,3 +2007,50 @@ export const removeWorktreeAt = (solutionId: number, path: string): Promise<void
 
 export const listRunWorktrees = (solutionId: number): Promise<string[]> =>
   invoke("list_run_worktrees", { solutionId });
+
+/** One AI call, as the log shows it.
+ *
+ *  Tokens rather than money: cost lives in the budget screens, where a figure
+ *  belongs when there is one. This answers what was asked, what came back, and
+ *  how much of the allowance it took — a question with a real answer even for a
+ *  provider whose price cannot be known. */
+export interface AiCall {
+  id: number;
+  workItemId: number | null;
+  provider: string;
+  model: string;
+  purpose: string;
+  outcome: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  latencyMs: number;
+  /** Capped where it was stored. Empty for calls refused before they reached a
+   *  provider, and for rows written before the exchange was kept. */
+  prompt: string;
+  reply: string;
+  createdAt: number;
+}
+
+export interface AiCallTotals {
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  /** Counted apart: a blocked call consumed nothing, and folding it into the
+   *  total would overstate how busy the AI has been. */
+  blocked: number;
+}
+
+export interface AiLog {
+  totals: AiCallTotals;
+  calls: AiCall[];
+}
+
+/** Every AI call for a Product, newest first, with what was said.
+ *
+ *  Totals cover exactly the rows returned, so the sum and the list cannot
+ *  disagree. */
+export const listAiCalls = (productId: number, limit = 100): Promise<AiLog> =>
+  invoke("list_ai_calls", { productId, limit });

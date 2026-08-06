@@ -4107,3 +4107,127 @@ code {
     transition: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   The AI log: what was used, and what was said.
+   --------------------------------------------------------------------------- */
+
+.ai-log-totals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  margin: 0.5rem 0;
+}
+
+.ai-log-totals div {
+  display: flex;
+  flex-direction: column;
+}
+
+.ai-log-totals dt {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+}
+
+.ai-log-totals dd {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  /* Tabular figures so the numbers line up rather than jittering as they grow. */
+  font-variant-numeric: tabular-nums;
+}
+
+.ai-log-list {
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ai-log-call {
+  border-top: 1px solid var(--line);
+}
+
+/* The whole row is the control, so there is no small target to aim at. */
+.ai-log-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: baseline;
+  width: 100%;
+  padding: 0.4rem 0;
+  text-align: left;
+  background: none;
+  border: none;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.ai-log-head:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.ai-log-purpose {
+  font-weight: 600;
+}
+
+.ai-log-model,
+.ai-log-tokens {
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+}
+
+/* Pushed right so the counts form a column down the list. */
+.ai-log-tokens {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.ai-log-outcome {
+  padding: 0.05rem 0.35rem;
+  font-size: 0.7rem;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--fg) 12%, transparent);
+}
+
+.ai-log-outcome.declined,
+.ai-log-outcome.blocked {
+  background: color-mix(in srgb, var(--warn) 22%, transparent);
+}
+
+.ai-log-outcome.error,
+.ai-log-outcome.refusal {
+  background: color-mix(in srgb, var(--bad) 22%, transparent);
+}
+
+.ai-log-exchange h4 {
+  margin: 0.5rem 0 0.2rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+}
+
+/* Console-dark on both themes, like the terminal and the API response: this is
+   a transcript, and reading it as quoted material rather than as page text is
+   the point. */
+.ai-log-exchange pre {
+  max-height: 20rem;
+  overflow: auto;
+  margin: 0;
+  padding: 0.5rem;
+  background: #141416;
+  color: #d4d4d4;
+  border-radius: 4px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ai-log-none {
+  margin: 0 0 0.4rem;
+  font-size: 0.75rem;
+}

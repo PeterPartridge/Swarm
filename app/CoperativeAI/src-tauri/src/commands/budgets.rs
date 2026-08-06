@@ -247,3 +247,115 @@ pub async fn delete_model_price(db: State<'_, AppDb>, id: i64) -> Result<(), Str
     let conn = db.0.lock().await;
     model_price::delete(&conn, id).await.map_err(to_message)
 }
+
+/// One AI call, as the log shows it.
+///
+/// **Tokens, not money.** Cost stays in the budget screens, which is where a
+/// figure belongs when there is one. This log answers a different question —
+/// what was asked, what came back, and how much of the allowance it took — and
+/// that question has a real answer even when the price does not.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiCallDto {
+    pub id: i64,
+    pub work_item_id: Option<i64>,
+    /// Resolved so the log names the provider rather than showing a number.
+    pub provider: String,
+    pub model: String,
+    pub purpose: String,
+    pub outcome: String,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub cache_write_tokens: i64,
+    pub latency_ms: i64,
+    /// What was asked and what came back, each capped where it was stored.
+    /// Empty for calls refused before they reached a provider, and for rows
+    /// written before the exchange was kept.
+    pub prompt: String,
+    pub reply: String,
+    pub created_at: i64,
+}
+
+/// What the log adds up to.
+#[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AiCallTotals {
+    pub calls: i64,
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_read_tokens: i64,
+    /// Calls that never reached a provider. Counted apart because they consumed
+    /// nothing, and folding them into the total would overstate how busy the AI
+    /// has been.
+    pub blocked: i64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiLog {
+    pub totals: AiCallTotals,
+    pub calls: Vec<AiCallDto>,
+}
+
+/// Every AI call for a Product, newest first, with what was said.
+///
+/// Totals are over the same rows that are listed, so the sum and the list
+/// cannot disagree — a total covering more than is shown invites the question
+/// "which calls make up the difference?" and offers no way to answer it.
+#[tauri::command]
+pub async fn list_ai_calls(
+    db: State<'_, AppDb>,
+    product_id: i64,
+    limit: i64,
+) -> Result<AiLog, String> {
+    let conn = db.0.lock().await;
+    let rows = crate::db::ai_usage::list_for_product(&conn, product_id, limit.clamp(1, 500))
+        .await
+        .map_err(to_message)?;
+    let providers = crate::db::ai_provider::list_all(&conn)
+        .await
+        .map_err(to_message)?;
+    let name_of = |id: Option<i64>| match id {
+        Some(id) => providers
+            .iter()
+            .find(|p| p.id == id)
+            .map(|p| p.name.clone())
+            .unwrap_or_else(|| format!("#{id}")),
+        // A refusal never chose a provider, and inventing one would be a lie
+        // about what happened.
+        None => "—".to_string(),
+    };
+
+    let mut totals = AiCallTotals::default();
+    let calls: Vec<AiCallDto> = rows
+        .into_iter()
+        .map(|u| {
+            totals.calls += 1;
+            if u.outcome == "blocked" {
+                totals.blocked += 1;
+            }
+            totals.input_tokens += u.input_tokens;
+            totals.output_tokens += u.output_tokens;
+            totals.cache_read_tokens += u.cache_read_tokens;
+            AiCallDto {
+                provider: name_of(u.provider_id),
+                id: u.id,
+                work_item_id: u.work_item_id,
+                model: u.model,
+                purpose: u.purpose,
+                outcome: u.outcome,
+                input_tokens: u.input_tokens,
+                output_tokens: u.output_tokens,
+                cache_read_tokens: u.cache_read_tokens,
+                cache_write_tokens: u.cache_write_tokens,
+                latency_ms: u.latency_ms,
+                prompt: u.prompt,
+                reply: u.reply,
+                created_at: u.created_at,
+            }
+        })
+        .collect();
+
+    Ok(AiLog { totals, calls })
+}

@@ -401,8 +401,7 @@ pub(crate) async fn run_change_plan(
             ai_run::record(
                 &conn, product_id, Some(work_item_id), &routed.provider, &routed.model,
                 PURPOSE, &usage, latency_ms, "ok",
-            
-                Exchange::default(),
+                Exchange::new(&ai_run::asked(&prompt), &planned(&changes)),
             )
             .await;
 
@@ -479,8 +478,11 @@ pub(crate) async fn run_change_plan(
             ai_run::record(
                 &conn, product_id, Some(work_item_id), &routed.provider, &routed.model,
                 PURPOSE, &usage, latency_ms, "declined",
-            
-                Exchange::default(),
+                Exchange::new(
+                    &ai_run::asked(&prompt),
+                    &format!("Declined: {reason}
+{what_is_needed}"),
+                ),
             )
             .await;
             // Recorded against the item, so the question joins the others the
@@ -508,8 +510,7 @@ pub(crate) async fn run_change_plan(
             ai_run::record(
                 &conn, product_id, Some(work_item_id), &routed.provider, &routed.model,
                 PURPOSE, &Default::default(), latency_ms, outcome,
-            
-                Exchange::default(),
+                Exchange::new(&ai_run::asked(&prompt), &e),
             )
             .await;
             Err(e)
@@ -646,4 +647,21 @@ pub async fn write_work_item_files(
         ],
     )?;
     Ok(written)
+}
+
+/// What the plan proposed, per Solution.
+///
+/// The parsed result rather than the provider's raw JSON: the raw text is
+/// mostly schema scaffolding, and what somebody reading the log back wants is
+/// which Solutions were planned for and which files were named.
+fn planned(changes: &[crate::ai::client::SolutionChange]) -> String {
+    if changes.is_empty() {
+        return "Nothing came back.".into();
+    }
+    changes
+        .iter()
+        .map(|c| format!("- {}: {}", c.solution, c.files_to_change))
+        .collect::<Vec<_>>()
+        .join("
+")
 }

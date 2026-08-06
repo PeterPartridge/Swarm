@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useWorkChanged } from "../../lib/workSignal";
 import AgentJobPanel from "./AgentJobPanel";
+import AiLogPanel from "./AiLogPanel";
 import CodeEditor from "../code/CodeEditor";
 import JobsPanel from "./JobsPanel";
 import QuestionsPanel from "./QuestionsPanel";
@@ -220,6 +221,10 @@ export default function AgentWorkspace({
             <JobsPanel productId={productId} />
             <QuestionsPanel productId={productId} />
             <RunsPanel productId={productId} />
+            {/* Last, because it is the record rather than the work: what has
+                already happened, for when something reads wrong and you want to
+                see what was actually asked. */}
+            <AiLogPanel productId={productId} />
           </div>
         )}
 

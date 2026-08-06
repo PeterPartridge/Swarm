@@ -203,6 +203,7 @@ fn main() {
             commands::budgets::get_product_budget,
             commands::budgets::set_product_budget,
             commands::budgets::get_spend_summary,
+            commands::budgets::list_ai_calls,
             commands::budgets::list_model_prices,
             commands::budgets::set_model_price,
             commands::budgets::delete_model_price,
