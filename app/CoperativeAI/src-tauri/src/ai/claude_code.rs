@@ -377,9 +377,43 @@ pub(crate) fn cli_prompt(prompt: &Prompt, schema: &serde_json::Value) -> String 
 /// thousands of characters, which on Windows would meet the command-line length
 /// limit, and passing it as an argument would also mean quoting text that
 /// contains whatever the user wrote.
+/// What the CLI is asked to do, as a list so it can be checked without
+/// running anything.
+fn turn_args(model: &str, effort: &str) -> Vec<String> {
+    let mut args = vec![
+        "--print".to_string(),
+        // Asked for so the reply carries token counts. `read_output` treats
+        // anything that is not an envelope as a plain reply, so an older CLI
+        // that ignores this keeps working with counts at zero.
+        "--output-format".to_string(),
+        "json".to_string(),
+    ];
+    if !model.trim().is_empty() {
+        args.push("--model".to_string());
+        args.push(model.trim().to_string());
+    }
+    // **The Complexity setting reaches the CLI at last.** It had an `--effort`
+    // flag all along and this path did not pass it, so a plan-funded call ran
+    // at the default whatever the setting said — the one place that choice was
+    // silently doing nothing at all.
+    //
+    // Left off at `high`, which the docs state is identical to omitting it.
+    // That keeps the commonest case working on a build old enough to predate
+    // the flag, where an unknown argument is a failed call rather than one
+    // that shrugs and carries on.
+    if let Some(level) = crate::ai::effort::resolve(model, effort) {
+        if level != "high" {
+            args.push("--effort".to_string());
+            args.push(level.to_string());
+        }
+    }
+    args
+}
+
 async fn print_turn(
     configured_exe: &str,
     model: &str,
+    effort: &str,
     prompt: &Prompt,
     schema: serde_json::Value,
 ) -> Result<String, String> {
@@ -394,17 +428,10 @@ async fn print_turn(
     })?;
     let mut command = tokio::process::Command::new(&exe);
     command
-        .arg("--print")
-        // Asked for so the reply carries token counts. `read_output` treats
-        // anything that is not an envelope as a plain reply, so an older CLI
-        // that ignores this keeps working with counts at zero.
-        .args(["--output-format", "json"])
+        .args(turn_args(model, effort))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    if !model.trim().is_empty() {
-        command.arg("--model").arg(model.trim());
-    }
 
     let mut child = command.spawn().map_err(|e| {
         format!(
@@ -556,11 +583,12 @@ fn read_output(output: &str) -> Result<(String, Usage), String> {
 async fn turn<T>(
     exe: &str,
     model: &str,
+    effort: &str,
     prompt: &Prompt,
     schema: serde_json::Value,
     parse: fn(&str) -> Result<T, String>,
 ) -> Result<(T, Usage), String> {
-    let output = print_turn(exe, model, prompt, schema).await?;
+    let output = print_turn(exe, model, effort, prompt, schema).await?;
     let (reply, usage) = read_output(&output)?;
     let json = extract_json(&reply)?;
     Ok((parse(json)?, usage))
@@ -569,19 +597,23 @@ async fn turn<T>(
 pub async fn generate_stories(
     exe: &str,
     model: &str,
+    effort: &str,
     prompt: &Prompt,
 ) -> Result<(Generated, Usage), String> {
-    turn(exe, model, prompt, ollama::story_schema(), parse_generation).await
+    turn(exe, model,
+        effort, prompt, ollama::story_schema(), parse_generation).await
 }
 
 pub async fn generate_solution_strategy(
     exe: &str,
     model: &str,
+    effort: &str,
     prompt: &Prompt,
 ) -> Result<(GeneratedStrategy, Usage), String> {
     turn(
         exe,
         model,
+        effort,
         prompt,
         ollama::strategy_schema(),
         parse_solution_strategy,
@@ -592,14 +624,17 @@ pub async fn generate_solution_strategy(
 pub async fn generate_design(
     exe: &str,
     model: &str,
+    effort: &str,
     prompt: &Prompt,
 ) -> Result<(GeneratedDesign, Usage), String> {
-    turn(exe, model, prompt, ollama::design_schema(), parse_design).await
+    turn(exe, model,
+        effort, prompt, ollama::design_schema(), parse_design).await
 }
 
 pub async fn generate_diagram(
     exe: &str,
     model: &str,
+    effort: &str,
     prompt: &Prompt,
     format: &str,
 ) -> Result<(GeneratedDiagram, Usage), String> {
@@ -609,7 +644,7 @@ pub async fn generate_diagram(
         context: prompt.context.clone(),
         task: format!("{}\n\nProduce the diagram as {format}.", prompt.task),
     };
-    let output = print_turn(exe, model, &with_format, ollama::diagram_schema()).await?;
+    let output = print_turn(exe, model, effort, &with_format, ollama::diagram_schema()).await?;
     let (reply, usage) = read_output(&output)?;
     let json = extract_json(&reply)?;
     Ok((parse_diagram(json, format)?, usage))
@@ -618,9 +653,11 @@ pub async fn generate_diagram(
 pub async fn generate_pal(
     exe: &str,
     model: &str,
+    effort: &str,
     prompt: &Prompt,
 ) -> Result<(GeneratedPal, Usage), String> {
-    turn(exe, model, prompt, ollama::pal_schema(), parse_pal).await
+    turn(exe, model,
+        effort, prompt, ollama::pal_schema(), parse_pal).await
 }
 
 /// Change plans, minus the mockups.
@@ -632,6 +669,7 @@ pub async fn generate_pal(
 pub async fn generate_change_plan(
     exe: &str,
     model: &str,
+    effort: &str,
     prompt: &Prompt,
     images: &[crate::ai::vision::LoadedImage],
 ) -> Result<(GeneratedChangePlan, Usage), String> {
@@ -647,6 +685,7 @@ pub async fn generate_change_plan(
     turn(
         exe,
         model,
+        effort,
         prompt,
         ollama::change_plan_schema(),
         parse_change_plan,
@@ -768,6 +807,31 @@ mod tests {
         assert_eq!(usage.cache_read_input_tokens, 900);
     }
 
+    /// **The setting had never once reached the CLI.** `--effort` existed all
+    /// along and this path did not pass it, so a plan-funded call ran at the
+    /// default whatever Complexity said.
+    #[test]
+    fn the_effort_setting_reaches_the_command_line() {
+        let args = turn_args("claude-opus-5", "max");
+        assert!(
+            args.windows(2).any(|w| w == ["--effort", "max"]),
+            "effort must be passed: {args:?}"
+        );
+    }
+
+    /// Omitted at `high` on purpose: the docs say that is identical to leaving
+    /// it out, and leaving it out is what works on a CLI predating the flag.
+    #[test]
+    fn high_passes_no_effort_flag_at_all() {
+        assert!(!turn_args("claude-opus-5", "high").contains(&"--effort".to_string()));
+    }
+
+    /// A model that takes no effort parameter must not be handed one.
+    #[test]
+    fn haiku_is_asked_for_no_effort() {
+        assert!(!turn_args("claude-haiku-4-5", "low").contains(&"--effort".to_string()));
+    }
+
     /// **Caught against the real CLI.** A failed turn exits 0 and comes back
     /// as a normal envelope with `is_error` set and the reason in `result` —
     /// an expired sign-in being far and away the commonest. Reading only the
@@ -849,7 +913,7 @@ mod tests {
             media_type: "image/png".into(),
             base64: "AAAA".into(),
         }];
-        let err = generate_change_plan("claude", "m", &prompt(), &images)
+        let err = generate_change_plan("claude", "m", "high", &prompt(), &images)
             .await
             .expect_err("must refuse");
         assert!(err.contains("cannot be shown"), "got: {err}");
@@ -976,7 +1040,7 @@ mod tests {
     async fn a_wrong_configured_path_falls_back_to_a_working_install() {
         // A configured name that resolves nowhere contributes no candidate, so
         // the search carries on to the places it knows about.
-        let outcome = generate_stories("claude-code-that-is-not-installed", "m", &prompt()).await;
+        let outcome = generate_stories("claude-code-that-is-not-installed", "m", "high", &prompt()).await;
 
         // On a machine with Claude Code, a stale setting does not stop it
         // working — being found is more use than being right about a typo.

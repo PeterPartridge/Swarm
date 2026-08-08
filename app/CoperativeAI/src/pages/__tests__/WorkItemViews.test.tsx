@@ -28,6 +28,12 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     listWorkItemPlans: vi.fn(),
     listAiFeedback: vi.fn(),
     listWorkItemChanges: vi.fn(),
+    // Ready is the default view now, and it reads these three. Left unmocked
+    // they fall through to the real invoke and the view renders its error state
+    // while every assertion below still passes.
+    listOpenQuestions: vi.fn(),
+    getWorkItemPolicy: vi.fn(),
+    listAiProviders: vi.fn(),
   };
 });
 
@@ -61,26 +67,100 @@ describe("WorkItemViews", () => {
     mocked.listWorkItemPlans.mockResolvedValue([]);
     mocked.listAiFeedback.mockResolvedValue([]);
     mocked.listWorkItemChanges.mockResolvedValue([]);
+    mocked.listOpenQuestions.mockResolvedValue([]);
+    mocked.getWorkItemPolicy.mockResolvedValue(null);
+    mocked.listAiProviders.mockResolvedValue([]);
     mocked.listWorkItems.mockResolvedValue([
       item({ id: 1, title: "Checkout", status: "planned", assigneeId: 5, sprintId: 9 }),
       item({ id: 2, title: "Search", status: "building", assigneeId: 6, sprintId: null }),
     ]);
   });
 
-  it("defaults to Board view with status columns", async () => {
+  /// Ready leads because it is the only view that answers the question somebody
+  /// standing in Work is asking: is this scoped well enough to hand over?
+  it("opens on Ready, scoring each item out of five", async () => {
     render(<WorkItemViews productId={7} />);
+    const ready = await screen.findByRole("region", { name: "Ready to hand over" });
+    expect(
+      within(ready).getByLabelText("Checkout — 1 of 5 ready"),
+    ).toBeInTheDocument();
+    expect(within(ready).getByLabelText("Search — 1 of 5 ready")).toBeInTheDocument();
+  });
+
+  /// **The honesty rule, in Work.** Every dot is a fact read back from the item;
+  /// the score is a count of five of them. The design this came from showed a
+  /// "ready %" beside "the agent lands it first try", which would be a claim
+  /// about the future that nothing here can support.
+  it("scores only facts it read, and shows no percentage", async () => {
+    mocked.listWorkItems.mockResolvedValue([
+      item({
+        id: 1,
+        title: "Checkout",
+        description: "Take a card payment.",
+        developmentDetails: "Money in integer cents.",
+      }),
+    ]);
+    mocked.listRuns.mockResolvedValue([
+      {
+        id: 3, workItemId: 1, workItemTitle: "Checkout", solutionId: 5,
+        solutionName: "Shop API", state: "notStarted", branch: "b", worktreePath: "",
+        terminalId: "", briefPath: "", filesChanged: 0, planApproved: true,
+      },
+    ]);
+    render(<WorkItemViews productId={7} />);
+
+    const row = await screen.findByLabelText("Checkout — 5 of 5 ready");
+    expect(row).toHaveTextContent("Ready to hand over");
+    expect(row.textContent).not.toMatch(/\d+%/);
+  });
+
+  /// An unanswered question is blocking, so it costs the item a check — the
+  /// same fact the Build view's lane badge reports, read from the same place.
+  it("counts an open question against readiness", async () => {
+    mocked.listWorkItems.mockResolvedValue([
+      item({ id: 1, title: "Checkout", description: "x", developmentDetails: "y" }),
+    ]);
+    mocked.listOpenQuestions.mockResolvedValue([
+      { id: 1, workItemId: 1, workItemTitle: "Checkout", kind: "clarification", message: "?", whatIsNeeded: "!" },
+    ]);
+    render(<WorkItemViews productId={7} />);
+
+    const row = await screen.findByLabelText("Checkout — 2 of 5 ready");
+    expect(row).toHaveTextContent("3 to fix");
+  });
+
+  /// The briefing is what the agent would be handed, and it names what is still
+  /// missing rather than only scoring it.
+  it("names what is still missing in the briefing", async () => {
+    const user = userEvent.setup();
+    render(<WorkItemViews productId={7} />);
+
+    await user.click(await screen.findByLabelText("Checkout — 1 of 5 ready"));
+    const briefing = await screen.findByRole("complementary", { name: "Agent briefing" });
+    expect(briefing).toHaveTextContent(/The description is empty/);
+    expect(briefing).toHaveTextContent(/No Solution is attached/);
+    expect(
+      within(briefing).getByRole("button", { name: "Open the build plan" }),
+    ).toBeInTheDocument();
+  });
+
+  it("switches to Board view with status columns", async () => {
+    const user = userEvent.setup();
+    render(<WorkItemViews productId={7} />);
+    await user.click(await screen.findByRole("tab", { name: "Board" }));
     const board = await screen.findByRole("region", { name: "Board view" });
     expect(within(board).getByRole("region", { name: "planned" })).toHaveTextContent("Checkout");
     expect(within(board).getByRole("region", { name: "building" })).toHaveTextContent("Search");
   });
 
-  /// The bug: the default Board view had no way to open a work item, so a
-  /// developer could not outline the changes or affected Solutions from where
-  /// they land. A card opens its build plan now.
+  /// The bug: the Board view had no way to open a work item, so a developer
+  /// could not outline the changes or affected Solutions from where they land.
+  /// A card opens its build plan now.
   it("opens a work item's build plan from a board card", async () => {
     const user = userEvent.setup();
     render(<WorkItemViews productId={7} />);
 
+    await user.click(await screen.findByRole("tab", { name: "Board" }));
     await user.click(await screen.findByRole("button", { name: "Open Checkout" }));
 
     // the developer's editor, with its technical fields

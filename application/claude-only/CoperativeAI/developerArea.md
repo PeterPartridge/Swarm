@@ -34,6 +34,137 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 17d — Rules, restyled: two levels because there are two, and no scoreboard
+
+Source: the same design file, its **Strategy & rules** view. Restyle only, as asked.
+
+### My Feedback
+
+**A restyle, and the word is accurate.** `StrategyEditor` and `DeveloperRulesEditor` keep their fields, their saves and every aria-label; `AdminArea`'s rules editor is untouched. What changed is how they read.
+
+**Architecture requirements leads.** It gained an optional `lead` prop naming one field to draw as the standing direction — same textarea, same save, larger. Optional so Test, where no field leads, is unchanged.
+
+**Each rule is a card with a level.** Written and unwritten rules look different (a dashed border), because a rule nobody has set is not the same as a rule that says nothing.
+
+**`RulesView` is the page**, composing the two editors and the new sidebar; `DevelopSolutions` renders it instead of stacking them.
+
+### Your Feedback
+
+- **Two levels, not three.** The design had Blocking / Warn / Advisory. This app has `disallowedTech`, which is stated as a prohibition **and** read back against the answer, and six others which are stated and believed. That is *Enforced* and *In the prompt*. Marking all seven "Blocking" would have been the flattering lie, and the one that matters — because somebody would then trust the other six to stop something.
+- **No per-rule counts.** "212 checks · 4 blocks this week" beside every line: nothing in this app counts rule firings. The panel says so in as many words, and a test asserts no `N checks` or `N blocks` string appears.
+- **No opening scoreboard.** "68% of agent PRs merged first try", "11m median ticket to review", "4/4 rules enforced" — the app watches no pull requests, times no tickets, and enforces one rule of seven. All three were dropped rather than approximated.
+- **The sidebar is real, and renamed.** The design calls it "Rule enforcement / where agents got stopped this week" and lists rule violations with outcomes. The record this app actually keeps is the **job queue**, so the panel lists `blocked` and `failed` jobs with the reason each gave. It is called **"Where agents stopped"**, not "violations", because a blocked job is more often a missing acceptance criterion than a rule that bit — naming it after rules would misattribute most of its own contents.
+- **Two unmocked calls found.** `listAiJobs` (new) and `getDeveloperRules` (pre-existing) were falling through to the real `invoke` in `DevelopSolutions.test.tsx`, so both panels rendered their error state while all nineteen tests passed. Both mocked now, with tests over the content.
+
+### Technical Debt
+
+- **`ENFORCED` is a constant in the component**, not read from the backend. If Rust ever starts checking a second rule, nothing makes this list follow.
+- **"Where agents stopped" reads every job and filters in the webview** — there is no `list_blocked_jobs`, so a Product with a long history fetches all of it.
+- **No date range.** The design said "this week"; this lists every stopped job ever, newest first.
+- **A job blocked for a rule and a job blocked for a missing criterion look identical** — `AiJob` has no reason code, only prose.
+- **The strategy `lead` is hard-coded to `architecture`** in `RulesView` rather than being a property of the field list.
+- **`.strategy-fields` still styles the five non-lead fields as plain textareas**, so the Technical Strategy is now two visual languages in one card.
+
+## Round 17c — The map gets three panes, and loses two things it was never entitled to say
+
+Source: the same design file, its **Planning & Architecture** view.
+
+### My Feedback
+
+**`SolutionMap` is the design's three panes now.** The palette down the left (add a Solution, counts by type, map checks, shortcuts), the canvas in the middle, the inspector down the right. Everything that was already there — Arrange, Connect with its dependency kind, the localStorage layout, Save to `.drawio` — is unchanged behind it, and its five tests passed without edits.
+
+**Zoom, pan, snap and a grid.** The canvas is a fixed viewport with a transformed surface inside it, so the boxes' stored coordinates stay in one space and the saved `.drawio` is the arrangement on screen at any zoom. Drag maths divides by the scale, which is what keeps a box under the pointer rather than drifting from it as you zoom — verified in the browser at 1.4× with a pan applied, exact to the pixel. Snap is 10px and the grid is drawn at 20px, so the grid *is* the snap made visible.
+
+**The inspector links to Build.** An agent inside a Solution shows a mark on the box and a row in the inspector that opens its work item in Build. That closes the loop the other way from 17b: the lane links out to Work, the map links across to Build.
+
+**Documents are read once.** `DeveloperPlanning` already loads `listArchitectureDocs` for the previews below, so it hands them to the map's inspector rather than the map reading them again — the inspector is an index of them, not a second copy.
+
+### Your Feedback
+
+- **The health light is gone.** The design gave every module a red/amber/green dot. This app never reads the code behind a Solution, so that dot would have been a verdict on something it has not looked at. The dot is still there and still means something real: **whether there is a working copy on this machine**, with a title saying so.
+- **Owner, size and coverage are gone too.** Three confident figures with nothing behind them, in the panel most likely to be believed. The inspector shows working copy, repository and what the Solution was started as — all three read from the row. A test asserts the words *owner*, *coverage* and *LOC* do not appear in the panel.
+- **Map checks are the honest version of the design's.** It listed "two modules have no owner" and "review_state migration is pending". Ours are the three things the app can genuinely see: Solutions with no working copy, with no repository linked, and joined to nothing — each **naming the Solutions**, because a count you cannot act on is not a check.
+- **A box is still a real Solution.** The design's palette adds modules to the picture. Adding here creates the Solution, because a box that exists only on the canvas would be a claim about code that does not exist.
+- **A settled run does not mark a box.** `kept` and `discarded` mean the agent finished and left; marking the module would say somebody is still standing in it. Tested.
+- **Edges stayed straight lines.** The design routes them orthogonally, which reads well on its layered grid and badly on boxes dragged anywhere. Straight lines with an arrow marker were already here and are more robust to free-form arrangement.
+
+### Technical Debt
+
+- **Zoom is toolbar-only** — no wheel or pinch, which is what anybody will try first.
+- **Pan and zoom are not persisted**, unlike the box positions; reopening the tab returns to 100% at the origin.
+- **The surface is a fixed 3000×2000**, so a map dragged past that has nowhere to go.
+- **Nothing prevents a box being dragged under the inspector** and left there — the viewport clips, and only Tidy brings the view back.
+- **The inspector's document index shows `solutionId`-scoped documents only.** A whole-Product document that is really about one Solution does not appear against it, because nothing records that.
+- **`arch-map` styling now assumes the three panes**; the old flat `.solution-map` rules are gone, so any other caller of this component would need the new markup.
+
+## Round 17b — Work opens on Ready, and the lane links instead of launching
+
+Source: the same design file, its **Work items** view — plus your two decisions from round 17's questions.
+
+### My Feedback
+
+**Work opens on Ready**, a new first view beside Board, Sprint and List. It leads because it is the only one that answers the question somebody standing in Work is asking: *is this scoped well enough to hand over?* Board says where an item is, Sprint says when, List says everything at once, and none of them can say that. The other three are untouched.
+
+**Five checks, and every one is a column.** What is asked for (`description`), a Solution (a run exists), how to build it (`developmentDetails`), nothing blocking (no open questions), and **plan approved** — which the design did not have and which matters most here, because `prepare_run` is what actually refuses. A readiness list that omitted the gate the backend enforces would be claiming an item was ready that the backend would then reject.
+
+**Three reads, not two per item.** `Run.planApproved` and `listOpenQuestions(productId)` are both Product-wide and between them answer four of the five checks for every row at once, so a fifty-item Product costs three calls rather than a hundred. The briefing panel loads the selected item's plans in full, because that is one item at a time.
+
+**The lane links.** `AgentLane` gained a card that opens the first work item with no agent, routed `AgentWorkspace → DevelopSolutions → WorkItemViews → WorkReadiness` with the usual `{ id, at }` shape so asking twice for the same item still moves.
+
+### Your Feedback
+
+- **No "ready %".** The design showed a percentage under the heading *"Scope it properly and the agent lands it first try"*, which reads as a prediction about how the work will go. It is drawn as `4 of 5` with a bar — the same shape as the ship rail's ring, for the same reason. A test asserts no `%` appears on a row.
+- **The checks are labelled, not just dotted.** Five bare dots would be unreadable without a legend somewhere else on the page, and the legend is the useful part.
+- **`1 of 5` is the floor, not `0`.** An item with nothing filled in still passes "nothing blocking", because it has no questions against it. That is correct and slightly counter-intuitive, so the briefing spells out what is missing rather than leaving the number to be interpreted.
+- **The lane card does not start a run**, per your decision. Handing work over is approving a plan and pressing Start, both on the build plan, and a second entry point would have been a way around the approval gate rather than a shortcut to it. A test asserts `startRun` is never called from it.
+- **No model picker in the briefing.** The design has a Claude/Codex/Qwen row; which model and how hard it tries is the work item's AI policy, set once in its own editor. Two places to choose would mean two answers and no way to tell which the run used — so the briefing states the policy read-only and says where to change it.
+- **The user filter is hidden on Ready.** It belongs to the three views that list by person; Ready sorts by what the work still needs, which is not a fact about who it is assigned to.
+
+### Technical Debt
+
+- **The test plan is not one of the five row checks.** `unitTests` lives on `WorkItemPlan` and there is no Product-wide plan read, so scoring it would be a call per item. It is in the briefing, where one item is loaded anyway. A `list_product_plans` command would close this.
+- **`WorkReadiness` re-reads `listRuns` and `listOpenQuestions`** that the Build view also reads; they are two components in two tabs and share no cache.
+- **"agent · prepared" on a busy row is a dead end** — it names the state but does not link back to that agent in Build, which is the obvious next click.
+- **`readinessOf` is not exported or unit-tested on its own**; it is covered through the rendered rows.
+- **Ready ignores the assignee filter entirely** rather than offering its own; on a large Product the list is every item in it.
+
+## Round 17 — The Build view: four panes, and the three numbers the design asked for that we refused to invent
+
+Source: Claude Design project `14eae620-8042-4de9-942c-0b2ba4d6a77b` — *Rust app iOS vscode redesign*, file `Develop Workspace.dc.html`.
+
+### My Feedback
+
+**Develop's tabs are the design's four**: Rules, Work, Build, Map. Tests and Git are gone as tabs — they answered across the whole Product and so could never say which agent an answer belonged to. Both are inside Build now: per agent as workbench panes, Product-wide under the "queue, questions and runs" entry, so nothing was lost, only re-filed.
+
+**Build is the design's four panes.** `AgentLane` (who is working) → `BuildExplorer` (where they have been) → the workbench (what they did) → `ReviewShipRail` (the decision). The lane card carries what you need before deciding to open it — the Solution, the stage, the last thing the agent said, and the branch — where the old rail was a title and a badge, which meant opening every agent to find out which had stopped.
+
+**The change review is owned by the Build view, not by the panes that draw it.** The workbench draws the diffs and the rail draws the totals; if each ran git for itself the two could disagree about the same working copy while sitting a foot apart on screen.
+
+**Hue is keyed on the Solution, not the model.** The design coloured by agent identity (Claude / Codex / Gemini / Qwen), which is not an axis this app has — a run belongs to a *repository*. So the same hue and the same two-letter mark appear on the Solution tab, the lane card, the workbench header and the file's mark in the tree, and "which repository is this agent inside?" is answerable at a glance.
+
+**Picking a file in the tree opens its diff.** That linkage is the only reason the tree and the workbench are worth putting side by side, so it is wired rather than implied.
+
+### Your Feedback
+
+- **Three figures in the design were not built, and each for the standing reason.**
+  1. The **per-agent progress bar** (`68%`, with a shimmer). The app cannot see how far through its work an agent is. The card shows the **stage** instead — Plan → Code → Review → Done, every one of them a state `runs` actually holds. A test asserts no `%` appears on a card.
+  2. The **`412k ctx` token chip** in the header. Same rule as Claude Code spend: a figure the app cannot see.
+  3. The **debugger** — call stack, variables you can edit live, breakpoints, per-run env overrides. This app has no debugger and no env management, so all of it would have been furniture. That tab is `Run`: the real dev-server command and the real PTY terminal.
+- **The ship checklist is derived, never ticked.** The design had four checkboxes a person clicks. That would make the progress ring a record of what somebody *claimed*. Every line is read back from the change review, the test run and the run's settled state, and there is no checkbox in the rail at all — a test asserts that too.
+- **"No rules set" is not a pass.** `noRules` leaves the Rules line *unknown* rather than green, because silence for want of rules reads exactly like silence for want of problems.
+- **There is no Commit button**, and the design's "Commit & push to GitHub" / "Open PR without merging" pair is not there. The app hands over a command and records the decision; it does not run git for you. Keep and Discard write that decision against the run, which is the thing this app can actually do — and Keep is still never gated on the checks, so keeping a change over a broken rule is recorded as exactly that.
+- **Test counts appear only when they were read.** A suite known solely by its exit code reports "Passed — by exit code" and no numbers, and the verdict handed to the rail carries the `counted` flag rather than a total nobody parsed.
+- **Everything is in theme variables plus one inline `--agent-hue`.** The design is dark-only hex; expressing it as `color-mix` over the existing tokens means the light theme works — verified in the browser, surfaces invert and the status colours darken rather than glow.
+
+### Technical Debt
+
+- **`--agent-hue` cycles a five-colour palette by `solutionId % 5`.** A Product with six Solutions gets a repeat, and nothing warns.
+- **`BuildExplorer` calls `productChangedFiles` for the whole Product to mark one Solution's tree.** Correct (the marks and the rail's counts come from one read so they cannot disagree) but it fetches more than it draws.
+- **The workbench's Tests pane runs *every* suite in the Solution**, not the tests the agent wrote — `runSolutionTests` has no per-run filter, and the design's per-agent test list implies one.
+- **`Rules / Work / Map` are unstyled against this design.** They keep their current look; the design's Strategy page, work-item readiness scores and canvas toolbar are not built.
+- **The lane has no "hand a work item to an agent" action.** The card counts unassigned items and says so, but pressing it does nothing — submitting for planning is still done from the work item's build plan.
+- **No test covers the narrow (`max-width: 75rem`) stacked layout**; it was checked in the browser only.
+
 ## Round 16c — One section, two notations
 
 ### My Feedback

@@ -100,17 +100,13 @@ export default function WorkspaceShell() {
       name: "Develop",
       items: canAccess("develop" as Area)
         ? [
-            { glyph: "‹›", label: "Code", hint: "", run: goToDevelop("code") },
-            { glyph: "◫", label: "Work", hint: "", run: goToDevelop("work") },
-            { glyph: "⎇", label: "Git", hint: "", run: goToDevelop("git") },
-            { glyph: "✓", label: "Tests", hint: "", run: goToDevelop("tests") },
-            {
-              glyph: "◈",
-              label: "Planning and Architecture",
-              hint: "",
-              run: goToDevelop("architecture"),
-            },
-            { glyph: "⚙", label: "Settings", hint: "", run: goToDevelop("settings") },
+            // The palette's Develop entries are the Develop tabs, and nothing
+            // else: an entry for Tests or Git would now be a destination that
+            // no longer exists, which is the one thing a palette must never be.
+            { glyph: "⛨", label: "Rules", hint: "", run: goToDevelop("strategy") },
+            { glyph: "☰", label: "Work", hint: "", run: goToDevelop("work") },
+            { glyph: "‹›", label: "Build", hint: "", run: goToDevelop("agents") },
+            { glyph: "◫", label: "Map", hint: "", run: goToDevelop("architecture") },
           ]
         : [],
     };

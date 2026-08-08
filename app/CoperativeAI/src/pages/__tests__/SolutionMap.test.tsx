@@ -14,6 +14,10 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     linkSolutions: vi.fn(),
     unlinkSolutions: vi.fn(),
     saveDiagram: vi.fn(),
+    // The map marks the Solutions an agent is inside. Left unmocked this falls
+    // through to the real invoke, the component swallows it by design, and the
+    // agent half of these tests would never run at all.
+    listRuns: vi.fn(),
   };
 });
 
@@ -43,6 +47,7 @@ describe("SolutionMap", () => {
     vi.clearAllMocks();
     localStorage.clear();
     mocked.listRepoLinks.mockResolvedValue([]);
+    mocked.listRuns.mockResolvedValue([]);
     mocked.listSolutions.mockResolvedValue([
       sol(11, "Shop Web", "website"),
       sol(12, "Shop API", "api"),
@@ -144,5 +149,89 @@ describe("SolutionMap", () => {
     );
 
     await waitFor(() => expect(mocked.unlinkSolutions).toHaveBeenCalledWith(20));
+  });
+
+  /// **The honesty rule, on the map.** The design gave every module an owner, a
+  /// size and a coverage figure, and a red/amber/green health light. This app
+  /// reads none of those. The inspector shows the three things it does know.
+  it("inspects a box with what it knows, and invents no owner or coverage", async () => {
+    const user = userEvent.setup();
+    mocked.listSolutions.mockResolvedValue([
+      { ...sol(12, "Shop API", "api"), localPath: "C:/repos/shop-api", language: "Rust (cargo)" },
+    ]);
+    render(<SolutionMap productId={7} />);
+
+    await user.click(await screen.findByLabelText("Shop API (api)"));
+    const panel = screen.getByRole("complementary", { name: "Selected Solution" });
+
+    expect(panel).toHaveTextContent("C:/repos/shop-api");
+    expect(panel).toHaveTextContent("not linked"); // no githubUrl, said plainly
+    expect(panel).toHaveTextContent("Rust (cargo)");
+    for (const invented of [/owner/i, /coverage/i, /LOC/]) {
+      expect(panel.textContent).not.toMatch(invented);
+    }
+  });
+
+  /// The checks are the map's own review: three things the app can genuinely
+  /// see about a Solution, named with the Solutions they are about.
+  it("names the Solutions missing a folder, a repository or a connection", async () => {
+    render(<SolutionMap productId={7} />);
+    await screen.findByLabelText("Shop Web (website)");
+
+    const checks = screen.getByText(/with no working copy on this machine/);
+    expect(checks).toHaveTextContent("Shop Web");
+    expect(screen.getByText(/joined to nothing/)).toHaveTextContent("Orders DB");
+  });
+
+  /// Map and Build are two views of one thing: the map says where the work is,
+  /// Build says what it is doing. The inspector carries you across.
+  it("links the agent inside a Solution through to Build", async () => {
+    const user = userEvent.setup();
+    const opened: number[] = [];
+    mocked.listRuns.mockResolvedValue([
+      {
+        id: 3, workItemId: 42, workItemTitle: "Add checkout", solutionId: 12,
+        solutionName: "Shop API", state: "prepared", branch: "b", worktreePath: "C:/wt",
+        terminalId: "", briefPath: "", filesChanged: 2, planApproved: true,
+      },
+    ]);
+    render(<SolutionMap productId={7} onOpenAgent={(id) => opened.push(id)} />);
+
+    await user.click(await screen.findByLabelText("Shop API (api)"));
+    await user.click(screen.getByLabelText("Open Add checkout in Build"));
+
+    expect(opened).toEqual([42]);
+  });
+
+  /// A settled run is not an agent standing in the module — it has finished and
+  /// gone, and marking the box would say somebody is still working there.
+  it("does not mark a Solution whose run has been settled", async () => {
+    mocked.listRuns.mockResolvedValue([
+      {
+        id: 3, workItemId: 42, workItemTitle: "Add checkout", solutionId: 12,
+        solutionName: "Shop API", state: "kept", branch: "b", worktreePath: "C:/wt",
+        terminalId: "", briefPath: "", filesChanged: 2, planApproved: true,
+      },
+    ]);
+    render(<SolutionMap productId={7} />);
+    await screen.findByLabelText("Shop API (api)");
+
+    expect(screen.getByText(/0 with an agent/)).toBeInTheDocument();
+  });
+
+  /// Zoom is a view of the map, not a change to it — Tidy puts it back without
+  /// touching a single stored coordinate.
+  it("zooms, and Tidy returns the view to 100%", async () => {
+    const user = userEvent.setup();
+    render(<SolutionMap productId={7} />);
+    await screen.findByLabelText("Shop Web (website)");
+
+    await user.click(screen.getByLabelText("Zoom in"));
+    await user.click(screen.getByLabelText("Zoom in"));
+    expect(screen.getByText("120%")).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("Reset the view"));
+    expect(screen.getByText("100%")).toBeInTheDocument();
+    expect(mocked.saveDiagram).not.toHaveBeenCalled();
   });
 });

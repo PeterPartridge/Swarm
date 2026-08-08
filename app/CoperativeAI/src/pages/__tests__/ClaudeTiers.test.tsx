@@ -15,10 +15,7 @@ const mocked = vi.mocked(backend);
 const tiers = [
   { model: "claude-sonnet-5", effort: "low" },
   { model: "claude-sonnet-5", effort: "medium" },
-  { model: "claude-fable-5", effort: "high" },
-  { model: "claude-fable-5", effort: "high" },
-  { model: "claude-fable-5", effort: "high" },
-  { model: "claude-fable-5", effort: "high" },
+  { model: "claude-fable-5", effort: "xhigh" },
 ];
 
 describe("ClaudeTiers", () => {
@@ -35,12 +32,42 @@ describe("ClaudeTiers", () => {
   it("offers a model and an effort for each complexity", async () => {
     render(<ClaudeTiers />);
 
-    for (const level of ["low", "medium", "high", "extra", "max", "ultra"]) {
+    for (const level of ["low", "medium", "high"]) {
       expect(await screen.findByLabelText(`${level} complexity model`)).toBeInTheDocument();
       expect(screen.getByLabelText(`${level} complexity effort`)).toBeInTheDocument();
     }
     expect(screen.getByLabelText("high complexity model")).toHaveValue("claude-fable-5");
-    expect(screen.getByLabelText("high complexity effort")).toHaveValue("high");
+    expect(screen.getByLabelText("high complexity effort")).toHaveValue("xhigh");
+    // The three that were briefly complexities are gone from here; they are
+    // effort levels, and live in the effort dropdown above.
+    expect(screen.queryByLabelText("ultra complexity model")).toBeNull();
+  });
+
+  /// **The levels above "high" have to be reachable.** They are the reason
+  /// this list was wrong before: a setting that stops at high cannot ask for
+  /// the two levels every model here supports.
+  it("offers xhigh and max as efforts", async () => {
+    render(<ClaudeTiers />);
+
+    const effort = await screen.findByLabelText("high complexity effort");
+    const offered = Array.from(effort.querySelectorAll("option")).map((o) => o.value);
+    expect(offered).toEqual(["low", "medium", "high", "xhigh", "max"]);
+  });
+
+  /// Haiku takes no effort parameter at all, so offering one would be a
+  /// setting that does nothing — and it sits on the cheapest row by default.
+  it("says so when the chosen model has no effort setting", async () => {
+    mocked.getClaudeTiers.mockResolvedValue([
+      { model: "claude-haiku-4-5", effort: "low" },
+      { model: "claude-sonnet-5", effort: "medium" },
+      { model: "claude-fable-5", effort: "xhigh" },
+    ]);
+    render(<ClaudeTiers />);
+
+    expect(await screen.findByText(/no effort setting/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("low complexity effort")).toBeDisabled();
+    // …and only that row: the others still choose.
+    expect(screen.getByLabelText("high complexity effort")).toBeEnabled();
   });
 
   /// Saves on change: there is nothing to batch, and a page that silently
@@ -114,23 +141,22 @@ describe("ClaudeTiers", () => {
     );
   });
 
-  /// **Above "high" the model has nowhere further to go.** Extra, Max and Ultra
-  /// exist because "high" had become a ceiling — a cross-file refactor and a
-  /// from-scratch architecture landed on the same setting. What separates them
-  /// is the effort, which is why every row sets one.
-  it("offers the levels above high, each with its own effort", async () => {
+  /// **The ceiling that Extra/Max/Ultra were meant to lift was on effort.**
+  /// They were briefly complexity rows, which was a misreading — those are
+  /// Claude's own effort levels. Raising the effort on the High row is the
+  /// thing they were reaching for, and this is it working.
+  it("reaches above high by raising the effort, not by adding a row", async () => {
     const user = userEvent.setup();
     render(<ClaudeTiers />);
 
-    expect(await screen.findByText(/Ultra complexity/)).toBeInTheDocument();
-    expect(screen.getByText(/hardest thing you have/)).toBeInTheDocument();
-
-    // And each is independently settable, rather than following "high".
-    await user.selectOptions(screen.getByLabelText("ultra complexity effort"), "medium");
+    await user.selectOptions(
+      await screen.findByLabelText("high complexity effort"),
+      "max",
+    );
     await waitFor(() =>
       expect(mocked.setClaudeTiers).toHaveBeenCalledWith([
-        ...tiers.slice(0, 5),
-        { model: "claude-fable-5", effort: "medium" },
+        ...tiers.slice(0, 2),
+        { model: "claude-fable-5", effort: "max" },
       ]),
     );
   });

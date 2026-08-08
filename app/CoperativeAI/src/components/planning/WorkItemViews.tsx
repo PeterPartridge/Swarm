@@ -2,6 +2,7 @@ import SectionTabs from "../common/SectionTabs";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import SolutionStrategyPanel from "../ai/SolutionStrategyPanel";
 import WorkItemBuildPlan from "../planning/WorkItemBuildPlan";
+import WorkReadiness from "./WorkReadiness";
 import {
   listSolutions,
   listSprints,
@@ -16,14 +17,33 @@ import {
   type WorkItem,
 } from "../../lib/backend";
 
-/** The Developer area's work views: Board (status columns), Sprint (lanes by
- *  sprint), and List (flat table) — all filterable by assigned user. */
-export default function WorkItemViews({ productId }: { productId: number }) {
+/** Ready first, then the three views that were already here.
+ *
+ *  Ready leads because it is the only one that answers the question somebody
+ *  standing in Work is actually asking — is this scoped well enough to hand
+ *  over? Board says where an item is, Sprint says when, List says everything at
+ *  once, and none of the three can say that. */
+const WORK_VIEWS = ["ready", ...DEV_VIEWS] as const;
+type WorkView = (typeof WORK_VIEWS)[number];
+
+/** The Developer area's work views: Ready (what an agent still needs), Board
+ *  (status columns), Sprint (lanes by sprint), and List (flat table) — the last
+ *  three filterable by assigned user. */
+export default function WorkItemViews({
+  productId,
+  requestedItem,
+}: {
+  productId: number;
+  /** A work item asked for from elsewhere — the Build view's lane links here
+   *  when an item has no agent on it. Carries a timestamp so asking twice for
+   *  the same item still moves. */
+  requestedItem?: { id: number; at: number } | null;
+}) {
   const [items, setItems] = useState<WorkItem[]>([]);
   const [sprints, setSprints] = useState<Sprint[]>([]);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<(typeof DEV_VIEWS)[number]>("board");
+  const [view, setView] = useState<WorkView>("ready");
   const [assignee, setAssignee] = useState<string>("all"); // "all" | "unassigned" | id
   const [strategyItem, setStrategyItem] = useState<number | null>(null);
   const [planItem, setPlanItem] = useState<number | null>(null);
@@ -53,6 +73,13 @@ export default function WorkItemViews({ productId }: { productId: number }) {
     void refresh();
   }, [refresh]);
 
+  // An item asked for from the Build view lands on Ready, which is where its
+  // briefing is — sending it to the Board would show the card but not why the
+  // lane pointed here.
+  useEffect(() => {
+    if (requestedItem) setView("ready");
+  }, [requestedItem]);
+
   const memberName = (id: number | null) =>
     id === null ? "Unassigned" : members.find((m) => m.id === id)?.name ?? "(unknown)";
   const sprintName = (id: number | null) =>
@@ -69,14 +96,17 @@ export default function WorkItemViews({ productId }: { productId: number }) {
       <div className="view-controls">
         <SectionTabs
           label="View"
-          options={DEV_VIEWS.map((v) => ({
+          options={WORK_VIEWS.map((v) => ({
             id: v,
             label: v[0].toUpperCase() + v.slice(1),
           }))}
           active={view}
-          onSelect={(id) => setView(id as (typeof DEV_VIEWS)[number])}
+          onSelect={(id) => setView(id as WorkView)}
         />
-        <label>
+        {/* The filter belongs to the three views that list by person. Ready is
+            sorted by what the work still needs, which is not a fact about who
+            it is assigned to. */}
+        <label hidden={view === "ready"}>
           Filter by user
           <select
             aria-label="Filter by user"
@@ -95,6 +125,17 @@ export default function WorkItemViews({ productId }: { productId: number }) {
       </div>
 
       {error && <p role="alert">{error}</p>}
+
+      {view === "ready" && (
+        <WorkReadiness
+          productId={productId}
+          items={items}
+          requestedItem={requestedItem?.id ?? null}
+          // The build plan is where scoping is fixed and where the plan is
+          // approved, so "open it" is the one action this view needs.
+          onOpenPlan={(item) => setPlanItem(item.id)}
+        />
+      )}
 
       {view === "board" && (
         <section className="board" aria-label="Board view">

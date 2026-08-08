@@ -19,11 +19,9 @@ pub fn model_for_effort<'a>(models: &'a [String], effort: &str) -> Option<&'a st
         return None;
     }
     let last = models.len() - 1;
-    // **Everything above "high" still gets the most capable model.** There is
-    // nothing above the top of a list, so extra, max and ultra cannot mean a
-    // bigger model — they mean more effort, which is the Complexity setting's
-    // job. Spreading the six levels across the models instead would quietly
-    // demote work already marked "high" the day the new levels were added.
+    // `extra`, `max` and `ultra` are retired complexity words — kept here
+    // only so a row written before the migration lands on the top model rather
+    // than falling through to the cheapest, which is what an unknown word gets.
     let index = match effort {
         "medium" => models.len() / 2,
         "high" | "extra" | "max" | "ultra" => last,

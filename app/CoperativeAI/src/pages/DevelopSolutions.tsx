@@ -2,13 +2,10 @@ import SectionTabs from "../components/common/SectionTabs";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import DeveloperPlanning from "../components/planning/DeveloperPlanning";
-import DeveloperRulesEditor from "../components/ai/DeveloperRulesEditor";
 import FrameworkFiles from "../components/product/FrameworkFiles";
-import GitExplorer from "../components/vcs/GitExplorer";
+import RulesView from "../components/planning/RulesView";
 import SolutionBox from "../components/product/SolutionBox";
 import SolutionRepo from "../components/vcs/SolutionRepo";
-import StrategyEditor from "../components/planning/StrategyEditor";
-import TestExplorer from "../components/testing/TestExplorer";
 import WorkItemViews from "../components/planning/WorkItemViews";
 import AgentWorkspace from "../components/ai/AgentWorkspace";
 import {
@@ -20,7 +17,6 @@ import {
   listStarters,
   startExistingSolution,
   pickFolder,
-  DEVELOP_STRATEGY_FIELDS,
   SOLUTION_QUESTIONS,
   SOLUTION_TYPES,
   type Product,
@@ -29,30 +25,27 @@ import {
   type StarterRun,
 } from "../lib/backend";
 
-/** Which slice of the Develop area is showing. Ten sections in one scrolling
- *  column had stopped being a page, so they are grouped by what a developer is
- *  doing: thinking (Planning), executing (Work), writing code (Workspace), or
- *  wiring things up (Settings). */
-type DevelopView =
-  | "strategy"
-  | "work"
-  | "agents"
-  | "architecture"
-  | "tests"
-  | "git";
+/** Which slice of the Develop area is showing.
+ *
+ *  Four, in the order the work runs: the rules everything is built under, the
+ *  items waiting to be built, the building itself, and the map it is being built
+ *  on. Tests and Git are no longer tabs — they answered across the whole Product
+ *  and so could never say which agent an answer belonged to. Both are inside
+ *  Build now: per agent in the workbench, and Product-wide under its
+ *  "queue, questions and runs" entry. */
+type DevelopView = "strategy" | "work" | "agents" | "architecture";
 
 const DEVELOP_TABS: { id: DevelopView; label: string }[] = [
-  { id: "strategy", label: "Strategy and Rules" },
+  { id: "strategy", label: "Rules" },
   { id: "work", label: "Work" },
-  // One tab, not the two it replaced. "AI" listed the agents but could not show
+  // One tab, not the four it replaced. "AI" listed the agents but could not show
   // a line of what they wrote; "Code" showed the code but did not know an agent
-  // had written it. Following one agent from queued to its diff meant switching
-  // between them and finding it again — so they are the same tab now, with the
-  // agents down the side and the plain editor still first among them.
-  { id: "agents", label: "Agents and Code" },
-  { id: "architecture", label: "Planning and Architecture" },
-  { id: "tests", label: "Tests" },
-  { id: "git", label: "Git" },
+  // had written it; Tests and Git each knew the Product but not the agent.
+  // Following one agent from queued to shipped meant visiting all four and
+  // re-finding it in each — so they are one screen now, with the agents down the
+  // side and your own working copy still first among them.
+  { id: "agents", label: "Build" },
+  { id: "architecture", label: "Map" },
   // No Settings tab: GitHub, SSH, models and AI providers all moved to Admin,
   // which is where every other setting already was. Two places to look for a
   // setting meant knowing which before you could look.
@@ -85,6 +78,16 @@ export default function DevelopSolutions({
   /** Which Solution the Code tab is editing — set by "Open" on the Workspace
    *  tab, so the two tabs are one flow rather than two disconnected screens. */
   const [openSolution, setOpenSolution] = useState<Solution | null>(null);
+  /** A work item the Build view's lane asked Work to open. Carries a timestamp
+   *  so asking twice for the same item still moves — a bare id would compare
+   *  equal and the second press would do nothing. */
+  const [openWorkItem, setOpenWorkItem] = useState<{ id: number; at: number } | null>(
+    null,
+  );
+  /** An agent the Map's inspector asked Build to select. */
+  const [openAgent, setOpenAgent] = useState<{ workItemId: number; at: number } | null>(
+    null,
+  );
   const [githubConnected, setGithubConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -228,22 +231,14 @@ export default function DevelopSolutions({
       />
 
       {view === "strategy" && activeProduct !== "" && (
-        <>
-          <StrategyEditor
-            productId={Number(activeProduct)}
-            area="develop"
-            title="Technical Strategy"
-            fields={DEVELOP_STRATEGY_FIELDS}
-          />
-          {/* Read-only here — these are set in Admin. Two editors for one
-              set of rules would drift, and the drift would be invisible
-              until the AI obeyed the wrong copy. */}
-          <DeveloperRulesEditor productId={Number(activeProduct)} readOnly />
-        </>
+        <RulesView productId={Number(activeProduct)} />
       )}
 
       {view === "work" && activeProduct !== "" && (
-        <WorkItemViews productId={Number(activeProduct)} />
+        <WorkItemViews
+          productId={Number(activeProduct)}
+          requestedItem={openWorkItem}
+        />
       )}
 
       {/* The merged panel: agents down the left with their own sub-panels, and
@@ -253,6 +248,13 @@ export default function DevelopSolutions({
           productId={Number(activeProduct)}
           solutions={solutions.filter((s) => s.productId === Number(activeProduct))}
           opened={openSolution}
+          requestedAgent={openAgent}
+          // The lane's link out. Build and Work are two tabs of one flow: an
+          // item with no agent on it is answered in Work, not here.
+          onOpenWork={(id) => {
+            setOpenWorkItem({ id, at: Date.now() });
+            setView("work");
+          }}
         />
       )}
 
@@ -260,16 +262,6 @@ export default function DevelopSolutions({
           new identity every render, and React would remount the whole subtree
           on each keystroke, dropping the editor's open file and input focus. */}
       {view === "architecture" && workspaceSection()}
-
-
-      {view === "tests" && activeProduct !== "" && (
-        <TestExplorer productId={Number(activeProduct)} />
-      )}
-
-      {view === "git" && activeProduct !== "" && (
-        <GitExplorer productId={Number(activeProduct)} />
-      )}
-
     </div>
   );
 
@@ -281,7 +273,18 @@ export default function DevelopSolutions({
       {/* Architecture and infrastructure sit at the top of this tab, because
           they are what someone comes here to think about — the Solution list
           below is where that thinking gets built. */}
-      {activeProduct !== "" && <DeveloperPlanning productId={Number(activeProduct)} />}
+      {activeProduct !== "" && (
+        <DeveloperPlanning
+          productId={Number(activeProduct)}
+          // The map's inspector links to the agent inside a Solution. Map and
+          // Build are two views of one thing: the map says where the work is,
+          // Build says what it is doing.
+          onOpenAgent={(workItemId) => {
+            setOpenAgent({ workItemId, at: Date.now() });
+            setView("agents");
+          }}
+        />
+      )}
       {activeProduct !== "" && <FrameworkFiles productId={Number(activeProduct)} />}
       <section className="develop-card" aria-label="Create a Solution">
         <h2>Create a Solution</h2>

@@ -6,6 +6,7 @@
 pub mod backend;
 pub mod claude_code;
 pub mod client;
+pub mod effort;
 pub mod estimator;
 pub mod keys;
 pub mod ollama;

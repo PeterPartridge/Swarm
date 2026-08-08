@@ -367,6 +367,26 @@ pub(crate) fn structured_content(prompt: &Prompt, images: &[crate::ai::vision::L
 }
 
 #[allow(clippy::too_many_arguments)]
+/// The `output_config` for a request: the schema always, the effort only when
+/// this model takes one.
+///
+/// Its own function so the decision can be tested without a live call — and
+/// because whether `effort` belongs in the body is not obvious. Haiku accepts
+/// no such parameter, and sending one to a model that does not take it fails
+/// the request outright rather than being ignored.
+fn output_config(model: &str, effort: &str, schema: Value) -> Value {
+    let mut config = json!({
+        "format": {
+            "type": "json_schema",
+            "schema": schema
+        }
+    });
+    if let Some(level) = crate::ai::effort::resolve(model, effort) {
+        config["effort"] = json!(level);
+    }
+    config
+}
+
 async fn post_structured_with_images(
     api_base_url: &str,
     api_key: &str,
@@ -380,13 +400,7 @@ async fn post_structured_with_images(
     let body = json!({
         "model": model,
         "max_tokens": 16000,
-        "output_config": {
-            "effort": effort,
-            "format": {
-                "type": "json_schema",
-                "schema": schema
-            }
-        },
+        "output_config": output_config(model, effort, schema),
         "messages": [{
             "role": "user",
             "content": structured_content(prompt, images)
@@ -1556,6 +1570,37 @@ fn http_client() -> Result<reqwest::Client, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **Sent, because the app was capped below what the model can do.** The
+    /// settings offered three levels while every model here takes five, so
+    /// `xhigh` and `max` were unreachable — this is the far end arriving.
+    #[test]
+    fn the_top_efforts_reach_the_request_body() {
+        for level in ["low", "medium", "high", "xhigh", "max"] {
+            let config = output_config("claude-opus-5", level, json!({}));
+            assert_eq!(config["effort"], level, "for {level}");
+        }
+    }
+
+    /// **Haiku takes no effort parameter**, and it sits on the cheapest
+    /// complexity — so "always send it" would break the commonest tier. The
+    /// key has to be absent, not null: a null would still be a value sent.
+    #[test]
+    fn a_model_with_no_effort_setting_is_sent_no_effort_key() {
+        let config = output_config("claude-haiku-4-5", "low", json!({}));
+        assert!(config.get("effort").is_none(), "sent anyway: {config}");
+        // …and the schema still goes, which is the part that always applies.
+        assert_eq!(config["format"]["type"], "json_schema");
+    }
+
+    /// An unsupported level steps down rather than failing the call: asking
+    /// for xhigh where it does not exist means "work hard", and high is the
+    /// honest reading of that.
+    #[test]
+    fn an_unsupported_level_steps_down_instead_of_failing() {
+        let config = output_config("claude-sonnet-4-6", "xhigh", json!({}));
+        assert_eq!(config["effort"], "high");
+    }
 
     /// The declared format is the caller's, not the model's. It was asked for
     /// one notation; letting the response redeclare it would defeat the check

@@ -1,8 +1,15 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AgentWorkspace from "../../components/ai/AgentWorkspace";
-import type { AiJob, OpenQuestion, Run, Solution, WorkItem } from "../../lib/backend";
+import type {
+  AiJob,
+  ChangeReview,
+  OpenQuestion,
+  Run,
+  Solution,
+  WorkItem,
+} from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../lib/backend")>();
@@ -19,6 +26,17 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     listAiFeedback: vi.fn(),
     suggestDevCommand: vi.fn(),
     startRun: vi.fn(),
+    // The Build view reads the tree, the changed files and the review itself.
+    // Leaving any of them to fall through to the real `invoke` would render an
+    // error state and still pass, which is the trap this file has hit before.
+    readSolutionTree: vi.fn(),
+    productChangedFiles: vi.fn(),
+    reviewSolutionChanges: vi.fn(),
+    settleChangeRun: vi.fn(),
+    listTestSuites: vi.fn(),
+    runSolutionTests: vi.fn(),
+    productGitOverview: vi.fn(),
+    listAiCalls: vi.fn(),
   };
 });
 
@@ -27,7 +45,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 // The editor reaches for the filesystem and a Monaco bundle, neither of which is
-// what these tests are about — the rail and which sub-panels appear is.
+// what these tests are about — the lane, the tree and which panes appear is.
 vi.mock("../../components/code/CodeEditor", () => ({
   default: () => <div>the code editor</div>,
 }));
@@ -35,7 +53,7 @@ vi.mock("../../components/planning/WorkItemBuildPlan", () => ({
   default: ({ item }: { item: WorkItem }) => <div>build plan for {item.title}</div>,
 }));
 vi.mock("../../components/code/WorkItemChanges", () => ({
-  default: () => <div>the changed files</div>,
+  default: () => <div>the recorded scope</div>,
 }));
 vi.mock("../../components/code/RunTerminal", () => ({
   default: ({ title }: { title: string }) => <div>terminal: {title}</div>,
@@ -81,6 +99,7 @@ const run = (over: Partial<Run> = {}): Run =>
     state: "notStarted",
     branch: "feature/checkout",
     worktreePath: "",
+    filesChanged: 0,
     ...over,
   }) as Run;
 
@@ -107,11 +126,41 @@ const question = (over: Partial<OpenQuestion> = {}): OpenQuestion => ({
   ...over,
 });
 
-function panel() {
-  return <AgentWorkspace productId={1} solutions={[solution]} opened={null} />;
+const review = (over: Partial<ChangeReview> = {}): ChangeReview => ({
+  changes: [
+    {
+      path: "src/checkout.ts",
+      status: "modified",
+      addedLines: 12,
+      removedLines: 3,
+      diff: "@@ -1 +1 @@\n-old line\n+new line",
+    },
+  ],
+  report: {
+    violations: [],
+    notices: [],
+    filesChanged: 1,
+    addedLines: 12,
+    removedLines: 3,
+  },
+  noRules: false,
+  runId: 3,
+  runState: "prepared",
+  ...over,
+});
+
+function panel(onOpenWork?: (id: number) => void) {
+  return (
+    <AgentWorkspace
+      productId={1}
+      solutions={[solution]}
+      opened={null}
+      onOpenWork={onOpenWork}
+    />
+  );
 }
 
-describe("AgentWorkspace", () => {
+describe("AgentWorkspace (the Build view)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocked.listWorkItems.mockResolvedValue([item()]);
@@ -119,6 +168,11 @@ describe("AgentWorkspace", () => {
     mocked.listAiJobs.mockResolvedValue([]);
     mocked.listOpenQuestions.mockResolvedValue([]);
     mocked.listAiFeedback.mockResolvedValue([]);
+    mocked.readSolutionTree.mockResolvedValue({ entries: [], truncated: false });
+    mocked.productChangedFiles.mockResolvedValue([]);
+    mocked.listTestSuites.mockResolvedValue([]);
+    mocked.productGitOverview.mockResolvedValue([]);
+    mocked.listAiCalls.mockResolvedValue({ totals: null, calls: [] } as never);
     // Approved by default so the Start tests are about starting; the gate has
     // its own test below.
     mocked.listWorkItemPlans.mockResolvedValue([
@@ -137,19 +191,19 @@ describe("AgentWorkspace", () => {
     } as never);
   });
 
-  /// Editing by hand did not go away when the tabs merged. It is the first rail
-  /// entry and the default, so the tab is never empty and a repository can still
-  /// be opened with no agent involved.
-  it("shows the plain editor first, with no agent selected", async () => {
+  /// Editing by hand did not go away when the tabs merged. Your own workspace is
+  /// the first lane card and the default, so the view is never empty and a
+  /// repository can still be opened with no agent involved.
+  it("shows your own workspace first, with no agent selected", async () => {
     render(panel());
     expect(await screen.findByText("the code editor")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Code/ })).toHaveAttribute(
+    expect(screen.getByLabelText("Your workspace")).toHaveAttribute(
       "aria-pressed",
       "true",
     );
   });
 
-  /// The rail is the "manage multiple AIs at once" half: every agent in the
+  /// The lane is the "manage multiple AIs at once" half: every agent in the
   /// Product, named by work item and Solution, in one list.
   it("lists an agent per run, named by work item and Solution", async () => {
     mocked.listRuns.mockResolvedValue([
@@ -168,11 +222,10 @@ describe("AgentWorkspace", () => {
     expect(
       screen.getByLabelText("Agent for Add refunds on Shop API"),
     ).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Agents (2)" })).toBeInTheDocument();
   });
 
   /// A queued job has no run yet, and that is exactly the moment there is most
-  /// to watch — leaving it out would empty the rail just after submitting.
+  /// to watch — leaving it out would empty the lane just after submitting.
   it("lists an agent that is still planning, before any run exists", async () => {
     mocked.listAiJobs.mockResolvedValue([job()]);
     render(panel());
@@ -193,47 +246,65 @@ describe("AgentWorkspace", () => {
     ).toHaveTextContent("2 questions");
   });
 
-  /// The sub-panels are the other half of the request: one agent's plan, its
-  /// code changes, its questions, a preview and its terminal, without leaving.
-  it("opens plan, changes, questions, preview and terminal for a started run", async () => {
+  /// **The honesty rule, in the lane.** The app cannot see how far through its
+  /// work an agent is, so the card shows the stage the database actually holds
+  /// and never a percentage — a bar at 68% would be invented.
+  it("shows the stage an agent has reached and no progress figure", async () => {
+    mocked.listRuns.mockResolvedValue([
+      run({ state: "prepared", worktreePath: "C:/wt/a" }),
+    ]);
+    render(panel());
+
+    const card = await screen.findByLabelText("Agent for Add checkout on Shop API");
+    expect(card).toHaveTextContent("Plan");
+    expect(card).toHaveTextContent("Code");
+    expect(card).toHaveTextContent("Review");
+    expect(within(card).getByLabelText("Stage: Code")).toBeInTheDocument();
+    expect(card.textContent).not.toMatch(/\d+%/);
+  });
+
+  /// The panes are the other half of the request: one agent's plan, its diffs,
+  /// its tests, a preview and its terminal, without leaving.
+  it("opens plan, changes, tests, preview and a terminal for a started run", async () => {
     const user = userEvent.setup();
     mocked.listRuns.mockResolvedValue([
       run({ state: "prepared", worktreePath: "C:/wt/checkout" }),
     ]);
+    mocked.reviewSolutionChanges.mockResolvedValue(review());
     render(panel());
 
     await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
     const tabs = await screen.findByRole("tablist", { name: "Agent sub-panels" });
-    for (const name of ["Plan", "Changes", "Questions", "Preview", "Terminal"]) {
-      expect(screen.getByRole("tab", { name })).toBeInTheDocument();
+    for (const name of ["Plan", "Changes", "Tests", "Preview", "Run", "Scope", "Questions"]) {
+      expect(within(tabs).getByRole("tab", { name: new RegExp(`^${name}`) })).toBeInTheDocument();
     }
-    expect(tabs).toBeInTheDocument();
 
     expect(await screen.findByText("build plan for Add checkout")).toBeInTheDocument();
-    await user.click(screen.getByRole("tab", { name: "Changes" }));
-    expect(await screen.findByText("the changed files")).toBeInTheDocument();
-    await user.click(screen.getByRole("tab", { name: "Preview" }));
+    await user.click(within(tabs).getByRole("tab", { name: /^Scope/ }));
+    expect(await screen.findByText("the recorded scope")).toBeInTheDocument();
+    await user.click(within(tabs).getByRole("tab", { name: /^Preview/ }));
     expect(
       await screen.findByRole("region", { name: /Preview of Add checkout/ }),
     ).toBeInTheDocument();
   });
 
-  /// Changes, preview and a terminal all need a checkout. Offering four tabs
-  /// where three cannot work yet would be a worse answer than saying what is
-  /// missing and how to get it.
+  /// Changes, tests, preview and a terminal all need a checkout. Offering panes
+  /// that cannot work yet would be a worse answer than saying what is missing
+  /// and how to get it.
   it("offers only plan and questions until a run has a checkout, and says why", async () => {
     const user = userEvent.setup();
     mocked.listRuns.mockResolvedValue([run()]); // notStarted, no worktree
     render(panel());
 
     await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
-    expect(await screen.findByRole("tab", { name: "Plan" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Questions" })).toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: "Changes" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: "Preview" })).not.toBeInTheDocument();
+    const tabs = await screen.findByRole("tablist", { name: "Agent sub-panels" });
+    expect(within(tabs).getByRole("tab", { name: /^Plan/ })).toBeInTheDocument();
+    expect(within(tabs).getByRole("tab", { name: /^Questions/ })).toBeInTheDocument();
+    expect(within(tabs).queryByRole("tab", { name: /^Changes/ })).not.toBeInTheDocument();
+    expect(within(tabs).queryByRole("tab", { name: /^Preview/ })).not.toBeInTheDocument();
 
     expect(
-      screen.getByText(/Changes, preview and a terminal appear once/),
+      screen.getByText(/Changes, tests, preview and a terminal appear once/),
     ).toBeInTheDocument();
     expect(
       screen.getByLabelText("Start Add checkout on Shop API"),
@@ -287,8 +358,126 @@ describe("AgentWorkspace", () => {
     expect(mocked.startRun).not.toHaveBeenCalled();
   });
 
+  /// **The honesty rule, in the ship rail.** Every check is read back from the
+  /// run rather than ticked by hand, so an unmet check means work outstanding
+  /// and not merely an unticked box.
+  it("derives the ship checks from the review rather than offering tickboxes", async () => {
+    const user = userEvent.setup();
+    mocked.listRuns.mockResolvedValue([
+      run({ state: "prepared", worktreePath: "C:/wt/checkout" }),
+    ]);
+    mocked.reviewSolutionChanges.mockResolvedValue(review());
+    render(panel());
+
+    const rail = await screen.findByRole("complementary", { name: /Review and ship/ });
+    // Nothing has been read, so nothing claims to have passed — and there is no
+    // checkbox anywhere to claim it with.
+    expect(within(rail).queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(rail).toHaveTextContent("Nothing read yet");
+
+    await user.click(within(rail).getByRole("button", { name: "Review what changed" }));
+    expect(await within(rail).findByText("+12 added")).toBeInTheDocument();
+    expect(within(rail).getByText("−3 removed")).toBeInTheDocument();
+    // Tests were never run here, so that line stays unknown rather than green.
+    expect(rail).toHaveTextContent("not run");
+  });
+
+  /// A broken rule is reported, and keeping the change anyway is still allowed —
+  /// it is recorded as exactly that rather than laundered into a clean pass.
+  it("names a broken rule and still allows the change to be kept", async () => {
+    const user = userEvent.setup();
+    mocked.listRuns.mockResolvedValue([
+      run({ state: "prepared", worktreePath: "C:/wt/checkout" }),
+    ]);
+    mocked.reviewSolutionChanges.mockResolvedValue(
+      review({
+        report: {
+          violations: [
+            { kind: "disallowedTech", path: "src/checkout.ts", detail: "uses moment" },
+          ],
+          notices: [],
+          filesChanged: 1,
+          addedLines: 12,
+          removedLines: 3,
+        },
+      }),
+    );
+    mocked.settleChangeRun.mockResolvedValue();
+    render(panel());
+
+    const rail = await screen.findByRole("complementary", { name: /Review and ship/ });
+    await user.click(within(rail).getByRole("button", { name: "Review what changed" }));
+
+    expect(await within(rail).findByText(/uses moment/)).toBeInTheDocument();
+    await user.click(
+      within(rail).getByLabelText("Keep the changes in Shop API"),
+    );
+    expect(mocked.settleChangeRun).toHaveBeenCalledWith(3, "kept");
+    expect(
+      await within(rail).findByText(/with the broken rules above on the record/),
+    ).toBeInTheDocument();
+  });
+
+  /// The tree and the workbench sit side by side for one reason: picking a file
+  /// is a request to see what changed in it.
+  it("opens a file's diff when it is picked in the tree", async () => {
+    const user = userEvent.setup();
+    mocked.listRuns.mockResolvedValue([
+      run({ state: "prepared", worktreePath: "C:/wt/checkout" }),
+    ]);
+    mocked.readSolutionTree.mockResolvedValue({
+      entries: [
+        { path: "src", name: "src", isDir: true, depth: 0 },
+        { path: "src/checkout.ts", name: "checkout.ts", isDir: false, depth: 1 },
+      ],
+      truncated: false,
+    });
+    mocked.reviewSolutionChanges.mockResolvedValue(review());
+    render(panel());
+
+    await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
+    const rail = screen.getByRole("complementary", { name: /Review and ship/ });
+    await user.click(within(rail).getByRole("button", { name: "Review what changed" }));
+
+    await user.click(await screen.findByLabelText("src/checkout.ts"));
+    expect(await screen.findByText(/\+new line/)).toBeInTheDocument();
+  });
+
+  /// **The lane links, it does not launch.** Handing work to an agent means
+  /// approving a plan and pressing Start, both of which are deliberate presses
+  /// on the item's build plan — so this card opens the item in Work rather than
+  /// growing a second way to begin a run.
+  it("links an item with no agent through to Work, and starts nothing", async () => {
+    const user = userEvent.setup();
+    const opened: number[] = [];
+    mocked.listWorkItems.mockResolvedValue([item(), item({ id: 12, title: "Add refunds" })]);
+    mocked.listRuns.mockResolvedValue([run({ state: "prepared", worktreePath: "C:/wt/a" })]);
+    render(panel((id) => opened.push(id)));
+
+    // Item 9 has the agent; 12 has none, so that is the one offered.
+    const link = await screen.findByLabelText("Open Add refunds in Work");
+    expect(link).toHaveTextContent("1 item with no agent");
+    await user.click(link);
+
+    expect(opened).toEqual([12]);
+    expect(mocked.startRun).not.toHaveBeenCalled();
+  });
+
+  /// With every item already handed over there is nothing to link to, so the
+  /// card is absent rather than present and inert.
+  it("hides the hand-over card when every item has an agent", async () => {
+    // The only work item is the one run() belongs to, so nothing is unassigned.
+    mocked.listWorkItems.mockResolvedValue([item()]);
+    mocked.listRuns.mockResolvedValue([run({ state: "prepared", worktreePath: "C:/wt/a" })]);
+    render(panel(() => {}));
+
+    await screen.findByLabelText("Agent for Add checkout on Shop API");
+    expect(screen.queryByText(/with no agent/)).not.toBeInTheDocument();
+  });
+
   /// A per-agent view cannot answer "what is everything doing?" — the queue as a
-  /// whole, every open question, and the runs with their merges still can.
+  /// whole, every open question, the runs, the tests and the repositories still
+  /// can, and all five moved here when Tests and Git stopped being tabs.
   it("keeps the across-the-Product lists reachable", async () => {
     const user = userEvent.setup();
     render(panel());
@@ -296,5 +485,7 @@ describe("AgentWorkspace", () => {
     await user.click(await screen.findByRole("button", { name: /Queue, questions and runs/ }));
     expect(await screen.findByRole("region", { name: "Runs" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Questions" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Unit tests" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Git" })).toBeInTheDocument();
   });
 });

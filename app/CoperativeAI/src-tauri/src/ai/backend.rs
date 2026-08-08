@@ -28,7 +28,7 @@ pub async fn generate_stories(
         }
         // No key: the CLI is signed in with the person's own subscription, which
         // is the whole point of this kind.
-        "claudeCode" => claude_code::generate_stories(&provider.api_base_url, model, prompt).await,
+        "claudeCode" => claude_code::generate_stories(&provider.api_base_url, model, effort, prompt).await,
         "anthropic" => {
             let api_key = keys::read(&provider.key_alias)?;
             client::generate_stories(&provider.api_base_url, &api_key, model, effort, prompt).await
@@ -54,7 +54,7 @@ pub async fn generate_solution_strategy(
             ollama::generate_solution_strategy(&provider.api_base_url, ollama_key(provider)?.as_deref(), model, prompt).await
         }
         "claudeCode" => {
-            claude_code::generate_solution_strategy(&provider.api_base_url, model, prompt).await
+            claude_code::generate_solution_strategy(&provider.api_base_url, model, effort, prompt).await
         }
         "anthropic" => {
             let api_key = keys::read(&provider.key_alias)?;
@@ -78,7 +78,7 @@ pub async fn generate_design(
         "ollama" => {
             ollama::generate_design(&provider.api_base_url, ollama_key(provider)?.as_deref(), model, prompt).await
         }
-        "claudeCode" => claude_code::generate_design(&provider.api_base_url, model, prompt).await,
+        "claudeCode" => claude_code::generate_design(&provider.api_base_url, model, effort, prompt).await,
         "anthropic" => {
             let api_key = keys::read(&provider.key_alias)?;
             client::generate_design(&provider.api_base_url, &api_key, model, effort, prompt).await
@@ -100,7 +100,7 @@ pub async fn generate_diagram(
             ollama::generate_diagram(&provider.api_base_url, ollama_key(provider)?.as_deref(), model, prompt, format).await
         }
         "claudeCode" => {
-            claude_code::generate_diagram(&provider.api_base_url, model, prompt, format).await
+            claude_code::generate_diagram(&provider.api_base_url, model, effort, prompt, format).await
         }
         "anthropic" => {
             let api_key = keys::read(&provider.key_alias)?;
@@ -124,7 +124,7 @@ pub async fn generate_pal(
         "ollama" => {
             ollama::generate_pal(&provider.api_base_url, ollama_key(provider)?.as_deref(), model, prompt).await
         }
-        "claudeCode" => claude_code::generate_pal(&provider.api_base_url, model, prompt).await,
+        "claudeCode" => claude_code::generate_pal(&provider.api_base_url, model, effort, prompt).await,
         "anthropic" => {
             let api_key = keys::read(&provider.key_alias)?;
             client::generate_pal(&provider.api_base_url, &api_key, model, effort, prompt).await
@@ -149,7 +149,7 @@ pub async fn generate_change_plan(
         // Refuses rather than quietly planning without the mockups — see
         // `claude_code::generate_change_plan`.
         "claudeCode" => {
-            claude_code::generate_change_plan(&provider.api_base_url, model, prompt, images).await
+            claude_code::generate_change_plan(&provider.api_base_url, model, effort, prompt, images).await
         }
         "anthropic" => {
             let api_key = keys::read(&provider.key_alias)?;

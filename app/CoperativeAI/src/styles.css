@@ -655,110 +655,717 @@ button:disabled {
   color: var(--fg-muted);
 }
 
-/* ── The architecture map: draggable, type-shaped Solution boxes ──────────── */
-.solution-map {
+/* ── The architecture map: three panes around a draggable canvas ──────────────
+   What can go on the map and what is wrong with it down the left, the canvas in
+   the middle, and everything known about the selected box down the right.
+
+   The canvas is a fixed viewport with a transformed surface inside it: pan and
+   zoom move the surface, so the boxes' stored coordinates stay in one space and
+   the saved .drawio is the arrangement on screen at any zoom.
+   --------------------------------------------------------------------------- */
+
+.arch-map {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
   margin: 0.5rem 0 1rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg);
 }
+
+.arch-palette {
+  width: 13rem;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding: 0.75rem 0.7rem;
+  overflow-y: auto;
+  background: var(--sunken);
+  border-right: 1px solid var(--line-soft);
+}
+
+.palette-head strong {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--fg-bright);
+}
+
+.palette-head .hint {
+  margin: 0.1rem 0 0;
+}
+
+.palette-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.palette-label {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+
+.arch-palette .map-add {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.arch-palette .map-add input,
+.arch-palette .map-add select,
+.arch-palette .map-add button {
+  width: 100%;
+}
+
+.palette-counts,
+.palette-checks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.palette-counts li {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.3rem 0.4rem;
+  background: var(--raised);
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  font-size: 0.75rem;
+}
+
+/* The same swatch as the box on the canvas, so the count and the picture are
+   obviously about the same thing. */
+.type-chip {
+  width: 1.05rem;
+  height: 0.75rem;
+  flex: none;
+  border-radius: 3px;
+  border: 1px solid var(--fg-muted);
+  background: color-mix(in srgb, var(--fg) 12%, transparent);
+}
+
+.type-chip.type-website {
+  border-color: #4ec9b0;
+  background: color-mix(in srgb, #4ec9b0 22%, transparent);
+}
+
+.type-chip.type-api {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.type-chip.type-database {
+  border-color: #bf5af2;
+  background: color-mix(in srgb, #bf5af2 22%, transparent);
+}
+
+.type-chip.type-application {
+  border-color: #ff8a5b;
+  background: color-mix(in srgb, #ff8a5b 22%, transparent);
+}
+
+.type-name {
+  flex: 1;
+  min-width: 0;
+  color: var(--fg);
+}
+
+.type-count {
+  flex: none;
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.palette-checks li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--fg-muted);
+}
+
+.palette-checks li.warn > span:first-child {
+  color: var(--warn);
+}
+
+.palette-checks li.ok > span:first-child {
+  color: var(--ok);
+}
+
+.palette-keys dl {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.palette-keys dl > div {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.palette-keys dt {
+  flex: none;
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg-muted);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.65rem;
+}
+
+.palette-keys dd {
+  margin: 0;
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+}
+
+/* ── The canvas ───────────────────────────────────────────────────────────── */
+
+.arch-canvas {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0.6rem;
+  gap: 0.5rem;
+}
+
 .map-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.6rem;
-  margin-bottom: 0.5rem;
+  gap: 0.5rem;
 }
+
+.zoom-group {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.1rem;
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+  border-radius: 7px;
+}
+
+.zoom-group button {
+  width: 1.6rem;
+  padding: 0.1rem 0;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.zoom-group button:hover {
+  background: var(--hover);
+  color: var(--fg-bright);
+}
+
+.zoom-label {
+  min-width: 2.6rem;
+  text-align: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
 .map-mode,
 .map-add {
   display: flex;
+  gap: 0.5rem;
   align-items: center;
-  gap: 0.4rem;
 }
+
 .map-mode label {
   display: flex;
   align-items: center;
   gap: 0.25rem;
+  font-size: 0.8rem;
 }
-.map-surface {
+
+.toolbar-spacer {
+  flex: 1;
+  min-width: 0.5rem;
+}
+
+.connect-hint {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0.4rem 0.6rem;
+  background: var(--info-tint);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 7px;
+  font-size: 0.78rem;
+  color: var(--fg);
+}
+
+/* The window onto the surface. Overflow is hidden rather than scrolled: panning
+   is the way around a map bigger than the window, and a scrollbar as well would
+   be two answers to one question. */
+.map-viewport {
   position: relative;
-  height: 560px;
-  overflow: auto;
-  background: var(--sunken);
+  flex: 1;
+  min-height: 26rem;
+  overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 8px;
+  background: var(--sunken);
+  cursor: grab;
+  touch-action: none;
 }
+
+.map-viewport.connecting {
+  cursor: crosshair;
+}
+
+.map-surface {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 3000px;
+  height: 2000px;
+  transform-origin: 0 0;
+  /* The grid is the snap made visible — one square per two snap steps. */
+  background-image:
+    linear-gradient(var(--line-soft) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line-soft) 1px, transparent 1px);
+}
+
 .map-edges {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   pointer-events: none;
+  overflow: visible;
 }
+
 .map-edge-label {
   fill: var(--fg-muted);
   font-size: 10px;
   text-anchor: middle;
 }
+
+.edge-on .map-edge-label {
+  fill: var(--fg-bright);
+}
+
 .map-node {
   position: absolute;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.1rem;
-  padding: 0.3rem;
+  align-items: flex-start;
+  gap: 0.2rem;
+  padding: 0.45rem 0.55rem 0.4rem 0.7rem;
   background: var(--raised);
   border: 1px solid var(--line);
+  border-radius: 9px;
   color: var(--fg);
-  cursor: grab;
-  touch-action: none;
-  text-align: center;
+  text-align: left;
+  cursor: move;
   overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
 }
+
 .map-node:active {
   cursor: grabbing;
 }
+
 .map-node-picked {
-  outline: 2px solid var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--info-tint);
 }
+
+.map-node-selected {
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--raised));
+}
+
+.node-rail {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+}
+
+.map-node.type-website .node-rail {
+  background: #4ec9b0;
+}
+
+.map-node.type-api .node-rail {
+  background: var(--accent);
+}
+
+.map-node.type-database .node-rail {
+  background: #bf5af2;
+}
+
+.map-node.type-application .node-rail {
+  background: #ff8a5b;
+}
+
+.node-top {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  min-width: 0;
+}
+
+/* Not a health light. The app does not read this code — what it knows is
+   whether there is a working copy of it on this machine. */
+.node-dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  flex: none;
+  border-radius: 50%;
+  background: var(--warn);
+}
+
+.node-dot.here {
+  background: var(--ok);
+}
+
+.map-node-name {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--fg-bright);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-agent {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.05rem;
+  height: 1.05rem;
+  flex: none;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--agent-hue) 22%, transparent);
+  color: var(--agent-hue);
+  font-size: 0.55rem;
+  font-weight: 800;
+}
+
+.node-meta {
+  width: 100%;
+  font-size: 0.65rem;
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .map-node-type {
-  font-size: 0.6rem;
+  margin-top: auto;
+  font-size: 0.55rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
   color: var(--fg-muted);
 }
-.map-node-name {
-  font-size: 0.8rem;
-  font-weight: 600;
-  line-height: 1.1;
+
+.handle {
+  position: absolute;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 2px;
+  background: var(--accent);
 }
-/* Each Solution type is its own shape, so an API, a database and a website are
-   told apart at a glance rather than by reading every label. */
-.map-node.type-website {
-  border-radius: 16px;
-  border-color: var(--accent);
+
+.handle.tl {
+  left: -1px;
+  top: -1px;
 }
-.map-node.type-api {
-  clip-path: polygon(12% 0, 88% 0, 100% 50%, 88% 100%, 12% 100%, 0 50%);
-  border-color: var(--warn);
+.handle.tr {
+  right: -1px;
+  top: -1px;
 }
-.map-node.type-database {
-  border-radius: 50% / 24%;
-  border-color: var(--ok);
+.handle.bl {
+  left: -1px;
+  bottom: -1px;
 }
-.map-node.type-application {
-  border-radius: 3px;
+.handle.br {
+  right: -1px;
+  bottom: -1px;
 }
-.map-link-list {
-  list-style: none;
-  padding: 0;
-  margin: 0.5rem 0 0;
-  font-size: 0.8rem;
-}
-.map-link-list li {
+
+.map-status {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.15rem 0;
+  font-size: 0.7rem;
+  color: var(--fg-muted);
+  font-family: ui-monospace, Consolas, monospace;
 }
+
+.map-status .accent {
+  color: var(--accent);
+}
+
+.map-status .dim {
+  color: var(--fg-dim);
+}
+
+/* ── The inspector ────────────────────────────────────────────────────────── */
+
+.arch-inspector {
+  width: 18rem;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.75rem 0.7rem;
+  overflow-y: auto;
+  background: var(--sunken);
+  border-left: 1px solid var(--line-soft);
+}
+
+.inspect-card {
+  padding: 0.6rem 0.65rem;
+  background: var(--raised);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+}
+
+.inspect-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.35rem;
+}
+
+.inspect-kind {
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.inspect-title {
+  display: block;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.92rem;
+  color: var(--fg-bright);
+  word-break: break-word;
+}
+
+.inspect-facts {
+  margin: 0.5rem 0 0;
+}
+
+.inspect-facts > div {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.3rem 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.inspect-facts > div:first-child {
+  border-top: none;
+}
+
+.inspect-facts dt {
+  flex: none;
+  width: 6rem;
+  font-size: 0.7rem;
+  color: var(--fg-muted);
+}
+
+.inspect-facts dd {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 0.72rem;
+  text-align: right;
+  word-break: break-all;
+}
+
+.inspect-facts .card-mono {
+  font-family: ui-monospace, Consolas, monospace;
+  color: var(--fg);
+}
+
+.inspect-facts .warn {
+  color: var(--warn);
+}
+
+.inspect-agent {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.55rem;
+  background: color-mix(in srgb, var(--accent) 8%, var(--raised));
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 10px;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+
+.inspect-agent:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.inspect-agent-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  flex: none;
+  border-radius: 6px;
+  background: var(--info-tint);
+  color: var(--accent);
+  font-size: 0.6rem;
+  font-weight: 800;
+}
+
+.inspect-agent-who {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.inspect-agent-who strong {
+  font-size: 0.76rem;
+  color: var(--fg-bright);
+}
+
+.inspect-agent-who .card-mono {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.68rem;
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inspect-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.inspect-group .hint {
+  margin: 0;
+}
+
+.link-list,
+.doc-index {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.75rem;
+}
+
+.link-list li,
+.doc-index li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.3rem 0.4rem;
+  background: var(--raised);
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+}
+
+.link-list .arrow.out {
+  color: var(--ok);
+}
+
+.link-list .arrow.in {
+  color: var(--accent);
+}
+
+.link-list .link-name,
+.doc-index strong {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-bright);
+  font-weight: 600;
+}
+
+.link-list .link-kind,
+.doc-index .doc-kind {
+  flex: none;
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg-muted);
+  font-size: 0.65rem;
+}
+
+.link-list li button {
+  flex: none;
+  padding: 0 0.3rem;
+  background: transparent;
+  border: none;
+  color: var(--fg-dim);
+  cursor: pointer;
+}
+
+.link-list li button:hover {
+  color: var(--bad);
+}
+
+/* Three panes will not fit on a narrow window, so they stack: the canvas first,
+   because it is the thing being looked at. */
+@media (max-width: 72rem) {
+  .arch-map {
+    flex-direction: column;
+  }
+
+  .arch-palette,
+  .arch-inspector {
+    width: auto;
+    max-height: 20rem;
+    border-right: none;
+    border-left: none;
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .arch-canvas {
+    order: -1;
+  }
+}
+
 .theme-choice label {
   display: flex;
   align-items: center;
@@ -3669,77 +4276,373 @@ code {
 }
 
 /* ---------------------------------------------------------------------------
-   Agents and Code — the merged panel.
+   Build — the four panes.
 
-   A rail of agents on the left, one agent's sub-panels on the right. The rail
-   is fixed-width and scrolls on its own so a long list never squeezes the pane
-   that holds the actual work.
+   Solutions across the top, agents down the left, the files they touched beside
+   them, one agent's work in the middle, and the decision to ship it on the
+   right. Each pane scrolls on its own, so a long agent list never squeezes the
+   pane holding the actual work.
+
+   Every colour here is either a theme variable or `--agent-hue`, a per-Solution
+   hue set inline on the card, the tab and the tree mark so the same repository
+   reads the same in all three. Tints are `color-mix` over the hue rather than
+   fixed rgba, so they hold on the light theme too.
    --------------------------------------------------------------------------- */
 
-.agent-workspace {
-  display: grid;
-  grid-template-columns: 15rem minmax(0, 1fr);
-  gap: 0.75rem;
-  align-items: start;
-  /* Bounded so the two columns scroll independently rather than the page. */
+.build-view {
+  display: flex;
+  flex-direction: column;
   height: calc(100vh - 12rem);
-  min-height: 30rem;
-}
-
-.agent-rail {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  height: 100%;
-  overflow-y: auto;
-  padding: 0.5rem;
-  background: var(--sunken);
+  min-height: 34rem;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg);
 }
 
-.rail-heading {
-  margin: 0.75rem 0 0.25rem;
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--fg-muted);
-}
+/* ── The Solution bar ─────────────────────────────────────────────────────── */
 
-.agent-rail-entry {
+.solution-bar {
+  flex: none;
   display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  width: 100%;
-  padding: 0.4rem 0.5rem;
-  text-align: left;
+  align-items: stretch;
+  gap: 0;
+  padding-right: 0.75rem;
+  background: var(--rail);
+  border-bottom: 1px solid var(--line-soft);
+  overflow-x: auto;
+}
+
+.solution-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex: none;
+  padding: 0 0.85rem;
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  color: var(--fg);
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--fg-muted);
+  font-size: 0.8rem;
   cursor: pointer;
 }
 
-.agent-rail-entry:hover {
-  background: var(--raised);
+.solution-tab:hover {
+  background: var(--hover);
 }
 
-.agent-rail-entry.rail-active {
-  background: var(--raised);
-  border-color: var(--accent);
+.solution-tab.on {
+  background: var(--bg);
+  border-bottom-color: var(--agent-hue);
+  color: var(--fg-bright);
 }
 
-.agent-rail-entry strong {
+.solution-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: none;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--agent-hue) 20%, transparent);
+  color: var(--agent-hue);
+  font-size: 0.6rem;
+  font-weight: 800;
+}
+
+.solution-name {
   font-weight: 600;
-  /* Titles are long and the rail is narrow: one line, elided. */
+  white-space: nowrap;
+}
+
+.solution-badge {
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+  color: var(--fg-dim);
+  font-size: 0.65rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.solution-badge.live {
+  background: var(--ok-tint);
+  color: var(--ok);
+}
+
+.solution-bar-spacer {
+  flex: 1;
+  min-width: 1rem;
+}
+
+.global-agents {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  align-self: center;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.global-agents strong {
+  color: var(--fg-bright);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A live dot, not a spinner: it says something is happening without claiming to
+   know how far along it is. */
+.pulse {
+  width: 0.4rem;
+  height: 0.4rem;
+  flex: none;
+  border-radius: 50%;
+  background: var(--fg-dim);
+}
+
+.pulse.on {
+  background: var(--ok);
+  animation: pulse-ring 2.2s ease-out infinite;
+}
+
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 0.4rem color-mix(in srgb, var(--ok) 0%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 0%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse.on {
+    animation: none;
+  }
+}
+
+/* ── The four panes ───────────────────────────────────────────────────────── */
+
+.build-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+}
+
+/* Shared small pieces, used by Build and by Work's Ready view. Scoped to those
+   two so `.ok`, `.warn` and `.bad` cannot leak into anything else on the page. */
+.build-view .card-mono,
+.work-ready .card-mono {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.7rem;
+  color: var(--fg-dim);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.rail-sub {
-  font-size: 0.75rem;
+.build-view .card-mono.hue {
+  color: var(--agent-hue, var(--accent));
+}
+
+.build-view .ok,
+.work-ready .ok {
+  color: var(--ok);
+}
+
+.build-view .warn,
+.work-ready .warn {
+  color: var(--warn);
+}
+
+.build-view .bad,
+.work-ready .bad {
+  color: var(--bad);
+}
+
+.build-view .chip,
+.work-ready .chip {
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.build-view .chip.added {
+  background: var(--ok-tint);
+  color: var(--ok);
+}
+
+.build-view .chip.modified,
+.build-view .chip.renamed {
+  background: var(--warn-tint);
+  color: var(--warn);
+}
+
+.build-view .chip.deleted {
+  background: var(--bad-tint);
+  color: var(--bad);
+}
+
+/* ── The agent lane ───────────────────────────────────────────────────────── */
+
+.agent-lane {
+  width: 17.5rem;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--sunken);
+  border-right: 1px solid var(--line-soft);
+}
+
+.lane-head {
+  flex: none;
+  padding: 0.75rem 0.8rem 0.6rem;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.lane-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.lane-title > span:first-child {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--fg-bright);
+}
+
+.lane-count {
+  font-size: 0.72rem;
   color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.lane-sub {
+  margin: 0.15rem 0 0;
+  font-size: 0.68rem;
+  color: var(--fg-dim);
+}
+
+.lane-cards {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.55rem;
+}
+
+.lane-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--fg-dim);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.lane-divider::before,
+.lane-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line-soft);
+}
+
+/* A card, not a row: the old rail was a title and a badge, which meant opening
+   every agent to find out which had stopped and why. */
+.agent-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  flex: none;
+  width: 100%;
+  padding: 0.65rem 0.7rem;
+  text-align: left;
+  background: var(--raised);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  color: var(--fg);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.agent-card:hover {
+  border-color: color-mix(in srgb, var(--agent-hue) 40%, var(--line));
+}
+
+.agent-card.card-active {
+  border-color: color-mix(in srgb, var(--agent-hue) 60%, transparent);
+  background: color-mix(in srgb, var(--agent-hue) 7%, var(--raised));
+}
+
+.card-rail {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--agent-hue);
+  opacity: 0.35;
+}
+
+.agent-card.card-active .card-rail {
+  opacity: 1;
+}
+
+.card-top {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.card-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  flex: none;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--agent-hue) 18%, transparent);
+  color: var(--agent-hue);
+  font-size: 0.62rem;
+  font-weight: 800;
+}
+
+.card-avatar.plain {
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+}
+
+.card-who {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.card-who strong {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--fg-bright);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3747,67 +4650,928 @@ code {
 
 /* The badge. Colour carries the same meaning as the word, never instead of it —
    the state is always spelled out, so this is emphasis and not the message. */
-.rail-state {
-  align-self: flex-start;
-  padding: 0.05rem 0.35rem;
-  font-size: 0.7rem;
-  border-radius: 3px;
+.card-status {
+  flex: none;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
   background: color-mix(in srgb, var(--fg) 12%, transparent);
+  color: var(--fg-muted);
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
-.rail-state.asking,
-.rail-state.blocked {
-  background: color-mix(in srgb, var(--warn) 22%, transparent);
+.card-status.asking,
+.card-status.blocked {
+  background: var(--warn-tint);
+  color: var(--warn);
 }
 
-.rail-state.failed {
-  background: color-mix(in srgb, var(--bad) 22%, transparent);
+.card-status.failed,
+.card-status.discarded {
+  background: var(--bad-tint);
+  color: var(--bad);
 }
 
-.rail-state.running,
-.rail-state.queued {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
+.card-status.running,
+.card-status.queued,
+.card-status.prepared {
+  background: var(--info-tint);
+  color: var(--accent);
 }
 
-.rail-state.kept {
-  background: color-mix(in srgb, var(--ok) 22%, transparent);
+.card-status.kept,
+.card-status.reviewed {
+  background: var(--ok-tint);
+  color: var(--ok);
 }
 
-.agent-main {
-  height: 100%;
+.card-status.yours {
+  background: color-mix(in srgb, var(--agent-hue) 20%, transparent);
+  color: var(--agent-hue);
+}
+
+.card-line {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   min-width: 0;
+}
+
+.card-chip {
+  flex: none;
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--agent-hue) 16%, transparent);
+  color: var(--agent-hue);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+.card-summary {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.75rem;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The stage, and deliberately no percentage beside it — see PHASES in
+   AgentLane.tsx. Four dots on a rule is an honest answer to "how far has this
+   got?"; a bar at 68% would not be. */
+.card-phases {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+}
+
+.phase {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.phase::after {
+  content: "";
+  position: absolute;
+  top: 0.19rem;
+  left: 50%;
+  right: -50%;
+  height: 1px;
+  background: var(--line);
+}
+
+.phase:last-child::after {
+  display: none;
+}
+
+.phase-done::after {
+  background: color-mix(in srgb, var(--agent-hue) 50%, transparent);
+}
+
+.phase-dot {
+  width: 0.44rem;
+  height: 0.44rem;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--fg) 16%, transparent);
+}
+
+.phase-done .phase-dot,
+.phase-now .phase-dot {
+  background: var(--agent-hue);
+}
+
+.phase-now .phase-dot {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--agent-hue) 22%, transparent);
+}
+
+.phase-label {
+  font-size: 0.55rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+
+.phase-done .phase-label,
+.phase-now .phase-label {
+  color: var(--fg-muted);
+}
+
+/* The last thing the agent said, verbatim. */
+.card-tail {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.tail-dot {
+  width: 0.3rem;
+  height: 0.3rem;
+  flex: none;
+  border-radius: 50%;
+  background: var(--agent-hue);
+}
+
+.tail-text {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.68rem;
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-foot {
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--line-soft);
+  font-size: 0.68rem;
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.card-foot:empty {
+  display: none;
+}
+
+.card-foot .card-mono {
+  margin-left: auto;
+  min-width: 0;
+}
+
+.agent-card.everything {
+  background: transparent;
+  border-style: dashed;
+}
+
+/* ── The file tree ────────────────────────────────────────────────────────── */
+
+.build-explorer {
+  width: 13.5rem;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   overflow-y: auto;
+  background: var(--bg);
+  border-right: 1px solid var(--line-soft);
 }
 
-.agent-job-head {
+.explorer-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.75rem 0.6rem 0.55rem;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.explorer-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--fg-bright);
+}
+
+.explorer-count {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.65rem;
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.explorer-scope {
+  flex: none;
+  padding: 0.1rem 0.3rem;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--accent);
+  font-size: 0.65rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.explorer-scope:hover {
+  background: var(--hover);
+}
+
+.explorer-tree {
+  margin: 0;
+  padding: 0.25rem 0.35rem 0.75rem;
+  list-style: none;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  width: 100%;
+  padding: 0.15rem 0.4rem;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  color: var(--fg);
+  font-size: 0.75rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tree-row:hover {
+  background: var(--hover);
+}
+
+.tree-row.tree-selected {
+  background: var(--info-tint);
+  color: var(--fg-bright);
+}
+
+.tree-caret {
+  width: 0.6rem;
+  flex: none;
+  font-size: 0.55rem;
+  color: var(--fg-dim);
+}
+
+.tree-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.95rem;
+  height: 0.95rem;
+  flex: none;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--agent-hue) 20%, transparent);
+  color: var(--agent-hue);
+  font-size: 0.5rem;
+  font-weight: 800;
+}
+
+.tree-status {
+  width: 0.7rem;
+  flex: none;
+  text-align: center;
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: var(--warn);
+}
+
+.tree-status.added {
+  color: var(--ok);
+}
+
+.tree-status.deleted {
+  color: var(--bad);
+}
+
+/* ── The workbench ────────────────────────────────────────────────────────── */
+
+.build-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.75rem;
+}
+
+.workbench {
+  display: flex;
+  flex-direction: column;
   gap: 0.5rem;
-  align-items: baseline;
-  justify-content: space-between;
-  padding-bottom: 0.5rem;
+}
+
+.workbench-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding-bottom: 0.6rem;
   border-bottom: 1px solid var(--line);
 }
 
-.agent-job-meta {
+.workbench-avatar {
   display: flex;
-  gap: 0.5rem;
-  align-items: baseline;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  flex: none;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--agent-hue) 18%, transparent);
+  color: var(--agent-hue);
+  font-size: 0.72rem;
+  font-weight: 800;
 }
 
-.agent-subtabs {
+.workbench-who {
+  flex: 1;
+  min-width: 0;
+}
+
+.workbench-title {
   display: flex;
-  gap: 0.25rem;
-  margin: 0.5rem 0;
+  align-items: baseline;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.workbench-title strong {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--fg-bright);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workbench-ticket {
+  flex: none;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--agent-hue);
+}
+
+.workbench-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  margin-top: 0.1rem;
+  min-width: 0;
+  font-size: 0.68rem;
+  color: var(--fg-dim);
+}
+
+.workbench-tabs {
+  display: flex;
+  gap: 0.15rem;
   border-bottom: 1px solid var(--line);
 }
 
-.agent-subpanel {
+.workbench-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.7rem;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.workbench-tab:hover {
+  color: var(--fg);
+}
+
+.workbench-tab.on {
+  border-bottom-color: var(--agent-hue);
+  color: var(--fg-bright);
+}
+
+.tab-badge {
+  padding: 0 0.3rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+  color: var(--fg-muted);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.6rem;
+  font-weight: 800;
+}
+
+.workbench-tab.on .tab-badge {
+  background: color-mix(in srgb, var(--agent-hue) 16%, transparent);
+  color: var(--agent-hue);
+}
+
+.workbench-panel {
   padding-top: 0.5rem;
 }
 
 .agent-not-started {
   padding: 0.5rem 0;
+}
+
+/* The Changes pane: the changed files as chips, then one diff. */
+.changes-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.changes-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.change-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.5rem;
+  background: var(--raised);
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.change-chip.on {
+  border-color: var(--accent);
+  color: var(--fg-bright);
+}
+
+.changes-path {
+  margin: 0;
+  width: 100%;
+}
+
+/* The Tests pane: what would run, and what it said when it did. */
+.tests-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.tests-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.tests-head strong {
+  color: var(--fg-bright);
+}
+
+.test-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.suite {
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.suite.fail {
+  border-color: color-mix(in srgb, var(--bad) 35%, transparent);
+  background: var(--bad-tint);
+}
+
+.suite-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  background: transparent;
+  border: none;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+
+.suite-mark {
+  width: 1.05rem;
+  height: 1.05rem;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--ok-tint);
+  color: var(--ok);
+  font-size: 0.62rem;
+  font-weight: 800;
+}
+
+.suite.fail .suite-mark {
+  background: var(--bad-tint);
+  color: var(--bad);
+}
+
+.suite-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.suite-tag,
+.suite-counts,
+.suite-ms {
+  flex: none;
+  font-size: 0.68rem;
+  color: var(--fg-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.suite-body {
+  padding: 0.5rem 0.6rem;
+  border-top: 1px solid var(--line-soft);
+  background: var(--sunken);
+}
+
+.test-outcomes {
+  margin: 0 0 0.5rem;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.72rem;
+}
+
+.test-outcomes li {
+  display: flex;
+  gap: 0.4rem;
+  align-items: baseline;
+}
+
+.test-outcomes li.passed > span:first-child {
+  color: var(--ok);
+}
+
+.test-outcomes li.failed > span:first-child {
+  color: var(--bad);
+}
+
+.suite-output {
+  max-height: 18rem;
+  margin: 0;
+  overflow: auto;
+  padding: 0.5rem;
+  background: var(--sunken);
+  border-radius: 4px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.72rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── Review and ship ──────────────────────────────────────────────────────── */
+
+.ship-rail {
+  width: 18rem;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0.7rem;
+  gap: 0.7rem;
+  background: var(--sunken);
+  border-left: 1px solid var(--line-soft);
+}
+
+.ship-tabs {
+  display: flex;
+  gap: 0.15rem;
+  flex: none;
+  padding: 0.15rem;
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+  border-radius: 8px;
+}
+
+.ship-tab {
+  flex: 1;
+  padding: 0.35rem 0;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ship-tab.on {
+  background: var(--info-tint);
+  color: var(--fg-bright);
+}
+
+.ship-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.ship-progress {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.7rem;
+  background: var(--raised);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+}
+
+/* The ring reads back the derived checks below it. Nothing here is ticked by
+   hand, so an amber ring means work outstanding rather than an unticked box. */
+.ship-ring {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 3.4rem;
+  height: 3.4rem;
+  flex: none;
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--accent) var(--ring-pct),
+    color-mix(in srgb, var(--fg) 10%, transparent) 0
+  );
+}
+
+.ship-ring.ring-ready {
+  background: conic-gradient(var(--ok) var(--ring-pct), color-mix(in srgb, var(--fg) 10%, transparent) 0);
+}
+
+.ring-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 2.7rem;
+  height: 2.7rem;
+  border-radius: 50%;
+  background: var(--raised);
+  line-height: 1.1;
+}
+
+.ring-inner strong {
+  font-size: 0.9rem;
+  color: var(--fg-bright);
+  font-variant-numeric: tabular-nums;
+}
+
+.ring-inner span {
+  font-size: 0.6rem;
+  color: var(--fg-dim);
+}
+
+.ship-progress-text {
+  min-width: 0;
+}
+
+.ship-progress-text .hint {
+  margin: 0.15rem 0 0;
+}
+
+.ship-checks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.ship-checks .check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.45rem;
+  border-radius: 7px;
+  font-size: 0.75rem;
+}
+
+.check-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 0.6rem;
+  font-weight: 800;
+}
+
+.check.met {
+  background: var(--ok-tint);
+}
+
+.check.met .check-box {
+  background: var(--ok);
+  border-color: var(--ok);
+  color: var(--bg);
+}
+
+.check.unmet .check-box {
+  background: var(--bad-tint);
+  border-color: color-mix(in srgb, var(--bad) 45%, transparent);
+  color: var(--bad);
+}
+
+.check.unknown {
+  color: var(--fg-muted);
+}
+
+.check-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.check-meta {
+  flex: none;
+  font-size: 0.68rem;
+  color: var(--fg-dim);
+}
+
+.ship-card {
+  padding: 0.6rem 0.65rem;
+  background: var(--raised);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+}
+
+.ship-card > * + * {
+  margin-top: 0.5rem;
+}
+
+.ship-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.diff-bar {
+  display: flex;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+
+.diff-add {
+  background: var(--ok);
+}
+
+.diff-del {
+  background: var(--bad);
+}
+
+.diff-counts {
+  display: flex;
+  gap: 0.7rem;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ship-blocker {
+  padding: 0.6rem 0.65rem;
+  background: var(--bad-tint);
+  border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent);
+  border-radius: 10px;
+  font-size: 0.75rem;
+}
+
+.ship-blocker ul {
+  margin: 0.35rem 0 0;
+  padding-left: 1rem;
+}
+
+.ship-branch {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin: 0;
+  min-width: 0;
+}
+
+.ship-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.ship-keep {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 700;
+}
+
+.inspect-name {
+  display: block;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.85rem;
+  color: var(--fg-bright);
+  word-break: break-all;
+}
+
+.inspect-path {
+  margin: 0.2rem 0 0;
+  white-space: normal;
+  word-break: break-all;
+}
+
+.inspect-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.inspect-rows {
+  margin: 0;
+}
+
+.inspect-rows > div {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.3rem 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.inspect-rows > div:first-child {
+  border-top: none;
+}
+
+.inspect-rows dt {
+  flex: none;
+  width: 6rem;
+  font-size: 0.7rem;
+  color: var(--fg-muted);
+}
+
+.inspect-rows dd {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 0.75rem;
+  text-align: right;
+  word-break: break-word;
+}
+
+/* ── The across-the-Product lists, when no single agent is selected ───────── */
+
+.agent-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
 }
 
 /* ---------------------------------------------------------------------------
@@ -3915,16 +5679,41 @@ code {
   font-size: 0.8rem;
 }
 
-@media (max-width: 60rem) {
-  /* The rail becomes a row above the work rather than a sliver beside it. */
-  .agent-workspace {
-    grid-template-columns: minmax(0, 1fr);
+/* Four panes do not fit on a narrow window, and squeezing them all in would
+   leave every one too thin to read. They stack instead, in the order the work
+   runs: who is working, where they have been, what they did, and the decision.
+   Each keeps its own scroll so the page itself still does not grow a second
+   scrollbar. */
+@media (max-width: 75rem) {
+  .build-view {
     height: auto;
   }
 
-  .agent-rail {
-    height: auto;
-    max-height: 14rem;
+  .build-body {
+    flex-direction: column;
+  }
+
+  .agent-lane,
+  .build-explorer,
+  .ship-rail {
+    width: auto;
+    max-height: 18rem;
+    border-right: none;
+    border-left: none;
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  .lane-cards {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .lane-cards .agent-card {
+    width: 15rem;
+  }
+
+  .lane-divider {
+    width: 100%;
   }
 }
 
@@ -4342,4 +6131,680 @@ code {
   margin: 0.3rem 0 0;
   font-size: 0.75rem;
   color: var(--fg-muted);
+}
+
+/* ---------------------------------------------------------------------------
+   Work → Ready: what a work item still needs, and the briefing an agent gets.
+
+   Two columns, the same shape as Build: the list answers "which of these can I
+   hand over?", the panel beside it answers "what would the agent be handed?".
+   The score is a count of five real checks, so it is drawn as a count with a
+   bar — never as a percentage next to the word "ready", which would read as a
+   claim about how the work will go.
+   --------------------------------------------------------------------------- */
+
+.work-ready {
+  display: flex;
+  align-items: stretch;
+  gap: 0.75rem;
+  min-height: 0;
+}
+
+.ready-list {
+  flex: 1;
+  min-width: 0;
+}
+
+.ready-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.6rem;
+}
+
+.ready-head h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--fg-bright);
+}
+
+.ready-head .hint {
+  margin: 0.15rem 0 0;
+  max-width: 34rem;
+}
+
+.ready-filters {
+  display: flex;
+  gap: 0.25rem;
+  flex: none;
+}
+
+.ready-filter {
+  padding: 0.25rem 0.6rem;
+  background: transparent;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ready-filter:hover {
+  background: var(--hover);
+}
+
+.ready-filter.on {
+  background: var(--info-tint);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--fg-bright);
+}
+
+.ready-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.ready-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  background: var(--raised);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ready-row:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+}
+
+.ready-row.on {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--raised));
+}
+
+.ready-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.ready-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.ready-title strong {
+  font-weight: 600;
+  color: var(--fg-bright);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ready-id {
+  flex: none;
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  background: var(--info-tint);
+  color: var(--accent);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.ready-type {
+  flex: none;
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+}
+
+/* The five checks, spelled out. A row of unlabelled dots would make the score
+   unreadable without counting them against a legend somewhere else. */
+.ready-dots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
+.ready-dots .dot {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+}
+
+.ready-dots .dot.met {
+  color: var(--fg-muted);
+}
+
+.dot-mark {
+  width: 0.4rem;
+  height: 0.4rem;
+  flex: none;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--fg) 18%, transparent);
+}
+
+.dot.met .dot-mark {
+  background: var(--ok);
+}
+
+.ready-score {
+  flex: none;
+  width: 5rem;
+}
+
+.score-figure {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 0.25rem;
+}
+
+.score-figure strong {
+  font-size: 1.05rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.score-figure > span {
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+}
+
+.score-bar {
+  display: block;
+  height: 3px;
+  margin-top: 0.3rem;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  overflow: hidden;
+}
+
+.score-fill {
+  display: block;
+  height: 100%;
+  background: var(--warn);
+}
+
+.score-fill.ok {
+  background: var(--ok);
+}
+
+.ready-action {
+  flex: none;
+  width: 9rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.ready-action.go {
+  background: var(--ok-tint);
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+  color: var(--ok);
+}
+
+.ready-action.busy {
+  background: var(--info-tint);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--accent);
+}
+
+/* ── The briefing ─────────────────────────────────────────────────────────── */
+
+.ready-briefing {
+  width: 21rem;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding: 0.75rem;
+  background: var(--sunken);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+}
+
+.briefing-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.briefing-kicker {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.briefing-head strong {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--fg-bright);
+  line-height: 1.3;
+}
+
+.briefing-block {
+  padding: 0.55rem 0.6rem;
+  background: var(--raised);
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+}
+
+.briefing-block-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.briefing-block-head > span:last-child {
+  letter-spacing: 0.03em;
+}
+
+.briefing-block .hint {
+  margin: 0;
+}
+
+.briefing-text {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--fg);
+  white-space: pre-wrap;
+}
+
+.briefing-lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.briefing-lines li {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding-left: 0.7rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--fg);
+  position: relative;
+}
+
+.briefing-lines li::before {
+  content: "›";
+  position: absolute;
+  left: 0;
+  color: var(--fg-dim);
+}
+
+.briefing-lines.missing li::before {
+  content: "△";
+  font-size: 0.65rem;
+  color: var(--warn);
+}
+
+.briefing-lines .chip.ok-chip {
+  background: var(--ok-tint);
+  color: var(--ok);
+}
+
+.briefing-lines .chip.warn-chip {
+  background: var(--warn-tint);
+  color: var(--warn);
+}
+
+.briefing-policy {
+  margin: 0;
+}
+
+.briefing-cta {
+  padding: 0.6rem;
+  background: var(--accent);
+  border: none;
+  border-radius: 9px;
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+/* The briefing goes under the list rather than beside it when there is no room
+   for two columns — a 21rem panel and a row of five labelled checks cannot both
+   be legible in the same narrow window. */
+@media (max-width: 66rem) {
+  .work-ready {
+    flex-direction: column;
+  }
+
+  .ready-briefing {
+    width: auto;
+  }
+
+  .ready-row {
+    flex-wrap: wrap;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Develop → Rules: the standing direction, the rules under it, and what
+   actually stopped an agent.
+
+   Two columns. The design this came from opened with a scoreboard — merge rate,
+   median ticket time, "4/4 rules enforced" — and put a count beside every rule.
+   None of that is recorded here, so the header states the two things that are:
+   how many rules are written, and that exactly one of them is checked.
+   --------------------------------------------------------------------------- */
+
+.rules-view {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.rules-head h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--fg-bright);
+}
+
+.rules-head .hint {
+  margin: 0.2rem 0 0;
+  max-width: 44rem;
+}
+
+.rules-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.rules-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* The lead field: the same textarea and the same save as the five below it,
+   drawn at the size of something read first. */
+.strategy-lead {
+  display: block;
+  padding: 0.9rem 1rem;
+  margin-bottom: 0.75rem;
+  background: linear-gradient(
+    140deg,
+    color-mix(in srgb, var(--accent) 9%, var(--raised)),
+    var(--raised)
+  );
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  border-radius: 12px;
+}
+
+.lead-kicker {
+  display: block;
+  margin-bottom: 0.4rem;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.strategy-lead textarea {
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: var(--fg-bright);
+  font-family: inherit;
+  font-size: 1.05rem;
+  font-weight: 500;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.strategy-lead textarea:focus {
+  outline: none;
+}
+
+.strategy-lead:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* ── The rules, one card each ─────────────────────────────────────────────── */
+
+.rule-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: 0.5rem;
+}
+
+.rule-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.55rem 0.6rem;
+  background: var(--sunken);
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+}
+
+/* A rule nobody has written is not the same as a rule that says nothing, so it
+   reads as absent rather than as an empty box. */
+.rule-card.rule-empty {
+  border-style: dashed;
+}
+
+.rule-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.rule-name {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--fg-bright);
+}
+
+/* Two levels, because the app has two — see ENFORCED in DeveloperRulesEditor. */
+.rule-level {
+  flex: none;
+  padding: 0.1rem 0.4rem;
+  border-radius: 5px;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.rule-level.enforced {
+  background: var(--bad-tint);
+  color: var(--bad);
+}
+
+.rule-level.stated {
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+  color: var(--fg-muted);
+}
+
+.rule-card textarea {
+  min-height: 4.5rem;
+  background: var(--bg);
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  padding: 0.4rem 0.5rem;
+  resize: vertical;
+}
+
+.rule-card textarea[readonly] {
+  background: transparent;
+  border-color: transparent;
+  padding-left: 0;
+  cursor: default;
+}
+
+/* ── Where agents stopped ─────────────────────────────────────────────────── */
+
+.rule-enforcement {
+  width: 20rem;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.7rem;
+  background: var(--sunken);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+}
+
+.enforce-head strong {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--fg-bright);
+}
+
+.enforce-head .hint {
+  margin: 0.15rem 0 0;
+}
+
+.enforce-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.enforce-list li {
+  padding: 0.5rem 0.55rem;
+  background: var(--raised);
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+}
+
+.enforce-list li.failed {
+  border-color: color-mix(in srgb, var(--bad) 30%, transparent);
+}
+
+.enforce-top {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin-bottom: 0.3rem;
+}
+
+.enforce-state {
+  flex: none;
+  padding: 0.05rem 0.35rem;
+  border-radius: 5px;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.enforce-state.blocked {
+  background: var(--warn-tint);
+  color: var(--warn);
+}
+
+.enforce-state.failed {
+  background: var(--bad-tint);
+  color: var(--bad);
+}
+
+.enforce-item {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--fg-bright);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.enforce-when {
+  flex: none;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.65rem;
+  color: var(--fg-dim);
+}
+
+/* The agent's own words. Wrapped, not truncated: the reason is the point of
+   the card, and half a reason sends somebody to look it up elsewhere. */
+.enforce-why {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: var(--fg-muted);
+  white-space: pre-wrap;
+}
+
+.enforce-purpose {
+  display: inline-block;
+  margin-top: 0.35rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg-dim);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.62rem;
+}
+
+@media (max-width: 66rem) {
+  .rules-body {
+    flex-direction: column;
+  }
+
+  .rule-enforcement {
+    width: auto;
+    align-self: stretch;
+  }
 }

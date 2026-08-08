@@ -10,13 +10,14 @@ use turso::Connection;
 
 /// How hard a job is, cheapest first.
 ///
-/// Six rather than three because "high" had become a ceiling: everything from a
-/// cross-file refactor to a from-scratch architecture landed on the same
-/// setting, and there was no way to say *this one is harder than that*. What
-/// each level does is the Complexity setting's answer, not this list's — these
-/// are only the words a work item can be marked with.
-pub const EFFORT_TIERS: &[&str] =
-    &["low", "medium", "high", "extra", "max", "ultra"];
+/// **Three, because "harder than high" is an effort, not a complexity.** This
+/// briefly carried six — extra, max and ultra bolted on above high — which was
+/// a misreading: those are Claude's own effort levels, and the ceiling they
+/// were meant to lift is on `output_config.effort`, not here. Raising it there
+/// (see [`crate::ai::effort`]) fixes the actual problem and leaves this list
+/// saying the one thing a work item's author can actually judge: how hard the
+/// job is. What to *do* about it is the Complexity setting's answer.
+pub const EFFORT_TIERS: &[&str] = &["low", "medium", "high"];
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WorkItemPolicy {
@@ -50,6 +51,16 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             effortTier TEXT NOT NULL DEFAULT 'low',
             updatedAt INTEGER NOT NULL
         )",
+        (),
+    )
+    .await?;
+    // The retired words fold back to the top of the list they were stacked on.
+    // Left alone they would fail validation on the next save, and — worse —
+    // `model_for_effort` treats a word it does not know as *low*, so a work
+    // item marked "ultra" would quietly get the cheapest model.
+    conn.execute(
+        "UPDATE work_item_policies SET effortTier = 'high'
+         WHERE effortTier IN ('extra', 'max', 'ultra')",
         (),
     )
     .await?;

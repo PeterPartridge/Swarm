@@ -4,16 +4,12 @@ import {
   setClaudeTiers,
   type ClaudeTier,
 } from "../../lib/backend";
-import { CLAUDE_MODELS, EFFORT_TIERS, OTHER_MODEL } from "../../lib/models";
-
-/** The efforts the Messages API accepts. Fixed, not typed: `output_config.effort`
- *  rejects anything else, so a free-text box could only ever produce a call that
- *  fails. */
-const EFFORTS = [
-  { id: "low", label: "Low — quick and cheap" },
-  { id: "medium", label: "Medium — the usual" },
-  { id: "high", label: "High — think hard" },
-];
+import {
+  CLAUDE_MODELS,
+  EFFORT_TIERS,
+  OTHER_MODEL,
+  effortsFor,
+} from "../../lib/models";
 
 /** What Claude does for each size of job.
  *
@@ -98,6 +94,7 @@ export default function ClaudeTiers() {
         const meta = EFFORT_TIERS[index];
         const isTyping = typing[index] || !known(tier.model);
         const chosen = CLAUDE_MODELS.find((m) => m.id === tier.model);
+        const efforts = effortsFor(tier.model);
         const set = (change: Partial<ClaudeTier>) =>
           void save(tiers.map((t, i) => (i === index ? { ...t, ...change } : t)));
 
@@ -142,12 +139,18 @@ export default function ClaudeTiers() {
 
               <label>
                 Effort
+                {/* Offered per model, because support is not uniform: Haiku
+                    takes no effort at all, and `xhigh` is newer than `max`, so
+                    a model can have the second and not the first. Showing a
+                    level the model rejects would turn a settings choice into a
+                    failed call much later, somewhere else. */}
                 <select
                   aria-label={`${meta.id} complexity effort`}
                   value={tier.effort}
+                  disabled={efforts.length === 0}
                   onChange={(e) => set({ effort: e.target.value })}
                 >
-                  {EFFORTS.map((e) => (
+                  {efforts.map((e) => (
                     <option key={e.id} value={e.id}>
                       {e.label}
                     </option>
@@ -155,6 +158,13 @@ export default function ClaudeTiers() {
                 </select>
               </label>
             </div>
+
+            {efforts.length === 0 && (
+              <p className="hint">
+                This model has no effort setting — it answers the same way every
+                time.
+              </p>
+            )}
 
             {chosen && <p className="hint claude-tier-note">{chosen.note}</p>}
 

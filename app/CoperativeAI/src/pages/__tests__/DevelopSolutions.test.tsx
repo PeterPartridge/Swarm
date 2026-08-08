@@ -33,6 +33,11 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     readSolutionTree: vi.fn(),
     reviewSolutionChanges: vi.fn(),
     setSolutionPath: vi.fn(),
+    // Rules is the opening tab, and it reads both of these. Left unmocked they
+    // fall through to the real invoke, each panel renders an error alert, and
+    // every assertion below still passes — the trap this repo keeps hitting.
+    listAiJobs: vi.fn(),
+    getDeveloperRules: vi.fn(),
   };
 });
 
@@ -60,7 +65,7 @@ const solution: Solution = {
  *  behind its section button. */
 async function openSection(
   user: ReturnType<typeof userEvent.setup>,
-  name: "Work" | "Planning and Architecture" | "Agents and Code",
+  name: "Rules" | "Work" | "Build" | "Map",
 ) {
   await user.click(await screen.findByRole("button", { name }));
 }
@@ -80,6 +85,8 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     mocked.listTeamMembers.mockResolvedValue([]);
     mocked.githubStatus.mockResolvedValue({ connected: false });
     mocked.listModelStatus.mockResolvedValue([]);
+    mocked.listAiJobs.mockResolvedValue([]);
+    mocked.getDeveloperRules.mockResolvedValue(null);
     mocked.listStarters.mockResolvedValue([
       {
         id: "rust",
@@ -99,7 +106,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     expect(await screen.findByRole("region", { name: "Technical Strategy" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Create a Solution" })).not.toBeInTheDocument();
 
-    await openSection(user, "Planning and Architecture");
+    await openSection(user, "Map");
     expect(await screen.findByRole("region", { name: "Create a Solution" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Technical Strategy" })).not.toBeInTheDocument();
   });
@@ -112,6 +119,50 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
 
     expect(screen.queryByRole("button", { name: "Settings" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "AI Settings" })).not.toBeInTheDocument();
+  });
+
+  /// **The honesty rule, in Rules.** The design opened with a scoreboard — 68%
+  /// of agent PRs merged first try, an 11-minute median, "4/4 rules enforced" —
+  /// and a count beside every rule. The app records none of it. What it does
+  /// know is which of the seven rules is actually checked, and it says so.
+  it("marks the one rule that is checked, and claims no counts for the rest", async () => {
+    render(<DevelopSolutions />);
+    await screen.findByRole("region", { name: "Technical Strategy" });
+
+    const rules = screen.getByRole("region", { name: "Developer Rules" });
+    // Exactly one enforced badge, against disallowed technologies.
+    expect(within(rules).getAllByText("Enforced")).toHaveLength(1);
+    expect(within(rules).getAllByText("In the prompt")).toHaveLength(6);
+    expect(rules).toHaveTextContent(/does not count how often any\s+rule fired/);
+    // Nothing that looks like the design's per-rule tallies.
+    expect(rules.textContent).not.toMatch(/\d+ checks/);
+    expect(rules.textContent).not.toMatch(/\d+ blocks/);
+  });
+
+  /// "Where agents stopped" is read from the job queue, because that is the
+  /// record the app actually keeps — not a rule-violation tally it does not.
+  it("lists the agents that stopped, with the reason each gave", async () => {
+    mocked.listAiJobs.mockResolvedValue([
+      {
+        id: 1, workItemId: 9, workItemTitle: "Add checkout", purpose: "changePlan",
+        state: "blocked", message: "No acceptance criteria on the item.",
+        submittedAt: 1_700_000_000_000, startedAt: null, finishedAt: 1_700_000_060_000,
+      },
+      {
+        id: 2, workItemId: 10, workItemTitle: "Add refunds", purpose: "changePlan",
+        state: "done", message: "fine", submittedAt: 1_700_000_000_000,
+        startedAt: null, finishedAt: null,
+      },
+    ]);
+    render(<DevelopSolutions />);
+
+    const panel = await screen.findByRole("complementary", { name: "Where agents stopped" });
+    // Awaited on the content, not the panel: the panel renders its empty state
+    // first and the jobs land a tick later.
+    expect(await within(panel).findByText("Add checkout")).toBeInTheDocument();
+    expect(panel).toHaveTextContent("No acceptance criteria on the item.");
+    // A job that finished is not something that stopped.
+    expect(panel).not.toHaveTextContent("Add refunds");
   });
 
   it("shows the Technical Strategy on Planning and the views on Work", async () => {
@@ -127,7 +178,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     expect(screen.getByRole("tab", { name: "List" })).toBeInTheDocument();
   });
 
-  /// The editor is the first entry of the merged Agents and Code tab, reached by
+  /// The editor is the first entry of the Build tab, reached by
   /// opening a Solution — so the two tabs stay one flow.
   it("opens a Solution from the Workspace tab into the merged panel", async () => {
     const user = userEvent.setup();
@@ -136,10 +187,10 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
 
     // Nothing open yet: the Code tab offers the way forward itself rather than
     // sending someone to another tab to press a button.
-    await openSection(user, "Agents and Code");
+    await openSection(user, "Build");
     expect(await screen.findByLabelText("Solution to open")).toBeInTheDocument();
 
-    await openSection(user, "Planning and Architecture");
+    await openSection(user, "Map");
     await user.click(await screen.findByLabelText("Open Shop API in the code editor"));
 
     // …and it lands on the Code tab with that Solution's explorer.
@@ -149,7 +200,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
   it("no longer manages team members here (moved to Admin)", async () => {
     const user = userEvent.setup();
     render(<DevelopSolutions />);
-    await openSection(user, "Planning and Architecture");
+    await openSection(user, "Map");
     await screen.findByRole("region", { name: "Create a Solution" });
     expect(screen.queryByLabelText("Member name")).not.toBeInTheDocument();
   });
@@ -158,7 +209,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     const user = userEvent.setup();
     mocked.createSolutionWithStarter.mockResolvedValue({ solutionId: 4, started: null });
     render(<DevelopSolutions />);
-    await openSection(user, "Planning and Architecture");
+    await openSection(user, "Map");
 
     await user.type(await screen.findByLabelText("Solution name"), "Shop Website");
     await user.selectOptions(screen.getByLabelText("Solution type"), "website");
@@ -199,7 +250,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
       },
     });
     render(<DevelopSolutions />);
-    await openSection(user, "Planning and Architecture");
+    await openSection(user, "Map");
 
     await user.type(await screen.findByLabelText("Solution name"), "Shop Core");
     await user.selectOptions(await screen.findByLabelText("Starter language"), "rust");
@@ -236,7 +287,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
   it("answers the language question with the starter picker", async () => {
     const user = userEvent.setup();
     render(<DevelopSolutions />);
-    await openSection(user, "Planning and Architecture");
+    await openSection(user, "Map");
 
     const picker = await screen.findByLabelText("Starter language");
     expect(picker.tagName).toBe("SELECT");
@@ -264,7 +315,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     ]);
     mocked.createSolutionWithStarter.mockResolvedValue({ solutionId: 4, started: null });
     render(<DevelopSolutions />);
-    await openSection(user, "Planning and Architecture");
+    await openSection(user, "Map");
 
     await user.type(await screen.findByLabelText("Solution name"), "Shop Core");
     await user.selectOptions(await screen.findByLabelText("Starter language"), "custom");
@@ -304,7 +355,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
       },
     });
     render(<DevelopSolutions />);
-    await openSection(user, "Planning and Architecture");
+    await openSection(user, "Map");
 
     await user.type(await screen.findByLabelText("Solution name"), "Shop Core");
     await user.selectOptions(await screen.findByLabelText("Starter language"), "rust");
@@ -318,7 +369,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
   it("lists existing solutions under their product", async () => {
     const user = userEvent.setup();
     render(<DevelopSolutions />);
-    await openSection(user, "Planning and Architecture");
+    await openSection(user, "Map");
     // Scoped to the list: Solution names also appear in the architecture
     // panel that now shares this tab, and an unscoped match finds both.
     const list = await screen.findByRole("region", { name: "Create a Solution" });
@@ -330,7 +381,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     const user = userEvent.setup();
     mocked.listProducts.mockResolvedValue([]);
     render(<DevelopSolutions />);
-    await openSection(user, "Planning and Architecture");
+    await openSection(user, "Map");
     expect(
       await screen.findByText(/create a Product first/i),
     ).toBeInTheDocument();
@@ -344,7 +395,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
       conflicts: [],
     });
     render(<DevelopSolutions />);
-    await openSection(user, "Planning and Architecture");
+    await openSection(user, "Map");
 
     await user.click(
       await screen.findByRole("button", { name: "Generate framework files" }),
@@ -364,7 +415,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
       conflicts: [".CoperativeAI/pages/checkout.md"],
     });
     render(<DevelopSolutions />);
-    await openSection(user, "Planning and Architecture");
+    await openSection(user, "Map");
 
     await user.click(
       await screen.findByRole("button", { name: "Generate framework files" }),
@@ -396,7 +447,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     const user = userEvent.setup();
     mocked.linkSolutionRepo.mockResolvedValue(undefined);
     render(<DevelopSolutions />);
-    await openSection(user, "Planning and Architecture");
+    await openSection(user, "Map");
 
     await user.click(
       await screen.findByRole("button", { name: "Link a repo to Shop API" }),
@@ -418,7 +469,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
   it("cannot create a repo until GitHub is connected", async () => {
     const user = userEvent.setup();
     render(<DevelopSolutions />);
-    await openSection(user, "Planning and Architecture");
+    await openSection(user, "Map");
     expect(
       await screen.findByRole("button", { name: "Create a repo for Shop API" }),
     ).toBeDisabled();
@@ -429,7 +480,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     mocked.githubStatus.mockResolvedValue({ connected: true });
     mocked.createSolutionRepo.mockResolvedValue("https://github.com/me/shop-api");
     render(<DevelopSolutions />);
-    await openSection(user, "Planning and Architecture");
+    await openSection(user, "Map");
 
     await user.click(
       await screen.findByRole("button", { name: "Create a repo for Shop API" }),
@@ -457,7 +508,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
       },
     ]);
     render(<DevelopSolutions />);
-    await openSection(user, "Planning and Architecture");
+    await openSection(user, "Map");
     expect(
       await screen.findByRole("link", { name: "https://github.com/me/shop-api" }),
     ).toBeInTheDocument();

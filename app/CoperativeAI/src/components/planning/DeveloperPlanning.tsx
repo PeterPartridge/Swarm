@@ -29,7 +29,14 @@ const KINDS = Object.keys(ARCHITECTURE_KIND_LABELS) as ArchitectureDocKind[];
  *  Architecture documents are validated as the notation they claim to be before
  *  they are stored — a diagram that does not render is worse than none, because
  *  it looks like documentation and so nobody writes the documentation. */
-export default function DeveloperPlanning({ productId }: { productId: number }) {
+export default function DeveloperPlanning({
+  productId,
+  onOpenAgent,
+}: {
+  productId: number;
+  /** Opens the work item an agent on the map is working on, over in Build. */
+  onOpenAgent?: (workItemId: number) => void;
+}) {
   const [docs, setDocs] = useState<ArchitectureDoc[]>([]);
   const [solutions, setSolutions] = useState<Solution[]>([]);
   const [kind, setKind] = useState<ArchitectureDocKind>("systemInteraction");
@@ -99,7 +106,10 @@ export default function DeveloperPlanning({ productId }: { productId: number }) 
           here and the arrangement saved. */}
       <section aria-label="Architecture map of the Solutions">
         <h3>Architecture map</h3>
-        <SolutionMap productId={productId} />
+        {/* The documents are read once, here, and handed to the map's inspector
+            rather than fetched again — two reads of the same list are two
+            chances for the index and the previews below to disagree. */}
+        <SolutionMap productId={productId} docs={docs} onOpenAgent={onOpenAgent} />
       </section>
 
       <section className="architecture-docs" aria-label="Architecture documents">

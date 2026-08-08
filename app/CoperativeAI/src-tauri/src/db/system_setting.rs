@@ -127,10 +127,15 @@ pub async fn set_paid_api_allowed(conn: &Connection, allowed: bool) -> Result<()
 /// this page decides what "hard" costs.
 pub const CLAUDE_TIERS_KEY: &str = "claudeTiers";
 
-/// The efforts the Messages API accepts, cheapest first. Fixed rather than
-/// free text: `output_config.effort` rejects anything else, and a typo there
-/// fails the call rather than degrading.
-pub const EFFORTS: &[&str] = &["low", "medium", "high"];
+/// The efforts Claude accepts, cheapest first. Fixed rather than free text: a
+/// typo in `output_config.effort` fails the call rather than degrading.
+///
+/// **This list was wrong, and the app was the poorer for it.** It held three,
+/// so "high" was the most this app could ever ask for — while every model it
+/// offers goes two levels further. `xhigh` and `max` are not new inventions
+/// here: they are what `--effort` lists and what the Messages API documents.
+/// Not every model takes every level, which is [`crate::ai::effort`]'s job.
+pub const EFFORTS: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ClaudeTier {
@@ -139,7 +144,7 @@ pub struct ClaudeTier {
 }
 
 /// One per complexity, in `work_item_policy::EFFORT_TIERS` order.
-pub type ClaudeTiers = [ClaudeTier; 6];
+pub type ClaudeTiers = [ClaudeTier; 3];
 
 /// The Project brief's own answer, used until somebody changes it: Sonnet for
 /// small and everyday work, Fable for architecture and complex UI.
@@ -147,12 +152,12 @@ pub fn default_claude_tiers() -> ClaudeTiers {
     [
         ClaudeTier { model: "claude-sonnet-5".into(), effort: "low".into() },
         ClaudeTier { model: "claude-sonnet-5".into(), effort: "medium".into() },
-        ClaudeTier { model: "claude-fable-5".into(), effort: "high".into() },
-        // Above high the model stops changing and the thinking does: Fable is
-        // already the most capable, so "harder" can only mean more effort.
-        ClaudeTier { model: "claude-fable-5".into(), effort: "high".into() },
-        ClaudeTier { model: "claude-fable-5".into(), effort: "high".into() },
-        ClaudeTier { model: "claude-fable-5".into(), effort: "high".into() },
+        // `xhigh`, not `high`, on Anthropic's own recommendation: xhigh is the
+        // documented starting point for coding and agentic work, which is
+        // exactly what this row is for — architecture and cross-file change.
+        // It costs meaningfully more than high, which is why it is the top row
+        // alone and why the setting sits in front of you rather than in here.
+        ClaudeTier { model: "claude-fable-5".into(), effort: "xhigh".into() },
     ]
 }
 
@@ -161,10 +166,28 @@ pub async fn claude_tiers(conn: &Connection) -> Result<ClaudeTiers> {
         // A stored value that will not parse is treated as unset rather than
         // fatal: the defaults work, and refusing to run over a bad settings row
         // would be a worse failure than quietly using them.
-        Some(json) => serde_json::from_str::<ClaudeTiers>(&json)
-            .unwrap_or_else(|_| default_claude_tiers()),
+        Some(json) => tiers_from_json(&json),
         None => default_claude_tiers(),
     })
+}
+
+/// Reads a stored value, keeping whatever of it still fits.
+///
+/// **Read as a list, not a fixed array.** This briefly stored six rows, and
+/// parsing straight into `[ClaudeTier; 3]` would reject that outright — losing
+/// models somebody chose, silently, to a change of mind about how many rows
+/// there are. A value that will not parse at all falls back to the defaults
+/// rather than being fatal: refusing to run over one settings row would be the
+/// worse failure.
+fn tiers_from_json(json: &str) -> ClaudeTiers {
+    let Ok(stored) = serde_json::from_str::<Vec<ClaudeTier>>(json) else {
+        return default_claude_tiers();
+    };
+    let mut tiers = default_claude_tiers();
+    for (slot, kept) in tiers.iter_mut().zip(stored) {
+        *slot = kept;
+    }
+    tiers
 }
 
 pub async fn set_claude_tiers(conn: &Connection, tiers: &ClaudeTiers) -> Result<()> {
@@ -240,6 +263,67 @@ fn default_hierarchy() -> Vec<String> {
 mod tests {
     use super::*;
     use crate::db::connect;
+
+    /// **The six-row shape must not cost somebody their models.** This briefly
+    /// stored six tiers; parsing straight into a three-slot array would reject
+    /// that whole value and silently fall back to defaults.
+    #[test]
+    fn a_stored_six_row_value_keeps_its_first_three() {
+        let stored = serde_json::to_string(&vec![
+            ClaudeTier { model: "mine-1".into(), effort: "low".into() },
+            ClaudeTier { model: "mine-2".into(), effort: "medium".into() },
+            ClaudeTier { model: "mine-3".into(), effort: "max".into() },
+            ClaudeTier { model: "dropped".into(), effort: "high".into() },
+            ClaudeTier { model: "dropped".into(), effort: "high".into() },
+            ClaudeTier { model: "dropped".into(), effort: "high".into() },
+        ])
+        .unwrap();
+
+        let tiers = tiers_from_json(&stored);
+        assert_eq!(tiers[0].model, "mine-1");
+        assert_eq!(tiers[2].model, "mine-3");
+        assert_eq!(tiers[2].effort, "max");
+    }
+
+    /// A value too short fills the rest from the defaults rather than failing.
+    #[test]
+    fn a_short_stored_value_is_topped_up_from_the_defaults() {
+        let stored = r#"[{"model":"mine","effort":"low"}]"#;
+        let tiers = tiers_from_json(stored);
+        assert_eq!(tiers[0].model, "mine");
+        assert_eq!(tiers[2], default_claude_tiers()[2]);
+    }
+
+    /// Nonsense in the settings row must not stop the app running.
+    #[test]
+    fn an_unreadable_stored_value_falls_back_to_the_defaults() {
+        assert_eq!(tiers_from_json("not json at all"), default_claude_tiers());
+    }
+
+    /// **The two levels the app could not previously ask for.** A save has to
+    /// accept them, or the ceiling is merely moved from the form to the check.
+    #[tokio::test]
+    async fn the_top_two_efforts_can_be_saved() {
+        let conn = test_db().await;
+        let mut tiers = default_claude_tiers();
+        tiers[2].effort = "max".into();
+        tiers[1].effort = "xhigh".into();
+
+        set_claude_tiers(&conn, &tiers).await.expect("xhigh and max are real levels");
+        let read = claude_tiers(&conn).await.unwrap();
+        assert_eq!(read[2].effort, "max");
+        assert_eq!(read[1].effort, "xhigh");
+    }
+
+    /// …but a word that is not a level still has to be refused, or a typo
+    /// becomes a failed call much later somewhere else.
+    #[tokio::test]
+    async fn a_word_that_is_not_an_effort_is_refused() {
+        let conn = test_db().await;
+        let mut tiers = default_claude_tiers();
+        tiers[2].effort = "ultra".into();
+        assert!(set_claude_tiers(&conn, &tiers).await.is_err());
+    }
 
     async fn test_db() -> Connection {
         let conn = connect(":memory:").await.expect("open in-memory db");

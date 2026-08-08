@@ -45,7 +45,38 @@ export const CLAUDE_MODELS: ModelChoice[] = [
   },
 ];
 
-/** The three efforts, and what the Project brief says each is for.
+/** How hard Claude works, cheapest first — mirrors `ai::effort::ALL`.
+ *
+ *  **Five, not three.** `xhigh` and `max` sit above `high`, which is the
+ *  default and behaves exactly as if nothing were sent. This app offered only
+ *  the first three for a while, so "high" was the most it could ever ask for
+ *  while every model it lists goes two levels further.
+ *
+ *  Not every model takes every level, which `effortsFor` answers. */
+export const EFFORT_LEVELS = [
+  { id: "low", label: "Low — quick and cheap" },
+  { id: "medium", label: "Medium — balanced" },
+  { id: "high", label: "High — the default" },
+  { id: "xhigh", label: "Extra high — for long coding jobs" },
+  { id: "max", label: "Max — no limit on thinking" },
+] as const;
+
+/** The levels a given model will accept.
+ *
+ *  Haiku takes no effort parameter at all, and `xhigh` is newer than `max` —
+ *  so a model can support the higher-sounding one and reject the other. A model
+ *  typed in by hand is assumed to support everything, matching the backend:
+ *  a rejected level fails loudly, where a dropped one spends silently. */
+export function effortsFor(model: string): typeof EFFORT_LEVELS[number][] {
+  const name = model.trim().toLowerCase();
+  if (name.includes("haiku")) return [];
+  if (["sonnet-4-6", "opus-4-6", "opus-4-5"].some((old) => name.includes(old))) {
+    return EFFORT_LEVELS.filter((e) => e.id !== "xhigh");
+  }
+  return [...EFFORT_LEVELS];
+}
+
+/** The three complexities, and what the Project brief says each is for.
  *
  *  Shown beside the choice rather than left to be inferred: "high" is a word
  *  everyone reads differently, and the brief already answered what it means
@@ -68,26 +99,6 @@ export const EFFORT_TIERS = [
     id: "high",
     label: "High effort",
     forWhat: "Architecture changes, cross-file refactors, and complex implementation.",
-    suggested: "claude-fable-5",
-  },
-  // Above high the model has nowhere further to go — these differ by how hard
-  // it thinks, which is why each row sets an effort as well as a model.
-  {
-    id: "extra",
-    label: "Extra",
-    forWhat: "Work that needs the best model to take its time.",
-    suggested: "claude-fable-5",
-  },
-  {
-    id: "max",
-    label: "Max",
-    forWhat: "Unfamiliar systems, or a design that has to be got right first time.",
-    suggested: "claude-fable-5",
-  },
-  {
-    id: "ultra",
-    label: "Ultra",
-    forWhat: "The hardest thing you have: build the shape of a system from scratch.",
     suggested: "claude-fable-5",
   },
 ] as const;
