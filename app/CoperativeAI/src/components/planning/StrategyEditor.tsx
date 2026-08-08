@@ -1,15 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { getStrategy, saveStrategy } from "../../lib/backend";
+import { getStrategy, saveStrategy, type StrategyField } from "../../lib/backend";
 
 interface StrategyEditorProps {
   productId: number;
   area: string; // "develop" | "test" (product uses ProductStrategy)
   title: string;
-  fields: { id: string; label: string }[];
-  /** One field's id, drawn first and large as the standing direction everything
-   *  else is written under. Omitted, every field is the same size — which is
-   *  right for Test, where none of them leads. */
-  lead?: string;
+  /** Which field leads, if any, comes from the list itself — see `lead` on
+   *  `StrategyField`. Naming it at the call site instead meant the fact lived
+   *  in two places and only one of them was the list. */
+  fields: StrategyField[];
 }
 
 /** A generic structured-strategy editor: labelled textareas saved as one JSON
@@ -19,7 +18,6 @@ export default function StrategyEditor({
   area,
   title,
   fields,
-  lead,
 }: StrategyEditorProps) {
   const [content, setContent] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +52,7 @@ export default function StrategyEditor({
     }
   }
 
-  const leadField = lead ? (fields.find((f) => f.id === lead) ?? null) : null;
+  const leadField = fields.find((f) => f.lead) ?? null;
   const rest = leadField ? fields.filter((f) => f.id !== leadField.id) : fields;
 
   return (

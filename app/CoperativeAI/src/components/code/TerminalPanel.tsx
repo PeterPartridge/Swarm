@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
+  attachTerminal,
   closeTerminal,
   openTerminal,
   resizeTerminal,
@@ -26,14 +27,29 @@ export default function TerminalPanel({
   pendingCommand,
   onCommandSent,
   onOpenChange,
+  active = true,
+  keepAlive = false,
+  adoptId = null,
 }: {
   solution: Solution;
+  /** When set, unmounting leaves the shell running. Debug uses this so a dev
+   *  server survives leaving Build; the Code tab does not, because a terminal
+   *  nobody can see and nobody asked to keep is a leak. */
+  keepAlive?: boolean;
+  /** An already-running shell to pick up instead of starting a new one. */
+  adoptId?: string | null;
   /** A command line the AI panel wants run. Sent on the next render once a
    *  shell is open, then cleared by `onCommandSent`. */
   pendingCommand?: string | null;
   onCommandSent?: () => void;
   /** Lets the AI panel above know whether there is a shell to run in. */
   onOpenChange?: (open: boolean) => void;
+  /** False while this panel is mounted but hidden — Debug keeps its shells
+   *  alive behind other Build panes rather than killing a dev server every time
+   *  somebody looks at a diff. A hidden element has no size, so xterm measures
+   *  zero and stays that way until it is told to measure again on the way
+   *  back. */
+  active?: boolean;
 }) {
   const holder = useRef<HTMLDivElement | null>(null);
   const term = useRef<{
@@ -75,9 +91,20 @@ export default function TerminalPanel({
       term.current = terminal as unknown as typeof term.current;
       fit.current = fitAddon;
 
-      const opened = await openTerminal(solution.id, terminal.cols, terminal.rows);
-      sessionId.current = opened.id;
-      setShell(opened.shell);
+      if (adoptId) {
+        // Picking up a shell that has been running while nothing watched it.
+        // Its recent output goes in first, so the panel opens on what has been
+        // happening rather than on a blank box that reads as a failed start.
+        const held = await attachTerminal(adoptId);
+        sessionId.current = held.id;
+        setShell(held.shell);
+        if (held.replay) terminal.write(held.replay);
+        await resizeTerminal(held.id, terminal.cols, terminal.rows);
+      } else {
+        const opened = await openTerminal(solution.id, terminal.cols, terminal.rows);
+        sessionId.current = opened.id;
+        setShell(opened.shell);
+      }
       setStatus("open");
 
       // Keystrokes go through as bytes: xterm hands over escape sequences for
@@ -90,7 +117,14 @@ export default function TerminalPanel({
       setError(String(e));
       setStatus("closed");
     }
-  }, [solution.id, status]);
+  }, [solution.id, status, adoptId]);
+
+  // A shell already running for this Solution is picked up without being asked
+  // for: it is this panel's own process from before it unmounted, and making
+  // somebody press Open to see something that never stopped would be strange.
+  useEffect(() => {
+    if (adoptId && status === "closed") void start();
+  }, [adoptId, status, start]);
 
   // Output arrives as events, because a shell speaks when it feels like it.
   useEffect(() => {
@@ -110,17 +144,24 @@ export default function TerminalPanel({
   }, []);
 
   // A shell that is not told its new size keeps wrapping at the old width.
+  const refit = useCallback(() => {
+    fit.current?.fit();
+    if (sessionId.current && term.current) {
+      void resizeTerminal(sessionId.current, term.current.cols, term.current.rows);
+    }
+  }, []);
+
   useEffect(() => {
     if (status !== "open") return;
-    const onResize = () => {
-      fit.current?.fit();
-      if (sessionId.current && term.current) {
-        void resizeTerminal(sessionId.current, term.current.cols, term.current.rows);
-      }
-    };
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [status]);
+    window.addEventListener("resize", refit);
+    return () => window.removeEventListener("resize", refit);
+  }, [status, refit]);
+
+  // Coming back from hidden is the same problem as a window resize: the panel
+  // had no size while it was away, so xterm's idea of the width is stale.
+  useEffect(() => {
+    if (active && status === "open") refit();
+  }, [active, status, refit]);
 
   useEffect(() => {
     onOpenChange?.(status === "open");
@@ -137,9 +178,17 @@ export default function TerminalPanel({
 
   // Closing the panel ends the shell: one orphan per open-and-close is a leak
   // that only shows up after an afternoon.
+  //
+  // Unless it was asked to keep it. Debug's shells are meant to outlive the
+  // panel — that is the whole point of the registry — and they are findable
+  // again through `list_terminals`, so leaving one running is a deliberate
+  // handover rather than an orphan. The widget still goes; only the process
+  // stays.
+  const keepRef = useRef(keepAlive);
+  keepRef.current = keepAlive;
   useEffect(() => {
     return () => {
-      if (sessionId.current) void closeTerminal(sessionId.current);
+      if (sessionId.current && !keepRef.current) void closeTerminal(sessionId.current);
       term.current?.dispose();
     };
   }, []);

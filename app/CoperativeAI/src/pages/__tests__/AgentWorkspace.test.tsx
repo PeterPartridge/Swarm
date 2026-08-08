@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AgentWorkspace from "../../components/ai/AgentWorkspace";
@@ -37,6 +37,8 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     runSolutionTests: vi.fn(),
     productGitOverview: vi.fn(),
     listAiCalls: vi.fn(),
+    readSolutionFile: vi.fn(),
+    writeSolutionFile: vi.fn(),
   };
 });
 
@@ -57,6 +59,11 @@ vi.mock("../../components/code/WorkItemChanges", () => ({
 }));
 vi.mock("../../components/code/RunTerminal", () => ({
   default: ({ title }: { title: string }) => <div>terminal: {title}</div>,
+}));
+// Monaco will not load in jsdom, and these tests are about which file the pane
+// opens rather than about the text surface itself.
+vi.mock("../../components/code/CodeWindow", () => ({
+  default: ({ path }: { path: string }) => <div>editing {path}</div>,
 }));
 
 import * as backend from "../../lib/backend";
@@ -173,6 +180,7 @@ describe("AgentWorkspace (the Build view)", () => {
     mocked.listTestSuites.mockResolvedValue([]);
     mocked.productGitOverview.mockResolvedValue([]);
     mocked.listAiCalls.mockResolvedValue({ totals: null, calls: [] } as never);
+    mocked.readSolutionFile.mockResolvedValue("");
     // Approved by default so the Start tests are about starting; the gate has
     // its own test below.
     mocked.listWorkItemPlans.mockResolvedValue([
@@ -369,6 +377,9 @@ describe("AgentWorkspace (the Build view)", () => {
     mocked.reviewSolutionChanges.mockResolvedValue(review());
     render(panel());
 
+    // Reviewing is per working copy, and the Files pane opens on the whole
+    // Product — so picking the agent is what says which one.
+    await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
     const rail = await screen.findByRole("complementary", { name: /Review and ship/ });
     // Nothing has been read, so nothing claims to have passed — and there is no
     // checkbox anywhere to claim it with.
@@ -405,6 +416,7 @@ describe("AgentWorkspace (the Build view)", () => {
     mocked.settleChangeRun.mockResolvedValue();
     render(panel());
 
+    await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
     const rail = await screen.findByRole("complementary", { name: /Review and ship/ });
     await user.click(within(rail).getByRole("button", { name: "Review what changed" }));
 
@@ -416,6 +428,55 @@ describe("AgentWorkspace (the Build view)", () => {
     expect(
       await within(rail).findByText(/with the broken rules above on the record/),
     ).toBeInTheDocument();
+  });
+
+  /// **The merge.** Picking a Solution to open and then browsing its files were
+  /// two steps for one intention. With none picked the Files pane shows every
+  /// Solution in the Product as a foldable root; the Solution bar scopes it.
+  it("shows every Solution's files when none is picked, and scopes when one is", async () => {
+    const user = userEvent.setup();
+    const other = { ...solution, id: 6, name: "Shop Web", localPath: "C:/repos/web" };
+    mocked.readSolutionTree.mockResolvedValue({
+      entries: [{ path: "src/main.ts", name: "main.ts", isDir: false, depth: 0 }],
+      truncated: false,
+    });
+    render(
+      <AgentWorkspace productId={1} solutions={[solution, other]} opened={null} />,
+    );
+
+    // Opens on the whole Product, with a root per Solution.
+    const files = await screen.findByRole("region", { name: "Files" });
+    expect(await within(files).findByLabelText("Solution Shop API")).toBeInTheDocument();
+    expect(within(files).getByLabelText("Solution Shop Web")).toBeInTheDocument();
+
+    // Picking one on the Solution bar scopes the pane to it — and with a single
+    // root there is no heading, because an unfoldable root is just an indent.
+    await user.click(screen.getByRole("tab", { name: /Shop Web/ }));
+    await waitFor(() =>
+      expect(within(files).queryByLabelText("Solution Shop API")).not.toBeInTheDocument(),
+    );
+    expect(within(files).queryByLabelText("Solution Shop Web")).not.toBeInTheDocument();
+  });
+
+  /// Any click on a file opens it, whatever else the middle pane was showing.
+  it("opens the file that was clicked in the editor", async () => {
+    const user = userEvent.setup();
+    mocked.readSolutionTree.mockResolvedValue({
+      entries: [{ path: "src/main.ts", name: "main.ts", isDir: false, depth: 0 }],
+      truncated: false,
+    });
+    mocked.readSolutionFile.mockResolvedValue("export const answer = 42;");
+    render(panel());
+
+    await user.click(await screen.findByLabelText("src/main.ts"));
+
+    expect(
+      await screen.findByRole("region", { name: "src/main.ts in Shop API" }),
+    ).toBeInTheDocument();
+    expect(mocked.readSolutionFile).toHaveBeenCalledWith(5, "src/main.ts");
+    // Closing puts back whatever was showing before.
+    await user.click(screen.getByLabelText("Close src/main.ts"));
+    expect(await screen.findByText("the code editor")).toBeInTheDocument();
   });
 
   /// The tree and the workbench sit side by side for one reason: picking a file
@@ -473,6 +534,25 @@ describe("AgentWorkspace (the Build view)", () => {
 
     await screen.findByLabelText("Agent for Add checkout on Shop API");
     expect(screen.queryByText(/with no agent/)).not.toBeInTheDocument();
+  });
+
+  /// Debug runs the real Solutions in their real working copies, so it belongs
+  /// with the Solutions in the top bar rather than inside one agent's workbench.
+  it("opens Debug from the Solution bar, across every Solution", async () => {
+    const user = userEvent.setup();
+    render(panel());
+    await screen.findByText("the code editor");
+
+    await user.click(screen.getByRole("button", { name: /Debug/ }));
+    const board = await screen.findByRole("region", { name: "Debug" });
+    expect(within(board).getByRole("region", { name: "Process for Shop API" })).toBeInTheDocument();
+    // Debug takes the width: the tree and the ship rail belong to one agent.
+    expect(screen.queryByRole("region", { name: "Files" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: /Review and ship/ })).not.toBeInTheDocument();
+
+    // Pressing it again comes back rather than stranding you in Debug.
+    await user.click(screen.getByRole("button", { name: /Debug/ }));
+    expect(await screen.findByText("the code editor")).toBeInTheDocument();
   });
 
   /// A per-agent view cannot answer "what is everything doing?" — the queue as a

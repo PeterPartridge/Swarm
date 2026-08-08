@@ -142,15 +142,16 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
   /// "Where agents stopped" is read from the job queue, because that is the
   /// record the app actually keeps — not a rule-violation tally it does not.
   it("lists the agents that stopped, with the reason each gave", async () => {
+    const hourAgo = Date.now() - 60 * 60 * 1000;
     mocked.listAiJobs.mockResolvedValue([
       {
         id: 1, workItemId: 9, workItemTitle: "Add checkout", purpose: "changePlan",
         state: "blocked", message: "No acceptance criteria on the item.",
-        submittedAt: 1_700_000_000_000, startedAt: null, finishedAt: 1_700_000_060_000,
+        submittedAt: hourAgo, startedAt: null, finishedAt: hourAgo,
       },
       {
         id: 2, workItemId: 10, workItemTitle: "Add refunds", purpose: "changePlan",
-        state: "done", message: "fine", submittedAt: 1_700_000_000_000,
+        state: "done", message: "fine", submittedAt: hourAgo,
         startedAt: null, finishedAt: null,
       },
     ]);
@@ -163,6 +164,29 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     expect(panel).toHaveTextContent("No acceptance criteria on the item.");
     // A job that finished is not something that stopped.
     expect(panel).not.toHaveTextContent("Add refunds");
+  });
+
+  /// The design said "this week". Listing every stopped job ever made the panel
+  /// a history rather than a state of play, so a week leads and the older ones
+  /// are counted rather than silently dropped.
+  it("windows the stopped jobs to a week, and says what is older", async () => {
+    const user = userEvent.setup();
+    const longAgo = Date.now() - 60 * 24 * 60 * 60 * 1000;
+    mocked.listAiJobs.mockResolvedValue([
+      {
+        id: 1, workItemId: 9, workItemTitle: "Add checkout", purpose: "changePlan",
+        state: "blocked", message: "No acceptance criteria.",
+        submittedAt: longAgo, startedAt: null, finishedAt: longAgo,
+      },
+    ]);
+    render(<DevelopSolutions />);
+
+    const panel = await screen.findByRole("complementary", { name: "Where agents stopped" });
+    expect(await within(panel).findByText(/1 older job stopped/)).toBeInTheDocument();
+    expect(panel).not.toHaveTextContent("Add checkout");
+
+    await user.click(within(panel).getByRole("button", { name: "All" }));
+    expect(await within(panel).findByText("Add checkout")).toBeInTheDocument();
   });
 
   it("shows the Technical Strategy on Planning and the views on Work", async () => {

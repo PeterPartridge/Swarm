@@ -64,8 +64,23 @@ export function phaseOf(agent: Agent): number {
  *
  *  Keyed on the Solution rather than the model, because that is the axis this
  *  app actually has: a run belongs to a repository, and "which repository is
- *  this agent inside?" is the question the colour is answering. */
-const HUES = ["#0a84ff", "#4ec9b0", "#bf5af2", "#ff8a5b", "#ffb340"];
+ *  this agent inside?" is the question the colour is answering.
+ *
+ *  **Eight, and it repeats after that.** It is a palette, so a Product with nine
+ *  Solutions has two sharing a colour — that is inherent rather than a bug, and
+ *  eight is where the hues stop being reliably distinguishable from each other.
+ *  Keyed on the id rather than the position in the list on purpose: a Solution's
+ *  colour must not change when another one is created or deleted. */
+const HUES = [
+  "#0a84ff",
+  "#4ec9b0",
+  "#bf5af2",
+  "#ff8a5b",
+  "#ffb340",
+  "#5ac8fa",
+  "#e8639b",
+  "#8fd14f",
+];
 
 export function hueFor(solutionId: number | null): string {
   if (solutionId === null) return "#6cb6ff";

@@ -5,6 +5,8 @@ import AgentLane, { hueFor, markFor, status, type Agent } from "./AgentLane";
 import AiLogPanel from "./AiLogPanel";
 import BuildExplorer from "../code/BuildExplorer";
 import CodeEditor from "../code/CodeEditor";
+import BuildFileEditor from "../code/BuildFileEditor";
+import DebugBoard from "../code/DebugBoard";
 import GitExplorer from "../vcs/GitExplorer";
 import JobsPanel from "./JobsPanel";
 import QuestionsPanel from "./QuestionsPanel";
@@ -67,11 +69,19 @@ export default function AgentWorkspace({
   const [items, setItems] = useState<WorkItem[]>([]);
   const [selected, setSelected] = useState<string>("code");
   const [error, setError] = useState<string | null>(null);
+  /// Whether Debug has been opened at all. Nothing of it exists until it has:
+  /// mounting the board on arrival would read every Solution's run command for
+  /// somebody who never pressed the button.
+  const [debugUsed, setDebugUsed] = useState(false);
 
   /// Which Solution the file tree is showing. Follows the selected agent's run;
   /// on your own workspace it is whichever Solution tab is picked.
   const [browsing, setBrowsing] = useState<number | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  /// Which Solution the open file belongs to. Held apart from `browsing`
+  /// because the Files pane can show the whole Product, so the file being
+  /// edited need not come from the Solution the bar has selected.
+  const [fileFrom, setFileFrom] = useState<number | null>(null);
 
   /// One change review per Solution, read here so the workbench and the ship
   /// rail cannot disagree about the same working copy.
@@ -176,12 +186,9 @@ export default function AgentWorkspace({
     if (found) setSelected(found.key);
   }, [requestedAgent, agents]);
 
-  // Something has to be browsing, or the tree and the ship rail open blank and
-  // the first thing anybody does is pick a Solution the view could have picked
-  // for them. The first one is as good an opening guess as exists.
-  useEffect(() => {
-    if (browsing === null && solutions.length > 0) setBrowsing(solutions[0].id);
-  }, [browsing, solutions]);
+  // Deliberately no default Solution. "Nothing picked" is a real state now — it
+  // means the Files pane shows the whole Product — so choosing one for somebody
+  // would be choosing a narrower view than they asked for.
 
   // A review belongs to one working copy. Carrying one Solution's diffs onto
   // another's screen would be worse than showing nothing.
@@ -245,6 +252,7 @@ export default function AgentWorkspace({
   const unassigned = items.filter((i) => !withAgents.has(i.id));
 
   const browsingSolution = solutions.find((s) => s.id === browsing) ?? null;
+  const openFileSolution = solutions.find((s) => s.id === fileFrom) ?? null;
   const selectedChange =
     review?.changes.find((c) => c.path === selectedFile) ?? null;
 
@@ -253,6 +261,22 @@ export default function AgentWorkspace({
       {/* The Solutions across the top, each saying how many agents are inside
           it — the one thing you cannot see from a lane sorted by work item. */}
       <div className="solution-bar" role="tablist" aria-label="Solutions">
+        {/* "All" is a real choice, not the absence of one: it scopes the Files
+            pane to the whole Product, which is where you start when you do not
+            yet know which repository the thing you are looking for is in. */}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={browsing === null}
+          className={browsing === null ? "solution-tab on all" : "solution-tab all"}
+          onClick={() => {
+            setBrowsing(null);
+            setSelectedFile(null);
+          }}
+        >
+          <span className="solution-name">All Solutions</span>
+          <span className="solution-badge">{solutions.length}</span>
+        </button>
         {solutions.map((s) => {
           const count = perSolution[s.id] ?? 0;
           return (
@@ -279,6 +303,20 @@ export default function AgentWorkspace({
           );
         })}
         <span className="solution-bar-spacer" />
+        {/* Debug is a Product-wide thing, not an agent's — it runs the real
+            Solutions in their own working copies — so it sits up here with the
+            Solutions rather than inside one agent's workbench. */}
+        <button
+          type="button"
+          className={selected === "debug" ? "debug-button on" : "debug-button"}
+          aria-pressed={selected === "debug"}
+          onClick={() => {
+            setDebugUsed(true);
+            setSelected(selected === "debug" ? "code" : "debug");
+          }}
+        >
+          <span aria-hidden="true">▶</span> Debug
+        </button>
         <span className="global-agents">
           <span className={live > 0 ? "pulse on" : "pulse"} aria-hidden="true" />
           <strong>
@@ -301,22 +339,49 @@ export default function AgentWorkspace({
         />
 
         {/* The tree is out here rather than inside a pane because it belongs to
-            the Solution, not to whichever agent happens to be selected. */}
-        {selected !== "all" && (
+            the Solution, not to whichever agent happens to be selected. Both
+            the Product-wide panes want the width instead. */}
+        {selected !== "all" && selected !== "debug" && (
           <BuildExplorer
             productId={productId}
             solutions={solutions}
             solutionId={browsing}
             selectedPath={selectedFile}
             onSelectFile={(solutionId, path) => {
-              setBrowsing(solutionId);
+              setFileFrom(solutionId);
               setSelectedFile(path);
             }}
           />
         )}
 
         <div className="build-main">
-          {selected === "code" && <CodeEditor solutions={solutions} opened={opened} />}
+          {/* A file picked in the Files pane wins the pane: clicking a file is
+              a request to look at it, whatever else was showing. Closing it
+              puts the previous pane back. */}
+          {openFileSolution && selectedFile ? (
+            <BuildFileEditor
+              solution={openFileSolution}
+              path={selectedFile}
+              onClose={() => {
+                setSelectedFile(null);
+                setFileFrom(null);
+              }}
+            />
+          ) : (
+            selected === "code" && <CodeEditor solutions={solutions} opened={opened} />
+          )}
+
+          {/* Mounted on first use and then hidden rather than unmounted, so a
+              dev server survives a trip to a diff and back. Unmounting it was
+              the honest first cut — a shell is a real child process — but it
+              meant every look at another pane killed everything that was up.
+              The boundary is the Build view itself: leaving Develop's Build tab
+              unmounts this whole component, and the shells close with it. */}
+          {debugUsed && (
+            <div hidden={selected !== "debug"}>
+              <DebugBoard solutions={solutions} active={selected === "debug"} />
+            </div>
+          )}
 
           {selected === "all" && (
             <div className="agent-overview">
@@ -352,7 +417,7 @@ export default function AgentWorkspace({
               onReview={onReview}
               selectedPath={selectedFile}
               onSelectFile={(solutionId, path) => {
-                setBrowsing(solutionId);
+                setFileFrom(solutionId);
                 setSelectedFile(path);
               }}
               onTests={setTests}
@@ -360,7 +425,7 @@ export default function AgentWorkspace({
           )}
         </div>
 
-        {selected !== "all" && (
+        {selected !== "all" && selected !== "debug" && (
           <ReviewShipRail
             agentLabel={active ? active.item.title : "your workspace"}
             run={active?.run ?? null}

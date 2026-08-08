@@ -32,8 +32,12 @@ type WorkView = (typeof WORK_VIEWS)[number];
 export default function WorkItemViews({
   productId,
   requestedItem,
+  onOpenAgent,
 }: {
   productId: number;
+  /** Opens an item's agent over in Build — Ready links there for the items that
+   *  already have one. */
+  onOpenAgent?: (workItemId: number) => void;
   /** A work item asked for from elsewhere — the Build view's lane links here
    *  when an item has no agent on it. Carries a timestamp so asking twice for
    *  the same item still moves. */
@@ -134,6 +138,7 @@ export default function WorkItemViews({
           // The build plan is where scoping is fixed and where the plan is
           // approved, so "open it" is the one action this view needs.
           onOpenPlan={(item) => setPlanItem(item.id)}
+          onOpenAgent={onOpenAgent}
         />
       )}
 

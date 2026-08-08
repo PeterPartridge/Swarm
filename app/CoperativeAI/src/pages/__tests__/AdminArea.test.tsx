@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AdminArea from "../AdminArea";
@@ -257,6 +257,43 @@ describe("AdminArea", () => {
     await openSection(user, "People");
     expect(await screen.findByRole("region", { name: "Team members" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "AI Settings" })).not.toBeInTheDocument();
+  });
+
+  /// "What can the platform actually use?" is the question this panel is opened
+  /// with, and it used to be answerable only by reading every row.
+  it("counts the installed models apart from the ones still waiting", async () => {
+    const user = userEvent.setup();
+    mocked.listModelStatus.mockResolvedValue([
+      {
+        providerId: 1, provider: "Ollama", model: "ornith:9b", state: "detected",
+        packPath: "", validationReport: "", supportsVision: false,
+      },
+      {
+        providerId: 1, provider: "Ollama", model: "wren:7b", state: "installed",
+        packPath: "", validationReport: "", supportsVision: false,
+      },
+      {
+        providerId: 1, provider: "Ollama", model: "finch:3b", state: "failed",
+        packPath: "", validationReport: "", supportsVision: false,
+      },
+    ]);
+    render(<AdminArea />);
+
+    const models = await screen.findByRole("region", { name: "Models" });
+    // Asserted on the panel rather than per-element: each tally is a count in a
+    // <strong> beside its label, so the words and the number are two nodes.
+    expect(await within(models).findByText("wren:7b")).toBeInTheDocument();
+    expect(models).toHaveTextContent("1 installed and usable");
+    expect(models).toHaveTextContent("1 awaiting install");
+    expect(models).toHaveTextContent("1 failed validation");
+
+    // Everything is listed by default, so the Install buttons stay reachable…
+    expect(within(models).getByText("ornith:9b")).toBeInTheDocument();
+    // …and the filter narrows to the ones the platform will actually use.
+    await user.click(within(models).getByRole("button", { name: "Show installed only" }));
+    expect(within(models).getByText("wren:7b")).toBeInTheDocument();
+    expect(within(models).queryByText("ornith:9b")).not.toBeInTheDocument();
+    expect(within(models).queryByText("finch:3b")).not.toBeInTheDocument();
   });
 
   /// A model appearing on a provider does not make it usable — the whole point

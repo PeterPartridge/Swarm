@@ -483,9 +483,18 @@ export const SOLUTION_QUESTIONS: { id: string; label: string }[] = [
 ];
 
 /** Structured fields for each strategy area (product fields live in ProductStrategy). */
-export const DEVELOP_STRATEGY_FIELDS: { id: string; label: string }[] = [
+/** A field in a structured strategy. `lead` marks the one drawn first and large
+ *  as the standing direction the rest are written under — a property of the
+ *  field list, so the editor does not have to be told which by name. */
+export interface StrategyField {
+  id: string;
+  label: string;
+  lead?: boolean;
+}
+
+export const DEVELOP_STRATEGY_FIELDS: StrategyField[] = [
   { id: "infrastructure", label: "Required infrastructure" },
-  { id: "architecture", label: "Architecture requirements" },
+  { id: "architecture", label: "Architecture requirements", lead: true },
   { id: "solutionGuidelines", label: "Solution creation guidelines" },
   { id: "dependencies", label: "Dependencies / environment prerequisites" },
   // Defaults for every work item's per-Solution plan, so the team's branch
@@ -1559,6 +1568,34 @@ export const resizeTerminal = (id: string, cols: number, rows: number): Promise<
   invoke("resize_terminal", { id, cols, rows });
 export const closeTerminal = (id: string): Promise<void> =>
   invoke("close_terminal", { id });
+
+/** A shell this app started that is still running.
+ *
+ *  The registry always existed — Tauri holds the sessions for the life of the
+ *  app — but nothing could ask what was in it, so a panel that unmounted had no
+ *  way back to its own shell and closed it instead. */
+export interface RunningTerminal {
+  id: string;
+  solutionId: number;
+  shell: string;
+  cwd: string;
+  /** When this app started it; the only start it can honestly claim to know. */
+  startedAt: number;
+}
+
+export interface AttachedTerminal extends RunningTerminal {
+  /** Recent output, to write into the fresh widget so a reattached shell does
+   *  not look like one that failed. Bounded and in memory — never persisted. */
+  replay: string;
+}
+
+/** Every shell still running. Ones that ended on their own are dropped on the
+ *  way past, so this is what is live rather than what was ever started. */
+export const listTerminals = (): Promise<RunningTerminal[]> =>
+  invoke("list_terminals");
+/** Picks a running shell back up, with its recent output. */
+export const attachTerminal = (id: string): Promise<AttachedTerminal> =>
+  invoke("attach_terminal", { id });
 
 /** What the explorer's properties panel shows about the selected file. */
 export interface FileProperties {

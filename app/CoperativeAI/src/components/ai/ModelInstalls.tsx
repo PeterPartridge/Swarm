@@ -27,6 +27,14 @@ export default function ModelInstalls({ productId }: { productId: number | null 
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  /// Which models to list.
+  ///
+  /// **All of them, with the installed ones first.** "What can the platform
+  /// actually use?" is the question somebody comes here with, and it was only
+  /// answerable by reading every row — so the counts and the ordering answer it
+  /// now, and the filter narrows to just those. Defaulting to the filter would
+  /// have hidden the Install buttons, which is the other half of this panel.
+  const [show, setShow] = useState<"installed" | "all">("all");
 
   const refresh = useCallback(async () => {
     try {
@@ -111,6 +119,13 @@ export default function ModelInstalls({ productId }: { productId: number | null 
 
   const providerIds = [...new Set(models.map((m) => m.providerId))];
 
+  const installed = models.filter((m) => m.state === "installed");
+  const detected = models.filter((m) => m.state === "detected");
+  const failed = models.filter((m) => m.state === "failed");
+  /// Installed first within the list too, so the usable ones are not buried
+  /// under whatever a provider happened to report last.
+  const listed = show === "installed" ? installed : [...installed, ...detected, ...failed];
+
   return (
     <section className="develop-card" aria-label="Models">
       <h2>Models</h2>
@@ -134,8 +149,43 @@ export default function ModelInstalls({ productId }: { productId: number | null 
 
       {models.length === 0 && <p>No models yet — add an AI provider first.</p>}
 
+      {models.length > 0 && (
+        <div className="model-summary">
+          {/* The counts the panel could not answer before. Installed first,
+              because a model that has not passed its checks is not one the
+              platform will use, whatever it is called. */}
+          <span className="model-tally installed">
+            <strong>{installed.length}</strong> installed and usable
+          </span>
+          <span className="model-tally">
+            <strong>{detected.length}</strong> awaiting install
+          </span>
+          {failed.length > 0 && (
+            <span className="model-tally failed">
+              <strong>{failed.length}</strong> failed validation
+            </span>
+          )}
+          <span className="model-summary-spacer" />
+          <button
+            type="button"
+            className="model-filter"
+            aria-pressed={show === "installed"}
+            onClick={() => setShow(show === "installed" ? "all" : "installed")}
+          >
+            {show === "installed" ? "Show all models" : "Show installed only"}
+          </button>
+        </div>
+      )}
+
+      {show === "installed" && installed.length === 0 && models.length > 0 && (
+        <p className="hint">
+          None installed yet. Install one below — the platform refuses a model
+          until it has passed every check.
+        </p>
+      )}
+
       <ul className="model-list">
-        {models.map((entry) => {
+        {listed.map((entry) => {
           const report = reportOf(entry);
           return (
             <li key={`${entry.providerId}-${entry.model}`} className={`model state-${entry.state}`}>

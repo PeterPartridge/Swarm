@@ -227,6 +227,8 @@ fn main() {
             commands::terminals::write_terminal,
             commands::terminals::resize_terminal,
             commands::terminals::close_terminal,
+            commands::terminals::list_terminals,
+            commands::terminals::attach_terminal,
             commands::workspace::file_properties,
             commands::ai_settings::list_ai_providers,
             commands::ai_settings::add_ai_provider,

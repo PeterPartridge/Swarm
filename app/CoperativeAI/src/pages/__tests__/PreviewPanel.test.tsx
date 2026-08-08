@@ -3,9 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import PreviewPanel, {
   formatBody,
-  guessDevUrl,
   parseHeaders,
 } from "../../components/code/PreviewPanel";
+// Moved to lib/ when Debug started labelling ports with the same guess.
+import { guessDevPort, guessDevUrl } from "../../lib/devServer";
 
 vi.mock("../../lib/backend", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../lib/backend")>();
@@ -33,6 +34,13 @@ describe("guessDevUrl", () => {
   it("falls back to a plausible port for a command it does not know", () => {
     expect(guessDevUrl("./run-my-thing.sh")).toBe("http://localhost:3000");
     expect(guessDevUrl("")).toBe("http://localhost:3000");
+  });
+
+  /// Debug labels a process with just the port, from the same table — the whole
+  /// reason this moved out of the preview.
+  it("gives Debug the port on its own, from the same guess", () => {
+    expect(guessDevPort("npm run dev")).toBe(":5173");
+    expect(guessDevPort("cargo run")).toBe(":8080");
   });
 });
 

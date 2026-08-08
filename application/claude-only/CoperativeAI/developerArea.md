@@ -34,6 +34,117 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 18 — The process registry, one Files pane, and what Admin can now answer
+
+### My Feedback
+
+**The registry was half-built already and nobody could see it.** `Terminals` is Tauri-managed state that lives for the life of the app, so the shells never actually belonged to the window — but there was no way to *ask* what was in it, so `TerminalPanel`'s unmount had no option but `close_terminal`. Two commands close that: `list_terminals` (which also prunes shells that ended on their own — the only place that notices `exit` with no window watching) and `attach_terminal`.
+
+**The replay buffer is the part worth arguing about.** A reattached dev server that has been up an hour would otherwise open on an empty box, which reads exactly like a shell that failed. So each session keeps a **bounded 64 KiB in-memory tail**, handed over on attach. The page brief's rule — terminal output is never persisted — still holds: this is in memory, capped, and dies with the process, precisely as the xterm widget's own scrollback used to. What changed is only *which* thing it dies with.
+
+**`TerminalPanel` gained `keepAlive` and `adoptId`.** Debug sets both; the Code tab sets neither, so a terminal nobody asked to keep is still closed with its panel.
+
+**The Files pane is one pane now.** Picking a Solution to open and then browsing its files were two steps for one intention, and the first was a dropdown you had to find before the second could start. No Solution picked shows every Solution in the Product as a foldable root; the Solution bar scopes it. **"All Solutions" is a real tab**, not the absence of a selection.
+
+**Any click on a file opens it**, in `BuildFileEditor` — the editor half of `CodeEditor` without its second explorer and Solution picker, which Build already has three of.
+
+**Admin counts the models.** Installed and usable / awaiting install / failed validation, installed first, with a filter.
+
+### Your Feedback
+
+- **DAP is not built.** You chose it over `debugger;` statements, and I said when offering the choice that it would be its own round — it is per-language adapter work (js-debug, CodeLLDB, debugpy), a protocol client in Rust, and a UI for stack and variables. Building a gutter this round with nothing behind it would have been the exact failure the last four rounds have been avoiding. **Next round.**
+- **`Replay::push` trims on a character boundary**, and that is the line that would have panicked. A PTY splits multi-byte characters across reads, so the trim point lands inside one sooner or later, and `String::drain` on a non-boundary byte index panics — in a reader thread, taking the stream with it. Tested with three-byte characters.
+- **`list_terminals` prunes as it reads.** A shell someone typed `exit` into is not something to offer picking up.
+- **Removing the default Solution broke two ship-rail tests, correctly.** With "All Solutions" as the opening state there is no working copy to review until one is chosen, so those tests now pick the agent first — which is the real flow, since the rail is labelled by the agent.
+- **Admin lists everything by default.** My first cut defaulted to the installed-only filter and broke three tests by hiding the Install buttons — which is the other half of what that panel is for. The counts and the ordering answer your question; the filter narrows.
+
+### Technical Debt
+
+- **DAP breakpoints, the whole feature.** Next round.
+- **A shell still dies when the app closes.** The registry is process-lifetime, not machine-lifetime; nothing reattaches across a restart.
+- **`attach_terminal` does not resize before replaying**, so a tail written into a narrower widget than it was produced for wraps where the original did not.
+- **The replay is per session with no total cap** — eight attached shells is 512 KiB of held output.
+- **`BuildExplorer` reads every Solution's tree when nothing is picked**, in parallel but unpaged; a Product with a dozen large repositories will feel it.
+- **The file editor has no tabs.** One file at a time; opening another replaces it, and an unsaved buffer is reloaded from disk when you come back.
+- **Nothing links a file's diff and its editable copy** — the tree opens the editor, the workbench's Changes tab opens the diff, and they are separate places for one file.
+
+## Round 17f — The 77px dropdown, and paying down the debt from 17–17e
+
+### My Feedback
+
+**The dropdown padding was a real bug, and app-wide.** `min-height: 5.5rem` and `resize: vertical` sat on the shared `input, select, textarea` rule, so **every select and every single-line input in the app was 77px tall** — a one-line control with an inch of dead space under the text, which reads as enormous padding. A minimum writing area is a fact about writing prose, not about form controls. Scoped to `textarea`; selects are now 31px and inputs 29px, verified across all four areas. `input[type="color"]` got its own size too — the shared padding was putting a pale frame around the colour it exists to show.
+
+**Debt cleared, by area:**
+
+*Debug* — shells stay alive behind other Build panes (mounted on first use, then hidden, with `TerminalPanel` refitting xterm on the way back rather than staying measured at zero); **Restart** sends Ctrl-C then the command, both as keystrokes so they land in the scrollback; the **likely port** is shown and labelled a guess; the uptime clock moved into its own component so one number no longer re-renders every shell and run panel once a second; Solutions with no working copy can be hidden.
+
+*Map* — ⌘/Ctrl + wheel zooms **about the pointer** (a plain wheel is deliberately left alone: this sits in a scrolling page and swallowing the wheel would trap the scroll); zoom and pan persist under their own localStorage key, clamped on the way in; the surface grows from the content instead of stopping at a fixed 3000×2000.
+
+*Rules* — "where agents stopped" windows to 7/30/all days with the older ones **counted rather than silently dropped**; which field leads is a property of the field list (`StrategyField.lead`) instead of a name passed at the call site; the strategy fields are cards like the rules beside them.
+
+*Work* — a row with an agent on it links into Build; `readinessOf` is exported and unit-tested directly, which caught nothing but pins each of the five checks independently where the UI only ever showed a total.
+
+*Build* — the Solution palette went from five hues to eight.
+
+**`guessDevUrl` moved to `lib/devServer.ts`** when Debug started labelling ports with it — two copies of that table would drift the first time a framework was added to one.
+
+### Your Feedback
+
+- **The Ready row had to be restructured, not just extended.** The link into Build meant a second control in a row that was one big `<button>`, and an interactive element inside a button is neither valid HTML nor reachable by keyboard. The row is a list item holding two buttons now.
+- **Restart is offered only once a shell reports itself open**, so it cannot be pressed at something that is not running.
+- **Eight hues is a reduction, not a fix.** A Product with nine Solutions still has two sharing a colour. It is keyed on the Solution id rather than its position on purpose: a colour that changed when somebody else created a Solution would be worse than a collision.
+- **I broke `DebugBoard.tsx` mid-round and rewrote it.** A patch script assumed LF in a file that had picked up CRLF, so `split` produced three lines and the splice deleted everything after the restart callback. Caught immediately by reading it back. The Ctrl-C byte is now a named `INTERRUPT` constant rather than an invisible control character inline in a template literal — unreadable in a diff and only surviving a careless edit by luck.
+- **Two tests broke and both were right to.** The Ready row's clickable target moved, and the enforcement panel's new 7-day default filtered out a fixture dated 2023. Fixed the fixtures rather than the defaults.
+
+### Technical Debt
+
+**Needs Rust, deliberately not attempted here:**
+- **A process registry** so shells survive leaving Build entirely, not just moving between its panes.
+- **`list_product_plans`** so Ready can score the test plan without a call per item.
+- **A per-run test filter**, so Build's Tests pane runs the agent's tests rather than the Solution's.
+- **A reason code on `AiJob`**, so a rule-block and a scoping-block are distinguishable without reading prose.
+- **`ENFORCED`** is still a constant in the component; if Rust checks a second rule, nothing makes the badge follow.
+- **"Where agents stopped" still reads every job and windows in the webview.**
+
+**Frontend, still open:**
+- **The map's inspector indexes `solutionId`-scoped documents only**; a whole-Product document about one Solution cannot be attributed.
+- **Ready has no assignee filter** of its own.
+- **`BuildExplorer` reads the whole Product's changed files** to mark one Solution's tree — deliberate, so the marks and the rail cannot disagree, but it fetches more than it draws.
+- **No test covers any of the stacked narrow layouts**; jsdom has no layout engine, so they stay browser-verified.
+- **Wheel zoom is untested** for the same reason — the pointer-anchoring arithmetic is checked, the event path is not.
+
+## Round 17e — A Debug feature that is real, and a page frame that stops shouting
+
+### My Feedback
+
+**Debug now exists, and it is a genuine capability rather than the design's chrome.** A green ▶ chip in the Solution bar opens `DebugBoard`: a real PTY per Solution, in that Solution's own working copy, with its detected run command ready to type in. **Several run at once** — the front end, the API and the worker all up together — which is precisely what the Code tab's single terminal could never do and the reason this was worth building.
+
+It is assembled from `DevServerPanel` and `TerminalPanel`, both already tested, rather than a new terminal implementation.
+
+**Nothing is attached until asked.** A shell is a real child process, so opening one per Solution on arrival would spawn several the moment somebody clicked Debug to look. Attach mounts one; Detach unmounts it and `TerminalPanel`'s existing cleanup closes it. Leaving Debug unmounts the board, which is deliberate — several shells alive behind a hidden pane is how an afternoon ends with eight of them.
+
+**It sits in the Solution bar, not the workbench.** Debug runs the real Solutions in their real working copies, which is a Product-wide thing; putting it inside one agent's workbench would have implied it ran that agent's worktree.
+
+**The page frame.** `.environment` padding 1.25/1.5rem → 0.6/0.85rem, the heading tightened, `.develop-area` gap 1rem → 0.6rem, and the Product picker moved onto the tab row inside a new `.develop-bar` which now owns the rule the tab strip used to draw. That is a whole row reclaimed from a control that changes about once a session.
+
+### Your Feedback
+
+- **The debugger is still not there, and that is the point.** Step in/over/out, a call stack, variables you can edit mid-run, breakpoints, per-run env overrides — there is no debug adapter in this app and no environment management. Every one of those controls would have been furniture that looks like it works, and **a breakpoint that silently does nothing is worse than no breakpoint**, because you would trust it. The board says so in the panel, not only in a comment.
+- **No CPU or memory columns.** The design has `8% cpu · 214 MB` per process. The app does not read the process table. A test asserts no `N% cpu` or `N MB` string appears.
+- **Uptime is honest and narrow.** It counts from when *this window* opened the shell, which is the only start the app can claim to know — not from when the process began if something else started it.
+- **The assertion had to move from words to controls.** The first version of the honesty test failed on the panel's own disclaimer, which necessarily contains "call stack". It now asserts there is no step/continue/pause/breakpoint *button*, and separately that the disclaimer is present — the panel has to be free to name the things it is disclaiming.
+- **A Solution with no working copy cannot be attached**, and the button is disabled with the reason beside it rather than failing on the press.
+- **`Product` went next to the tabs, not into the app topbar.** The topbar is app-wide; Product only scopes Develop, Product and Test, so a picker up there would be visible in Admin where it means nothing.
+
+### Technical Debt
+
+- **Leaving Debug kills every attached shell.** Correct for leaks, wrong if you wanted a dev server to survive a trip to the Map tab. A persistent process registry in Rust would fix it properly.
+- **No port is shown**, though `PreviewPanel` already guesses one from the run command — the guess is not shared.
+- **Stopping a process means closing its shell**; there is no "restart" that keeps the terminal.
+- **`DebugBoard` renders every Solution**, with no filter, so a Product with a dozen is a long scroll.
+- **Uptime ticks a 1s interval while anything is attached**, re-rendering the whole board.
+- **The padding change is global** — every area got the tighter frame, not just Develop. That is probably right, but Product/Test/Admin were not re-checked at the new size.
+
 ## Round 17d — Rules, restyled: two levels because there are two, and no scoreboard
 
 Source: the same design file, its **Strategy & rules** view. Restyle only, as asked.

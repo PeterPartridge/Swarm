@@ -2,7 +2,8 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import WorkItemViews from "../../components/planning/WorkItemViews";
-import type { Sprint, TeamMember, WorkItem } from "../../lib/backend";
+import { readinessOf } from "../../components/planning/WorkReadiness";
+import type { Run, Sprint, TeamMember, WorkItem } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../lib/backend")>();
@@ -53,6 +54,59 @@ function item(o: Partial<WorkItem>): WorkItem {
 const ada: TeamMember = { id: 5, name: "Ada", roleId: null };
 const bob: TeamMember = { id: 6, name: "Bob", roleId: null };
 const sprint: Sprint = { id: 9, productId: 7, name: "Sprint 1", startDate: null, endDate: null };
+
+const run = (over: Partial<Run> = {}): Run =>
+  ({
+    id: 3, workItemId: 1, workItemTitle: "Checkout", solutionId: 5,
+    solutionName: "Shop API", state: "notStarted", branch: "b", worktreePath: "",
+    terminalId: "", briefPath: "", filesChanged: 0, planApproved: true,
+    ...over,
+  }) as Run;
+
+/// The scoring rule on its own, away from the rendering. Every check is a fact
+/// about a row, so each one is worth pinning independently — through the UI it
+/// is only ever visible as a total.
+describe("readinessOf", () => {
+  const bare = item({ id: 1 });
+
+  it("counts an item with nothing filled in as one of five", () => {
+    const checks = readinessOf(bare, [], 0);
+    expect(checks).toHaveLength(5);
+    // Only "nothing blocking" passes: an item nobody has asked a question about
+    // is not blocked, which is true and slightly counter-intuitive.
+    expect(checks.filter((c) => c.met).map((c) => c.label)).toEqual(["nothing blocking"]);
+  });
+
+  it("needs a description, build notes, a Solution and an approved plan", () => {
+    const full = item({
+      id: 1,
+      description: "Take a card payment.",
+      developmentDetails: "Money in integer cents.",
+    });
+    expect(readinessOf(full, [run()], 0).every((c) => c.met)).toBe(true);
+  });
+
+  /// Approval is per (work item, Solution): one unapproved plan means the item
+  /// cannot be handed over, whatever the others say.
+  it("fails approval when any one of an item's runs is unapproved", () => {
+    const full = item({ id: 1, description: "x", developmentDetails: "y" });
+    const checks = readinessOf(full, [run(), run({ id: 4, solutionId: 6, planApproved: false })], 0);
+    expect(checks.find((c) => c.label === "plan approved")?.met).toBe(false);
+  });
+
+  /// Runs belonging to other work items must not lend this one a Solution.
+  it("ignores runs that belong to another work item", () => {
+    const checks = readinessOf(bare, [run({ workItemId: 99 })], 0);
+    expect(checks.find((c) => c.label === "a Solution")?.met).toBe(false);
+  });
+
+  it("counts an unanswered question as blocking, and says how many", () => {
+    const checks = readinessOf(bare, [], 2);
+    const blocking = checks.find((c) => c.label === "nothing blocking");
+    expect(blocking?.met).toBe(false);
+    expect(blocking?.missing).toContain("2 questions");
+  });
+});
 
 describe("WorkItemViews", () => {
   beforeEach(() => {
@@ -135,13 +189,29 @@ describe("WorkItemViews", () => {
     const user = userEvent.setup();
     render(<WorkItemViews productId={7} />);
 
-    await user.click(await screen.findByLabelText("Checkout — 1 of 5 ready"));
+    // The row is a list item holding two controls now, so the briefing opener
+    // is its own button rather than the whole row.
+    await screen.findByLabelText("Checkout — 1 of 5 ready");
+    await user.click(screen.getByLabelText("Show the briefing for Checkout"));
     const briefing = await screen.findByRole("complementary", { name: "Agent briefing" });
     expect(briefing).toHaveTextContent(/The description is empty/);
     expect(briefing).toHaveTextContent(/No Solution is attached/);
     expect(
       within(briefing).getByRole("button", { name: "Open the build plan" }),
     ).toBeInTheDocument();
+  });
+
+  /// An item that already has an agent is not a scoping question any more, so
+  /// its row points at the work rather than naming a state and going nowhere.
+  it("links a row with an agent on it through to Build", async () => {
+    const user = userEvent.setup();
+    const opened: number[] = [];
+    mocked.listWorkItems.mockResolvedValue([item({ id: 1, title: "Checkout" })]);
+    mocked.listRuns.mockResolvedValue([run({ state: "prepared", worktreePath: "C:/wt" })]);
+    render(<WorkItemViews productId={7} onOpenAgent={(id) => opened.push(id)} />);
+
+    await user.click(await screen.findByLabelText("Open Checkout in Build"));
+    expect(opened).toEqual([1]);
   });
 
   it("switches to Board view with status columns", async () => {

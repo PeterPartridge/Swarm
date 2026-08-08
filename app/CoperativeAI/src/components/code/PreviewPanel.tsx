@@ -1,30 +1,8 @@
 import SectionTabs from "../common/SectionTabs";
 import { useCallback, useEffect, useRef, useState } from "react";
-
-/** Where a dev server is *probably* listening, given the command that starts it.
- *
- *  A guess, and labelled as one everywhere it is shown. The Solution's run
- *  command is detected from what is in the folder, not from a config that states
- *  a port, so the app genuinely does not know — and a URL presented as fact
- *  would send people hunting a bug in their server when the guess was simply
- *  wrong. First match wins; the ports are each framework's own default. */
-export function guessDevUrl(runCommand: string): string {
-  const command = runCommand.toLowerCase();
-  const guesses: [RegExp, number][] = [
-    [/\bnext\b/, 3000],
-    [/\bnuxt\b/, 3000],
-    [/\bvite\b|\bnpm run dev\b|\bpnpm dev\b|\byarn dev\b/, 5173],
-    [/\bng serve\b/, 4200],
-    [/\bdotnet\b/, 5000],
-    [/\brails\b/, 3000],
-    [/\bdjango\b|manage\.py runserver/, 8000],
-    [/\bflask\b/, 5000],
-    [/\buvicorn\b|\bfastapi\b/, 8000],
-    [/\bcargo\b|\bair\b|\bgo run\b/, 8080],
-  ];
-  const match = guesses.find(([pattern]) => pattern.test(command));
-  return `http://localhost:${match ? match[1] : 3000}`;
-}
+// Moved to lib/ when Debug started labelling ports with the same guess — two
+// copies of that table would drift the first time a framework was added to one.
+import { guessDevUrl } from "../../lib/devServer";
 
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
 

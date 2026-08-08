@@ -57,6 +57,20 @@ function layoutKey(productId: number): string {
   return `coperativeai.map.${productId}`;
 }
 
+/** Where the window was left looking. Same rule as the box positions — a view
+ *  of shared facts is per-machine, so it goes in localStorage beside them
+ *  rather than in the database. Kept under its own key so an older layout with
+ *  no view still loads. */
+function viewKey(productId: number): string {
+  return `coperativeai.map.${productId}.view`;
+}
+
+interface MapView {
+  zoom: number;
+  panX: number;
+  panY: number;
+}
+
 function loadLayout(productId: number): Record<number, Point> {
   try {
     const raw = localStorage.getItem(layoutKey(productId));
@@ -71,6 +85,31 @@ function saveLayout(productId: number, layout: Record<number, Point>): void {
     localStorage.setItem(layoutKey(productId), JSON.stringify(layout));
   } catch {
     // A machine that refuses localStorage still arranges for this session.
+  }
+}
+
+function loadView(productId: number): MapView {
+  try {
+    const raw = localStorage.getItem(viewKey(productId));
+    if (!raw) return HOME;
+    const held = JSON.parse(raw) as Partial<MapView>;
+    // Clamped on the way in: a stored zoom of 0 from some earlier bug would
+    // otherwise render an invisible map with no obvious way back.
+    return {
+      zoom: Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Number(held.zoom) || HOME.zoom)),
+      panX: Number(held.panX) || 0,
+      panY: Number(held.panY) || 0,
+    };
+  } catch {
+    return HOME;
+  }
+}
+
+function saveView(productId: number, view: MapView): void {
+  try {
+    localStorage.setItem(viewKey(productId), JSON.stringify(view));
+  } catch {
+    // Same as the layout: this session still works.
   }
 }
 
@@ -117,8 +156,11 @@ export default function SolutionMap({
   const [connectFrom, setConnectFrom] = useState<number | null>(null);
   const [connectKind, setConnectKind] = useState<RepoLinkKind>("callsApi");
   const [selected, setSelected] = useState<number | null>(null);
-  const [zoom, setZoom] = useState(HOME.zoom);
-  const [pan, setPan] = useState<Point>({ x: HOME.panX, y: HOME.panY });
+  const [zoom, setZoom] = useState(() => loadView(productId).zoom);
+  const [pan, setPan] = useState<Point>(() => {
+    const v = loadView(productId);
+    return { x: v.panX, y: v.panY };
+  });
   const [newName, setNewName] = useState("");
   const [newType, setNewType] = useState<string>(SOLUTION_TYPES[0]);
   const [notice, setNotice] = useState<string | null>(null);
@@ -127,6 +169,7 @@ export default function SolutionMap({
   const drag = useRef<{ id: number; dx: number; dy: number } | null>(null);
   const panning = useRef<{ sx: number; sy: number; ox: number; oy: number } | null>(null);
   const surface = useRef<HTMLDivElement | null>(null);
+  const viewport = useRef<HTMLDivElement | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -172,6 +215,45 @@ export default function SolutionMap({
   useEffect(() => {
     saveLayout(productId, pos);
   }, [productId, pos]);
+
+  // And where the window was left looking, so reopening the tab does not throw
+  // away the zoom somebody chose to read a corner of a large map.
+  useEffect(() => {
+    saveView(productId, { zoom, panX: pan.x, panY: pan.y });
+  }, [productId, zoom, pan]);
+
+  // Ctrl/⌘ + wheel zooms, which is what every canvas does and what anybody
+  // tries first. A plain wheel is left alone deliberately: this sits inside a
+  // scrolling page, and swallowing the wheel would trap the scroll whenever the
+  // pointer crossed the map.
+  useEffect(() => {
+    const el = viewport.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      // Zoom about the pointer rather than the origin, so the thing under the
+      // cursor stays under it — zooming to a corner is otherwise a hunt.
+      const px = e.clientX - rect.left;
+      const py = e.clientY - rect.top;
+      setZoom((z) => {
+        const next = Math.min(
+          MAX_ZOOM,
+          Math.max(MIN_ZOOM, Math.round((z - Math.sign(e.deltaY) * 0.1) * 10) / 10),
+        );
+        if (next === z) return z;
+        setPan((p) => ({
+          x: px - ((px - p.x) * next) / z,
+          y: py - ((py - p.y) * next) / z,
+        }));
+        return next;
+      });
+    };
+    // Not passive: the whole point is to stop the page scrolling under it.
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
 
   const positionOf = (id: number): Point => pos[id] ?? { x: 40, y: 40 };
 
@@ -348,6 +430,19 @@ export default function SolutionMap({
       list.push({ tone: "ok", text: "Every Solution has a folder, a repository and a connection." });
     return list;
   }, [solutions, connected]);
+
+  /** How big the drawable surface has to be to hold what is on it, plus a
+   *  screen's worth of room to keep dragging into. */
+  const surfaceSize = useMemo(() => {
+    let w = 1600;
+    let h = 900;
+    for (const s of solutions) {
+      const p = pos[s.id] ?? { x: 40, y: 40 };
+      w = Math.max(w, p.x + NODE_W + 600);
+      h = Math.max(h, p.y + NODE_H + 400);
+    }
+    return { w, h };
+  }, [solutions, pos]);
 
   const counts = useMemo(() => {
     const by: Record<string, number> = {};
@@ -542,6 +637,7 @@ export default function SolutionMap({
         ) : (
           <div
             className={`map-viewport ${mode === "connect" ? "connecting" : ""}`}
+            ref={viewport}
             onPointerDown={onSurfaceDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
@@ -552,6 +648,11 @@ export default function SolutionMap({
               style={{
                 transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                 backgroundSize: `${SNAP * 2}px ${SNAP * 2}px`,
+                // Grown to fit rather than fixed: a box dragged past a hard
+                // 3000×2000 used to have nowhere to go, and the grid stopped
+                // under it.
+                width: `${surfaceSize.w}px`,
+                height: `${surfaceSize.h}px`,
               }}
             >
               {/* Edges sit behind the boxes and never take the pointer, so a line

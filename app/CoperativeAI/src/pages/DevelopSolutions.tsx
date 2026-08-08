@@ -199,36 +199,44 @@ export default function DevelopSolutions({
     <div className="develop-area">
       {error && <p role="alert">{error}</p>}
 
-      {products.length === 0 ? (
-        <p>No Products yet — create one in the Product tab to develop against it.</p>
-      ) : (
-        <label className="develop-product-picker">
-          Product
-          <select
-            aria-label="Develop product"
-            value={activeProduct}
-            onChange={(e) => setActiveProduct(Number(e.target.value))}
-          >
-            {products.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
+      {/* One bar, not two rows. The Product picker sat on a line of its own
+          above the tabs, which cost a whole row to a control that changes about
+          once a session — it belongs beside the tabs, on the right, where it
+          reads as the scope the tabs are showing rather than a setting. */}
+      <div className="develop-bar">
+        {/* `as="buttons"`, not a tablist — WorkItemViews already owns real
+            Board/Sprint/List tabs inside the Work section, and two tablists on
+            one page would make "the tabs" ambiguous to a screen reader. */}
+        <SectionTabs
+          label="Develop sections"
+          className="develop-tabs"
+          as="buttons"
+          options={DEVELOP_TABS}
+          active={view}
+          onSelect={(id) => setView(id as DevelopView)}
+        />
 
-      {/* `as="buttons"`, not a tablist — WorkItemViews already owns real
-          Board/Sprint/List tabs inside the Work section, and two tablists on
-          one page would make "the tabs" ambiguous to a screen reader. */}
-      <SectionTabs
-        label="Develop sections"
-        className="develop-tabs"
-        as="buttons"
-        options={DEVELOP_TABS}
-        active={view}
-        onSelect={(id) => setView(id as DevelopView)}
-      />
+        {products.length === 0 ? (
+          <p className="develop-no-product">
+            No Products yet — create one in the Product tab to develop against it.
+          </p>
+        ) : (
+          <label className="develop-product-picker">
+            Product
+            <select
+              aria-label="Develop product"
+              value={activeProduct}
+              onChange={(e) => setActiveProduct(Number(e.target.value))}
+            >
+              {products.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
 
       {view === "strategy" && activeProduct !== "" && (
         <RulesView productId={Number(activeProduct)} />
@@ -238,6 +246,12 @@ export default function DevelopSolutions({
         <WorkItemViews
           productId={Number(activeProduct)}
           requestedItem={openWorkItem}
+          // Ready's link back the other way: an item that already has an agent
+          // is answered in Build, not by scoping it again.
+          onOpenAgent={(workItemId) => {
+            setOpenAgent({ workItemId, at: Date.now() });
+            setView("agents");
+          }}
         />
       )}
 

@@ -17,7 +17,7 @@ import {
 } from "../../lib/backend";
 
 /** One thing a work item needs before an agent can be trusted with it. */
-interface Ready {
+export interface Ready {
   label: string;
   met: boolean;
   /** What to write, or where, when it is not met. */
@@ -37,7 +37,7 @@ interface Ready {
  *  design this came from showed a "ready %" beside the words "the agent lands it
  *  first try", which would be a claim about the future that nothing here can
  *  support. `4 of 5` says the same useful thing and only the true part. */
-function readinessOf(
+export function readinessOf(
   item: WorkItem,
   runs: Run[],
   openQuestions: number,
@@ -96,6 +96,7 @@ export default function WorkReadiness({
   productId,
   items,
   onOpenPlan,
+  onOpenAgent,
   /** An item asked for from elsewhere — the Build view's lane links here. */
   requestedItem,
 }: {
@@ -104,6 +105,9 @@ export default function WorkReadiness({
   /** Opens the build plan for an item, which is where scoping is fixed and
    *  where the plan is approved. */
   onOpenPlan: (item: WorkItem) => void;
+  /** Opens an item's agent over in Build. An item that already has one is not
+   *  a scoping question any more, so its row points at the work instead. */
+  onOpenAgent?: (workItemId: number) => void;
   requestedItem?: number | null;
 }) {
   const [runs, setRuns] = useState<Run[]>([]);
@@ -262,12 +266,20 @@ export default function WorkReadiness({
           {shown.map(({ item, checks, met, working }) => {
             const all = met === checks.length;
             return (
-              <li key={item.id}>
+              /* The row is a list item holding two controls, not one button
+                 wrapping everything: an item with an agent on it needs a second
+                 destination, and an interactive element inside a button is
+                 neither valid nor reachable by keyboard. */
+              <li
+                key={item.id}
+                className={`ready-row ${selected === item.id ? "on" : ""}`}
+                aria-label={`${item.title} — ${met} of ${checks.length} ready`}
+              >
                 <button
                   type="button"
-                  className={`ready-row ${selected === item.id ? "on" : ""}`}
+                  className="ready-open"
                   aria-pressed={selected === item.id}
-                  aria-label={`${item.title} — ${met} of ${checks.length} ready`}
+                  aria-label={`Show the briefing for ${item.title}`}
                   onClick={() => setSelected(item.id)}
                 >
                   <span className="ready-main">
@@ -300,17 +312,30 @@ export default function WorkReadiness({
                       />
                     </span>
                   </span>
+                </button>
 
-                  <span
-                    className={`ready-action ${working ? "busy" : all ? "go" : ""}`}
+                {/* An item with an agent on it is not a scoping question any
+                    more, so its row stops answering one and points at the work.
+                    A span that named a state and went nowhere was the one dead
+                    end on this screen. */}
+                {working && onOpenAgent ? (
+                  <button
+                    type="button"
+                    className="ready-action busy link"
+                    aria-label={`Open ${item.title} in Build`}
+                    onClick={() => onOpenAgent(item.id)}
                   >
+                    {working.state} · open →
+                  </button>
+                ) : (
+                  <span className={`ready-action ${working ? "busy" : all ? "go" : ""}`}>
                     {working
                       ? `agent · ${working.state}`
                       : all
                         ? "Ready to hand over"
                         : `${checks.length - met} to fix`}
                   </span>
-                </button>
+                )}
               </li>
             );
           })}

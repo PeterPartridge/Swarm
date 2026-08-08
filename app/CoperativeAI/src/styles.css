@@ -155,21 +155,24 @@ body {
   overflow: hidden;
 }
 
+/* Tight, because the panes inside carry their own padding and the page was
+   spending three-quarters of an inch on saying "Develop" before anything
+   useful started. */
 .environment {
   flex: 1;
-  padding: 1.25rem 1.5rem;
+  padding: 0.6rem 0.85rem;
   overflow: auto;
   background: var(--bg);
 }
 
 .environment h1 {
-  margin: 0 0 1rem;
-  font-size: 1.15rem;
+  margin: 0 0 0.45rem;
+  font-size: 1.05rem;
   font-weight: 600;
   color: var(--fg-bright);
   /* The area's own colour as a rule under its name, rather than a slab of it. */
   border-bottom: 2px solid var(--env-color);
-  padding-bottom: 0.4rem;
+  padding-bottom: 0.25rem;
 }
 
 /* ── Surfaces and controls, so every existing panel follows the theme ──── */
@@ -198,16 +201,24 @@ textarea {
   border-radius: 6px;
   padding: 0.3rem 0.45rem;
   font: inherit;
+}
 
-  /* Room to write in, everywhere, from one rule rather than a `rows` argued
-     over per field. Several boxes people describe a change in were two rows
-     tall, which is a slot rather than a space — you cannot see a paragraph you
-     have written, so you write less than you meant to. `rows` still raises a
-     box above this; it can no longer lower one below it.
+/* Room to write in, everywhere, from one rule rather than a `rows` argued over
+   per field. Several boxes people describe a change in were two rows tall, which
+   is a slot rather than a space — you cannot see a paragraph you have written,
+   so you write less than you meant to. `rows` still raises a box above this; it
+   can no longer lower one below it.
 
-     Vertical resize because these hold anything from a sentence to a spec, and
-     the person writing knows which. Horizontal is off: the width belongs to the
-     layout, and a dragged-wide textarea breaks the column it sits in. */
+   Vertical resize because these hold anything from a sentence to a spec, and the
+   person writing knows which. Horizontal is off: the width belongs to the
+   layout, and a dragged-wide textarea breaks the column it sits in.
+
+   **`textarea` only.** This block used to sit on the shared `input, select,
+   textarea` rule, which made every dropdown and every single-line field in the
+   app 5.5rem tall — a one-line control with an inch of space under the text,
+   which reads as enormous padding. A minimum writing area is a fact about
+   writing prose, not about form controls. */
+textarea {
   min-height: 5.5rem;
   resize: vertical;
 }
@@ -217,6 +228,15 @@ textarea {
 textarea.one-line,
 .card-risk textarea {
   min-height: 2.5rem;
+}
+
+/* A colour well is a swatch, not a field: the shared padding puts a wide pale
+   frame round the colour it is meant to be showing. */
+input[type="color"] {
+  width: 2.2rem;
+  height: 1.6rem;
+  padding: 0.1rem;
+  cursor: pointer;
 }
 
 input:focus,
@@ -940,8 +960,7 @@ button:disabled {
   position: absolute;
   left: 0;
   top: 0;
-  width: 3000px;
-  height: 2000px;
+  /* Sized inline from the content — see surfaceSize in SolutionMap.tsx. */
   transform-origin: 0 0;
   /* The grid is the snap made visible — one square per two snap steps. */
   background-image:
@@ -1526,7 +1545,42 @@ code {
 .develop-area {
   display: flex;
   flex-direction: column;
+  gap: 0.6rem;
+}
+
+/* The tabs and the Product they are scoped to, on one line. */
+.develop-bar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
   gap: 1rem;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--line);
+}
+
+/* The bar owns the rule now, so the tab strip drops its own and the margin it
+   used when it was a row on its own. */
+.develop-bar .develop-tabs {
+  margin: 0;
+  border-bottom: none;
+  flex: 1;
+  min-width: 0;
+}
+
+.develop-product-picker,
+.develop-no-product {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: none;
+  margin: 0 0 0.3rem;
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+}
+
+.develop-product-picker select {
+  font-size: 0.78rem;
+  padding: 0.2rem 0.35rem;
 }
 
 .planning-settings {
@@ -2609,6 +2663,33 @@ code {
   flex-direction: column;
   gap: 0.2rem;
   font-size: 0.8rem;
+}
+
+/* Inside Rules the strategy fields are cards like the rules beside them. They
+   were plain labelled textareas under a card-styled lead, which made one panel
+   speak two visual languages. */
+.rules-view .strategy-fields {
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+}
+
+.rules-view .strategy-fields label {
+  gap: 0.35rem;
+  padding: 0.55rem 0.6rem;
+  background: var(--sunken);
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--fg-bright);
+}
+
+.rules-view .strategy-fields textarea {
+  min-height: 4.5rem;
+  background: var(--bg);
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 400;
+  line-height: 1.5;
 }
 
 .deliverable-group {
@@ -6212,18 +6293,37 @@ code {
   gap: 0.35rem;
 }
 
+/* The row is a list item holding two controls now — the briefing opener and,
+   for an item that already has an agent, a link into Build. */
 .ready-row {
   display: flex;
   align-items: center;
   gap: 1rem;
-  width: 100%;
   padding: 0.6rem 0.75rem;
   background: var(--raised);
   border: 1px solid var(--line-soft);
   border-radius: 10px;
   color: var(--fg);
+}
+
+.ready-open {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+.ready-open:hover:not(:disabled) {
+  background: transparent;
+  color: inherit;
 }
 
 .ready-row:hover {
@@ -6372,6 +6472,16 @@ code {
   background: var(--info-tint);
   border-color: color-mix(in srgb, var(--accent) 35%, transparent);
   color: var(--accent);
+}
+
+button.ready-action.link {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+button.ready-action.link:hover {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  color: var(--fg-bright);
 }
 
 /* ── The briefing ─────────────────────────────────────────────────────────── */
@@ -6807,4 +6917,344 @@ code {
     width: auto;
     align-self: stretch;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   Debug: every Solution's process, running at once.
+
+   A strip of what is up across the top, then one card per Solution holding its
+   run command and a real PTY. Several run side by side — that is the thing the
+   Code tab's single terminal could never do.
+
+   There is no debugger chrome here (step buttons, a call stack, a variables
+   tree) because there is no debug adapter behind it. See DebugBoard.tsx.
+   --------------------------------------------------------------------------- */
+
+.debug-board {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.debug-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.debug-head strong {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--fg-bright);
+}
+
+.debug-head .hint {
+  margin: 0.15rem 0 0;
+  max-width: 42rem;
+}
+
+.debug-count {
+  flex: none;
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.debug-count.on {
+  background: var(--ok-tint);
+  color: var(--ok);
+}
+
+.debug-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.debug-strip li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.5rem;
+  background: var(--raised);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  font-size: 0.75rem;
+}
+
+.debug-strip li.on {
+  border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+  background: color-mix(in srgb, var(--ok) 7%, var(--raised));
+}
+
+.strip-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  flex: none;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--agent-hue) 20%, transparent);
+  color: var(--agent-hue);
+  font-size: 0.6rem;
+  font-weight: 800;
+}
+
+.strip-name {
+  font-weight: 600;
+  color: var(--fg-bright);
+}
+
+.strip-state {
+  color: var(--fg-dim);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.debug-strip li.on .strip-state {
+  color: var(--ok);
+}
+
+.debug-processes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.debug-process {
+  padding: 0.6rem;
+  background: var(--raised);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+}
+
+.process-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.process-head strong {
+  color: var(--fg-bright);
+}
+
+.process-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  flex: none;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--fg) 20%, transparent);
+}
+
+.process-dot.on {
+  background: var(--ok);
+}
+
+.process-type {
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--agent-hue) 16%, transparent);
+  color: var(--agent-hue);
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+.process-spacer {
+  flex: 1;
+  min-width: 0.5rem;
+}
+
+.process-uptime {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.7rem;
+  color: var(--ok);
+  font-variant-numeric: tabular-nums;
+}
+
+.process-body {
+  display: grid;
+  grid-template-columns: minmax(0, 18rem) minmax(0, 1fr);
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line-soft);
+}
+
+@media (max-width: 62rem) {
+  .process-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The green ▶ Debug chip in the Solution bar. */
+.debug-button {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  align-self: center;
+  flex: none;
+  padding: 0.25rem 0.6rem;
+  background: var(--ok-tint);
+  border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent);
+  border-radius: 6px;
+  color: var(--ok);
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.debug-button:hover {
+  border-color: color-mix(in srgb, var(--ok) 60%, transparent);
+}
+
+.debug-button.on {
+  background: var(--ok);
+  border-color: var(--ok);
+  color: var(--bg);
+}
+
+/* The Solution roots in the Files pane, when the whole Product is showing. */
+.tree-row.tree-root {
+  font-weight: 700;
+  color: var(--fg-bright);
+}
+
+.tree-row.tree-root .tree-mark {
+  background: color-mix(in srgb, var(--agent-hue) 20%, transparent);
+  color: var(--agent-hue);
+}
+
+.explorer-tree ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.solution-tab.all .solution-name {
+  color: inherit;
+}
+
+/* ---------------------------------------------------------------------------
+   The file picked in the Files pane, open for editing.
+
+   Build already has a Solution bar, a Files pane and an agent lane, so this is
+   the editor half on its own rather than the whole `CodeEditor` workspace with
+   its second explorer. See BuildFileEditor.tsx.
+   --------------------------------------------------------------------------- */
+
+.build-file {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.build-file-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.build-file-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  flex: none;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--agent-hue) 18%, transparent);
+  color: var(--agent-hue);
+  font-size: 0.62rem;
+  font-weight: 800;
+}
+
+.build-file-who {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.build-file-who strong {
+  font-size: 0.9rem;
+  color: var(--fg-bright);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.build-file-who .card-mono {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.68rem;
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.build-file-dirty {
+  flex: none;
+  padding: 0.1rem 0.4rem;
+  border-radius: 5px;
+  background: var(--warn-tint);
+  color: var(--warn);
+  font-size: 0.65rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+/* The models summary in Admin: what is actually usable, answerable at a glance
+   rather than by reading every row. */
+.model-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.6rem;
+  background: var(--sunken);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+}
+
+.model-tally strong {
+  color: var(--fg-bright);
+  font-variant-numeric: tabular-nums;
+}
+
+.model-tally.installed strong {
+  color: var(--ok);
+}
+
+.model-tally.failed strong {
+  color: var(--bad);
+}
+
+.model-summary-spacer {
+  flex: 1;
+  min-width: 0.5rem;
+}
+
+.model-filter {
+  flex: none;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
 }

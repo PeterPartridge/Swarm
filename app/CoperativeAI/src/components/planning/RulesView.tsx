@@ -34,15 +34,13 @@ export default function RulesView({ productId }: { productId: number }) {
 
       <div className="rules-body">
         <div className="rules-main">
-          {/* Architecture requirements leads: it is the standing direction the
-              other five fields are written under, so it is read first rather
-              than being the second of six equal boxes. */}
+          {/* Which field leads is marked on the field list itself, so this call
+              site does not carry a second copy of that decision. */}
           <StrategyEditor
             productId={productId}
             area="develop"
             title="Technical Strategy"
             fields={DEVELOP_STRATEGY_FIELDS}
-            lead="architecture"
           />
 
           {/* Read-only here — these are set in Admin. Two editors for one set
