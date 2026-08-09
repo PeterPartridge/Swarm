@@ -309,6 +309,10 @@ export default function AgentWorkspace({
         <button
           type="button"
           className={selected === "debug" ? "debug-button on" : "debug-button"}
+          // Named for what it opens, not just "Debug": the board it opens
+          // holds a Debug button per Solution, and two controls called the
+          // same thing is ambiguous to anyone reading by label.
+          aria-label="Open the Debug board"
           aria-pressed={selected === "debug"}
           onClick={() => {
             setDebugUsed(true);

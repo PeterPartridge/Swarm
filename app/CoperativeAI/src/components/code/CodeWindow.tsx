@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentType } from "react";
+import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
 import {
   askCodingPal,
   writeSolutionFile,
@@ -8,6 +8,28 @@ import {
 } from "../../lib/backend";
 
 const PAL_ACTIONS = Object.keys(PAL_ACTION_LABELS) as PalAction[];
+
+/** Only the slices of Monaco this file touches. Loose for the same reason as
+ *  `EditorComponent`: it is loaded at runtime and stubbed in tests. */
+interface MonacoEditor {
+  addCommand: (keybinding: number, handler: () => void) => void;
+  onDidChangeCursorSelection?: (cb: (ev: { selection: unknown }) => void) => void;
+  getModel?: () => { getValueInRange?: (range: unknown) => string } | null;
+  onMouseDown?: (cb: (ev: MonacoMouseEvent) => void) => void;
+  deltaDecorations?: (old: string[], next: unknown[]) => string[];
+  revealLineInCenterIfOutsideViewport?: (line: number) => void;
+}
+
+interface MonacoMouseEvent {
+  target: { type: number; position?: { lineNumber: number } };
+}
+
+interface MonacoNamespace {
+  KeyMod: { CtrlCmd: number };
+  KeyCode: { KeyS: number };
+  editor?: { MouseTargetType?: { GUTTER_GLYPH_MARGIN?: number } };
+  Range?: new (a: number, b: number, c: number, d: number) => unknown;
+}
 
 /** Loosely typed on purpose: the editor component is loaded dynamically and
  *  jsdom tests substitute a plain textarea for it. */
@@ -39,6 +61,9 @@ export default function CodeWindow({
   saved,
   onChange,
   onSaved,
+  breakpoints,
+  onToggleBreakpoint,
+  stoppedLine,
 }: {
   solutionId: number;
   path: string;
@@ -49,8 +74,23 @@ export default function CodeWindow({
   onChange: (next: string) => void;
   /** Called with the content that reached disk. */
   onSaved: (savedContent: string) => void;
+  /** Lines with a breakpoint on them, drawn in the gutter. */
+  breakpoints?: number[];
+  /** A click in the gutter. Absent, the gutter is not drawn at all — a margin
+   *  you can click that does nothing is worse than no margin. */
+  onToggleBreakpoint?: (line: number) => void;
+  /** The line the debugger is stopped on, when it is stopped in this file.
+   *  Scrolled to and highlighted, because "where am I?" is the first question
+   *  after a program stops and hunting for it is the whole friction. */
+  stoppedLine?: number | null;
 }) {
   const [Editor, setEditor] = useState<EditorComponent | null>(null);
+  /// The editor instance and its Monaco namespace, kept so the breakpoint
+  /// decorations can be redrawn when the set changes rather than only on mount.
+  const editorRef = useRef<MonacoEditor | null>(null);
+  const monacoRef = useRef<MonacoNamespace | null>(null);
+  const decorations = useRef<string[]>([]);
+  const stopMark = useRef<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [palAction, setPalAction] = useState<PalAction>("explain");
@@ -84,7 +124,7 @@ export default function CodeWindow({
         if (!cancelled) setError(`the editor could not load: ${String(e)}`);
       }
     })();
-    return () => {
+  return () => {
       cancelled = true;
     };
   }, []);
@@ -130,6 +170,58 @@ export default function CodeWindow({
     }
   }
 
+  /** Redraws the gutter dots from `breakpoints`.
+   *
+   *  `deltaDecorations` replaces the previous set rather than adding to it,
+   *  which is why the ids are kept — without them every redraw would leave the
+   *  old dots behind and the margin would fill up with stale breakpoints. */
+  const drawBreakpoints = useCallback(() => {
+    const e = editorRef.current;
+    const m = monacoRef.current;
+    if (!e?.deltaDecorations || !m?.Range) return;
+    const Range = m.Range;
+    const next = (breakpoints ?? []).map((line: number) => ({
+      range: new Range(line, 1, line, 1),
+      options: {
+        isWholeLine: false,
+        glyphMarginClassName: "breakpoint-dot",
+        glyphMarginHoverMessage: { value: `Breakpoint on line ${line}` },
+      },
+    }));
+    decorations.current = e.deltaDecorations(decorations.current, next);
+  }, [breakpoints]);
+
+  useEffect(() => {
+    drawBreakpoints();
+  }, [drawBreakpoints]);
+
+  /** The stopped line: a highlight, and a scroll to it if it is off screen.
+   *
+   *  Its own decoration set rather than sharing the breakpoints' — `deltaDecorations`
+   *  replaces whichever set you hand it, so one call would clear the other and
+   *  the dots would vanish every time the program stepped. */
+  useEffect(() => {
+    const e = editorRef.current;
+    const m = monacoRef.current;
+    if (!e?.deltaDecorations || !m?.Range) return;
+    const Range = m.Range;
+    const next =
+      stoppedLine == null
+        ? []
+        : [
+            {
+              range: new Range(stoppedLine, 1, stoppedLine, 1),
+              options: {
+                isWholeLine: true,
+                className: "stopped-line",
+                glyphMarginClassName: "stopped-arrow",
+              },
+            },
+          ];
+    stopMark.current = e.deltaDecorations(stopMark.current, next);
+    if (stoppedLine != null) e.revealLineInCenterIfOutsideViewport?.(stoppedLine);
+  }, [stoppedLine]);
+
   return (
     <div className="code-window">
       <div className="code-window-head">
@@ -157,27 +249,35 @@ export default function CodeWindow({
           value={value}
           onChange={(next) => onChange(next ?? "")}
           onMount={(editor, monaco) => {
-            const e = editor as {
-              addCommand: (keybinding: number, handler: () => void) => void;
-              onDidChangeCursorSelection?: (
-                cb: (ev: { selection: unknown }) => void,
-              ) => void;
-              getModel?: () => {
-                getValueInRange?: (range: unknown) => string;
-              } | null;
-            };
-            const m = monaco as {
-              KeyMod: { CtrlCmd: number };
-              KeyCode: { KeyS: number };
-            };
+            const e = editor as MonacoEditor;
+            const m = monaco as MonacoNamespace;
+            editorRef.current = e;
+            monacoRef.current = m;
             e.addCommand(m.KeyMod.CtrlCmd | m.KeyCode.KeyS, () => saveRef.current());
             e.onDidChangeCursorSelection?.((ev) => {
               setSelection(e.getModel?.()?.getValueInRange?.(ev.selection) ?? "");
             });
+            // A click in the glyph margin is the one gesture everybody already
+            // knows for a breakpoint, so it is the gesture.
+            if (onToggleBreakpoint) {
+              const gutter = m.editor?.MouseTargetType?.GUTTER_GLYPH_MARGIN;
+              e.onMouseDown?.((ev) => {
+                if (gutter === undefined || ev.target.type !== gutter) return;
+                const line = ev.target.position?.lineNumber;
+                if (line) onToggleBreakpoint(line);
+              });
+            }
+            drawBreakpoints();
           }}
           theme="vs"
           height="24rem"
-          options={{ minimap: { enabled: false }, fontSize: 13, scrollBeyondLastLine: false }}
+          options={{
+            minimap: { enabled: false },
+            fontSize: 13,
+            scrollBeyondLastLine: false,
+            // Only where a click would do something.
+            glyphMargin: !!onToggleBreakpoint || stoppedLine != null,
+          }}
           aria-label={`Editor for ${path}`}
         />
       ) : (

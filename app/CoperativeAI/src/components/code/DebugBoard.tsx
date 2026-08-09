@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
+import DebugAdapters from "./DebugAdapters";
+import DebugSession from "./DebugSession";
 import DevServerPanel from "./DevServerPanel";
 import TerminalPanel from "./TerminalPanel";
 import { guessDevPort } from "../../lib/devServer";
@@ -287,6 +289,11 @@ export default function DebugBoard({
                 </p>
               )}
 
+              {/* The debugger sits with the process it debugs: running
+                  something and stopping it mid-line are two questions about
+                  the same Solution. */}
+              {s.localPath && <DebugSession solution={s} />}
+
               {isAttached && s.localPath && (
                 <div className="process-body">
                   {/* The detected run command, typed into the shell below rather
@@ -317,11 +324,13 @@ export default function DebugBoard({
         })}
       </div>
 
+      {/* The debuggers, under the processes: running something and stopping it
+          mid-line are two different questions, and the first one works today. */}
+      <DebugAdapters />
+
       <p className="hint">
-        No breakpoints, call stack or variables: this app has no debug adapter,
-        and a breakpoint that silently did nothing would be worse than none. It
-        also reads no CPU or memory — what it knows is which shells it opened,
-        where, and for how long.
+        The process board reads no CPU or memory — what it knows is which shells
+        it opened, where, and for how long.
       </p>
     </section>
   );

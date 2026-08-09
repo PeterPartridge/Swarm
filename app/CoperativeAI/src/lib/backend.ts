@@ -1589,6 +1589,122 @@ export interface AttachedTerminal extends RunningTerminal {
   replay: string;
 }
 
+/* ── Debugging, over the Debug Adapter Protocol ─────────────────────────── */
+
+/** One language's debug adapter, and what this machine has to say about it.
+ *
+ *  `available` means a candidate was found **and ran** — being on PATH proves
+ *  nothing, which this project has paid for more than once. */
+export interface AdapterStatus {
+  language: "typescript" | "python" | "go" | "csharp";
+  label: string;
+  adapter: string;
+  transport: "stdio" | "tcp";
+  available: boolean;
+  /** What will be run, for a person to read. */
+  program: string;
+  /** What will be run, as argv. `{port}` is filled in for TCP adapters. */
+  argv: string[];
+  version: string;
+  /** Why it is unavailable, in words somebody can act on. */
+  problem: string;
+  /** What to run to get it — always populated, available or not. */
+  install: string;
+}
+
+/** What actually starting an adapter and talking to it proved. */
+export interface AdapterCheck {
+  language: string;
+  /** True only when it started **and** answered `initialize`. */
+  speaksDap: boolean;
+  configurationDone: boolean;
+  conditionalBreakpoints: boolean;
+  functionBreakpoints: boolean;
+  problem: string;
+  /** Everything the adapter said about itself, verbatim. */
+  reported: string;
+}
+
+/** Which languages this machine can debug. Each candidate is executed, not
+ *  merely found, so a Store stub or an npm shim reports as missing. */
+export const debugAdapters = (): Promise<AdapterStatus[]> => invoke("debug_adapters");
+/** Starts one adapter and completes the DAP handshake with it — proof rather
+ *  than inference from a filename. */
+export const debugCheck = (language: string): Promise<AdapterCheck> =>
+  invoke("debug_check", { language });
+
+/** A line to stop on. */
+export interface Breakpoint {
+  /** Absolute, because that is what an adapter matches against. */
+  path: string;
+  line: number;
+}
+
+/** Where a stopped program is, innermost frame first. */
+export interface Frame {
+  id: number;
+  name: string;
+  /** Empty for a frame with no source — runtime internals are real frames. */
+  path: string;
+  line: number;
+  column: number;
+}
+
+/** One name and value in scope. */
+export interface DebugVariable {
+  name: string;
+  value: string;
+  kind: string;
+  /** Non-zero when it can be expanded. */
+  children: number;
+}
+
+export interface StartedDebug {
+  session: string;
+  language: string;
+  /** Where each breakpoint actually landed. An adapter slides one to the next
+   *  executable line, and showing the requested line would be a lie about where
+   *  the program will stop. */
+  breakpoints: {
+    path: string;
+    requested: number;
+    line: number | null;
+    verified: boolean;
+    message: string;
+  }[];
+}
+
+/** Starts a program under its debugger with breakpoints already set.
+ *
+ *  Go works today; the other three adapters are found and speak DAP but their
+ *  launch shapes are still to do, and this says so rather than starting
+ *  something that never stops. */
+export const debugStart = (
+  language: string,
+  program: string,
+  breakpoints: Breakpoint[],
+): Promise<StartedDebug> =>
+  invoke("debug_start", { language, program, breakpoints });
+/** Replaces a running session's breakpoints. */
+export const debugSetBreakpoints = (
+  session: string,
+  breakpoints: Breakpoint[],
+): Promise<unknown[]> => invoke("debug_set_breakpoints", { session, breakpoints });
+/** `continue` | `over` | `in` | `out`. */
+export const debugResume = (
+  session: string,
+  how: "continue" | "over" | "in" | "out",
+  threadId: number,
+): Promise<void> => invoke("debug_resume", { session, how, threadId });
+export const debugStack = (session: string, threadId: number): Promise<Frame[]> =>
+  invoke("debug_stack", { session, threadId });
+export const debugVariables = (
+  session: string,
+  frameId: number,
+): Promise<DebugVariable[]> => invoke("debug_variables", { session, frameId });
+export const debugStop = (session: string): Promise<void> =>
+  invoke("debug_stop", { session });
+
 /** Every shell still running. Ones that ended on their own are dropped on the
  *  way past, so this is what is live rather than what was ever started. */
 export const listTerminals = (): Promise<RunningTerminal[]> =>

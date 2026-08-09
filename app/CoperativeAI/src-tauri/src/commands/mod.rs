@@ -5,6 +5,7 @@ pub mod ai_settings;
 pub mod architecture;
 pub mod budgets;
 pub mod capacity;
+pub mod debugging;
 pub mod deliverables;
 pub mod design;
 pub mod emit;

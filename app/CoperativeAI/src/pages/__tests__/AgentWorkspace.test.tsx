@@ -543,7 +543,7 @@ describe("AgentWorkspace (the Build view)", () => {
     render(panel());
     await screen.findByText("the code editor");
 
-    await user.click(screen.getByRole("button", { name: /Debug/ }));
+    await user.click(screen.getByLabelText("Open the Debug board"));
     const board = await screen.findByRole("region", { name: "Debug" });
     expect(within(board).getByRole("region", { name: "Process for Shop API" })).toBeInTheDocument();
     // Debug takes the width: the tree and the ship rail belong to one agent.
@@ -551,7 +551,7 @@ describe("AgentWorkspace (the Build view)", () => {
     expect(screen.queryByRole("complementary", { name: /Review and ship/ })).not.toBeInTheDocument();
 
     // Pressing it again comes back rather than stranding you in Debug.
-    await user.click(screen.getByRole("button", { name: /Debug/ }));
+    await user.click(screen.getByLabelText("Open the Debug board"));
     expect(await screen.findByText("the code editor")).toBeInTheDocument();
   });
 

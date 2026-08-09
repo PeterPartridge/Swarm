@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import CodeWindow from "./CodeWindow";
 import { hueFor, markFor } from "../ai/AgentLane";
+import {
+  linesIn,
+  loadBreakpoints,
+  toggleBreakpoint,
+  type BreakpointStore,
+} from "../../lib/breakpoints";
 import { readSolutionFile, type Solution } from "../../lib/backend";
 
 /** The file picked in the Files pane, open for editing.
@@ -28,6 +34,8 @@ export default function BuildFileEditor({
   const [value, setValue] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /// Breakpoints live on this machine, not in the database — see lib/breakpoints.
+  const [marks, setMarks] = useState<BreakpointStore>(() => loadBreakpoints());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -85,6 +93,10 @@ export default function BuildFileEditor({
           saved={saved}
           onChange={setValue}
           onSaved={(contents) => setSaved(contents)}
+          breakpoints={linesIn(marks, solution.id, path)}
+          onToggleBreakpoint={(line) =>
+            setMarks((prev) => toggleBreakpoint(prev, solution.id, path, line))
+          }
         />
       )}
     </section>

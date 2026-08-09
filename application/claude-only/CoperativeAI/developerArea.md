@@ -34,6 +34,109 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 21 — The stepping UI: stop, look, step
+
+### My Feedback
+
+**`DebugSession` sits inside the process card** for the Solution it debugs. Running something and stopping it mid-line are two questions about the same repository, and separating them would mean two places to find one program.
+
+**Everything hangs off `stopped`.** The event names a thread → the thread gives a stack → the innermost frame gives the variables. Nothing polls: an adapter says when it has stopped and says nothing in between, so asking repeatedly would only be a way to be wrong between answers.
+
+**Continue / over / into / out, and only while stopped.** A step control on a running program has nothing to step, so it is disabled rather than sending a request the adapter would refuse.
+
+**Sync breakpoints** pushes the gutter's current set into the live session. A breakpoint set mid-run that only took effect on the next run would be worse than one that did nothing at all, because you would believe it.
+
+**Which language a Solution debugs as is a guess, and says so.** `Solution.language` is explicitly "a record of what it was begun as, not a claim about what it is now", so `debugLanguageOf` reads it and the panel names the language it is offering. Only Go's launch is built, so the button is disabled for the rest with the reason beside it.
+
+### Your Feedback
+
+- **The event listener reads the session id from a ref, not from the closure.** Registered once, it would otherwise capture the id from the render that created it and stop recognising its own session the moment a second one started. There is a test that a second session's events are ignored.
+- **A frame with no source is still a frame.** Runtime internals get "no source" rather than being filtered out — a stack that hides them lies about how the program got there.
+- **Variables report `has fields` rather than a caret.** Children are counted by the adapter but expansion is not built, and a disclosure triangle that does nothing is the failure this whole sequence has been avoiding.
+- **Leaving the panel ends the session.** A debugger and the program under it are two real processes; unlike Debug's shells, nobody asked for these to outlive the pane.
+- **The Solution bar's Debug chip had to be renamed.** The board it opens now holds a "Debug <solution>" button per card, and two controls reading as "Debug" is ambiguous by label — it is "Open the Debug board" now.
+- **The `act()` warnings were fixed rather than tolerated.** Adapter events are state updates from outside React; wrapping them keeps the run clean so a real warning is visible later.
+
+### Technical Debt
+
+- **js-debug, debugpy and netcoredbg still have no launch shape** — js-debug's server/child lifecycle is the substantial one.
+- **Variables do not expand**, so a struct, slice or map shows as its summary only.
+- **One thread only.** `stopped` names a thread and the stack is fetched for it; two threads stopping at once is not modelled.
+- **The editor does not sync breakpoints by itself** — the panel has a button, but toggling a dot mid-session does not push on its own.
+- **No conditional or hit-count breakpoints**, though the capabilities are read.
+- **The stop is not shown in the editor.** The stack names the file and line; nothing highlights it in the open buffer or opens the file if it is not showing.
+- **No test drives the real UI against a real adapter** — the panel is tested against emitted events, and Delve is tested from Rust; nothing joins the two.
+
+## Round 20 — A breakpoint that really stops a Go program
+
+### My Feedback
+
+**`debug/live.rs` replaces the handshake shape with a real one.** Round 19's `Session` sends one thing and waits for its answer; a running session cannot work that way, because the interesting half is **unsolicited** — `stopped` when a breakpoint hits, `output` whenever the program prints, `terminated` when it ends. So: one reader thread, a map of outstanding requests keyed by `seq`, and a sink for everything that is not a reply.
+
+**The launch sequence is the protocol's, not a preference**, and getting it wrong is the classic way a debugger appears to work and never stops anywhere:
+
+1. `initialize` → capabilities back, then an `initialized` **event** when it is ready for configuration.
+2. `launch` — **sent, not awaited**; several adapters do not answer it until configuration is done, so waiting in place deadlocks.
+3. On `initialized`: `setBreakpoints` per file, then `configurationDone`.
+
+Breakpoints set before `initialized` are dropped on the floor by most adapters, silently.
+
+**Proved end to end.** The integration test writes a small Go program, sets a breakpoint on `total := subtotal + tax`, and asserts the program stopped on that line with `subtotal == 11810` and `tax == 1185` read out of the live process. Nothing weaker proves it: a debugger that never stops looks identical to one nobody asked to.
+
+**In the editor, the gutter.** A click in Monaco's glyph margin toggles a breakpoint, drawn as the dot everybody already recognises. Stored per machine in localStorage by the same rule as the map's layout — a breakpoint is one person's way of looking at shared code.
+
+### Your Feedback
+
+- **I wrote a deadlock and it cost a ten-minute hang.** `send()` took the writer's mutex and then took it again inside `and_then` to flush — a non-reentrant mutex against itself. Delve started, nothing was ever sent, and it presented exactly as "the adapter will not answer". One guard, taken once, and a comment saying why. The stale test binary then held the linker's output file, which is the second thing to kill when a hung integration test blocks a rebuild.
+- **`setBreakpoints` replaces a file's whole set**, so the store deletes a file's entry when its last line goes rather than leaving `[]`. "This file, with none" and "this file, unmentioned" are different messages to an adapter, and only the first clears it. It has its own test.
+- **Absolute paths, always.** An adapter matches against what the compiler recorded. A repository-relative path matches nothing and the program runs straight past — no error, just silence.
+- **Breakpoints are reported back where they landed.** An adapter slides one to the next executable line; showing the requested line instead would be a lie about where the program will stop.
+- **Go launches, the other three do not.** They are found and they speak DAP — that was round 19 — but a launch shape is per adapter, and js-debug's especially: it is a *server* that spawns a child adapter per session, which is a different lifecycle rather than different arguments. `launch_arguments` says so by name rather than starting something that never stops.
+
+### Technical Debt
+
+- **js-debug, debugpy and netcoredbg have no launch shape.** js-debug needs its server/child lifecycle; the other two need their argument sets.
+- **No stepping UI.** The commands exist and are tested from Rust; nothing in the window drives them yet, so the gutter records intent that only a `debug_start` would act on.
+- **Breakpoints are not sent to a running session on change** — `debug_set_breakpoints` exists, the editor does not call it.
+- **`variables` does not expand.** Children are counted and reported but a struct cannot be opened.
+- **Only one thread is handled.** `stopped` names a thread and the stack is fetched for it; a program stopping on two threads at once is not modelled.
+- **No conditional or function breakpoints**, though the capabilities are read.
+- **The Go integration test needs Delve and a Go toolchain**, so it is `#[ignore]`d and CI does not run it. The wire, discovery and breakpoint-store tests do run.
+
+## Round 19 — DAP: the wire, the search, and a real handshake with Delve
+
+### My Feedback
+
+**Three pieces, all landed and tested.**
+
+`debug/wire.rs` — the envelope, and nothing else. `Content-Length` framing, **counted in bytes**: a body containing `C:/répertoire/naïve.ts` has a byte length larger than its character count, and a decoder that counts characters takes the wrong number of bytes and then every message after it is misaligned. That is a permanent desynchronisation from one accent, and it has its own test. Decoding is written as "take one whole message out of a buffer if there is one", because a read is not a message: pipes hand over half a message, or three.
+
+`debug/adapters.rs` — four languages, found by **running** each candidate. On this machine `python.exe` is on PATH and prints "Python was not found" — it is the Store alias stub. PATH would have called Python available and the first breakpoint would have been the discovery. Extensions are tried before the bare name for the npm shell-script-vs-`.exe` reason this repo has hit before.
+
+`debug/session.rs` — starting an adapter over **either transport** (Delve and js-debug listen on a port; debugpy and netcoredbg use stdio) and completing `initialize`.
+
+**Verified against a real debugger.** Delve 1.25.2 is genuinely installed here, and the ignored-by-default test starts it, handshakes, and asserts `configurationDone`. That is the whole foundation proved against something not written here.
+
+**netcoredbg, not vsdbg**, for C#. vsdbg is the better debugger and its licence permits use only from Visual Studio and VS Code, so driving it from this app would be a breach.
+
+### Your Feedback
+
+- **Breakpoints are not built, and the gutter stays unclickable.** You asked for DAP knowing it was a round of its own; this is the round that makes the next one plumbing rather than new ground. Shipping a gutter now would have been the exact failure the last five rounds avoided.
+- **`debug_check` exists because finding is not proving.** A binary that runs is not necessarily one that speaks the protocol — the button starts the adapter and completes a handshake, so "this machine can debug Go" is demonstrated rather than inferred.
+- **`argv` is separate from `program`.** My first cut had one display string and the Delve test split it back apart — which failed immediately, on a path with no spaces in it, exactly as it would have failed later on one with spaces. The struct carries both now: one to read, one to run.
+- **Clippy's dead-code gate did real work.** It rejected `PROBE_TIMEOUT` (premature), `LANGUAGES` (existed only for its own test) and `Capabilities.raw`. The first two went; the third is surfaced to the UI instead, because what an adapter says about itself is the answer to "why will it not do X?" long before this app models the flag.
+- **On this machine, only Go is ready.** Node is here but js-debug is not; there is no runnable Python; dotnet is here but netcoredbg is not. The panel says so per language with the install command, which is the honest state rather than an empty list.
+
+### Technical Debt
+
+- **No launch, breakpoints, stepping, stack or variables.** Next round: `setBreakpoints`, `launch`/`attach`, `configurationDone`, then `stopped` events and `stackTrace`/`scopes`/`variables`.
+- **`wait_for_response` discards events**, which is right for a handshake and wrong the moment a session runs — it becomes a queue.
+- **The session is synchronous and blocking**, on a spawned thread per call. Real sessions need one reader thread and a channel, like the terminals have.
+- **`free_port` is racy in principle** — bound, released, then handed to the adapter.
+- **js-debug's launch shape is unimplemented.** It is a *server* that spawns per-session children, so it needs more than the single-session model here.
+- **Nothing is cached.** Every `debug_adapters` call re-probes, which is several child processes.
+- **The ignored Delve test does not run in CI**, which has no Go toolchain; the wire and discovery tests do.
+
 ## Round 18 — The process registry, one Files pane, and what Admin can now answer
 
 ### My Feedback

@@ -7258,3 +7258,283 @@ button.ready-action.link:hover {
   font-size: 0.75rem;
   font-weight: 700;
 }
+
+/* The debuggers panel: one adapter per language, and whether it is really here.
+   See DebugAdapters.tsx — "available" means it ran, not that a file exists. */
+.debug-adapters {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--line-soft);
+}
+
+.adapter-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.adapter {
+  padding: 0.55rem 0.6rem;
+  background: var(--raised);
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+}
+
+.adapter.on {
+  border-color: color-mix(in srgb, var(--ok) 35%, transparent);
+}
+
+.adapter-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.adapter-head strong {
+  color: var(--fg-bright);
+}
+
+.adapter-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  flex: none;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--fg) 20%, transparent);
+}
+
+.adapter-dot.on {
+  background: var(--ok);
+}
+
+.adapter-name,
+.adapter-transport,
+.adapter-version {
+  font-size: 0.68rem;
+  color: var(--fg-dim);
+}
+
+.adapter-transport {
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.adapter-program,
+.adapter-install {
+  margin: 0.35rem 0 0;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.7rem;
+  color: var(--fg-muted);
+  word-break: break-all;
+}
+
+.adapter-install {
+  padding: 0.3rem 0.4rem;
+  background: var(--sunken);
+  border-radius: 5px;
+  color: var(--fg);
+}
+
+.adapter-result {
+  margin: 0.4rem 0 0;
+  font-size: 0.75rem;
+}
+
+.adapter-result.ok {
+  color: var(--ok);
+}
+
+.adapter-result.bad {
+  color: var(--bad);
+}
+
+/* A breakpoint in the editor's glyph margin. The dot everybody already knows,
+   so the gesture needs no explaining — see CodeWindow's onMouseDown. */
+.breakpoint-dot::after {
+  content: "";
+  display: block;
+  width: 0.6rem;
+  height: 0.6rem;
+  margin: 0.28rem 0 0 0.25rem;
+  border-radius: 50%;
+  background: var(--bad);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--bad) 60%, transparent);
+}
+
+/* ---------------------------------------------------------------------------
+   A debug session: stop, look, step.
+
+   Sits inside the process card for the Solution it debugs — running something
+   and stopping it mid-line are two questions about the same repository.
+   --------------------------------------------------------------------------- */
+
+.debug-session {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--line-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.session-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.session-head strong {
+  font-size: 0.8rem;
+  color: var(--fg-bright);
+}
+
+.session-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  flex: none;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--fg) 20%, transparent);
+}
+
+.session-dot.running {
+  background: var(--ok);
+}
+
+/* Amber, not green: stopped is the state you are meant to act on. */
+.session-dot.stopped {
+  background: var(--warn);
+}
+
+.session-dot.ended {
+  background: var(--bad);
+}
+
+.session-state {
+  font-size: 0.7rem;
+  color: var(--fg-muted);
+}
+
+.session-controls {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.session-controls button {
+  font-size: 0.72rem;
+  padding: 0.2rem 0.5rem;
+}
+
+.session-panes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.6rem;
+}
+
+@media (max-width: 62rem) {
+  .session-panes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.session-stack ul,
+.session-vars ul {
+  margin: 0.3rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  max-height: 12rem;
+  overflow-y: auto;
+}
+
+.session-stack .frame {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.2rem 0.35rem;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  color: var(--fg);
+  text-align: left;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.session-stack .frame:hover {
+  background: var(--hover);
+}
+
+.session-stack .frame.on {
+  background: var(--info-tint);
+  color: var(--fg-bright);
+}
+
+.frame-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.frame-at {
+  flex: none;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.65rem;
+  color: var(--fg-dim);
+}
+
+.session-vars li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.2rem 0.35rem;
+  font-size: 0.72rem;
+}
+
+.var-name {
+  flex: none;
+  color: #9cdcfe;
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.var-value {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, Consolas, monospace;
+  color: var(--fg-bright);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.var-kind,
+.var-more {
+  flex: none;
+  font-size: 0.62rem;
+  color: var(--fg-dim);
+}
+
+.session-output {
+  max-height: 12rem;
+  margin: 0;
+  padding: 0.4rem 0.5rem;
+  overflow: auto;
+  background: var(--sunken);
+  border-radius: 6px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.7rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

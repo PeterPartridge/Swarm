@@ -21,6 +21,9 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     listTerminals: vi.fn(),
     attachTerminal: vi.fn(),
     resizeTerminal: vi.fn(),
+    // The debuggers panel searches for adapters on mount.
+    debugAdapters: vi.fn(),
+    debugCheck: vi.fn(),
   };
 });
 
@@ -53,6 +56,7 @@ describe("DebugBoard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocked.listTerminals.mockResolvedValue([]);
+    mocked.debugAdapters.mockResolvedValue([]);
     mocked.suggestDevCommand.mockResolvedValue({
       kind: "npm",
       start: "npm run dev",
@@ -110,27 +114,83 @@ describe("DebugBoard", () => {
     expect(screen.getByText("0 of 0 running")).toBeInTheDocument();
   });
 
-  /// **The honesty rule, in Debug.** The design drew a debugger — step buttons,
-  /// a call stack, editable variables, breakpoints, per-run env overrides — and
-  /// CPU and memory per process. This app has no debug adapter and does not read
-  /// the process table, so none of it is drawn and the panel says so.
-  it("draws no debugger it cannot back, and says what it does know", () => {
+  /// **The honesty rule, in Debug — now that there really is an adapter layer.**
+  /// The protocol client and the adapter search are built; stepping is not. So
+  /// the stepping controls stay away rather than appearing ahead of the thing
+  /// that would make them work, and the panel says as much.
+  it("offers no stepping controls until they can be honoured, and says so", () => {
     render(<DebugBoard solutions={[sol(1, "Web")]} />);
 
     const board = screen.getByRole("region", { name: "Debug" });
-    // It says what it cannot do, in the panel rather than in a comment.
-    expect(board).toHaveTextContent(/no debug adapter/);
+    expect(board).toHaveTextContent(/stays unclickable until/);
     expect(board).toHaveTextContent(/reads no CPU or memory/);
 
-    // And there is no control that would imply otherwise. Asserting on the
-    // controls rather than the words, because the disclaimer has to be free to
-    // name the things it is disclaiming.
+    // Asserting on the controls rather than the words, because the panel has to
+    // be free to name the things it is disclaiming.
     for (const control of [/step/i, /continue/i, /pause/i, /breakpoint/i]) {
       expect(within(board).queryByRole("button", { name: control })).not.toBeInTheDocument();
     }
     // No invented process figures.
     expect(board.textContent).not.toMatch(/\d+\s*% cpu/i);
     expect(board.textContent).not.toMatch(/\d+\s*MB/);
+  });
+
+  /// An adapter that is missing has to say why **and** how to get it — "not
+  /// available" alone sends somebody hunting through their own PATH.
+  it("names a missing debugger's problem and the command that installs it", async () => {
+    mocked.debugAdapters.mockResolvedValue([
+      {
+        language: "go", label: "Go", adapter: "Delve", transport: "tcp",
+        available: true, program: "C:/go/bin/dlv.exe dap", argv: [], version: "Delve 1.25.2",
+        problem: "", install: "go install github.com/go-delve/delve/cmd/dlv@latest",
+      },
+      {
+        language: "python", label: "Python", adapter: "debugpy", transport: "stdio",
+        available: false, program: "", argv: [], version: "",
+        problem: "the `python` on PATH is often the Microsoft Store stub, which cannot run.",
+        install: "pip install debugpy",
+      },
+    ]);
+    render(<DebugBoard solutions={[sol(1, "Web")]} />);
+
+    const panel = await screen.findByRole("region", { name: "Debuggers" });
+    expect(await within(panel).findByText("1 of 2 installed")).toBeInTheDocument();
+    expect(panel).toHaveTextContent(/Microsoft Store stub/);
+    expect(panel).toHaveTextContent("pip install debugpy");
+    // Checking means talking to it, so it is offered only where there is
+    // something to talk to.
+    expect(within(panel).getByLabelText("Check the Go debugger")).toBeEnabled();
+    expect(within(panel).getByLabelText("Check the Python debugger")).toBeDisabled();
+  });
+
+  /// Finding a binary that runs is not the same as finding one that speaks the
+  /// protocol, and the breakpoint UI will rest on the second claim.
+  it("proves an adapter speaks DAP rather than inferring it from a filename", async () => {
+    const user = userEvent.setup();
+    mocked.debugAdapters.mockResolvedValue([
+      {
+        language: "go", label: "Go", adapter: "Delve", transport: "tcp",
+        available: true, program: "dlv dap", argv: ["dlv", "dap"], version: "Delve 1.25.2",
+        problem: "", install: "go install …",
+      },
+    ]);
+    mocked.debugCheck.mockResolvedValue({
+      language: "go",
+      speaksDap: true,
+      configurationDone: true,
+      conditionalBreakpoints: true,
+      functionBreakpoints: true,
+      problem: "",
+      reported: "{}",
+    });
+    render(<DebugBoard solutions={[sol(1, "Web")]} />);
+
+    const panel = await screen.findByRole("region", { name: "Debuggers" });
+    await user.click(within(panel).getByLabelText("Check the Go debugger"));
+
+    expect(mocked.debugCheck).toHaveBeenCalledWith("go");
+    expect(await within(panel).findByText(/Speaks DAP/)).toBeInTheDocument();
+    expect(panel).toHaveTextContent(/can carry conditions/);
   });
 
   /// The port is a guess from the run command, and is labelled as one — a URL

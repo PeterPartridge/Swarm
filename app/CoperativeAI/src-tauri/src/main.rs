@@ -9,6 +9,7 @@ mod agent;
 mod ai;
 mod commands;
 mod db;
+mod debug;
 mod design;
 mod files;
 mod git;
@@ -42,6 +43,7 @@ fn main() {
             });
             app.manage(commands::AppDb(tokio::sync::Mutex::new(conn)));
             app.manage(commands::terminals::Terminals::default());
+            app.manage(commands::debugging::DebugSessions::default());
             // The queue is sized once, from the setting, and any job left
             // "running" by a previous launch is failed here: a process that is
             // gone is not still working, and the row would block its work item
@@ -229,6 +231,14 @@ fn main() {
             commands::terminals::close_terminal,
             commands::terminals::list_terminals,
             commands::terminals::attach_terminal,
+            commands::debugging::debug_adapters,
+            commands::debugging::debug_check,
+            commands::debugging::debug_start,
+            commands::debugging::debug_set_breakpoints,
+            commands::debugging::debug_resume,
+            commands::debugging::debug_stack,
+            commands::debugging::debug_variables,
+            commands::debugging::debug_stop,
             commands::workspace::file_properties,
             commands::ai_settings::list_ai_providers,
             commands::ai_settings::add_ai_provider,
