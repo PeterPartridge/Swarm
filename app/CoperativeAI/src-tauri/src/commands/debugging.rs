@@ -148,7 +148,7 @@ pub async fn debug_check(language: String) -> Result<AdapterCheck, String> {
 
 /* ── Live sessions: breakpoints, stepping, stack and variables ───────────── */
 
-use crate::debug::live::{Breakpoint, Frame, Live, Variable};
+use crate::debug::live::{Breakpoint, Frame, Live, Thread, Variable};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, State};
@@ -401,6 +401,25 @@ pub async fn debug_expand(
         return Err("that debug session has ended".into());
     };
     live.expand(reference)
+}
+
+/// Every thread the program has.
+///
+/// Read at each stop rather than kept: threads come and go, and DAP's `thread`
+/// events are advisory — an adapter need not send one for every start and exit.
+#[tauri::command]
+pub async fn debug_threads(
+    sessions: State<'_, DebugSessions>,
+    session: String,
+) -> Result<Vec<Thread>, String> {
+    let held = sessions
+        .0
+        .lock()
+        .map_err(|_| "the debug sessions are in a bad state".to_string())?;
+    let Some(live) = held.get(&session) else {
+        return Err("that debug session has ended".into());
+    };
+    live.threads()
 }
 
 /// Runs one frame again from its first line.

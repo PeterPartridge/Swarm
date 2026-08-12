@@ -34,6 +34,41 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 31 — every thread, not just the one that stopped
+
+### My Feedback
+
+**The case this exists for is deadlock**, and it is the reason this was the largest remaining gap. The thread that stops is rarely the one holding the lock, so a debugger that only ever showed the stopped thread could not show you the problem at all — the interesting stack belongs to somebody else.
+
+**Verified against Delve, deliberately not racily.** A Go program starts three goroutines that signal a `WaitGroup` *before* parking on a channel nothing sends to, and `main` waits on that group. So by the time the breakpoint is reached all three exist, rather than the test depending on whether the scheduler got round to them. Delve listed them, and — the assertion that matters — **a thread that was not the one that stopped still had frames of its own**.
+
+**"Thread" is the protocol's word, not the runtime's.** Delve reports Go goroutines here, js-debug reports one per execution context, netcoredbg reports real OS threads. All three are the thing you can ask for a stack, so all three go under the protocol's name rather than a translated one that would be wrong for two of them.
+
+**Stepping now acts on the selected thread — and this time it really does.** Last round's finding was that a step cannot be pointed at a frame, because `next`, `stepIn` and `stepOut` carry a `threadId` and nothing else. That same fact is what makes this legitimate: a thread is exactly what a step *can* be aimed at. Pick a thread, step it, and the request goes to that thread.
+
+**The list is read at every stop, never kept.** Threads come and go while a program runs, and DAP's `thread` events are advisory — an adapter is not obliged to send one for every start and exit. A list carried over from the last stop would be offering threads that have since ended.
+
+### Your Feedback
+
+- **No picker for one thread.** A control with a single option cannot do anything, and the ordinary single-threaded case should not grow furniture.
+- **The list goes away while the program runs**, for the same reason it is re-read: it is a snapshot of a moment that has passed.
+- **"Stopped here" is marked separately from selection.** With every thread stopped, "which one is stopped" is not a useful question — "which one is *why*" is.
+- **A thread with no frames clears the pane** rather than leaving the previous thread's stack sitting under this one's name. It is a real answer: a thread that has not started, or has just finished.
+- **The threads wrap rather than scroll.** A Go program can have dozens of goroutines, and hiding them behind a scrollbar would put the interesting one out of sight — which is the exact failure this round is fixing.
+- **All thirteen real-adapter tests pass.**
+
+### Technical Debt
+
+- **Nothing is watched.** No expression box, so a value not in scope as a named local cannot be looked at. This is now the largest gap.
+- **The thread list has no filter.** Dozens of goroutines wrap into a wall; most are runtime internals, and there is no way to say "only mine".
+- **Nothing shows what a thread is waiting on.** Delve puts it in the name — `goroutine 17 [chan receive]` — but that is Delve being generous rather than something the app asks for, and the other two adapters say nothing of the sort.
+- **Restarting a frame does not undo what it did**, and only js-debug can do it at all.
+- **Nothing validates a condition, an interpolation or a hit count as it is typed.**
+- **Log output is not marked as coming from a log point.**
+- **The breakpoint strip is only for the open file**, and is three boxes wide.
+- **debugpy has no launch shape** and cannot be verified here — no real Python on this machine.
+- Carried: only one js-debug child; the root's provisional breakpoints reach the UI; `built_assembly` picks the newest build rather than a configured one; the Rust suite leaves scratch directories in `%TEMP%`.
+
 ## Round 30 — the frame you select, and the one that gets stepped
 
 ### My Feedback

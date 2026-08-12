@@ -9,7 +9,9 @@ import {
   debugStack,
   debugStart,
   debugStop,
+  debugThreads,
   debugVariables,
+  type DebugThread,
   type Frame,
   type DebugVariable,
   type Solution,
@@ -168,6 +170,11 @@ export default function DebugSession({
   const [state, setState] = useState<"idle" | "running" | "stopped" | "ended">("idle");
   const [reason, setReason] = useState("");
   const [threadId, setThreadId] = useState<number | null>(null);
+  /// Every thread, and which one the adapter stopped on. They are different
+  /// questions: the stopped one is where the breakpoint hit, the selected one
+  /// is what you are looking at and what a step will act on.
+  const [threads, setThreads] = useState<DebugThread[]>([]);
+  const [stoppedOn, setStoppedOn] = useState<number | null>(null);
   const [frames, setFrames] = useState<Frame[]>([]);
   const [frameId, setFrameId] = useState<number | null>(null);
   const [variables, setVariables] = useState<DebugVariable[]>([]);
@@ -218,6 +225,40 @@ export default function DebugSession({
     [],
   );
 
+  /// Shows one thread: its stack, its innermost frame, and that frame's
+  /// variables.
+  ///
+  /// Used both when the adapter stops and when somebody picks a different
+  /// thread, because they are the same thing — and the editor follows either
+  /// way, since with every thread stopped the program really is at that line
+  /// too.
+  const showThread = useCallback(
+    async (id: string, thread: number) => {
+      setThreadId(thread);
+      try {
+        const stack = await debugStack(id, thread);
+        setFrames(stack);
+        // The innermost frame is where it stopped, which is the one anybody
+        // wants first — and the one the editor should open.
+        if (stack[0]) {
+          await showFrame(id, stack[0].id);
+          stoppedRef.current?.({ session: id, threadId: thread, frame: stack[0] });
+        } else {
+          // A thread with no frames is a real answer — one that has not started
+          // or has just finished — and clearing is better than leaving the last
+          // thread's stack under this one's name.
+          setFrames([]);
+          setVariables([]);
+          setOpened({});
+        }
+        setError(null);
+      } catch (e) {
+        setError(String(e));
+      }
+    },
+    [showFrame],
+  );
+
   /// Opens a variable, or closes it again.
   ///
   /// Fetched once per opening rather than cached: the handle dies when the
@@ -262,26 +303,28 @@ export default function DebugSession({
         const thread = Number(body?.threadId ?? 0);
         setState("stopped");
         setReason(String(body?.reason ?? "stopped"));
-        setThreadId(thread);
+        setStoppedOn(thread);
         void (async () => {
+          // Asked for at every stop rather than once: threads come and go while
+          // a program runs, and a list from the last stop would be showing
+          // threads that have since ended.
           try {
-            const stack = await debugStack(from, thread);
-            setFrames(stack);
-            // The innermost frame is where it stopped, which is the one
-            // anybody wants first — and the one the editor should open.
-            if (stack[0]) {
-              await showFrame(from, stack[0].id);
-              stoppedRef.current?.({ session: from, threadId: thread, frame: stack[0] });
-            }
+            setThreads(await debugThreads(from));
           } catch (e) {
             setError(String(e));
           }
+          await showThread(from, thread);
         })();
       } else if (event === "continued") {
         setState("running");
         setFrames([]);
         setVariables([]);
         setOpened({});
+        // The list goes too: while the program runs it is a snapshot of a
+        // moment that has passed, and a picker offering threads that may have
+        // ended is worse than none.
+        setThreads([]);
+        setStoppedOn(null);
         resumedRef.current?.();
       } else if (event === "output") {
         const text = String(body?.output ?? "");
@@ -293,6 +336,8 @@ export default function DebugSession({
         setFrames([]);
         setVariables([]);
         setOpened({});
+        setThreads([]);
+        setStoppedOn(null);
         resumedRef.current?.();
       } else if (event === "dap-broken") {
         setState("ended");
@@ -302,7 +347,7 @@ export default function DebugSession({
     return () => {
       void unlisten.then((off) => off());
     };
-  }, [showFrame]);
+  }, [showThread]);
 
   // A session is a real process. Leaving the panel ends it rather than leaking
   // a debugger and the program under it.
@@ -390,6 +435,12 @@ export default function DebugSession({
     }
   }
 
+  /// Continue, or one of the three steps.
+  ///
+  /// **Acts on the selected thread**, not on the one that stopped. Unlike a
+  /// frame, a thread is something DAP's step requests can be pointed at — they
+  /// carry a `threadId` — so picking a thread and stepping it is a real
+  /// operation rather than a UI that only looks like one.
   async function resume(how: "continue" | "over" | "in" | "out") {
     if (!session || threadId === null) return;
     setState("running");
@@ -523,6 +574,34 @@ export default function DebugSession({
               </button>
             ))}
           </div>
+
+          {/* **Why this is a list and not a line.** The thread that stopped is
+              rarely the one holding the lock, so a debugger that only ever
+              showed the stopped thread could not show a deadlock at all. Only
+              drawn when there is more than one: a single-threaded program has
+              nothing to pick between. */}
+          {stopped && threads.length > 1 && (
+            <div className="session-threads" role="group" aria-label="Threads">
+              <span className="palette-label">Threads</span>
+              <div className="thread-row">
+                {threads.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    className={threadId === t.id ? "thread on" : "thread"}
+                    aria-pressed={threadId === t.id}
+                    aria-label={`Thread ${t.name}`}
+                    onClick={() => session && showThread(session, t.id)}
+                  >
+                    {t.name}
+                    {/* Which one the breakpoint actually hit. Everything else
+                        is stopped too, but only one of them is why. */}
+                    {t.id === stoppedOn && <em className="thread-here">stopped here</em>}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {stopped && (
             <div className="session-panes">

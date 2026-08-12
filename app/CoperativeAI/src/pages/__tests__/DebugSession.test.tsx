@@ -15,6 +15,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     debugVariables: vi.fn(),
     debugExpand: vi.fn(),
     debugRestartFrame: vi.fn(),
+    debugThreads: vi.fn(),
     debugSetBreakpoints: vi.fn(),
   };
 });
@@ -82,6 +83,9 @@ describe("DebugSession", () => {
     });
     mocked.debugStop.mockResolvedValue();
     mocked.debugResume.mockResolvedValue();
+    // One thread unless a test says otherwise — the ordinary case, and the one
+    // where the picker stays out of the way.
+    mocked.debugThreads.mockResolvedValue([{ id: 1, name: "main" }]);
   });
 
   /// A launch shape that is not built must not be offered as a button that
@@ -250,6 +254,144 @@ describe("DebugSession", () => {
     await user.click(within(panel).getByLabelText("Open order"));
 
     expect(await within(panel).findByText(/that debug session has ended/)).toBeInTheDocument();
+  });
+
+  /// **The case this exists for is deadlock.** The thread that stopped is
+  /// rarely the one holding the lock, so a debugger that only ever showed the
+  /// stopped thread could not show you the problem at all.
+  it("lists every thread and marks the one that stopped", async () => {
+    const user = userEvent.setup();
+    mocked.debugThreads.mockResolvedValue([
+      { id: 1, name: "main" },
+      { id: 17, name: "goroutine 17 [chan receive]" },
+    ]);
+    mocked.debugStack.mockResolvedValue([
+      { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 21, column: 2, canRestart: true },
+    ]);
+    mocked.debugVariables.mockResolvedValue([]);
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+
+    const threads = await screen.findByRole("group", { name: "Threads" });
+    expect(within(threads).getByLabelText("Thread main")).toBeInTheDocument();
+    // Everything is stopped, but only one of them is why.
+    expect(within(threads).getByLabelText("Thread main")).toHaveTextContent("stopped here");
+    expect(
+      within(threads).getByLabelText("Thread goroutine 17 [chan receive]"),
+    ).not.toHaveTextContent("stopped here");
+  });
+
+  /// **The whole point: somebody else's stack.** In a deadlock the interesting
+  /// frames belong to a thread the breakpoint never touched.
+  it("shows another thread's stack when one is picked", async () => {
+    const user = userEvent.setup();
+    mocked.debugThreads.mockResolvedValue([
+      { id: 1, name: "main" },
+      { id: 17, name: "waiter" },
+    ]);
+    mocked.debugStack.mockImplementation(async (_s: string, thread: number) =>
+      thread === 1
+        ? [{ id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 21, column: 2, canRestart: true }]
+        : [{ id: 2000, name: "main.waiter", path: "C:/repos/orders/main.go", line: 10, column: 2, canRestart: true }],
+    );
+    mocked.debugVariables.mockResolvedValue([]);
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+
+    const panel = screen.getByRole("region", { name: "Debugger for Orders" });
+    await within(panel).findByLabelText("Frame main.main");
+
+    await user.click(within(panel).getByLabelText("Thread waiter"));
+
+    expect(await within(panel).findByLabelText("Frame main.waiter")).toBeInTheDocument();
+    expect(within(panel).queryByLabelText("Frame main.main")).not.toBeInTheDocument();
+  });
+
+  /// **Unlike a frame, a thread is something a step can be pointed at.** DAP's
+  /// step requests carry a `threadId`, so picking a thread and stepping it is a
+  /// real operation rather than a UI that only looks like one.
+  it("steps the thread that is selected, not the one that stopped", async () => {
+    const user = userEvent.setup();
+    mocked.debugThreads.mockResolvedValue([
+      { id: 1, name: "main" },
+      { id: 17, name: "waiter" },
+    ]);
+    mocked.debugStack.mockResolvedValue([
+      { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 21, column: 2, canRestart: true },
+    ]);
+    mocked.debugVariables.mockResolvedValue([]);
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+
+    const panel = screen.getByRole("region", { name: "Debugger for Orders" });
+    await within(panel).findByLabelText("Thread waiter");
+    await user.click(within(panel).getByLabelText("Thread waiter"));
+    await user.click(within(panel).getByLabelText("Step over"));
+
+    expect(mocked.debugResume).toHaveBeenCalledWith("dbg-go-1", "over", 17);
+  });
+
+  /// A single-threaded program has nothing to pick between, and a picker with
+  /// one entry is a control that cannot do anything.
+  it("shows no thread picker when there is only one thread", async () => {
+    const user = userEvent.setup();
+    mocked.debugStack.mockResolvedValue([
+      { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 8, column: 2, canRestart: true },
+    ]);
+    mocked.debugVariables.mockResolvedValue([]);
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+
+    await screen.findByLabelText("Frame main.main");
+    expect(screen.queryByRole("group", { name: "Threads" })).not.toBeInTheDocument();
+  });
+
+  /// The list is a snapshot of one moment. While the program runs it is out of
+  /// date, and offering threads that may have ended is worse than none.
+  it("puts the thread list away while the program is running", async () => {
+    const user = userEvent.setup();
+    mocked.debugThreads.mockResolvedValue([
+      { id: 1, name: "main" },
+      { id: 17, name: "waiter" },
+    ]);
+    mocked.debugStack.mockResolvedValue([
+      { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 21, column: 2, canRestart: true },
+    ]);
+    mocked.debugVariables.mockResolvedValue([]);
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+    await screen.findByRole("group", { name: "Threads" });
+
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "continued", body: {} });
+    });
+
+    expect(screen.queryByRole("group", { name: "Threads" })).not.toBeInTheDocument();
   });
 
   /// **What DAP cannot do, said out loud.** `next`, `stepIn` and `stepOut`

@@ -1667,6 +1667,16 @@ export interface Frame {
   canRestart: boolean;
 }
 
+/** One thread the program is running, as the adapter names it.
+ *
+ *  **"Thread" is the protocol's word, not the runtime's.** Delve reports Go
+ *  goroutines here, js-debug reports one per execution context, and netcoredbg
+ *  reports real OS threads. All three are the thing you can ask for a stack. */
+export interface DebugThread {
+  id: number;
+  name: string;
+}
+
 /** One name and value in scope. */
 export interface DebugVariable {
   name: string;
@@ -1727,6 +1737,17 @@ export const debugResume = (
   how: "continue" | "over" | "in" | "out",
   threadId: number,
 ): Promise<void> => invoke("debug_resume", { session, how, threadId });
+/** Every thread the program has, stopped or not.
+ *
+ *  **The reason this exists is deadlock.** The thread that stopped is rarely
+ *  the one holding the lock, so a debugger that only ever showed the stopped
+ *  thread could not show you the problem.
+ *
+ *  Read at each stop rather than kept: threads come and go, and DAP's `thread`
+ *  events are advisory — an adapter need not send one for every start and
+ *  exit. */
+export const debugThreads = (session: string): Promise<DebugThread[]> =>
+  invoke("debug_threads", { session });
 export const debugStack = (session: string, threadId: number): Promise<Frame[]> =>
   invoke("debug_stack", { session, threadId });
 export const debugVariables = (

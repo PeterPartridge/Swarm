@@ -94,6 +94,20 @@ pub struct Frame {
     pub can_restart: bool,
 }
 
+/// One thread the program is running, as the adapter names it.
+///
+/// **"Thread" is the protocol's word, not the runtime's.** Delve reports Go
+/// goroutines here, js-debug reports one per execution context, and netcoredbg
+/// reports real OS threads. All three are the thing you can ask for a stack, so
+/// all three go here under the protocol's name rather than a translated one
+/// that would be wrong for two of them.
+#[derive(Clone, Debug, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Thread {
+    pub id: i64,
+    pub name: String,
+}
+
 /// One name and value in scope.
 #[derive(Clone, Debug, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -467,6 +481,27 @@ impl Live {
     /// showing a box whose contents would be quietly dropped.
     pub fn honours(&self) -> Honours {
         self.core.honours()
+    }
+
+    /// Every thread the program has, stopped or not.
+    ///
+    /// **Asked for rather than remembered.** Threads come and go while a
+    /// program runs, and DAP's `thread` events are advisory — an adapter is
+    /// not obliged to send one for every start and exit. Reading the list at
+    /// each stop is the only way it is right.
+    pub fn threads(&self) -> Result<Vec<Thread>, String> {
+        let body = self.core.talker().request("threads", json!({}))?;
+        Ok(body
+            .get("threads")
+            .and_then(|t| t.as_array())
+            .cloned()
+            .unwrap_or_default()
+            .iter()
+            .map(|t| Thread {
+                id: t.get("id").and_then(|v| v.as_i64()).unwrap_or_default(),
+                name: text(t, "name"),
+            })
+            .collect())
     }
 
     /// Where the program is stopped, innermost frame first.
@@ -1186,6 +1221,124 @@ mod tests {
             named("tax").map(|v| v.value),
             Some("1185".to_string()),
             "tax should be set at this line. Saw: {vars:?}"
+        );
+
+        live.stop();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **More than one thread, against a real debugger.**
+    ///
+    /// The case this exists for is a deadlock: the thread that stopped is
+    /// rarely the one holding the lock, so a debugger that only ever shows the
+    /// stopped thread cannot show you the problem.
+    ///
+    /// Deliberately not racy. The goroutines signal a `WaitGroup` *before*
+    /// parking on a channel nothing ever sends to, and `main` waits on that
+    /// group, so by the time the breakpoint is reached all three exist — rather
+    /// than depending on whether the scheduler got round to them.
+    #[test]
+    #[ignore = "needs Delve and a Go toolchain"]
+    fn every_thread_is_listed_and_each_one_has_its_own_stack() {
+        let found = crate::debug::adapters::discover();
+        let go = found.iter().find(|a| a.language == "go").expect("go");
+        if !go.available {
+            eprintln!("skipping: {}", go.problem);
+            return;
+        }
+
+        let dir =
+            std::env::temp_dir().join(format!("coperativeai-dap-threads-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch");
+        std::fs::write(dir.join("go.mod"), "module scratch\n\ngo 1.21\n").expect("go.mod");
+        let source = dir.join("main.go");
+        std::fs::write(
+            &source,
+            "package main\n\
+             \n\
+             import (\n\
+             \t\"fmt\"\n\
+             \t\"sync\"\n\
+             )\n\
+             \n\
+             func waiter(c chan int, wg *sync.WaitGroup) {\n\
+             \twg.Done()\n\
+             \t<-c\n\
+             }\n\
+             \n\
+             func main() {\n\
+             \tc := make(chan int)\n\
+             \tvar wg sync.WaitGroup\n\
+             \twg.Add(3)\n\
+             \tfor i := 0; i < 3; i++ {\n\
+             \t\tgo waiter(c, &wg)\n\
+             \t}\n\
+             \twg.Wait()\n\
+             \tfmt.Println(\"ready\")\n\
+             }\n",
+        )
+        .expect("main.go");
+
+        let (tx, rx) = channel::<(String, Value)>();
+        let mut live = Live::start(&go.argv, Transport::Tcp, Some(&dir), move |name, body| {
+            let _ = tx.send((name.to_string(), body));
+        })
+        .expect("start Delve");
+        live.initialize("go").expect("initialize");
+
+        // Line 21 is `fmt.Println("ready")`, reached only after all three
+        // goroutines have signalled and are on their way to parking.
+        live.launch(
+            json!({
+                "request": "launch",
+                "mode": "debug",
+                "program": dir.display().to_string(),
+                "cwd": dir.display().to_string(),
+            }),
+            &[Breakpoint {
+                path: source.display().to_string(),
+                line: 21,
+                condition: String::new(),
+                log: String::new(),
+                hits: String::new(),
+            }],
+        )
+        .expect("launch");
+
+        let stopped = wait_for_stop(&rx, 120);
+        let stopped_on = stopped
+            .get("threadId")
+            .and_then(|t| t.as_i64())
+            .expect("a stop names its thread");
+
+        let threads = live.threads().expect("threads");
+        assert!(
+            threads.len() > 1,
+            "the goroutines should be listed alongside main. Saw: {threads:?}"
+        );
+        assert!(
+            threads.iter().any(|t| t.id == stopped_on),
+            "the thread that stopped should be in the list. Saw: {threads:?}"
+        );
+        assert!(
+            threads.iter().all(|t| !t.name.is_empty()),
+            "every thread should be named, or the picker has nothing to show: {threads:?}"
+        );
+
+        // **The assertion that matters.** A thread that is not the one that
+        // stopped still has a stack, and that is the whole reason for showing
+        // the list: in a deadlock the interesting stack is somebody else's.
+        let other = threads
+            .iter()
+            .find(|t| t.id != stopped_on)
+            .unwrap_or_else(|| panic!("another thread: {threads:?}"));
+        let elsewhere = live.stack(other.id).expect("another thread's stack");
+        assert!(
+            !elsewhere.is_empty(),
+            "thread {} ({}) should have frames of its own",
+            other.id,
+            other.name
         );
 
         live.stop();
