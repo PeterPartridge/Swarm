@@ -8,6 +8,7 @@ import { hueFor, markFor } from "../ai/AgentLane";
 import {
   listTerminals,
   suggestDevCommand,
+  type Frame as DebugFrame,
   type RunningTerminal,
   type Solution,
 } from "../../lib/backend";
@@ -66,8 +67,14 @@ function Uptime({ since }: { since: number }) {
 export default function DebugBoard({
   solutions,
   active = true,
+  onStopped,
+  onResumed,
 }: {
   solutions: Solution[];
+  /** Passed straight through to each session — the workspace above needs the
+   *  stop so it can open the file and keep the stepping controls in reach. */
+  onStopped?: (at: { session: string; threadId: number; frame: DebugFrame }) => void;
+  onResumed?: () => void;
   /** False while Debug is mounted but behind another Build pane. The shells
    *  keep running; only their terminals stop being measured. */
   active?: boolean;
@@ -292,7 +299,9 @@ export default function DebugBoard({
               {/* The debugger sits with the process it debugs: running
                   something and stopping it mid-line are two questions about
                   the same Solution. */}
-              {s.localPath && <DebugSession solution={s} />}
+              {s.localPath && (
+                <DebugSession solution={s} onStopped={onStopped} onResumed={onResumed} />
+              )}
 
               {isAttached && s.localPath && (
                 <div className="process-body">

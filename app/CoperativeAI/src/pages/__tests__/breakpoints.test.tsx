@@ -3,6 +3,7 @@ import {
   absoluteFor,
   linesIn,
   loadBreakpoints,
+  relativeTo,
   toggleBreakpoint,
 } from "../../lib/breakpoints";
 
@@ -59,5 +60,42 @@ describe("breakpoints", () => {
   it("survives a reload, because it is stored per machine", () => {
     toggleBreakpoint({}, 7, "cmd/main.go", 42);
     expect(linesIn(loadBreakpoints(), 7, "cmd/main.go")).toEqual([42]);
+  });
+});
+
+/// The other direction: an adapter reports where it stopped as an absolute
+/// path, and the editor works in repository-relative ones.
+describe("relativeTo", () => {
+  it("brings an absolute path back inside the working copy", () => {
+    expect(relativeTo("C:/repos/orders", "C:/repos/orders/main.go")).toBe("main.go");
+    expect(relativeTo("C:/repos/orders", "C:/repos/orders/cmd/api/main.go")).toBe(
+      "cmd/api/main.go",
+    );
+  });
+
+  /// A compiler records the path with whatever separators and capitalisation it
+  /// saw, and neither spelling is wrong.
+  it("does not care about separators, or about case on Windows", () => {
+    expect(relativeTo("C:/repos/orders", "C:\\repos\\orders\\main.go")).toBe("main.go");
+    expect(relativeTo("C:/repos/Orders", "c:/repos/orders/main.go")).toBe("main.go");
+    expect(relativeTo("C:/repos/orders/", "C:/repos/orders/main.go")).toBe("main.go");
+  });
+
+  /// **Null is the interesting answer.** A frame in the Go runtime or in a
+  /// dependency is a real frame at a real path that this Solution cannot open,
+  /// and opening the wrong file would be worse than opening none.
+  it("says nothing rather than guessing when the file is somewhere else", () => {
+    expect(relativeTo("C:/repos/orders", "C:/go/src/runtime/proc.go")).toBeNull();
+    expect(relativeTo("C:/repos/orders", "")).toBeNull();
+    expect(relativeTo("", "C:/repos/orders/main.go")).toBeNull();
+    // A sibling whose name merely starts the same is not inside it.
+    expect(relativeTo("C:/repos/orders", "C:/repos/orders-api/main.go")).toBeNull();
+  });
+
+  /// Case folding is a Windows rule. Doing it on a POSIX path would match two
+  /// genuinely different files.
+  it("keeps POSIX paths case-sensitive", () => {
+    expect(relativeTo("/home/dev/orders", "/home/dev/orders/main.go")).toBe("main.go");
+    expect(relativeTo("/home/dev/Orders", "/home/dev/orders/main.go")).toBeNull();
   });
 });

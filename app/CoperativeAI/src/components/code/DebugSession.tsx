@@ -63,7 +63,19 @@ interface DebugEvent {
  *  down — a breakpoint you set mid-session and that only took effect on the
  *  next run would be worse than one that did nothing at all, because you would
  *  believe it. */
-export default function DebugSession({ solution }: { solution: Solution }) {
+export default function DebugSession({
+  solution,
+  onStopped,
+  onResumed,
+}: {
+  solution: Solution;
+  /** Where the program stopped, so the workspace can open that file and put a
+   *  stepping toolbar above it — the controls have to stay reachable while you
+   *  are looking at the line they act on. */
+  onStopped?: (at: { session: string; threadId: number; frame: Frame }) => void;
+  /** It is moving again, or gone: the highlight and the toolbar go with it. */
+  onResumed?: () => void;
+}) {
   const language = debugLanguageOf(solution.language);
   const canLaunch = language !== null && CAN_LAUNCH.includes(language);
   const [session, setSession] = useState<string | null>(null);
@@ -83,6 +95,14 @@ export default function DebugSession({ solution }: { solution: Solution }) {
   /// recognising its own session the moment a second one started.
   const current = useRef<string | null>(null);
   current.current = session;
+
+  /// The callbacks, held in refs for the same reason as the session id: the
+  /// listener is registered once, and a parent that re-renders would otherwise
+  /// leave it calling a stale copy.
+  const stoppedRef = useRef(onStopped);
+  stoppedRef.current = onStopped;
+  const resumedRef = useRef(onResumed);
+  resumedRef.current = onResumed;
 
   const showFrame = useCallback(
     async (id: string, frame: number) => {
@@ -112,8 +132,11 @@ export default function DebugSession({ solution }: { solution: Solution }) {
             const stack = await debugStack(from, thread);
             setFrames(stack);
             // The innermost frame is where it stopped, which is the one
-            // anybody wants first.
-            if (stack[0]) await showFrame(from, stack[0].id);
+            // anybody wants first — and the one the editor should open.
+            if (stack[0]) {
+              await showFrame(from, stack[0].id);
+              stoppedRef.current?.({ session: from, threadId: thread, frame: stack[0] });
+            }
           } catch (e) {
             setError(String(e));
           }
@@ -122,6 +145,7 @@ export default function DebugSession({ solution }: { solution: Solution }) {
         setState("running");
         setFrames([]);
         setVariables([]);
+        resumedRef.current?.();
       } else if (event === "output") {
         const text = String(body?.output ?? "");
         if (text.trim() !== "") {
@@ -131,6 +155,7 @@ export default function DebugSession({ solution }: { solution: Solution }) {
         setState("ended");
         setFrames([]);
         setVariables([]);
+        resumedRef.current?.();
       } else if (event === "dap-broken") {
         setState("ended");
         setError(String(body?.message ?? "the adapter stopped making sense"));
@@ -199,6 +224,7 @@ export default function DebugSession({ solution }: { solution: Solution }) {
     setState("idle");
     setFrames([]);
     setVariables([]);
+    resumedRef.current?.();
   }
 
   async function resume(how: "continue" | "over" | "in" | "out") {
@@ -206,6 +232,10 @@ export default function DebugSession({ solution }: { solution: Solution }) {
     setState("running");
     setFrames([]);
     setVariables([]);
+    // Not every adapter sends `continued` for a step, so the highlight is
+    // cleared here as well — a stale arrow on a line the program has left is
+    // worse than none.
+    resumedRef.current?.();
     try {
       await debugResume(session, how, threadId);
     } catch (e) {

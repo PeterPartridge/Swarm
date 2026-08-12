@@ -25,10 +25,13 @@ export default function BuildFileEditor({
   solution,
   path,
   onClose,
+  stoppedLine,
 }: {
   solution: Solution;
   path: string;
   onClose: () => void;
+  /** The line the debugger is stopped on, when the stop is in this file. */
+  stoppedLine?: number | null;
 }) {
   const [saved, setSaved] = useState("");
   const [value, setValue] = useState("");
@@ -97,6 +100,7 @@ export default function BuildFileEditor({
           onToggleBreakpoint={(line) =>
             setMarks((prev) => toggleBreakpoint(prev, solution.id, path, line))
           }
+          stoppedLine={stoppedLine}
         />
       )}
     </section>

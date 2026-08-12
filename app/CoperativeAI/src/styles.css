@@ -7538,3 +7538,76 @@ button.ready-action.link:hover {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* The line the debugger is stopped on: a band across it and an arrow in the
+   margin. Amber, like every other "stopped" in this app — green would read as
+   "fine" and this is the state you are meant to act on. */
+.stopped-line {
+  background: color-mix(in srgb, var(--warn) 22%, transparent);
+}
+
+.stopped-arrow::after {
+  content: "▸";
+  display: block;
+  margin-left: 0.15rem;
+  color: var(--warn);
+  font-size: 0.9rem;
+  line-height: 1.1;
+}
+
+/* The stepping controls, above the pane rather than inside it — a stop opens
+   the file it happened in, and a Continue button that vanishes at that moment
+   is no use. See DebugToolbar.tsx. */
+.debug-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  background: var(--warn-tint);
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+  border-radius: 8px;
+}
+
+.toolbar-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  flex: none;
+  border-radius: 50%;
+  background: var(--warn);
+}
+
+.toolbar-where {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.toolbar-where strong {
+  font-size: 0.78rem;
+  color: var(--fg-bright);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolbar-where .card-mono {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.68rem;
+  color: var(--fg-muted);
+}
+
+.debug-toolbar button {
+  flex: none;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.72rem;
+}
+
+.toolbar-error {
+  flex-basis: 100%;
+  font-size: 0.72rem;
+  color: var(--bad);
+}

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { relativeTo } from "../../lib/breakpoints";
 import { useWorkChanged } from "../../lib/workSignal";
 import AgentJobPanel from "./AgentJobPanel";
 import AgentLane, { hueFor, markFor, status, type Agent } from "./AgentLane";
@@ -7,6 +8,7 @@ import BuildExplorer from "../code/BuildExplorer";
 import CodeEditor from "../code/CodeEditor";
 import BuildFileEditor from "../code/BuildFileEditor";
 import DebugBoard from "../code/DebugBoard";
+import DebugToolbar from "../code/DebugToolbar";
 import GitExplorer from "../vcs/GitExplorer";
 import JobsPanel from "./JobsPanel";
 import QuestionsPanel from "./QuestionsPanel";
@@ -24,6 +26,7 @@ import {
   type ChangeReview,
   type OpenQuestion,
   type Run,
+  type Frame,
   type Solution,
   type WorkItem,
 } from "../../lib/backend";
@@ -82,6 +85,16 @@ export default function AgentWorkspace({
   /// because the Files pane can show the whole Product, so the file being
   /// edited need not come from the Solution the bar has selected.
   const [fileFrom, setFileFrom] = useState<number | null>(null);
+  /// Where a debugger has stopped, when one has. Held here rather than in the
+  /// Debug board because two panes need it: the editor draws the line, and the
+  /// stepping toolbar has to stay reachable while you are looking at it.
+  const [stop, setStop] = useState<{
+    session: string;
+    threadId: number;
+    frame: Frame;
+    solutionId: number;
+    path: string;
+  } | null>(null);
 
   /// One change review per Solution, read here so the workbench and the ship
   /// rail cannot disagree about the same working copy.
@@ -251,6 +264,31 @@ export default function AgentWorkspace({
   const withAgents = new Set(agents.map((a) => a.item.id));
   const unassigned = items.filter((i) => !withAgents.has(i.id));
 
+  /** Opens the file a stop happened in, if it is one of ours.
+   *
+   *  A frame in the Go runtime or in a dependency is a real frame at a real
+   *  path that no Solution here can open — so the toolbar still appears and the
+   *  stack still lists it, but no file is opened and nothing is highlighted.
+   *  Guessing at a file would be worse than showing none. */
+  const onDebugStopped = useCallback(
+    (at: { session: string; threadId: number; frame: Frame }) => {
+      const owner = solutions.find(
+        (s) => s.localPath && relativeTo(s.localPath, at.frame.path) !== null,
+      );
+      const relative = owner?.localPath
+        ? relativeTo(owner.localPath, at.frame.path)
+        : null;
+      if (owner && relative) {
+        setFileFrom(owner.id);
+        setSelectedFile(relative);
+        setStop({ ...at, solutionId: owner.id, path: relative });
+      } else {
+        setStop({ ...at, solutionId: -1, path: "" });
+      }
+    },
+    [solutions],
+  );
+
   const browsingSolution = solutions.find((s) => s.id === browsing) ?? null;
   const openFileSolution = solutions.find((s) => s.id === fileFrom) ?? null;
   const selectedChange =
@@ -359,6 +397,17 @@ export default function AgentWorkspace({
         )}
 
         <div className="build-main">
+          {/* Above the pane rather than inside one: the whole point is that
+              stepping stays reachable while you are looking at the line it
+              acts on. */}
+          {stop && (
+            <DebugToolbar
+              session={stop.session}
+              threadId={stop.threadId}
+              frame={stop.frame}
+              onResumed={() => setStop(null)}
+            />
+          )}
           {/* A file picked in the Files pane wins the pane: clicking a file is
               a request to look at it, whatever else was showing. Closing it
               puts the previous pane back. */}
@@ -366,6 +415,11 @@ export default function AgentWorkspace({
             <BuildFileEditor
               solution={openFileSolution}
               path={selectedFile}
+              stoppedLine={
+                stop && stop.solutionId === openFileSolution.id && stop.path === selectedFile
+                  ? stop.frame.line
+                  : null
+              }
               onClose={() => {
                 setSelectedFile(null);
                 setFileFrom(null);
@@ -383,7 +437,12 @@ export default function AgentWorkspace({
               unmounts this whole component, and the shells close with it. */}
           {debugUsed && (
             <div hidden={selected !== "debug"}>
-              <DebugBoard solutions={solutions} active={selected === "debug"} />
+              <DebugBoard
+                solutions={solutions}
+                active={selected === "debug"}
+                onStopped={onDebugStopped}
+                onResumed={() => setStop(null)}
+              />
             </div>
           )}
 
