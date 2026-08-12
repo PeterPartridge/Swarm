@@ -7495,12 +7495,45 @@ button.ready-action.link:hover {
   color: var(--fg-dim);
 }
 
-.session-vars li {
+.var-row {
   display: flex;
   align-items: baseline;
   gap: 0.4rem;
   padding: 0.2rem 0.35rem;
   font-size: 0.72rem;
+}
+
+/* Nested fields step in, so depth is readable without a guide line. */
+.var-tree .var-tree {
+  padding-left: 0.85rem;
+  border-left: 1px solid var(--line);
+  margin-left: 0.45rem;
+}
+
+.var-open {
+  flex: none;
+  width: 0.85rem;
+  padding: 0;
+  font-size: 0.6rem;
+  line-height: 1;
+  color: var(--fg-dim);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.var-open:hover {
+  color: var(--fg-bright);
+}
+
+/* A scalar has nothing to open, and keeps the column so names stay aligned. */
+.var-open.empty {
+  cursor: default;
+}
+
+.var-problem {
+  margin: 0 0 0.2rem 1.25rem;
+  font-size: 0.65rem;
 }
 
 .var-name {
@@ -7519,8 +7552,7 @@ button.ready-action.link:hover {
   white-space: nowrap;
 }
 
-.var-kind,
-.var-more {
+.var-kind {
   flex: none;
   font-size: 0.62rem;
   color: var(--fg-dim);

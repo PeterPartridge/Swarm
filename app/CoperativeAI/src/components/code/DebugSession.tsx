@@ -4,6 +4,7 @@ import { absoluteFor, loadBreakpoints } from "../../lib/breakpoints";
 import {
   debugResume,
   debugSetBreakpoints,
+  debugExpand,
   debugStack,
   debugStart,
   debugStop,
@@ -44,6 +45,80 @@ export function debugLanguageOf(language: string | null): string | null {
  *  fails with "run `dotnet build` first" rather than starting a debugger that
  *  stops at nothing. */
 const CAN_LAUNCH = ["go", "typescript", "csharp"];
+/** A variable that has been opened: its fields, or why they could not be got. */
+interface Opened {
+  fields?: DebugVariable[];
+  problem?: string;
+}
+
+/** One variable and, when it is open, everything under it.
+ *
+ *  Recursive because the data is: a field can be a struct whose fields are
+ *  structs. Each level is fetched only when opened — see `Live::expand`, which
+ *  will not walk the graph eagerly, because a linked list would be followed to
+ *  its end and a cyclic one would never finish.
+ *
+ *  Rows are keyed by their **path** rather than the adapter's reference number.
+ *  Two different variables can hold the same reference once the program has
+ *  moved, and keying on it would open the wrong row. */
+function VariableTree({
+  variables,
+  at,
+  opened,
+  onToggle,
+}: {
+  variables: DebugVariable[];
+  /** The path of the parent, empty at the top. */
+  at: string;
+  opened: Record<string, Opened>;
+  onToggle: (path: string, reference: number) => void;
+}) {
+  return (
+    <ul className="var-tree">
+      {variables.map((v, index) => {
+        // The index is in the path because an array's elements can share a
+        // name, and duplicate keys would collapse them into one row.
+        const path = `${at}/${index}-${v.name}`;
+        const open = opened[path];
+        return (
+          <li key={path}>
+            <div className="var-row">
+              {v.children > 0 ? (
+                <button
+                  type="button"
+                  className="var-open"
+                  aria-expanded={open !== undefined}
+                  aria-label={`${open !== undefined ? "Close" : "Open"} ${v.name}`}
+                  onClick={() => onToggle(path, v.children)}
+                >
+                  {open !== undefined ? "▾" : "▸"}
+                </button>
+              ) : (
+                <span className="var-open empty" aria-hidden="true" />
+              )}
+              <span className="var-name">{v.name}</span>
+              <span className="var-value card-mono">{v.value}</span>
+              {v.kind && <span className="var-kind">{v.kind}</span>}
+            </div>
+            {open?.problem && <p className="hint var-problem">{open.problem}</p>}
+            {open?.fields &&
+              (open.fields.length === 0 ? (
+                <p className="hint var-problem">Nothing inside it.</p>
+              ) : (
+                <VariableTree
+                  variables={open.fields}
+                  at={path}
+                  opened={opened}
+                  onToggle={onToggle}
+                />
+              ))}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 /** One line of the program's own output. */
 interface Line {
   at: number;
@@ -95,6 +170,7 @@ export default function DebugSession({
   const [frames, setFrames] = useState<Frame[]>([]);
   const [frameId, setFrameId] = useState<number | null>(null);
   const [variables, setVariables] = useState<DebugVariable[]>([]);
+  const [opened, setOpened] = useState<Record<string, Opened>>({});
   const [output, setOutput] = useState<Line[]>([]);
   const [placed, setPlaced] = useState<string | null>(null);
 
@@ -115,6 +191,11 @@ export default function DebugSession({
   const showFrame = useCallback(
     async (id: string, frame: number) => {
       setFrameId(frame);
+      /// Every open row goes with the frame. A `variablesReference` is only
+      /// valid for the stop and frame it was handed out in, so carrying the
+      /// open state across would redraw someone else’s memory under the
+      /// old name — worse than showing nothing.
+      setOpened({});
       try {
         setVariables(await debugVariables(id, frame));
       } catch (e) {
@@ -122,6 +203,40 @@ export default function DebugSession({
       }
     },
     [],
+  );
+
+  /// Opens a variable, or closes it again.
+  ///
+  /// Fetched once per opening rather than cached: the handle dies when the
+  /// program moves, and a remembered expansion would show a value that is no
+  /// longer true.
+  const toggleVariable = useCallback(
+    async (path: string, reference: number) => {
+      const id = current.current;
+      if (!id) return;
+      if (opened[path] !== undefined) {
+        setOpened((prev) => {
+          const next = { ...prev };
+          // Everything nested under it goes too, or reopening would show the
+          // children of a row that has since been refetched.
+          for (const key of Object.keys(next)) {
+            if (key === path || key.startsWith(`${path}/`)) delete next[key];
+          }
+          return next;
+        });
+        return;
+      }
+      // Marked open straight away so the caret turns and a slow adapter does
+      // not read as a click that did nothing.
+      setOpened((prev) => ({ ...prev, [path]: {} }));
+      try {
+        const fields = await debugExpand(id, reference);
+        setOpened((prev) => (path in prev ? { ...prev, [path]: { fields } } : prev));
+      } catch (e) {
+        setOpened((prev) => (path in prev ? { ...prev, [path]: { problem: String(e) } } : prev));
+      }
+    },
+    [opened],
   );
 
   // Everything the adapter says, as it says it.
@@ -153,6 +268,7 @@ export default function DebugSession({
         setState("running");
         setFrames([]);
         setVariables([]);
+        setOpened({});
         resumedRef.current?.();
       } else if (event === "output") {
         const text = String(body?.output ?? "");
@@ -163,6 +279,7 @@ export default function DebugSession({
         setState("ended");
         setFrames([]);
         setVariables([]);
+        setOpened({});
         resumedRef.current?.();
       } else if (event === "dap-broken") {
         setState("ended");
@@ -381,18 +498,12 @@ export default function DebugSession({
                 {variables.length === 0 ? (
                   <p className="hint">Nothing in scope in this frame.</p>
                 ) : (
-                  <ul>
-                    {variables.map((v) => (
-                      <li key={`${v.name}-${v.value}`}>
-                        <span className="var-name">{v.name}</span>
-                        <span className="var-value card-mono">{v.value}</span>
-                        {v.kind && <span className="var-kind">{v.kind}</span>}
-                        {/* Counted but not openable yet, and said so rather
-                            than drawn as a caret that does nothing. */}
-                        {v.children > 0 && <span className="var-more">has fields</span>}
-                      </li>
-                    ))}
-                  </ul>
+                  <VariableTree
+                    variables={variables}
+                    at=""
+                    opened={opened}
+                    onToggle={toggleVariable}
+                  />
                 )}
               </div>
             </div>

@@ -1702,6 +1702,15 @@ export const debugVariables = (
   session: string,
   frameId: number,
 ): Promise<DebugVariable[]> => invoke("debug_variables", { session, frameId });
+/** One variable’s own fields.
+ *
+ *  The reference comes from a variable already on screen and is only valid
+ *  while the program is stopped where it was handed out — every handle dies
+ *  when it moves, so an expansion is fetched on opening rather than kept. */
+export const debugExpand = (
+  session: string,
+  reference: number,
+): Promise<DebugVariable[]> => invoke("debug_expand", { session, reference });
 export const debugStop = (session: string): Promise<void> =>
   invoke("debug_stop", { session });
 

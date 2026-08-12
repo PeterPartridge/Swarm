@@ -238,6 +238,7 @@ fn main() {
             commands::debugging::debug_resume,
             commands::debugging::debug_stack,
             commands::debugging::debug_variables,
+            commands::debugging::debug_expand,
             commands::debugging::debug_stop,
             commands::workspace::file_properties,
             commands::ai_settings::list_ai_providers,

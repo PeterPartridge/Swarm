@@ -34,6 +34,38 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 26 — variables open
+
+### My Feedback
+
+**A struct opens now.** The flat list was never the interesting half: a stop showed `order` as `main.Order {...}` and said "has fields" beside it, which is a label where a control belonged. Verified against Delve with a real struct — `order` opened to `Subtotal = 11810` and `Tax = 1185` read out of the live process.
+
+**Levels are fetched one at a time, on opening.** A `variablesReference` is a handle to something the adapter has not sent, so walking them eagerly means reading the whole object graph on every stop: a linked list would be followed to its end and a cyclic one would never finish.
+
+**Every handle dies when the program moves**, so an expansion left open across a step would redraw memory that has since been reused, under the old name. Opening state is cleared on `continued`, on the program ending, and on selecting a different frame — and the fields are re-fetched on the next opening rather than cached.
+
+**Rows are keyed by path, not by the adapter's reference number.** Two variables can hold the same reference once the program has moved, and keying on it would open the wrong row. The index is in the path too, because an array's elements share a name and duplicate keys would collapse them into one row.
+
+**A scalar gets no caret.** "has fields" was replaced by a control that does something, and a variable with nothing inside keeps the column for alignment without offering a click that would fail.
+
+### Your Feedback
+
+- **`expand(0)` is an error, not a request.** A zero reference is not a handle, so asking is a caller bug and is refused here rather than sent to the adapter to be refused there.
+- **The scope read and the expansion are the same DAP request** against a different handle, so they share one `read_variables` rather than two copies that would drift.
+- **A failed expansion says why, on the row it failed on.** Drawing an empty struct instead would read as "it has no fields", which is a different and wrong claim.
+- **The caret turns before the fields arrive**, so a slow adapter does not read as a click that did nothing.
+- **Closing a row drops everything nested under it**, or reopening would show the children of a row that has since been refetched.
+- **The stale `launch_arguments` doc comment saying "Go only, for now" was fixed** — it had been wrong since round 24 and wrong again since round 25.
+
+### Technical Debt
+
+- **Still one thread.** Every session shows the thread that stopped; a deadlock is exactly the case where the others matter, and exactly the case this cannot show.
+- **No conditional breakpoints**, though the adapters report supporting them and `debug_check` already displays that they do — a capability shown and not offered.
+- **Stepping does not follow the selected frame.** Clicking a caller and stepping steps the innermost frame, which is not what the selection implies.
+- **Nothing is watched.** There is no expression box, so a value not in scope as a named local cannot be looked at.
+- **debugpy has no launch shape** and cannot be verified here — no real Python on this machine.
+- Carried: only one js-debug child; the root's provisional breakpoints reach the UI; `built_assembly` picks the newest build rather than a configured one; the Rust suite leaves scratch directories in `%TEMP%`.
+
 ## Round 25 — C# debugs, and the stdio pipe stops hanging
 
 ### My Feedback

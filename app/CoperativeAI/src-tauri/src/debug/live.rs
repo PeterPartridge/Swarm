@@ -386,25 +386,27 @@ impl Live {
             if reference == 0 {
                 continue;
             }
-            let body = talker.request("variables", json!({ "variablesReference": reference }))?;
-            for v in body
-                .get("variables")
-                .and_then(|v| v.as_array())
-                .cloned()
-                .unwrap_or_default()
-            {
-                out.push(Variable {
-                    name: text(&v, "name"),
-                    value: text(&v, "value"),
-                    kind: text(&v, "type"),
-                    children: v
-                        .get("variablesReference")
-                        .and_then(|s| s.as_i64())
-                        .unwrap_or_default(),
-                });
-            }
+            out.extend(read_variables(&talker, reference)?);
         }
         Ok(out)
+    }
+
+    /// One variable's own fields — the struct opened, the slice's elements.
+    ///
+    /// **Only ever fetched when asked for.** A `variablesReference` is a handle
+    /// to something the adapter has not sent, and walking them eagerly means
+    /// reading the whole object graph on every stop: a linked list would be
+    /// followed to its end and a cyclic one would never finish. So the tree is
+    /// filled a level at a time, by opening it.
+    ///
+    /// The handles are invalidated by the adapter as soon as the program moves,
+    /// so an expansion held across a step is stale and must be re-fetched
+    /// rather than reused.
+    pub fn expand(&self, reference: i64) -> Result<Vec<Variable>, String> {
+        if reference <= 0 {
+            return Err("that variable has no fields to open".into());
+        }
+        read_variables(&self.core.talker(), reference)
     }
 
     /// Continue, or one of the three steps.
@@ -448,6 +450,31 @@ impl Drop for Live {
             let _ = child.wait();
         }
     }
+}
+
+/// One `variables` request, read into the shape the UI wants.
+///
+/// Shared by the frame's scopes and by opening a single variable, because they
+/// are the same DAP request against a different handle — a scope's reference and
+/// a variable's reference are both just numbers the adapter gave out.
+fn read_variables(talker: &Arc<Channel>, reference: i64) -> Result<Vec<Variable>, String> {
+    let body = talker.request("variables", json!({ "variablesReference": reference }))?;
+    Ok(body
+        .get("variables")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(|v| Variable {
+            name: text(v, "name"),
+            value: text(v, "value"),
+            kind: text(v, "type"),
+            children: v
+                .get("variablesReference")
+                .and_then(|s| s.as_i64())
+                .unwrap_or_default(),
+        })
+        .collect())
 }
 
 fn text(value: &Value, key: &str) -> String {
@@ -927,6 +954,103 @@ mod tests {
             Some("1185".to_string()),
             "tax should be set at this line. Saw: {vars:?}"
         );
+
+        live.stop();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **Opening a variable, against a real debugger.**
+    ///
+    /// The flat list was never the interesting half: a stop shows `order` as
+    /// `main.Order {...}`, and the question is always what is *in* it. This
+    /// asserts the fields come back — and that a plain `int` is refused rather
+    /// than fetched, since a zero reference is not a handle to anything.
+    #[test]
+    #[ignore = "needs Delve and a Go toolchain"]
+    fn a_struct_opens_to_show_its_fields() {
+        let found = crate::debug::adapters::discover();
+        let go = found.iter().find(|a| a.language == "go").expect("go");
+        if !go.available {
+            eprintln!("skipping: {}", go.problem);
+            return;
+        }
+
+        let dir =
+            std::env::temp_dir().join(format!("coperativeai-dap-expand-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch");
+        std::fs::write(dir.join("go.mod"), "module scratch\n\ngo 1.21\n").expect("go.mod");
+        let source = dir.join("main.go");
+        std::fs::write(
+            &source,
+            "package main\n\
+             \n\
+             import \"fmt\"\n\
+             \n\
+             type Order struct {\n\
+             \tSubtotal int\n\
+             \tTax      int\n\
+             }\n\
+             \n\
+             func main() {\n\
+             \torder := Order{Subtotal: 11810, Tax: 1185}\n\
+             \ttotal := order.Subtotal + order.Tax\n\
+             \tfmt.Println(total)\n\
+             }\n",
+        )
+        .expect("main.go");
+
+        let (tx, rx) = channel::<(String, Value)>();
+        let mut live = Live::start(&go.argv, Transport::Tcp, Some(&dir), move |name, body| {
+            let _ = tx.send((name.to_string(), body));
+        })
+        .expect("start Delve");
+        live.initialize("go").expect("initialize");
+
+        // Line 12 is `total := order.Subtotal + order.Tax`, so `order` is built
+        // and `total` is not.
+        live.launch(
+            json!({
+                "request": "launch",
+                "mode": "debug",
+                "program": dir.display().to_string(),
+                "cwd": dir.display().to_string(),
+            }),
+            &[Breakpoint { path: source.display().to_string(), line: 12 }],
+        )
+        .expect("launch");
+
+        let stopped = wait_for_stop(&rx, 120);
+        let thread_id = stopped.get("threadId").and_then(|t| t.as_i64()).expect("thread");
+        let frames = live.stack(thread_id).expect("stackTrace");
+        let top = frames.first().expect("a frame");
+
+        let vars = live.variables(top.id).expect("variables");
+        let order = vars
+            .iter()
+            .find(|v| v.name == "order")
+            .unwrap_or_else(|| panic!("order should be in scope. Saw: {vars:?}"));
+        assert!(
+            order.children > 0,
+            "a struct should carry a handle to its fields: {order:?}"
+        );
+
+        let fields = live.expand(order.children).expect("expand");
+        let named = |want: &str| fields.iter().find(|f| f.name == want).cloned();
+        assert_eq!(
+            named("Subtotal").map(|f| f.value),
+            Some("11810".to_string()),
+            "the struct's fields should come back. Saw: {fields:?}"
+        );
+        assert_eq!(
+            named("Tax").map(|f| f.value),
+            Some("1185".to_string()),
+            "the struct's fields should come back. Saw: {fields:?}"
+        );
+
+        // A scalar has no handle, and asking anyway is a caller bug rather than
+        // something to send to the adapter.
+        assert!(live.expand(0).is_err(), "a zero reference is not a handle");
 
         live.stop();
         let _ = std::fs::remove_dir_all(&dir);

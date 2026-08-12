@@ -13,6 +13,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     debugResume: vi.fn(),
     debugStack: vi.fn(),
     debugVariables: vi.fn(),
+    debugExpand: vi.fn(),
     debugSetBreakpoints: vi.fn(),
   };
 });
@@ -149,6 +150,101 @@ describe("DebugSession", () => {
     // Stepping is offered only where there is something to step.
     await user.click(within(panel).getByLabelText("Step over"));
     expect(mocked.debugResume).toHaveBeenCalledWith("dbg-go-1", "over", 1);
+  });
+
+  /// **A struct is only interesting opened.** The flat list shows
+  /// `main.Order {...}`, and what somebody came for is what is inside it.
+  it("opens a variable to show its fields, and closes it again", async () => {
+    const user = userEvent.setup();
+    mocked.debugStack.mockResolvedValue([
+      { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 12, column: 2 },
+    ]);
+    mocked.debugVariables.mockResolvedValue([
+      { name: "order", value: "main.Order {Subtotal: 11810, Tax: 1185}", kind: "main.Order", children: 4 },
+      { name: "total", value: "0", kind: "int", children: 0 },
+    ]);
+    mocked.debugExpand.mockResolvedValue([
+      { name: "Subtotal", value: "11810", kind: "int", children: 0 },
+      { name: "Tax", value: "1185", kind: "int", children: 0 },
+    ]);
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+
+    const panel = screen.getByRole("region", { name: "Debugger for Orders" });
+    await within(panel).findByText("order");
+    // A scalar has nothing to open, and is not given a caret that does nothing.
+    expect(within(panel).queryByLabelText("Open total")).not.toBeInTheDocument();
+
+    await user.click(within(panel).getByLabelText("Open order"));
+    expect(mocked.debugExpand).toHaveBeenCalledWith("dbg-go-1", 4);
+    expect(await within(panel).findByText("Subtotal")).toBeInTheDocument();
+    expect(within(panel).getByText("1185")).toBeInTheDocument();
+
+    await user.click(within(panel).getByLabelText("Close order"));
+    expect(within(panel).queryByText("Subtotal")).not.toBeInTheDocument();
+  });
+
+  /// **Every handle dies when the program moves.** An expansion left open across
+  /// a step would redraw memory that has since been reused, under the old name.
+  it("forgets what was open when the program moves on", async () => {
+    const user = userEvent.setup();
+    mocked.debugStack.mockResolvedValue([
+      { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 12, column: 2 },
+    ]);
+    mocked.debugVariables.mockResolvedValue([
+      { name: "order", value: "main.Order {...}", kind: "main.Order", children: 4 },
+    ]);
+    mocked.debugExpand.mockResolvedValue([
+      { name: "Subtotal", value: "11810", kind: "int", children: 0 },
+    ]);
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+
+    const panel = screen.getByRole("region", { name: "Debugger for Orders" });
+    await within(panel).findByText("order");
+    await user.click(within(panel).getByLabelText("Open order"));
+    expect(await within(panel).findByText("Subtotal")).toBeInTheDocument();
+
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "continued", body: {} });
+    });
+    expect(within(panel).queryByText("Subtotal")).not.toBeInTheDocument();
+  });
+
+  /// A failed expansion says why, on the row it failed on. Silently drawing an
+  /// empty struct would read as "it has no fields".
+  it("says why a variable would not open", async () => {
+    const user = userEvent.setup();
+    mocked.debugStack.mockResolvedValue([
+      { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 12, column: 2 },
+    ]);
+    mocked.debugVariables.mockResolvedValue([
+      { name: "order", value: "main.Order {...}", kind: "main.Order", children: 4 },
+    ]);
+    mocked.debugExpand.mockRejectedValue("that debug session has ended");
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+
+    const panel = screen.getByRole("region", { name: "Debugger for Orders" });
+    await within(panel).findByText("order");
+    await user.click(within(panel).getByLabelText("Open order"));
+
+    expect(await within(panel).findByText(/that debug session has ended/)).toBeInTheDocument();
   });
 
   /// Stepping a program that is running has nothing to step, so the controls

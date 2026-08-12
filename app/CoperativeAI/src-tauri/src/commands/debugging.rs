@@ -167,11 +167,12 @@ pub struct StartedDebug {
 
 /// The launch arguments for one language.
 ///
-/// **Go only, for now.** Delve takes a folder and builds it. js-debug is a
-/// *server* that spawns a child adapter per session, which is a different
-/// lifecycle rather than different arguments; debugpy and netcoredbg need their
-/// own launch shapes too. Each is a small piece of work, and pretending the
-/// others already work would produce a session that starts and never stops.
+/// **Three of four.** The shapes differ more than "different arguments"
+/// suggests: Delve is given a folder and builds it; js-debug is given a `.js`
+/// and answers with a `startDebugging` reverse request, so the lifecycle
+/// differs too; netcoredbg is given a **built assembly**, which has to exist
+/// already. debugpy has no shape here yet, and saying so beats a session that
+/// starts and never stops.
 fn launch_arguments(language: &str, program: &str) -> Result<serde_json::Value, String> {
     match language {
         "go" => Ok(serde_json::json!({
@@ -343,6 +344,28 @@ pub async fn debug_variables(
         return Err("that debug session has ended".into());
     };
     live.variables(frame_id)
+}
+
+/// Opens one variable, giving its own fields.
+///
+/// The reference comes from a variable the UI is already showing, and is only
+/// valid while the program is stopped where it was handed out — the adapter
+/// invalidates every handle the moment it moves. Asking after a step gets an
+/// error rather than someone else's memory.
+#[tauri::command]
+pub async fn debug_expand(
+    sessions: State<'_, DebugSessions>,
+    session: String,
+    reference: i64,
+) -> Result<Vec<Variable>, String> {
+    let held = sessions
+        .0
+        .lock()
+        .map_err(|_| "the debug sessions are in a bad state".to_string())?;
+    let Some(live) = held.get(&session) else {
+        return Err("that debug session has ended".into());
+    };
+    live.expand(reference)
 }
 
 /// Ends a session and the program under it.
