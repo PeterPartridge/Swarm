@@ -176,7 +176,14 @@ export default function DebugSession({
   /** Where the program stopped, so the workspace can open that file and put a
    *  stepping toolbar above it — the controls have to stay reachable while you
    *  are looking at the line they act on. */
-  onStopped?: (at: { session: string; threadId: number; frame: Frame }) => void;
+  onStopped?: (at: {
+    session: string;
+    threadId: number;
+    frame: Frame;
+    /** Whether this adapter answers a hover, so the editor knows whether to
+     *  offer one rather than finding out per pointer movement. */
+    hovers: boolean;
+  }) => void;
   /** It is moving again, or gone: the highlight and the toolbar go with it. */
   onResumed?: () => void;
 }) {
@@ -224,6 +231,10 @@ export default function DebugSession({
   /// recognising its own session the moment a second one started.
   const current = useRef<string | null>(null);
   current.current = session;
+  /// The selected thread, for the same reason: `showFrame` reports where we
+  /// are and needs to name the thread without being re-made whenever it changes.
+  const threadRef = useRef<number | null>(null);
+  threadRef.current = threadId;
 
   /// The callbacks, held in refs for the same reason as the session id: the
   /// listener is registered once, and a parent that re-renders would otherwise
@@ -265,9 +276,24 @@ export default function DebugSession({
     setWatched(Object.fromEntries(answers));
   }, []);
 
+  /// The adapter's hover answer, in a ref: it is settled once at the start of a
+  /// session and read from inside callbacks that must not be re-made for it.
+  const hoversRef = useRef(false);
+
   const showFrame = useCallback(
-    async (id: string, frame: number) => {
+    async (id: string, picked: Frame) => {
+      const frame = picked.id;
       setFrameId(frame);
+      // **The editor follows the selection, not only the stop.** Picking a
+      // caller is a request to look at that frame, so the highlight moves to
+      // its line and a hover there is evaluated in its scope — which is a
+      // different question from the same name in the innermost frame.
+      stoppedRef.current?.({
+        session: id,
+        threadId: threadRef.current ?? 0,
+        frame: picked,
+        hovers: hoversRef.current,
+      });
       /// Every open row goes with the frame. A `variablesReference` is only
       /// valid for the stop and frame it was handed out in, so carrying the
       /// open state across would redraw someone else’s memory under the
@@ -302,8 +328,10 @@ export default function DebugSession({
         // The innermost frame is where it stopped, which is the one anybody
         // wants first — and the one the editor should open.
         if (stack[0]) {
-          await showFrame(id, stack[0].id);
-          stoppedRef.current?.({ session: id, threadId: thread, frame: stack[0] });
+          // `showFrame` tells the workspace where we are, so it is not also
+          // told here — two notifications for one stop would fight over which
+          // line the editor draws.
+          await showFrame(id, stack[0]);
         } else {
           // A thread with no frames is a real answer — one that has not started
           // or has just finished — and clearing is better than leaving the last
@@ -438,6 +466,7 @@ export default function DebugSession({
       setLogPoints(started.logPoints);
       setHitCounts(started.hitCounts);
       setCanRestartFrame(started.restartFrame);
+      hoversRef.current = started.hovers;
 
       // Where they actually landed, not where they were asked for: an adapter
       // slides a breakpoint to the next executable line.
@@ -716,7 +745,7 @@ export default function DebugSession({
                         className={frameId === f.id ? "frame on" : "frame"}
                         aria-pressed={frameId === f.id}
                         aria-label={`Frame ${f.name}`}
-                        onClick={() => session && showFrame(session, f.id)}
+                        onClick={() => session && showFrame(session, f)}
                       >
                         <span className="frame-name">{f.name}</span>
                         {/* A frame with no source is a real frame — runtime

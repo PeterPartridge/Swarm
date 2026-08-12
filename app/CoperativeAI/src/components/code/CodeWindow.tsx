@@ -14,7 +14,7 @@ const PAL_ACTIONS = Object.keys(PAL_ACTION_LABELS) as PalAction[];
 interface MonacoEditor {
   addCommand: (keybinding: number, handler: () => void) => void;
   onDidChangeCursorSelection?: (cb: (ev: { selection: unknown }) => void) => void;
-  getModel?: () => { getValueInRange?: (range: unknown) => string } | null;
+  getModel?: () => MonacoModel | null;
   onMouseDown?: (cb: (ev: MonacoMouseEvent) => void) => void;
   deltaDecorations?: (old: string[], next: unknown[]) => string[];
   revealLineInCenterIfOutsideViewport?: (line: number) => void;
@@ -29,6 +29,26 @@ interface MonacoNamespace {
   KeyCode: { KeyS: number };
   editor?: { MouseTargetType?: { GUTTER_GLYPH_MARGIN?: number } };
   Range?: new (a: number, b: number, c: number, d: number) => unknown;
+  languages?: {
+    registerHoverProvider?: (
+      language: string,
+      provider: {
+        provideHover: (
+          model: MonacoModel,
+          position: { lineNumber: number; column: number },
+        ) => Promise<{ contents: { value: string }[] } | null>;
+      },
+    ) => { dispose: () => void };
+  };
+}
+
+interface MonacoModel {
+  getValueInRange?: (range: unknown) => string;
+  getLanguageId?: () => string;
+  getWordAtPosition?: (position: { lineNumber: number; column: number }) =>
+    | { word: string; startColumn: number; endColumn: number }
+    | null;
+  getLineContent?: (line: number) => string;
 }
 
 /** Loosely typed on purpose: the editor component is loaded dynamically and
@@ -65,6 +85,7 @@ export default function CodeWindow({
   logPoints,
   onToggleBreakpoint,
   stoppedLine,
+  onHover,
 }: {
   solutionId: number;
   path: string;
@@ -88,6 +109,14 @@ export default function CodeWindow({
    *  Scrolled to and highlighted, because "where am I?" is the first question
    *  after a program stops and hunting for it is the whole friction. */
   stoppedLine?: number | null;
+  /** Works out what a name under the pointer comes to, or null when there is
+   *  nothing to say.
+   *
+   *  Absent, no hover provider is registered at all — an editor that answered
+   *  every hover with "no debugger" would be worse than one that stays quiet,
+   *  and a provider that always returns nothing still costs a round trip
+   *  through Monaco on every pointer movement. */
+  onHover?: (expression: string) => Promise<{ value: string; kind: string } | null>;
 }) {
   const [Editor, setEditor] = useState<EditorComponent | null>(null);
   /// The editor instance and its Monaco namespace, kept so the breakpoint
@@ -95,7 +124,16 @@ export default function CodeWindow({
   const editorRef = useRef<MonacoEditor | null>(null);
   const monacoRef = useRef<MonacoNamespace | null>(null);
   const decorations = useRef<string[]>([]);
+  /// The hover callback, in a ref: the provider is registered once on mount and
+  /// would otherwise capture the first render's copy and go stale the moment
+  /// the program stepped.
+  const hoverRef = useRef(onHover);
+  hoverRef.current = onHover;
   const stopMark = useRef<string[]>([]);
+  /// The registered hover provider, so it goes when the editor does. Monaco's
+  /// providers are global to a language rather than to an editor, so leaving
+  /// one behind would have a closed file still answering hovers.
+  const hover = useRef<{ dispose: () => void } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [palAction, setPalAction] = useState<PalAction>("explain");
@@ -212,6 +250,16 @@ export default function CodeWindow({
     drawBreakpoints();
   }, [drawBreakpoints]);
 
+  // Monaco's hover providers belong to a language rather than to an editor, so
+  // one left registered would have a closed file still answering hovers — with
+  // a callback pointing at a debug session that has since ended.
+  useEffect(() => {
+    return () => {
+      hover.current?.dispose();
+      hover.current = null;
+    };
+  }, []);
+
   /** The stopped line: a highlight, and a scroll to it if it is off screen.
    *
    *  Its own decoration set rather than sharing the breakpoints' — `deltaDecorations`
@@ -282,6 +330,30 @@ export default function CodeWindow({
                 if (gutter === undefined || ev.target.type !== gutter) return;
                 const line = ev.target.position?.lineNumber;
                 if (line) onToggleBreakpoint(line);
+              });
+            }
+            // **Hover the name, get the value.** The same `evaluate` the watch
+            // pane uses, asked with a different reason — see `debugEvaluate`.
+            // Registered only when there is something to ask, and only for this
+            // file's language, so a Go editor does not answer hovers in a
+            // TypeScript one.
+            if (onHover && m.languages?.registerHoverProvider) {
+              const language = e.getModel?.()?.getLanguageId?.() ?? "plaintext";
+              hover.current = m.languages.registerHoverProvider(language, {
+                provideHover: async (model, position) => {
+                  const ask = hoverRef.current;
+                  if (!ask) return null;
+                  const word = model.getWordAtPosition?.(position)?.word;
+                  if (!word) return null;
+                  const answer = await ask(word);
+                  if (!answer) return null;
+                  return {
+                    contents: [
+                      { value: `\`${word}\` = \`${answer.value}\`` },
+                      ...(answer.kind ? [{ value: `_${answer.kind}_` }] : []),
+                    ],
+                  };
+                },
               });
             }
             drawBreakpoints();

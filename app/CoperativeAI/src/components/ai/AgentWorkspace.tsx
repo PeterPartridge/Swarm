@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { relativeTo } from "../../lib/breakpoints";
+import { debugEvaluate } from "../../lib/backend";
 import { useWorkChanged } from "../../lib/workSignal";
 import AgentJobPanel from "./AgentJobPanel";
 import AgentLane, { hueFor, markFor, status, type Agent } from "./AgentLane";
@@ -94,6 +95,10 @@ export default function AgentWorkspace({
     frame: Frame;
     solutionId: number;
     path: string;
+    /** Whether this debugger answers a hover. Carried with the stop rather than
+     *  asked for per pointer movement — it is settled when the session starts
+     *  and does not change while one runs. */
+    hovers: boolean;
   } | null>(null);
 
   /// One change review per Solution, read here so the workbench and the ship
@@ -271,7 +276,7 @@ export default function AgentWorkspace({
    *  stack still lists it, but no file is opened and nothing is highlighted.
    *  Guessing at a file would be worse than showing none. */
   const onDebugStopped = useCallback(
-    (at: { session: string; threadId: number; frame: Frame }) => {
+    (at: { session: string; threadId: number; frame: Frame; hovers: boolean }) => {
       const owner = solutions.find(
         (s) => s.localPath && relativeTo(s.localPath, at.frame.path) !== null,
       );
@@ -287,6 +292,33 @@ export default function AgentWorkspace({
       }
     },
     [solutions],
+  );
+
+  /// Works out a name hovered in the editor, in the frame that is selected.
+  ///
+  /// **Only where it would mean something.** Nothing is offered unless a
+  /// debugger is stopped in *this* file — a value from a program stopped
+  /// somewhere else, or from a file the stop has nothing to do with, would be
+  /// an answer to a question nobody asked. A refusal comes back as null so the
+  /// editor simply shows nothing, which is what a hover over an ordinary word
+  /// should do anyway.
+  const hoverHere = useCallback(
+    async (expression: string) => {
+      if (!stop || !stop.hovers || stop.solutionId !== fileFrom || stop.path !== selectedFile) {
+        return null;
+      }
+      try {
+        const answer = await debugEvaluate(stop.session, expression, stop.frame.id, "hover");
+        // An adapter answers an unknown name with an empty result rather than
+        // an error, and a tooltip reading `total = ` is worse than none.
+        return answer.value === "" ? null : { value: answer.value, kind: answer.kind };
+      } catch {
+        // Not in scope, not a variable, or a word that is not an expression at
+        // all — hovering `func` should say nothing, not raise anything.
+        return null;
+      }
+    },
+    [stop, fileFrom, selectedFile],
   );
 
   const browsingSolution = solutions.find((s) => s.id === browsing) ?? null;
@@ -419,6 +451,9 @@ export default function AgentWorkspace({
                 stop && stop.solutionId === openFileSolution.id && stop.path === selectedFile
                   ? stop.frame.line
                   : null
+              }
+              onHover={
+                stop?.hovers && stop.solutionId === openFileSolution.id ? hoverHere : undefined
               }
               onClose={() => {
                 setSelectedFile(null);

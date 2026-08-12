@@ -73,7 +73,15 @@ export default function DebugBoard({
   solutions: Solution[];
   /** Passed straight through to each session — the workspace above needs the
    *  stop so it can open the file and keep the stepping controls in reach. */
-  onStopped?: (at: { session: string; threadId: number; frame: DebugFrame }) => void;
+  onStopped?: (at: {
+    session: string;
+    threadId: number;
+    frame: DebugFrame;
+    /** Whether this adapter answers a hover — settled when the session starts,
+     *  and carried with the stop so the editor need not ask per pointer
+     *  movement. */
+    hovers: boolean;
+  }) => void;
   onResumed?: () => void;
   /** False while Debug is mounted but behind another Build pane. The shells
    *  keep running; only their terminals stop being measured. */

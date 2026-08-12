@@ -18,9 +18,29 @@ vi.mock("@monaco-editor/react", async () => {
   // Lets a test act as the developer dragging a selection: the fake editor
   // hands the range's own text back through getValueInRange, like Monaco does.
   let selectionListener: ((ev: { selection: unknown }) => void) | null = null;
+  // The hover provider the editor registers, so a test can act as the pointer.
+  let hoverProvider:
+    | {
+        provideHover: (
+          model: unknown,
+          position: unknown,
+        ) => Promise<{ contents: { value: string }[] } | null>;
+      }
+    | null = null;
+  let disposed = false;
   return {
     __fireSelection: (text: string) =>
       selectionListener?.({ selection: { __text: text } }),
+    /// Acts as a pointer resting on a word. Null when nothing registered one.
+    __hover: async (word: string) =>
+      hoverProvider
+        ? await hoverProvider.provideHover(
+            { getWordAtPosition: () => ({ word, startColumn: 1, endColumn: 1 }) },
+            { lineNumber: 1, column: 1 },
+          )
+        : null,
+    __registered: () => hoverProvider !== null,
+    __disposed: () => disposed,
     default: (props: {
       value: string;
       onChange: (v: string | undefined) => void;
@@ -35,9 +55,33 @@ vi.mock("@monaco-editor/react", async () => {
           },
           getModel: () => ({
             getValueInRange: (range: unknown) => (range as { __text: string }).__text,
+            getLanguageId: () => "go",
           }),
         },
-        { KeyMod: { CtrlCmd: 2048 }, KeyCode: { KeyS: 49 } },
+        {
+          KeyMod: { CtrlCmd: 2048 },
+          KeyCode: { KeyS: 49 },
+          languages: {
+            registerHoverProvider: (
+              _language: string,
+              provider: {
+                provideHover: (
+                  model: unknown,
+                  position: unknown,
+                ) => Promise<{ contents: { value: string }[] } | null>;
+              },
+            ) => {
+              hoverProvider = provider;
+              disposed = false;
+              return {
+                dispose: () => {
+                  hoverProvider = null;
+                  disposed = true;
+                },
+              };
+            },
+          },
+        },
       );
       return createElement("textarea", {
         "aria-label": props["aria-label"],
@@ -274,5 +318,102 @@ describe("CodeWindow", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("nothing is written under .git");
     expect(screen.getByLabelText(".git/config has unsaved changes")).toBeInTheDocument();
+  });
+
+  /// **The same `evaluate` the watch pane uses, asked because a pointer
+  /// moved.** Hovering a name is where somebody instinctively looks first, and
+  /// it is one request away from what the pane beside it already does.
+  it("answers a hover with what the name comes to", async () => {
+    const monaco = (await import("@monaco-editor/react")) as unknown as {
+      __hover: (word: string) => Promise<{ contents: { value: string }[] } | null>;
+    };
+    render(
+      <CodeWindow
+        solutionId={1}
+        path="main.go"
+        value="total := subtotal + tax"
+        saved="total := subtotal + tax"
+        onChange={() => {}}
+        onSaved={() => {}}
+        onHover={async (expression) =>
+          expression === "subtotal" ? { value: "11810", kind: "int" } : null
+        }
+      />,
+    );
+    await waitFor(() => expect(screen.getByLabelText("Editor for main.go")).toBeInTheDocument());
+
+    const answer = await monaco.__hover("subtotal");
+    expect(answer?.contents.map((c) => c.value).join(" ")).toContain("11810");
+    // The type is worth saying and is said separately, so a long one does not
+    // crowd the value out of the first line.
+    expect(answer?.contents.map((c) => c.value).join(" ")).toContain("int");
+  });
+
+  /// Hovering an ordinary word — a keyword, a comment — must say nothing at
+  /// all rather than an empty tooltip.
+  it("says nothing when there is no value for the word", async () => {
+    const monaco = (await import("@monaco-editor/react")) as unknown as {
+      __hover: (word: string) => Promise<{ contents: { value: string }[] } | null>;
+    };
+    render(
+      <CodeWindow
+        solutionId={1}
+        path="main.go"
+        value="func main() {}"
+        saved="func main() {}"
+        onChange={() => {}}
+        onSaved={() => {}}
+        onHover={async () => null}
+      />,
+    );
+    await waitFor(() => expect(screen.getByLabelText("Editor for main.go")).toBeInTheDocument());
+
+    expect(await monaco.__hover("func")).toBeNull();
+  });
+
+  /// **No debugger, no provider.** An editor answering every hover with "no
+  /// debugger" would be worse than one that stays quiet, and a provider that
+  /// always returns nothing still costs a round trip per pointer movement.
+  it("registers no hover provider when there is nothing to ask", async () => {
+    const monaco = (await import("@monaco-editor/react")) as unknown as {
+      __registered: () => boolean;
+    };
+    render(
+      <CodeWindow
+        solutionId={1}
+        path="main.go"
+        value="func main() {}"
+        saved="func main() {}"
+        onChange={() => {}}
+        onSaved={() => {}}
+      />,
+    );
+    await waitFor(() => expect(screen.getByLabelText("Editor for main.go")).toBeInTheDocument());
+
+    expect(monaco.__registered()).toBe(false);
+  });
+
+  /// Monaco's providers belong to a language rather than to an editor, so one
+  /// left behind would have a closed file still answering hovers — through a
+  /// callback pointing at a debug session that has since ended.
+  it("takes its hover provider away when the editor goes", async () => {
+    const monaco = (await import("@monaco-editor/react")) as unknown as {
+      __disposed: () => boolean;
+    };
+    const { unmount } = render(
+      <CodeWindow
+        solutionId={1}
+        path="main.go"
+        value="x := 1"
+        saved="x := 1"
+        onChange={() => {}}
+        onSaved={() => {}}
+        onHover={async () => ({ value: "1", kind: "int" })}
+      />,
+    );
+    await waitFor(() => expect(screen.getByLabelText("Editor for main.go")).toBeInTheDocument());
+
+    unmount();
+    expect(monaco.__disposed()).toBe(true);
   });
 });

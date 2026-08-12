@@ -34,6 +34,42 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 33 — hover to evaluate
+
+### My Feedback
+
+**Where somebody instinctively looks first.** A name in the editor, under the pointer, while the program is stopped — one request away from what the watch pane already did.
+
+**`context` is not a label.** It is the protocol's word for *why* this is being asked, and it changes the answer rather than annotating it. `"watch"` and `"hover"` both mean a value being displayed rather than a command being run; `"hover"` additionally says "a pointer moved", which is what `supportsEvaluateForHovers` gates. Verified both ways against Delve: **the hover answer had to equal the watch answer** for the same name in the same frame, because a tooltip telling a different story from the pane beside it would be worse than no tooltip.
+
+**A fourth thing the adapters disagree about.** js-debug and Delve answer hovers; netcoredbg does not — it evaluates perfectly well, so the watch pane works there, but it has not said it wants one call per pointer movement. That is refused before it reaches the wire rather than sent and hoped for, and the C# refusal test now asserts it alongside the other two.
+
+**The editor follows the selected frame, not only the stop.** This had to change for hover to be right: picking a caller and hovering a name there is a different question, and evaluating it in the innermost frame would have quietly answered the wrong one. So selecting a frame now moves the highlight to its line as well — which is what selecting it should have meant all along.
+
+**No debugger, no provider.** The hover is registered only when there is something to ask, and only for the open file's language. An editor answering every hover with "no debugger" would be worse than one that stays quiet, and a provider that always returns nothing still costs a round trip through Monaco per pointer movement.
+
+### Your Feedback
+
+- **The provider is disposed when the editor goes.** Monaco's providers belong to a *language*, not to an editor, so one left registered would have a closed file still answering hovers through a callback pointing at a session that has ended.
+- **An empty result is treated as nothing.** An adapter answers an unknown name with an empty string rather than an error, and a tooltip reading `total = ` is worse than none.
+- **A thrown error is silence too.** Hovering `func` or a comment is not a failure — it is a word that is not an expression, and the editor should say nothing rather than raise anything.
+- **The callback is held in a ref**, because the provider is registered once on mount and would otherwise capture the first render's copy and go stale the moment the program stepped.
+- **The type is a separate line** in the tooltip, so a long generic does not crowd the value out of the first one.
+- **A doc comment on a function parameter is a compile error in Rust** — it moved to the function's own doc, where it reads better anyway.
+
+### Technical Debt
+
+- **Nothing can be changed.** `setVariable` and `setExpression` are both in DAP and both are reported by these adapters, and there is still no way to put a value into a running program. This is the last obviously-missing piece of an ordinary debugger.
+- **A hover only works in the file the debugger stopped in.** Open a different file of the same Solution and there is nothing, even though the frame is perfectly evaluable — the gate is stricter than it needs to be.
+- **Hovering an expression is not offered, only a word.** Selecting `subtotal + tax` and hovering the selection is what a person would try next.
+- **The thread list has no filter**, and nothing shows what a thread is waiting on.
+- **Restarting a frame does not undo what it did**, and only js-debug can do it at all.
+- **Nothing validates a condition, an interpolation, a hit count or a watch as it is typed.**
+- **Log output is not marked as coming from a log point.**
+- **The breakpoint strip is only for the open file**, and is three boxes wide.
+- **debugpy has no launch shape** and cannot be verified here — no real Python on this machine.
+- Carried: only one js-debug child; the root's provisional breakpoints reach the UI; `built_assembly` picks the newest build rather than a configured one; the Rust suite leaves scratch directories in `%TEMP%`.
+
 ## Round 32 — watch expressions
 
 ### My Feedback

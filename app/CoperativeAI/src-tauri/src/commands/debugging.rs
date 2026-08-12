@@ -193,6 +193,8 @@ pub struct StartedDebug {
     /// Whether one frame can be run again from its first line — the only thing
     /// DAP offers that acts on a frame rather than a thread.
     pub restart_frame: bool,
+    /// Whether it answers an `evaluate` sent because a pointer moved.
+    pub hovers: bool,
 }
 
 /// The launch arguments for one language.
@@ -309,6 +311,7 @@ pub async fn debug_start(
         log_points: honours.log_points,
         hit_counts: honours.hit_counts,
         restart_frame: honours.restart_frame,
+        hovers: honours.hovers,
     })
 }
 
@@ -412,12 +415,17 @@ pub async fn debug_expand(
 /// is out of scope in the frame you have selected is a normal thing to be
 /// looking at — you set it for a different frame — so the message comes back to
 /// be shown against that one expression rather than raised over the panel.
+///
+/// `context` is `"watch"` from the watch pane and `"hover"` from the editor.
+/// Not a label: it changes what the adapter is willing to do, and `"hover"` is
+/// refused outright where the adapter has not said it answers them.
 #[tauri::command]
 pub async fn debug_evaluate(
     sessions: State<'_, DebugSessions>,
     session: String,
     expression: String,
     frame_id: i64,
+    context: String,
 ) -> Result<Variable, String> {
     let held = sessions
         .0
@@ -426,7 +434,7 @@ pub async fn debug_evaluate(
     let Some(live) = held.get(&session) else {
         return Err("that debug session has ended".into());
     };
-    live.evaluate(&expression, frame_id)
+    live.evaluate(&expression, frame_id, &context)
 }
 
 /// Every thread the program has.

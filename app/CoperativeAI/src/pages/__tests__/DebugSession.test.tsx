@@ -81,6 +81,7 @@ describe("DebugSession", () => {
       logPoints: true,
       hitCounts: true,
       restartFrame: true,
+      hovers: true,
     });
     mocked.debugStop.mockResolvedValue();
     mocked.debugResume.mockResolvedValue();
@@ -255,6 +256,40 @@ describe("DebugSession", () => {
     await user.click(within(panel).getByLabelText("Open order"));
 
     expect(await within(panel).findByText(/that debug session has ended/)).toBeInTheDocument();
+  });
+
+  /// **The editor follows the selection, not only the stop.** Picking a caller
+  /// is a request to look at that frame — so the highlight moves to its line,
+  /// and a hover there is evaluated in its scope, which is a different question
+  /// from the same name in the innermost frame.
+  it("tells the workspace which frame is selected, not only where it stopped", async () => {
+    const user = userEvent.setup();
+    const seen: { line: number; hovers: boolean }[] = [];
+    mocked.debugStack.mockResolvedValue([
+      { id: 1000, name: "main.priced", path: "C:/repos/orders/main.go", line: 8, column: 2, canRestart: true },
+      { id: 1001, name: "main.main", path: "C:/repos/orders/main.go", line: 12, column: 2, canRestart: true },
+    ]);
+    mocked.debugVariables.mockResolvedValue([]);
+    render(
+      <DebugSession
+        solution={sol()}
+        onStopped={(at) => seen.push({ line: at.frame.line, hovers: at.hovers })}
+      />,
+    );
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+
+    const panel = screen.getByRole("region", { name: "Debugger for Orders" });
+    await within(panel).findByLabelText("Frame main.main");
+    expect(seen[seen.length - 1]).toEqual({ line: 8, hovers: true });
+
+    await user.click(within(panel).getByLabelText("Frame main.main"));
+
+    await waitFor(() => expect(seen[seen.length - 1]).toEqual({ line: 12, hovers: true }));
   });
 
   /// **What the variable list cannot answer.** That shows what happens to have
@@ -655,6 +690,7 @@ describe("DebugSession", () => {
       logPoints: true,
       hitCounts: false,
       restartFrame: false,
+      hovers: true,
     });
     mocked.debugStack.mockResolvedValue([
       { id: 1000, name: "inner", path: "C:/repos/orders/main.go", line: 2, column: 2, canRestart: true },
@@ -748,6 +784,7 @@ describe("DebugSession", () => {
       logPoints: true,
       hitCounts: true,
       restartFrame: true,
+      hovers: true,
     });
     render(<DebugSession solution={sol()} />);
 

@@ -31,12 +31,17 @@ export default function BuildFileEditor({
   path,
   onClose,
   stoppedLine,
+  onHover,
 }: {
   solution: Solution;
   path: string;
   onClose: () => void;
   /** The line the debugger is stopped on, when the stop is in this file. */
   stoppedLine?: number | null;
+  /** Works out what a name under the pointer comes to. Absent when nothing is
+   *  stopped here, so the editor registers no hover at all rather than one that
+   *  always says "no debugger". */
+  onHover?: (expression: string) => Promise<{ value: string; kind: string } | null>;
 }) {
   const [saved, setSaved] = useState("");
   const [value, setValue] = useState("");
@@ -168,6 +173,7 @@ export default function BuildFileEditor({
             setMarks((prev) => toggleBreakpoint(prev, solution.id, path, line))
           }
           stoppedLine={stoppedLine}
+          onHover={onHover}
         />
       )}
     </section>

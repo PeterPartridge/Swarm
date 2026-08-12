@@ -302,6 +302,8 @@ struct Core {
     hit_counts: AtomicBool,
     /// Whether the adapter can rewind to the start of a frame.
     restart_frame: AtomicBool,
+    /// Whether it is safe to evaluate as a pointer moves over the editor.
+    hovers: AtomicBool,
     on_event: EventSink,
 }
 
@@ -317,6 +319,15 @@ pub struct Honours {
     pub log_points: bool,
     /// `supportsHitConditionalBreakpoints`.
     pub hit_counts: bool,
+    /// `supportsEvaluateForHovers`.
+    ///
+    /// **A capability about where, not what.** `evaluate` itself is always
+    /// available — the watch pane needs no permission. This flag is the
+    /// adapter saying it is safe to call *repeatedly and unasked*, as a pointer
+    /// moves over a file. An adapter without it may be slow enough to make the
+    /// editor stutter, or may have side effects it only avoids when told the
+    /// call was deliberate.
+    pub hovers: bool,
     /// `supportsRestartFrame` — the only thing DAP offers that acts on a
     /// **frame** rather than a thread.
     ///
@@ -341,6 +352,7 @@ impl Core {
             log_points: self.log_points.load(Ordering::Relaxed),
             hit_counts: self.hit_counts.load(Ordering::Relaxed),
             restart_frame: self.restart_frame.load(Ordering::Relaxed),
+            hovers: self.hovers.load(Ordering::Relaxed),
         }
     }
 
@@ -401,6 +413,7 @@ impl Live {
             log_points: AtomicBool::new(false),
             hit_counts: AtomicBool::new(false),
             restart_frame: AtomicBool::new(false),
+            hovers: AtomicBool::new(false),
             on_event: Box::new(on_event),
         });
 
@@ -441,6 +454,12 @@ impl Live {
         );
         self.core.restart_frame.store(
             body.get("supportsRestartFrame")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            Ordering::Relaxed,
+        );
+        self.core.hovers.store(
+            body.get("supportsEvaluateForHovers")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false),
             Ordering::Relaxed,
@@ -578,17 +597,28 @@ impl Live {
     ///
     /// Answers in the same shape as a variable, so a watch that comes back a
     /// struct opens with [`Live::expand`] like any other.
-    pub fn evaluate(&self, expression: &str, frame_id: i64) -> Result<Variable, String> {
+    ///
+    /// `context` is the protocol's word for *why* this is being asked, and it
+    /// changes the answer rather than only labelling it. `"watch"` and
+    /// `"hover"` both mean a value being displayed rather than a command being
+    /// run — side effects avoided where the adapter can avoid them — but
+    /// `"hover"` additionally says "a pointer moved", which some adapters
+    /// answer more cheaply and which `supportsEvaluateForHovers` gates.
+    pub fn evaluate(
+        &self,
+        expression: &str,
+        frame_id: i64,
+        context: &str,
+    ) -> Result<Variable, String> {
+        if context == "hover" && !self.core.hovers.load(Ordering::Relaxed) {
+            return Err("this debugger does not answer hovers".into());
+        }
         let body = self.core.talker().request(
             "evaluate",
             json!({
                 "expression": expression,
                 "frameId": frame_id,
-                // "watch" tells the adapter this is a value being displayed
-                // rather than a command being run: side effects are avoided
-                // where the adapter can avoid them, and js-debug in particular
-                // formats the answer for reading rather than for a console.
-                "context": "watch",
+                "context": context,
             }),
         )?;
         Ok(Variable {
@@ -1342,7 +1372,7 @@ mod tests {
         let inner = frames.first().expect("a frame").clone();
 
         // Arithmetic over two locals: no scope holds this under any name.
-        let sum = live.evaluate("subtotal + tax", inner.id).expect("evaluate");
+        let sum = live.evaluate("subtotal + tax", inner.id, "watch").expect("evaluate");
         assert_eq!(
             sum.value, "12995",
             "the expression should be worked out, not looked up: {sum:?}"
@@ -1350,11 +1380,11 @@ mod tests {
 
         // A call into the program's own standard library, which is further
         // still from anything the variable list could show.
-        let counted = live.evaluate("len(items)", inner.id).expect("evaluate len");
+        let counted = live.evaluate("len(items)", inner.id, "watch").expect("evaluate len");
         assert_eq!(counted.value, "2", "len(items) should come back: {counted:?}");
 
         // A composite answers with a handle, so a watch opens like any variable.
-        let listed = live.evaluate("items", inner.id).expect("evaluate items");
+        let listed = live.evaluate("items", inner.id, "watch").expect("evaluate items");
         assert!(
             listed.children > 0,
             "a slice should carry a handle to its elements: {listed:?}"
@@ -1371,15 +1401,26 @@ mod tests {
             .iter()
             .find(|f| f.name.contains("main.main"))
             .unwrap_or_else(|| panic!("main should be on the stack: {frames:?}"));
-        let elsewhere = live.evaluate("subtotal + tax", caller.id);
+        let elsewhere = live.evaluate("subtotal + tax", caller.id, "watch");
         assert!(
             elsewhere.is_err(),
             "it is not in scope in the caller, and saying so is the point: {elsewhere:?}"
         );
 
         // And the session is still perfectly usable afterwards.
-        let again = live.evaluate("tax", inner.id).expect("still working");
+        let again = live.evaluate("tax", inner.id, "watch").expect("still working");
         assert_eq!(again.value, "1185");
+
+        // **The same request, asked because a pointer moved.** Delve reports
+        // `supportsEvaluateForHovers`, so this is allowed to go out — and the
+        // answer has to match the one the watch pane got, or hovering a name
+        // would be telling a different story from the pane beside it.
+        assert!(live.honours().hovers, "Delve answers hovers");
+        let hovered = live.evaluate("tax", inner.id, "hover").expect("hover");
+        assert_eq!(
+            hovered.value, again.value,
+            "a hover and a watch on the same name in the same frame are the same question"
+        );
 
         live.stop();
         let _ = std::fs::remove_dir_all(&dir);
@@ -1761,6 +1802,11 @@ mod tests {
         assert!(honours.conditions, "netcoredbg does do conditions");
         assert!(!honours.log_points, "netcoredbg reports no log points");
         assert!(!honours.hit_counts, "netcoredbg reports no hit counts");
+        // It answers `evaluate` perfectly well — the watch pane works here —
+        // but has not said it wants one per pointer movement, so the hover
+        // context is refused before it reaches the wire rather than being sent
+        // and hoped for.
+        assert!(!honours.hovers, "netcoredbg reports no hover evaluation");
 
         // A log point and a hit count, neither of which this adapter can do.
         let asked = vec![

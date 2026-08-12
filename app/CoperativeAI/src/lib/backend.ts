@@ -1713,6 +1713,12 @@ export interface StartedDebug {
    *  `stepOut` all take a thread, so a step always acts on the innermost frame
    *  however the stack is selected. */
   restartFrame: boolean;
+  /** Whether it answers an `evaluate` sent because a pointer moved.
+   *
+   *  `evaluate` itself is always available — the watch pane needs no
+   *  permission. This is the adapter saying it is safe to call repeatedly and
+   *  unasked, as a pointer travels over a file. */
+  hovers: boolean;
 }
 
 /** Starts a program under its debugger with breakpoints already set.
@@ -1762,7 +1768,12 @@ export const debugEvaluate = (
   session: string,
   expression: string,
   frameId: number,
-): Promise<DebugVariable> => invoke("debug_evaluate", { session, expression, frameId });
+  /** `"watch"` from the watch pane, `"hover"` from the editor. Not a label: it
+   *  changes what the adapter is willing to do, and `"hover"` is refused where
+   *  the adapter has not said it answers them. */
+  context: "watch" | "hover" = "watch",
+): Promise<DebugVariable> =>
+  invoke("debug_evaluate", { session, expression, frameId, context });
 export const debugStack = (session: string, threadId: number): Promise<Frame[]> =>
   invoke("debug_stack", { session, threadId });
 export const debugVariables = (
