@@ -7744,6 +7744,18 @@ button.ready-action.link:hover {
   color: var(--fg-dim);
 }
 
+/* A run that was written into. Marked rather than merely mentioned: it stays
+   for the session, because the effect of a write does too. */
+.session-written {
+  margin: 0.25rem 0;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.68rem;
+  color: var(--fg-bright);
+  background: color-mix(in srgb, var(--warn, var(--bad)) 12%, transparent);
+  border-left: 2px solid var(--warn, var(--bad));
+  border-radius: 3px;
+}
+
 .output-line {
   display: flex;
   gap: 0.4rem;

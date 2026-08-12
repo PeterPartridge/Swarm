@@ -294,6 +294,18 @@ export default function DebugSession({
   /// running program is not a thing to be doing in three places at once
   /// without noticing.
   const [editing, setEditing] = useState<{ path: string; typed: string } | null>(null);
+  /// Everything that has been written into the running program.
+  ///
+  /// **Because a run that was interfered with is not a reproduction of
+  /// anything.** Changing a value is the fastest way to reach a branch you
+  /// cannot otherwise get to, and it silently turns the rest of the session
+  /// into a story about a program that never ran. Nothing recorded that, so
+  /// "it does not reproduce" half an hour later had no way of knowing why.
+  ///
+  /// Kept for the whole session rather than cleared on the next step: the
+  /// effect of a write does not end when the program moves on, so neither does
+  /// the note about it.
+  const [written, setWritten] = useState<{ what: string; to: string }[]>([]);
 
   /// The session id as the event listener sees it. A listener registered once
   /// would otherwise capture the id from the render it was created in, and stop
@@ -563,6 +575,10 @@ export default function DebugSession({
     setBusy(true);
     setError(null);
     setOutput([]);
+    setPlaced([]);
+    // A new run is a clean one. The only place this is cleared: a step does not
+    // undo a write, so the note about one outlives the program moving on.
+    setWritten([]);
     try {
       const marks = absoluteFor(loadBreakpoints(), solution.id, solution.localPath);
       const started = await debugStart(language ?? "go", solution.localPath, marks);
@@ -618,13 +634,21 @@ export default function DebugSession({
   /// the lot — so replacing just that row would leave everything else on screen
   /// quietly stale. Asking again is the only version that is true.
   async function setValue(variable: DebugVariable, value: string) {
-    await write(() => debugSetVariable(session!, variable.parent, variable.name, value));
+    await write(
+      () => debugSetVariable(session!, variable.parent, variable.name, value),
+      variable.name,
+      value,
+    );
   }
 
   /// The same, for a watched expression. A different request rather than a
   /// fallback — see `debugSetExpression`.
   async function assignWatch(expression: string, value: string) {
-    await write(() => debugSetExpression(session!, expression, frameId!, value));
+    await write(
+      () => debugSetExpression(session!, expression, frameId!, value),
+      expression,
+      value,
+    );
   }
 
   /// Makes one write, then re-reads the frame it was made in.
@@ -638,13 +662,18 @@ export default function DebugSession({
   /// of the stack: `showFrame` also tells the workspace where the program is,
   /// and handing it anything less than the real frame would move the editor's
   /// highlight to a line the program was never on.
-  async function write(make: () => Promise<unknown>) {
+  async function write(make: () => Promise<unknown>, what: string, to: string) {
     const here = frames.find((f) => f.id === frameId);
     if (!session || frameId === null || !here) return;
     setEditing(null);
     try {
       await make();
       setError(null);
+      // Recorded only once it worked: a refused write changed nothing, and
+      // saying otherwise would be its own kind of lie.
+      setWritten((prev) =>
+        prev.some((w) => w.what === what && w.to === to) ? prev : [...prev, { what, to }],
+      );
       // Every expansion goes with it: the handles are invalidated by a write
       // in the same way they are by a step.
       setOpened({});
@@ -816,6 +845,22 @@ export default function DebugSession({
       )}
       {error && <p role="alert">{error}</p>}
       {placedSaid && <p className="hint">{placedSaid}</p>}
+      {/* **Stated for the rest of the session.** Not a warning before the fact —
+          a confirmation would be in the way twenty times an hour and would be
+          clicked through without reading — but a standing note that this run is
+          no longer a faithful account of what the program does on its own. */}
+      {written.length > 0 && (
+        <p className="session-written" role="status">
+          This run has been interfered with:{" "}
+          {written.map((w, i) => (
+            <span key={`${w.what}-${i}`}>
+              {i > 0 ? ", " : ""}
+              <code>{w.what}</code> set to <code>{w.to}</code>
+            </span>
+          ))}
+          . Anything after that is a program that never ran on its own.
+        </p>
+      )}
       {/* Said once, on starting: the condition boxes in the editor are always
           there, and this is the only moment the adapter’s own answer is known. */}
       {conditions === false && (

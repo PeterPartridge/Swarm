@@ -303,6 +303,79 @@ describe("DebugSession", () => {
     await waitFor(() => expect(mocked.debugVariables).toHaveBeenCalledTimes(2));
   });
 
+  /// **A run that was written into is not a reproduction of anything.**
+  /// Changing a value is the fastest way to reach a branch you cannot otherwise
+  /// get to, and it silently turns the rest of the session into a story about a
+  /// program that never ran. Nothing recorded that, so "it does not reproduce"
+  /// half an hour later had no way of knowing why.
+  it("says for the rest of the session that a value was written", async () => {
+    const user = userEvent.setup();
+    mocked.debugStack.mockResolvedValue([
+      { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 8, column: 2, canRestart: true },
+    ]);
+    mocked.debugVariables.mockResolvedValue([
+      { name: "tax", value: "1185", kind: "int", children: 0, parent: 12 },
+    ]);
+    mocked.debugSetVariable.mockResolvedValue({
+      name: "tax", value: "5000", kind: "int", children: 0, parent: 12,
+    });
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+
+    const panel = screen.getByRole("region", { name: "Debugger for Orders" });
+    await user.click(await within(panel).findByLabelText("Change tax"));
+    const box = within(panel).getByLabelText("New value for tax");
+    await user.clear(box);
+    await user.type(box, "5000{Enter}");
+
+    const said = await within(panel).findByText(/This run has been interfered with/);
+    expect(said).toHaveTextContent("tax");
+    expect(said).toHaveTextContent("5000");
+
+    // **It outlives the program moving on**, because the effect of a write
+    // does — a step does not undo it.
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "continued", body: {} });
+    });
+    expect(within(panel).getByText(/This run has been interfered with/)).toBeInTheDocument();
+  });
+
+  /// A write that was refused changed nothing, and saying otherwise would be
+  /// its own kind of lie.
+  it("says nothing about a write that failed", async () => {
+    const user = userEvent.setup();
+    mocked.debugStack.mockResolvedValue([
+      { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 8, column: 2, canRestart: true },
+    ]);
+    mocked.debugVariables.mockResolvedValue([
+      { name: "tax", value: "1185", kind: "int", children: 0, parent: 12 },
+    ]);
+    mocked.debugSetVariable.mockRejectedValue("could not convert \"nope\" to int");
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+
+    const panel = screen.getByRole("region", { name: "Debugger for Orders" });
+    await user.click(await within(panel).findByLabelText("Change tax"));
+    const box = within(panel).getByLabelText("New value for tax");
+    await user.clear(box);
+    await user.type(box, "nope{Enter}");
+
+    expect(await within(panel).findByText(/could not convert/)).toBeInTheDocument();
+    expect(
+      within(panel).queryByText(/This run has been interfered with/),
+    ).not.toBeInTheDocument();
+  });
+
   /// Escape has to leave the program exactly as it was — the only safe thing a
   /// half-typed value can do.
   it("writes nothing when an edit is abandoned", async () => {
