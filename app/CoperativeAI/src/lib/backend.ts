@@ -1258,6 +1258,15 @@ export interface ClaudeCodeStatus {
   path: string;
   /** Why it did not, phrased as what to do next. */
   problem: string;
+  /** Whether it is signed in.
+   *
+   *  **Installed and signed in are separate answers.** `claude --version`
+   *  answers happily while the session is dead, which is why an expired
+   *  sign-in used to look like a healthy provider right up until the first
+   *  real turn failed. */
+  signedIn: boolean;
+  /** How — a subscription, an API key, or nothing. */
+  authMethod: string;
 }
 
 /** Whether the `claude` CLI on this machine can run.
@@ -1281,6 +1290,19 @@ export const setPaidApiAllowed = (allowed: boolean): Promise<void> =>
 
 export const claudeCodeStatus = (executable = ""): Promise<ClaudeCodeStatus> =>
   invoke("claude_code_status", { executable });
+
+/** Opens a terminal and starts the Claude Code sign-in in it.
+ *
+ *  Signing in opens a browser and then waits for a person to confirm, so it
+ *  cannot be a silent background call — what it needs is a terminal somebody is
+ *  looking at, which this app has. The terminal it opens is a real one and
+ *  appears with the others on the Build board. */
+export const openClaudeSignIn = (
+  executable = "",
+  cols = 100,
+  rows = 28,
+): Promise<{ id: string; cwd: string }> =>
+  invoke("open_claude_sign_in", { executable, cols, rows });
 
 /** Installs Claude Code globally with npm, returning what npm said.
  *

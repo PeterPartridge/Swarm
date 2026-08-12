@@ -216,9 +216,13 @@ pub async fn set_paid_api_allowed(db: State<'_, AppDb>, allowed: bool) -> Result
 /// *before* a provider exists — the first step is installing it, and a check
 /// that needed the thing it is checking for would be no use.
 ///
-/// It reports installed-or-not and nothing about the sign-in, which cannot be
-/// established without a real turn that spends plan allowance. The guide says
-/// so rather than leaving a green tick to imply more than was checked.
+/// **It reports the sign-in too, and that turned out to be free.** This used to
+/// say the sign-in could not be established without a real turn that spends plan
+/// allowance — which was wrong, and wrong in the direction that hurt: `claude
+/// --version` answers happily while the session is dead, so a panel that only
+/// asked that showed a working install right up until the first real turn
+/// failed. `claude auth status` answers directly, runs no model, and comes back
+/// in about a second.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaudeCodeStatus {
@@ -231,17 +235,31 @@ pub struct ClaudeCodeStatus {
     pub path: String,
     /// Why it did not, in words that say what to do next.
     pub problem: String,
+    /// Whether it is signed in. **Installed and signed in are separate
+    /// answers**, and a panel that runs them together is the reason an expired
+    /// session looked like a healthy provider.
+    pub signed_in: bool,
+    /// How — a subscription, an API key, or nothing.
+    pub auth_method: String,
 }
 
 #[tauri::command]
 pub async fn claude_code_status(executable: String) -> Result<ClaudeCodeStatus, String> {
     match crate::ai::claude_code::discover(&executable).await {
-        Ok((path, version)) => Ok(ClaudeCodeStatus {
-            installed: true,
-            version,
-            path: path.display().to_string(),
-            problem: String::new(),
-        }),
+        Ok((path, version)) => {
+            // Asked only once something is there to ask. A failure here is not
+            // a failure of the panel: an older CLI may not know the subcommand,
+            // and "installed, sign-in unknown" is still a useful answer.
+            let auth = crate::ai::claude_code::auth_status(&executable).await.ok();
+            Ok(ClaudeCodeStatus {
+                installed: true,
+                version,
+                path: path.display().to_string(),
+                problem: String::new(),
+                signed_in: auth.as_ref().is_some_and(|a| a.logged_in),
+                auth_method: auth.map(|a| a.auth_method).unwrap_or_default(),
+            })
+        }
         // Not an `Err`: "it is not installed" is the answer to this question,
         // not a failure to answer it. A thrown error would make the guide show
         // a red alert where it should be showing step one.
@@ -250,6 +268,8 @@ pub async fn claude_code_status(executable: String) -> Result<ClaudeCodeStatus, 
             version: String::new(),
             path: String::new(),
             problem,
+            signed_in: false,
+            auth_method: String::new(),
         }),
     }
 }

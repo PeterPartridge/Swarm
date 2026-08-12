@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   addClaudeCodeProvider,
   claudeCodeStatus,
+  openClaudeSignIn,
   getProductBudget,
   installClaudeCode,
   listAiProviders,
@@ -55,6 +56,8 @@ export default function ClaudeSetup({ productId }: { productId: number }) {
     installed: boolean;
     version: string;
     path: string;
+    signedIn: boolean;
+    authMethod: string;
   } | null>(null);
   /// Which stage is running, or null when nothing is. Drives the button's own
   /// label, so "what is it doing?" is answered where the press happened.
@@ -93,7 +96,13 @@ export default function ClaudeSetup({ productId }: { productId: number }) {
     }
     try {
       const status = await claudeCodeStatus(executable);
-      setCli({ installed: status.installed, version: status.version, path: status.path });
+      setCli({
+        installed: status.installed,
+        version: status.version,
+        path: status.path,
+        signedIn: status.signedIn,
+        authMethod: status.authMethod,
+      });
     } catch {
       setCli(null);
     }
@@ -143,7 +152,13 @@ export default function ClaudeSetup({ productId }: { productId: number }) {
         setStage("install");
         setLog(await installClaudeCode());
         const after = await claudeCodeStatus(executable);
-        setCli({ installed: after.installed, version: after.version, path: after.path });
+        setCli({
+          installed: after.installed,
+          version: after.version,
+          path: after.path,
+          signedIn: after.signedIn,
+          authMethod: after.authMethod,
+        });
         if (!after.installed) {
           // npm reported success and the tool still will not run. Saying so is
           // better than adding a provider that cannot work.
@@ -191,7 +206,30 @@ export default function ClaudeSetup({ productId }: { productId: number }) {
     }
   }
 
-  const planDone = Boolean(cli?.installed) && cliProvider !== null && isFirst;
+  /** Starts the sign-in in a terminal of the app's own.
+   *
+   *  **Not awaited to completion**, because completion happens in a browser and
+   *  in the terminal rather than here: the call returns as soon as the terminal
+   *  is open and the command has been typed into it. What comes back is a
+   *  re-check, which is the only thing that can honestly say it worked. */
+  async function signIn() {
+    setError(null);
+    setNotice(null);
+    try {
+      await openClaudeSignIn(executable);
+      setNotice(
+        "A terminal is open on the Build board with the sign-in running. Finish it there, " +
+          "then press Re-check.",
+      );
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  // Signed in is part of being ready: a provider that is installed, added and
+  // first in the chain still cannot run a single turn without it.
+  const planDone =
+    Boolean(cli?.installed) && Boolean(cli?.signedIn) && cliProvider !== null && isFirst;
   const apiDone = Boolean(apiProvider?.keyStored) && isFirst;
 
   /** What the button says. While working it names the stage, because "Setting
@@ -319,11 +357,34 @@ export default function ClaudeSetup({ productId }: { productId: number }) {
                 ? "This Product asks it before anything else."
                 : "Not this Product's first choice yet."}
             </li>
-            <li className="is-yours">
-              Signing in is yours to do: run <code>claude</code> once and choose
-              the subscription login, not an API key. This app cannot check it —
-              proving it would mean spending your allowance every time this page
-              opened.
+            {/* **This used to say the app could not check the sign-in**, on the
+                grounds that proving it would spend allowance on every page
+                load. Both halves were wrong: `claude auth status` answers
+                directly, runs no model and comes back in about a second — and
+                until it was asked, an expired session looked exactly like a
+                working provider. */}
+            <li className={cli?.signedIn ? "is-done" : "is-todo"}>
+              {cli?.signedIn ? (
+                <>
+                  Signed in{cli.authMethod ? ` — ${cli.authMethod}` : ""}.
+                </>
+              ) : (
+                <>
+                  {cli?.installed
+                    ? "Installed, but not signed in — which is why it can look healthy and still refuse every turn."
+                    : "Not signed in."}{" "}
+                  <button type="button" onClick={() => void signIn()} disabled={!cli?.installed}>
+                    Sign in
+                  </button>{" "}
+                  {/* Where it went, because a terminal opening somewhere else
+                      is otherwise a button that appears to do nothing. */}
+                  <span className="hint">
+                    Opens a terminal on the Build board and starts the sign-in
+                    there — it needs a browser and your confirmation, so it
+                    cannot happen quietly in the background.
+                  </span>
+                </>
+              )}
             </li>
           </>
         ) : (

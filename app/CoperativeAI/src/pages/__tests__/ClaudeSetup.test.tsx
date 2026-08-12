@@ -10,6 +10,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     ...original,
     listAiProviders: vi.fn(),
     claudeCodeStatus: vi.fn(),
+    openClaudeSignIn: vi.fn(),
     installClaudeCode: vi.fn(),
     addClaudeCodeProvider: vi.fn(),
     getProductBudget: vi.fn(),
@@ -78,6 +79,8 @@ describe("ClaudeSetup", () => {
       version: "",
       path: "",
       problem: "claude native binary not installed",
+      signedIn: false,
+      authMethod: "",
     });
   });
 
@@ -104,8 +107,8 @@ describe("ClaudeSetup", () => {
     const user = userEvent.setup();
     mocked.installClaudeCode.mockResolvedValue("added 1 package");
     mocked.claudeCodeStatus
-      .mockResolvedValueOnce({ installed: false, version: "", path: "", problem: "not installed" })
-      .mockResolvedValue({ installed: true, version: "2.1.0", path: "", problem: "" });
+      .mockResolvedValueOnce({ installed: false, version: "", path: "", problem: "not installed", signedIn: false, authMethod: "" })
+      .mockResolvedValue({ installed: true, version: "2.1.0", path: "", problem: "", signedIn: true, authMethod: "claudeai" });
     mocked.addClaudeCodeProvider.mockResolvedValue(7);
     mocked.setProductBudget.mockResolvedValue(undefined);
 
@@ -134,6 +137,8 @@ describe("ClaudeSetup", () => {
       version: "2.1.219 (Claude Code)",
       path: "C:\\Users\\me\\AppData\\Roaming\\Claude\\claude-code\\2.1.219\\claude.exe",
       problem: "",
+      signedIn: true,
+      authMethod: "claudeai",
     });
     render(<ClaudeSetup productId={1} />);
 
@@ -154,6 +159,8 @@ describe("ClaudeSetup", () => {
       version: "2.1.0",
       path: "",
       problem: "",
+      signedIn: true,
+      authMethod: "claudeai",
     });
     mocked.addClaudeCodeProvider.mockResolvedValue(7);
     mocked.setProductBudget.mockResolvedValue(undefined);
@@ -203,6 +210,8 @@ describe("ClaudeSetup", () => {
       version: "",
       path: "",
       problem: "claude native binary not installed",
+      signedIn: false,
+      authMethod: "",
     });
 
     render(<ClaudeSetup productId={1} />);
@@ -212,28 +221,35 @@ describe("ClaudeSetup", () => {
     expect(mocked.addClaudeCodeProvider).not.toHaveBeenCalled();
   });
 
-  /// Signing in is never claimed as done, and the reason it is not checked is
-  /// stated — a tick that quietly meant "probably" is the one that wastes an
-  /// afternoon.
-  it("never claims the sign-in, and says why it cannot", async () => {
+  /// **This test used to assert the opposite**, and was right to at the time:
+  /// the panel said signing in could not be checked because proving it would
+  /// spend plan allowance on every page load. That turned out to be wrong —
+  /// `claude auth status` answers directly, runs no model and comes back in
+  /// about a second — and until it was asked, an expired session was
+  /// indistinguishable from a working provider.
+  it("claims the sign-in only when it has actually been checked", async () => {
     mocked.claudeCodeStatus.mockResolvedValue({
       installed: true,
       version: "2.1.0",
       path: "",
       problem: "",
+      signedIn: true,
+      authMethod: "claudeai",
     });
     mocked.listAiProviders.mockResolvedValue([cliProvider]);
     mocked.getProductBudget.mockResolvedValue(budget([7]));
 
     render(<ClaudeSetup productId={1} />);
 
-    // Everything the app can do is done…
     expect(await screen.findByText(/Claude Code is installed — 2\.1\.0/)).toBeInTheDocument();
     expect(screen.getByText(/asks it before anything else/)).toBeInTheDocument();
-    // …and the one thing it cannot is still marked as yours, with the reason.
-    expect(screen.getByText(/Signing in is yours to do/)).toBeInTheDocument();
-    expect(screen.getByText(/spending your allowance/)).toBeInTheDocument();
+    // Said, because it was asked — and it names how, since a subscription and
+    // an API key are different things to be signed in with.
+    expect(screen.getByText(/Signed in — claudeai/)).toBeInTheDocument();
+    // Nothing left to press once it really is ready.
+    expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
   });
+
 
   /// The API route cannot be started without a key, and the panel says where to
   /// put one rather than offering a button that would fail.
@@ -312,6 +328,8 @@ describe("the paid-calls switch", () => {
       version: "2.1.219",
       path: "C:/claude.exe",
       problem: "",
+      signedIn: true,
+      authMethod: "claudeai",
     });
   });
 
@@ -353,5 +371,62 @@ describe("the paid-calls switch", () => {
 
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/read-only/));
     expect(toggle).not.toBeChecked();
+  });
+
+  /// **Installed is not signed in**, and treating them as one answer is why an
+  /// expired session looked like a healthy provider right up until the first
+  /// real turn failed.
+  it("says when Claude Code is installed but signed out, and offers to fix it", async () => {
+    mocked.claudeCodeStatus.mockResolvedValue({
+      installed: true,
+      version: "2.1.227 (Claude Code)",
+      path: "C:/claude.exe",
+      problem: "",
+      signedIn: false,
+      authMethod: "none",
+    });
+    render(<ClaudeSetup productId={1} />);
+
+    expect(
+      await screen.findByText(/Installed, but not signed in/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeEnabled();
+  });
+
+  /// The button opens a terminal and says where it went — one that appeared
+  /// somewhere else with no explanation would read as a press that did nothing.
+  it("starts the sign-in in a terminal and says where", async () => {
+    const user = userEvent.setup();
+    mocked.claudeCodeStatus.mockResolvedValue({
+      installed: true,
+      version: "2.1.227 (Claude Code)",
+      path: "C:/claude.exe",
+      problem: "",
+      signedIn: false,
+      authMethod: "none",
+    });
+    mocked.openClaudeSignIn.mockResolvedValue({ id: "term-0-1", cwd: "C:/Users/someone" });
+    render(<ClaudeSetup productId={1} />);
+
+    await user.click(await screen.findByRole("button", { name: "Sign in" }));
+
+    expect(mocked.openClaudeSignIn).toHaveBeenCalled();
+    expect(await screen.findByText(/terminal is open on the Build board/)).toBeInTheDocument();
+  });
+
+  /// Nothing to sign in with yet — a button that could only fail is worse than
+  /// one that is plainly not ready.
+  it("cannot sign in before Claude Code is installed", async () => {
+    mocked.claudeCodeStatus.mockResolvedValue({
+      installed: false,
+      version: "",
+      path: "",
+      problem: "not found",
+      signedIn: false,
+      authMethod: "",
+    });
+    render(<ClaudeSetup productId={1} />);
+
+    expect(await screen.findByRole("button", { name: "Sign in" })).toBeDisabled();
   });
 });

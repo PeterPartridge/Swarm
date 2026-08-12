@@ -110,6 +110,8 @@ describe("AdminArea", () => {
       version: "",
       path: "",
       problem: "not installed",
+      signedIn: false,
+      authMethod: "",
     });
     mocked.getActivePermissions.mockResolvedValue({
       memberId: null,
