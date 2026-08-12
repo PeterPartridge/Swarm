@@ -34,6 +34,31 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 38 — the breakpoints you cannot see
+
+### My Feedback
+
+**A breakpoint in a file nobody has open is invisible and still stops the program.** The strip added in round 27 only knows about the file in the editor, so a mark left behind in a file since closed halted a run with nothing on screen to explain it — and no way to clear it short of remembering where it was and opening that file again. The panel now lists every breakpoint in the Solution.
+
+**What makes each one behave differently is shown**, not just where it is: the condition, the hit count, and whether it logs instead of stopping. Two rows that stop very differently would otherwise look identical, which is worse than not listing them at all.
+
+**Removing one goes straight into the running session.** A breakpoint taken off a list while the program is stopped, and only really removed at the next launch, would be worse than one that did nothing — because you would believe it.
+
+**Said what running a frame again cannot undo**, on the control itself. The stack is rewound; a file that was written, a row that was inserted and a message that was sent have all still happened. That is inherent to what the protocol offers rather than a gap here, and the moment before pressing is the one time it matters.
+
+### Your Feedback
+
+- **The list is read afresh when a run starts.** The editor's gutter writes to the same store, so a list held from mount would show whatever happened to be marked when the panel first appeared.
+- **A name collision caught by the type checker was a real bug, not a typing one.** I called a local `current`, shadowing the ref that holds the session id — the session would have been written into a breakpoint store.
+
+### Technical Debt
+
+- **Nothing validates a condition, an interpolation, a hit count or a watch as it is typed** — and on reflection nothing here should invent a grammar to do it with, since the grammar belongs to the debugger. What would help is pushing them into a *running* session automatically, so the adapter's own refusal arrives while you are still looking at the box.
+- **The thread list has no filter.** Dozens of goroutines wrap into a wall and most are runtime internals.
+- **Only one js-debug child**, so a worker or a spawned process is not followed.
+- **debugpy has no launch shape**, and cannot be verified here: there is no real Python on this machine, only the Store alias stubs.
+- **The scratch sweep only runs when a test asks for a folder.** A suite that is never run again leaves its last set behind for good — harmless, but it is a sweep on entry rather than a sweep on exit and worth knowing.
+
 ## Round 37 — the debugger stops lying about itself
 
 Three things the app was saying that were not true, found by using it rather than by reading it.
