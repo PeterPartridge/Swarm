@@ -1684,6 +1684,11 @@ export interface DebugVariable {
   kind: string;
   /** Non-zero when it can be expanded. */
   children: number;
+  /** The `variablesReference` this was read out of, and what `setVariable`
+   *  names it by. Zero for something evaluated rather than read — an expression
+   *  is not held in a container, so it can only be changed through
+   *  `setExpression`. */
+  parent: number;
 }
 
 export interface StartedDebug {
@@ -1719,6 +1724,15 @@ export interface StartedDebug {
    *  permission. This is the adapter saying it is safe to call repeatedly and
    *  unasked, as a pointer travels over a file. */
   hovers: boolean;
+  /** Whether a named value can be changed in its container. */
+  setVariable: boolean;
+  /** Whether whatever an expression denotes can be changed.
+   *
+   *  **Not the same question.** `setVariable` needs a name in a container and
+   *  so cannot touch `order.Items[0].Price`; `setExpression` takes the
+   *  expression itself. Delve reports the first and not the second, so for Go a
+   *  local can be changed and a watch cannot. */
+  setExpression: boolean;
 }
 
 /** Starts a program under its debugger with breakpoints already set.
@@ -1789,6 +1803,30 @@ export const debugExpand = (
   session: string,
   reference: number,
 ): Promise<DebugVariable[]> => invoke("debug_expand", { session, reference });
+/** Puts a new value into a named variable, in its container.
+ *
+ *  **This writes into a running program.** The value is written in the
+ *  debuggee's own language and parsed by the adapter — `5000` for an int,
+ *  `"desk"` with its quotes for a Go string — because the grammar belongs to
+ *  the debugger, the same as a breakpoint condition.
+ *
+ *  Answers with what the value actually became, which is not always what was
+ *  asked for: an adapter may round, truncate or reformat. */
+export const debugSetVariable = (
+  session: string,
+  parent: number,
+  name: string,
+  value: string,
+): Promise<DebugVariable> =>
+  invoke("debug_set_variable", { session, parent, name, value });
+/** Puts a new value into whatever an expression denotes. */
+export const debugSetExpression = (
+  session: string,
+  expression: string,
+  frameId: number,
+  value: string,
+): Promise<DebugVariable> =>
+  invoke("debug_set_expression", { session, expression, frameId, value });
 /** Runs one frame again from its first line.
  *
  *  The only per-frame operation there is. Everything else about a stopped

@@ -34,6 +34,43 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 34 — changing a value in a running program
+
+### My Feedback
+
+**The last obviously-missing piece of an ordinary debugger**, and the one with real consequences: the program carries on from here with a value it would never have computed. It is the fastest way to reach a branch you cannot otherwise get to, and the fastest way to convince yourself of something untrue about a real run.
+
+**The assertion is deliberately not "the write succeeded".** Nor "the row now reads 5000" — either would pass against an adapter that acknowledged the write and changed nothing. It is that **a later evaluation of a different expression reflects it**: after setting `tax` to 5000, `subtotal + tax` came to **16810**, which the adapter has to work out afresh and can only reach if the program's own memory really changed.
+
+**Two requests, not one with a fallback.** `setVariable` names a value by its **container and its name**, so it cannot touch `order.Items[0].Price` — nothing holds that under that name. `setExpression` takes the expression itself. Delve reports the first and not the second, so for Go a local can be changed and a watch cannot, and that is a fifth thing the three adapters disagree about.
+
+**Which meant `Variable` had to remember where it came from.** A value read without keeping its `variablesReference` cannot afterwards be set — there is no identifier of its own to name it by. So every variable carries its parent, and an evaluated expression carries zero, which is exactly why it needs the other request.
+
+**Nothing is parsed here.** The new value goes to the adapter in the debuggee's own language — `5000` for an int, `"desk"` with its quotes for a Go string — for the same reason a breakpoint condition is not parsed: the grammar belongs to the debugger. And what comes back is what the value **became**, not what was typed, because an adapter may round, truncate or reformat.
+
+**A write re-reads the frame rather than patching the row.** It can change more than the row it was made on — an aliased pointer, a field two structs away, a watch over the lot — so replacing only that row would leave everything else on screen quietly stale.
+
+### Your Feedback
+
+- **Escape leaves the program exactly as it was**, which is the only safe thing a half-typed value can do, and is tested.
+- **One row at a time.** Writing into a running program is not something to be doing in three places at once without noticing.
+- **No editing at all where the adapter cannot write.** A value that opened and then refused would be worse than one that never opened.
+- **The re-read goes through the frame that is actually selected**, taken out of the stack. My first attempt handed `showFrame` a fabricated frame with `line: 0` — and since that function also tells the workspace where the program is, it would have moved the editor's highlight to a line the program was never on. Caught by the type checker, but it was a real bug and not a typing one.
+- **The edit box opens on the current value**, so a small change is a small change rather than a retype.
+- **All fifteen real-adapter tests pass.**
+
+### Technical Debt
+
+- **Nothing warns that a write is a write.** Setting a value silently changes a running program, and the UI treats it like editing a text field. A confirmation would be wrong — it would be in the way twenty times an hour — but nothing marks the session as having been interfered with either, so a later "it does not reproduce" has no record of why.
+- **A hover only works in the file the debugger stopped in**, and only for a word rather than a selection.
+- **The thread list has no filter**, and nothing shows what a thread is waiting on.
+- **Restarting a frame does not undo what it did**, and only js-debug can do it at all.
+- **Nothing validates a condition, an interpolation, a hit count or a watch as it is typed.**
+- **Log output is not marked as coming from a log point.**
+- **The breakpoint strip is only for the open file**, and is three boxes wide.
+- **debugpy has no launch shape** and cannot be verified here — no real Python on this machine.
+- Carried: only one js-debug child; the root's provisional breakpoints reach the UI; `built_assembly` picks the newest build rather than a configured one; the Rust suite leaves scratch directories in `%TEMP%`.
+
 ## Round 33 — hover to evaluate
 
 ### My Feedback

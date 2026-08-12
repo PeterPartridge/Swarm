@@ -11,6 +11,8 @@ import {
 import {
   debugResume,
   debugSetBreakpoints,
+  debugSetExpression,
+  debugSetVariable,
   debugEvaluate,
   debugExpand,
   debugRestartFrame,
@@ -87,12 +89,25 @@ function VariableTree({
   at,
   opened,
   onToggle,
+  editing,
+  onEdit,
+  onSet,
 }: {
   variables: DebugVariable[];
   /** The path of the parent, empty at the top. */
   at: string;
   opened: Record<string, Opened>;
   onToggle: (path: string, reference: number) => void;
+  /** The row being edited and the text typed into it so far, or null.
+   *
+   *  One at a time on purpose: writing into a running program is not something
+   *  to be doing in three places at once without noticing. */
+  editing: { path: string; typed: string } | null;
+  onEdit: (next: { path: string; typed: string } | null) => void;
+  /** Writes the value. Absent where the adapter cannot, in which case no value
+   *  is clickable — a field that opened and then refused would be worse than
+   *  one that never opened. */
+  onSet?: (variable: DebugVariable, value: string) => void;
 }) {
   return (
     <ul className="var-tree">
@@ -118,7 +133,34 @@ function VariableTree({
                 <span className="var-open empty" aria-hidden="true" />
               )}
               <span className="var-name">{v.name}</span>
-              <span className="var-value card-mono">{v.value}</span>
+              {editing?.path === path ? (
+                <input
+                  type="text"
+                  className="var-edit card-mono"
+                  aria-label={`New value for ${v.name}`}
+                  value={editing.typed}
+                  autoFocus
+                  onChange={(e) => onEdit({ path, typed: e.target.value })}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") onSet?.(v, editing.typed);
+                    // Escape leaves the program exactly as it was, which is the
+                    // only safe thing a half-typed value can do.
+                    if (e.key === "Escape") onEdit(null);
+                  }}
+                  onBlur={() => onEdit(null)}
+                />
+              ) : onSet && v.parent > 0 ? (
+                <button
+                  type="button"
+                  className="var-value card-mono var-settable"
+                  aria-label={`Change ${v.name}`}
+                  onClick={() => onEdit({ path, typed: v.value })}
+                >
+                  {v.value}
+                </button>
+              ) : (
+                <span className="var-value card-mono">{v.value}</span>
+              )}
               {v.kind && <span className="var-kind">{v.kind}</span>}
             </div>
             {open?.problem && <p className="hint var-problem">{open.problem}</p>}
@@ -131,6 +173,9 @@ function VariableTree({
                   at={path}
                   opened={opened}
                   onToggle={onToggle}
+                  editing={editing}
+                  onEdit={onEdit}
+                  onSet={onSet}
                 />
               ))}
           </li>
@@ -225,6 +270,14 @@ export default function DebugSession({
   /// is not about breakpoints at all — it is the only per-frame operation DAP
   /// has, and so the only thing selecting a frame can actually do.
   const [canRestartFrame, setCanRestartFrame] = useState<boolean | null>(null);
+  /// Whether this adapter will let a value be written, and whether it will
+  /// assign to an expression. Different questions — Delve does the first only.
+  const [canSetVariable, setCanSetVariable] = useState(false);
+  const [canSetExpression, setCanSetExpression] = useState(false);
+  /// The one row being edited. One at a time deliberately: writing into a
+  /// running program is not a thing to be doing in three places at once
+  /// without noticing.
+  const [editing, setEditing] = useState<{ path: string; typed: string } | null>(null);
 
   /// The session id as the event listener sees it. A listener registered once
   /// would otherwise capture the id from the render it was created in, and stop
@@ -467,6 +520,8 @@ export default function DebugSession({
       setHitCounts(started.hitCounts);
       setCanRestartFrame(started.restartFrame);
       hoversRef.current = started.hovers;
+      setCanSetVariable(started.setVariable);
+      setCanSetExpression(started.setExpression);
 
       // Where they actually landed, not where they were asked for: an adapter
       // slides a breakpoint to the next executable line.
@@ -520,6 +575,49 @@ export default function DebugSession({
   /// like any other. Only the top row differs, because that one has an
   /// expression rather than a name and can carry a problem instead of a value.
   const onToggleWatch = toggleVariable;
+
+  /// Writes a new value into a variable, then re-reads the frame.
+  ///
+  /// **Re-read rather than patched.** A write can change more than the row it
+  /// was made on — an aliased pointer, a field two structs away, a watch over
+  /// the lot — so replacing just that row would leave everything else on screen
+  /// quietly stale. Asking again is the only version that is true.
+  async function setValue(variable: DebugVariable, value: string) {
+    await write(() => debugSetVariable(session!, variable.parent, variable.name, value));
+  }
+
+  /// The same, for a watched expression. A different request rather than a
+  /// fallback — see `debugSetExpression`.
+  async function assignWatch(expression: string, value: string) {
+    await write(() => debugSetExpression(session!, expression, frameId!, value));
+  }
+
+  /// Makes one write, then re-reads the frame it was made in.
+  ///
+  /// **Re-read rather than patched.** A write can change more than the row it
+  /// was made on — an aliased pointer, a field two structs away, a watch over
+  /// the lot — so replacing only that row would leave everything else on
+  /// screen quietly stale. Asking again is the only version that is true.
+  ///
+  /// The re-read goes through the frame that is actually selected, taken out
+  /// of the stack: `showFrame` also tells the workspace where the program is,
+  /// and handing it anything less than the real frame would move the editor's
+  /// highlight to a line the program was never on.
+  async function write(make: () => Promise<unknown>) {
+    const here = frames.find((f) => f.id === frameId);
+    if (!session || frameId === null || !here) return;
+    setEditing(null);
+    try {
+      await make();
+      setError(null);
+      // Every expansion goes with it: the handles are invalidated by a write
+      // in the same way they are by a step.
+      setOpened({});
+      await showFrame(session, here);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
 
   /// Starts watching an expression, and works it out straight away.
   ///
@@ -843,11 +941,42 @@ export default function DebugSession({
                                 ordinary answer — you set it for another one —
                                 so it is said on the row rather than raised over
                                 the panel. */}
-                            <span
-                              className={answer?.problem ? "var-value hint" : "var-value card-mono"}
-                            >
-                              {answer?.problem ?? answer?.value?.value ?? "—"}
-                            </span>
+                            {editing?.path === `set/${expression}` ? (
+                              <input
+                                type="text"
+                                className="var-edit card-mono"
+                                aria-label={`New value for ${expression}`}
+                                value={editing.typed}
+                                autoFocus
+                                onChange={(e) =>
+                                  setEditing({ path: `set/${expression}`, typed: e.target.value })
+                                }
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter") void assignWatch(expression, editing.typed);
+                                  if (e.key === "Escape") setEditing(null);
+                                }}
+                                onBlur={() => setEditing(null)}
+                              />
+                            ) : canSetExpression && answer?.value ? (
+                              <button
+                                type="button"
+                                className="var-value card-mono var-settable"
+                                aria-label={`Change ${expression}`}
+                                onClick={() =>
+                                  setEditing({ path: `set/${expression}`, typed: answer.value!.value })
+                                }
+                              >
+                                {answer.value.value}
+                              </button>
+                            ) : (
+                              <span
+                                className={
+                                  answer?.problem ? "var-value hint" : "var-value card-mono"
+                                }
+                              >
+                                {answer?.problem ?? answer?.value?.value ?? "—"}
+                              </span>
+                            )}
                             {answer?.value?.kind && (
                               <span className="var-kind">{answer.value.kind}</span>
                             )}
@@ -867,6 +996,9 @@ export default function DebugSession({
                               at={path}
                               opened={opened}
                               onToggle={toggleVariable}
+                              editing={editing}
+                              onEdit={setEditing}
+                              onSet={canSetVariable ? setValue : undefined}
                             />
                           )}
                         </li>
@@ -886,6 +1018,9 @@ export default function DebugSession({
                     at=""
                     opened={opened}
                     onToggle={toggleVariable}
+                    editing={editing}
+                    onEdit={setEditing}
+                    onSet={canSetVariable ? setValue : undefined}
                   />
                 )}
               </div>

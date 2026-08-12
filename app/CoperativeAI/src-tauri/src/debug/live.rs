@@ -118,6 +118,13 @@ pub struct Variable {
     pub kind: String,
     /// Non-zero when this can be expanded — a struct, a slice, a map.
     pub children: i64,
+    /// The `variablesReference` this was read out of.
+    ///
+    /// **Needed to change it.** `setVariable` names a variable by its
+    /// container and its name, not by any identifier of its own, so a value
+    /// read without remembering where it came from cannot afterwards be set.
+    /// The scope for a local, the struct for a field.
+    pub parent: i64,
 }
 
 /// Which line in which file, as the UI holds it.
@@ -304,6 +311,10 @@ struct Core {
     restart_frame: AtomicBool,
     /// Whether it is safe to evaluate as a pointer moves over the editor.
     hovers: AtomicBool,
+    /// Whether a named value can be changed in its container.
+    set_variable: AtomicBool,
+    /// Whether whatever an expression denotes can be changed.
+    set_expression: AtomicBool,
     on_event: EventSink,
 }
 
@@ -319,6 +330,16 @@ pub struct Honours {
     pub log_points: bool,
     /// `supportsHitConditionalBreakpoints`.
     pub hit_counts: bool,
+    /// `supportsSetVariable` — changing a named value in its container.
+    pub set_variable: bool,
+    /// `supportsSetExpression` — changing whatever an expression denotes.
+    ///
+    /// **Not the same thing**, which is why both are here. `setVariable` needs
+    /// a name in a container and so cannot touch `order.Items[0].Price`;
+    /// `setExpression` takes the expression itself and can. Delve reports the
+    /// first and not the second, so a watch cannot be edited for Go while a
+    /// local can.
+    pub set_expression: bool,
     /// `supportsEvaluateForHovers`.
     ///
     /// **A capability about where, not what.** `evaluate` itself is always
@@ -353,6 +374,8 @@ impl Core {
             hit_counts: self.hit_counts.load(Ordering::Relaxed),
             restart_frame: self.restart_frame.load(Ordering::Relaxed),
             hovers: self.hovers.load(Ordering::Relaxed),
+            set_variable: self.set_variable.load(Ordering::Relaxed),
+            set_expression: self.set_expression.load(Ordering::Relaxed),
         }
     }
 
@@ -414,6 +437,8 @@ impl Live {
             hit_counts: AtomicBool::new(false),
             restart_frame: AtomicBool::new(false),
             hovers: AtomicBool::new(false),
+            set_variable: AtomicBool::new(false),
+            set_expression: AtomicBool::new(false),
             on_event: Box::new(on_event),
         });
 
@@ -460,6 +485,18 @@ impl Live {
         );
         self.core.hovers.store(
             body.get("supportsEvaluateForHovers")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            Ordering::Relaxed,
+        );
+        self.core.set_variable.store(
+            body.get("supportsSetVariable")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            Ordering::Relaxed,
+        );
+        self.core.set_expression.store(
+            body.get("supportsSetExpression")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false),
             Ordering::Relaxed,
@@ -629,6 +666,88 @@ impl Live {
                 .get("variablesReference")
                 .and_then(|v| v.as_i64())
                 .unwrap_or_default(),
+            // An expression is not held in a container, so there is nothing for
+            // `setVariable` to name it by. Changing one goes through
+            // `setExpression` instead — see [`Live::set_expression`].
+            parent: 0,
+        })
+    }
+
+    /// Puts a new value into a named variable, in its container.
+    ///
+    /// **This writes into a running program**, which is the whole point and
+    /// also the whole risk: the program carries on from here with a value it
+    /// would never have computed. It is the fastest way to reach the branch you
+    /// cannot otherwise get to, and the fastest way to convince yourself of
+    /// something that is not true about a real run.
+    ///
+    /// The new value is written in the **debuggee's** language and parsed by
+    /// the adapter, so `"5000"` for an int and `"\"desk\""` for a Go string —
+    /// quotes and all. Nothing is parsed here, for the same reason a breakpoint
+    /// condition is not: the grammar belongs to the debugger.
+    ///
+    /// Answers with what the value actually became, which is not always what
+    /// was asked for — an adapter may round, truncate or reformat, and showing
+    /// the typed text back would be reporting the request as the result.
+    pub fn set_variable(
+        &self,
+        parent: i64,
+        name: &str,
+        value: &str,
+    ) -> Result<Variable, String> {
+        if !self.core.set_variable.load(Ordering::Relaxed) {
+            return Err("this debugger cannot change a value while the program runs".into());
+        }
+        if parent <= 0 {
+            return Err("that value is not held anywhere this can write to".into());
+        }
+        let body = self.core.talker().request(
+            "setVariable",
+            json!({ "variablesReference": parent, "name": name, "value": value }),
+        )?;
+        Ok(Variable {
+            name: name.to_string(),
+            value: text(&body, "value"),
+            kind: text(&body, "type"),
+            children: body
+                .get("variablesReference")
+                .and_then(|v| v.as_i64())
+                .unwrap_or_default(),
+            parent,
+        })
+    }
+
+    /// Puts a new value into whatever an expression denotes.
+    ///
+    /// **Not the same request as [`Live::set_variable`]**, and not a fallback
+    /// for it. That one names a variable by its container, so it cannot reach
+    /// `order.Items[0].Price` — nothing holds that under that name. This takes
+    /// the expression itself, evaluated in the frame, and assigns to it.
+    ///
+    /// Delve reports `setVariable` and not `setExpression`, so for Go a local
+    /// can be changed and a watch cannot.
+    pub fn set_expression(
+        &self,
+        expression: &str,
+        frame_id: i64,
+        value: &str,
+    ) -> Result<Variable, String> {
+        if !self.core.set_expression.load(Ordering::Relaxed) {
+            return Err("this debugger cannot assign to an expression".into());
+        }
+        let body = self.core.talker().request(
+            "setExpression",
+            json!({ "expression": expression, "frameId": frame_id, "value": value }),
+        )?;
+        Ok(Variable {
+            name: expression.to_string(),
+            value: text(&body, "value"),
+            kind: text(&body, "type"),
+            children: body
+                .get("variablesReference")
+                .and_then(|v| v.as_i64())
+                .unwrap_or_default(),
+            parent: 0,
         })
     }
 
@@ -737,6 +856,7 @@ fn read_variables(talker: &Arc<Channel>, reference: i64) -> Result<Vec<Variable>
                 .get("variablesReference")
                 .and_then(|s| s.as_i64())
                 .unwrap_or_default(),
+            parent: reference,
         })
         .collect())
 }
@@ -1291,6 +1411,124 @@ mod tests {
             named("tax").map(|v| v.value),
             Some("1185".to_string()),
             "tax should be set at this line. Saw: {vars:?}"
+        );
+
+        live.stop();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **Writing into a running program, against a real debugger.**
+    ///
+    /// The assertion is deliberately not "the request succeeded" and not "the
+    /// row now reads 5000" — either would pass against an adapter that
+    /// acknowledged the write and changed nothing. It is that **a later
+    /// evaluation of a different expression reflects the new value**:
+    /// `subtotal + tax` comes to 16810 only if `tax` really is 5000 in the
+    /// program's own memory.
+    #[test]
+    #[ignore = "needs Delve and a Go toolchain"]
+    fn a_value_can_be_changed_in_the_running_program() {
+        let found = crate::debug::adapters::discover();
+        let go = found.iter().find(|a| a.language == "go").expect("go");
+        if !go.available {
+            eprintln!("skipping: {}", go.problem);
+            return;
+        }
+
+        let dir = std::env::temp_dir().join(format!("coperativeai-dap-set-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch");
+        std::fs::write(dir.join("go.mod"), "module scratch\n\ngo 1.21\n").expect("go.mod");
+        let source = dir.join("main.go");
+        std::fs::write(
+            &source,
+            "package main\n\
+             \n\
+             import \"fmt\"\n\
+             \n\
+             func main() {\n\
+             \tsubtotal := 11810\n\
+             \ttax := 1185\n\
+             \ttotal := subtotal + tax\n\
+             \tfmt.Println(total)\n\
+             }\n",
+        )
+        .expect("main.go");
+
+        let (tx, rx) = channel::<(String, Value)>();
+        let mut live = Live::start(&go.argv, Transport::Tcp, Some(&dir), move |name, body| {
+            let _ = tx.send((name.to_string(), body));
+        })
+        .expect("start Delve");
+        live.initialize("go").expect("initialize");
+        assert!(
+            live.honours().set_variable,
+            "Delve reports supporting setVariable"
+        );
+
+        // Line 8 is `total := subtotal + tax`, so both are set and `total` is
+        // not — the same shape as the very first test in this file.
+        live.launch(
+            json!({
+                "request": "launch",
+                "mode": "debug",
+                "program": dir.display().to_string(),
+                "cwd": dir.display().to_string(),
+            }),
+            &[Breakpoint {
+                path: source.display().to_string(),
+                line: 8,
+                condition: String::new(),
+                log: String::new(),
+                hits: String::new(),
+            }],
+        )
+        .expect("launch");
+
+        let stopped = wait_for_stop(&rx, 120);
+        let thread_id = stopped.get("threadId").and_then(|t| t.as_i64()).expect("thread");
+        let frames = live.stack(thread_id).expect("stackTrace");
+        let top = frames.first().expect("a frame").clone();
+
+        let before = live.variables(top.id).expect("variables");
+        let tax = before
+            .iter()
+            .find(|v| v.name == "tax")
+            .unwrap_or_else(|| panic!("tax should be in scope: {before:?}"));
+        assert_eq!(tax.value, "1185");
+        // The container it was read out of, which is what `setVariable` names
+        // it by — a value read without remembering where it came from could not
+        // afterwards be set.
+        assert!(tax.parent > 0, "a local should remember its scope: {tax:?}");
+
+        let written = live
+            .set_variable(tax.parent, "tax", "5000")
+            .expect("setVariable");
+        assert_eq!(
+            written.value, "5000",
+            "the adapter should report what it became: {written:?}"
+        );
+
+        // **The assertion that matters.** Not the row, and not the reply: an
+        // expression the adapter has to work out afresh, which can only come to
+        // this if the program's own memory really changed.
+        let sum = live
+            .evaluate("subtotal + tax", top.id, "watch")
+            .expect("evaluate");
+        assert_eq!(
+            sum.value, "16810",
+            "11810 + 5000 — the program should be carrying the new value: {sum:?}"
+        );
+
+        // Delve reports `setVariable` and not `setExpression`, and the second
+        // is refused here rather than sent and failing at the adapter.
+        assert!(
+            !live.honours().set_expression,
+            "Delve reports no setExpression"
+        );
+        assert!(
+            live.set_expression("tax", top.id, "1").is_err(),
+            "what the adapter has not claimed is not attempted"
         );
 
         live.stop();

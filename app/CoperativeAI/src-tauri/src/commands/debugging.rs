@@ -195,6 +195,11 @@ pub struct StartedDebug {
     pub restart_frame: bool,
     /// Whether it answers an `evaluate` sent because a pointer moved.
     pub hovers: bool,
+    /// Whether a named value can be changed in its container, and whether
+    /// whatever an expression denotes can be. Not the same question: Delve
+    /// reports the first and not the second.
+    pub set_variable: bool,
+    pub set_expression: bool,
 }
 
 /// The launch arguments for one language.
@@ -312,6 +317,8 @@ pub async fn debug_start(
         hit_counts: honours.hit_counts,
         restart_frame: honours.restart_frame,
         hovers: honours.hovers,
+        set_variable: honours.set_variable,
+        set_expression: honours.set_expression,
     })
 }
 
@@ -435,6 +442,52 @@ pub async fn debug_evaluate(
         return Err("that debug session has ended".into());
     };
     live.evaluate(&expression, frame_id, &context)
+}
+
+/// Puts a new value into a named variable, in its container.
+///
+/// **This writes into a running program.** The value is written in the
+/// debuggee's own language and parsed by the adapter, and what comes back is
+/// what it actually became — which is not always what was asked for.
+#[tauri::command]
+pub async fn debug_set_variable(
+    sessions: State<'_, DebugSessions>,
+    session: String,
+    parent: i64,
+    name: String,
+    value: String,
+) -> Result<Variable, String> {
+    let held = sessions
+        .0
+        .lock()
+        .map_err(|_| "the debug sessions are in a bad state".to_string())?;
+    let Some(live) = held.get(&session) else {
+        return Err("that debug session has ended".into());
+    };
+    live.set_variable(parent, &name, &value)
+}
+
+/// Puts a new value into whatever an expression denotes.
+///
+/// A different request from `debug_set_variable`, not a fallback for it: that
+/// one names a variable by its container and so cannot reach
+/// `order.Items[0].Price`.
+#[tauri::command]
+pub async fn debug_set_expression(
+    sessions: State<'_, DebugSessions>,
+    session: String,
+    expression: String,
+    frame_id: i64,
+    value: String,
+) -> Result<Variable, String> {
+    let held = sessions
+        .0
+        .lock()
+        .map_err(|_| "the debug sessions are in a bad state".to_string())?;
+    let Some(live) = held.get(&session) else {
+        return Err("that debug session has ended".into());
+    };
+    live.set_expression(&expression, frame_id, &value)
 }
 
 /// Every thread the program has.

@@ -17,6 +17,8 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     debugRestartFrame: vi.fn(),
     debugThreads: vi.fn(),
     debugEvaluate: vi.fn(),
+    debugSetVariable: vi.fn(),
+    debugSetExpression: vi.fn(),
     debugSetBreakpoints: vi.fn(),
   };
 });
@@ -82,6 +84,8 @@ describe("DebugSession", () => {
       hitCounts: true,
       restartFrame: true,
       hovers: true,
+      setVariable: true,
+      setExpression: true,
     });
     mocked.debugStop.mockResolvedValue();
     mocked.debugResume.mockResolvedValue();
@@ -133,8 +137,8 @@ describe("DebugSession", () => {
       { id: 1001, name: "runtime.main", path: "", line: 267, column: 1, canRestart: true },
     ]);
     mocked.debugVariables.mockResolvedValue([
-      { name: "subtotal", value: "11810", kind: "int", children: 0 },
-      { name: "tax", value: "1185", kind: "int", children: 0 },
+      { name: "subtotal", value: "11810", kind: "int", children: 0, parent: 12 },
+      { name: "tax", value: "1185", kind: "int", children: 0, parent: 12 },
     ]);
     render(<DebugSession solution={sol()} />);
 
@@ -171,12 +175,12 @@ describe("DebugSession", () => {
       { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 12, column: 2, canRestart: true },
     ]);
     mocked.debugVariables.mockResolvedValue([
-      { name: "order", value: "main.Order {Subtotal: 11810, Tax: 1185}", kind: "main.Order", children: 4 },
-      { name: "total", value: "0", kind: "int", children: 0 },
+      { name: "order", value: "main.Order {Subtotal: 11810, Tax: 1185}", kind: "main.Order", children: 4, parent: 12 },
+      { name: "total", value: "0", kind: "int", children: 0, parent: 12 },
     ]);
     mocked.debugExpand.mockResolvedValue([
-      { name: "Subtotal", value: "11810", kind: "int", children: 0 },
-      { name: "Tax", value: "1185", kind: "int", children: 0 },
+      { name: "Subtotal", value: "11810", kind: "int", children: 0, parent: 12 },
+      { name: "Tax", value: "1185", kind: "int", children: 0, parent: 12 },
     ]);
     render(<DebugSession solution={sol()} />);
 
@@ -208,10 +212,10 @@ describe("DebugSession", () => {
       { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 12, column: 2, canRestart: true },
     ]);
     mocked.debugVariables.mockResolvedValue([
-      { name: "order", value: "main.Order {...}", kind: "main.Order", children: 4 },
+      { name: "order", value: "main.Order {...}", kind: "main.Order", children: 4, parent: 12 },
     ]);
     mocked.debugExpand.mockResolvedValue([
-      { name: "Subtotal", value: "11810", kind: "int", children: 0 },
+      { name: "Subtotal", value: "11810", kind: "int", children: 0, parent: 12 },
     ]);
     render(<DebugSession solution={sol()} />);
 
@@ -240,7 +244,7 @@ describe("DebugSession", () => {
       { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 12, column: 2, canRestart: true },
     ]);
     mocked.debugVariables.mockResolvedValue([
-      { name: "order", value: "main.Order {...}", kind: "main.Order", children: 4 },
+      { name: "order", value: "main.Order {...}", kind: "main.Order", children: 4, parent: 12 },
     ]);
     mocked.debugExpand.mockRejectedValue("that debug session has ended");
     render(<DebugSession solution={sol()} />);
@@ -256,6 +260,150 @@ describe("DebugSession", () => {
     await user.click(within(panel).getByLabelText("Open order"));
 
     expect(await within(panel).findByText(/that debug session has ended/)).toBeInTheDocument();
+  });
+
+  /// **Writing into a running program.** The last obviously-missing piece of
+  /// an ordinary debugger, and the one with real consequences: the program
+  /// carries on from here with a value it would never have computed.
+  it("writes a new value into a variable", async () => {
+    const user = userEvent.setup();
+    mocked.debugStack.mockResolvedValue([
+      { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 8, column: 2, canRestart: true },
+    ]);
+    mocked.debugVariables.mockResolvedValue([
+      { name: "tax", value: "1185", kind: "int", children: 0, parent: 12 },
+    ]);
+    mocked.debugSetVariable.mockResolvedValue({
+      name: "tax",
+      value: "5000",
+      kind: "int",
+      children: 0,
+      parent: 12,
+    });
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+
+    const panel = screen.getByRole("region", { name: "Debugger for Orders" });
+    await user.click(await within(panel).findByLabelText("Change tax"));
+
+    // The box opens on the current value, so a small edit is a small edit.
+    const box = within(panel).getByLabelText("New value for tax");
+    expect(box).toHaveValue("1185");
+    await user.clear(box);
+    await user.type(box, "5000{Enter}");
+
+    expect(mocked.debugSetVariable).toHaveBeenCalledWith("dbg-go-1", 12, "tax", "5000");
+    // **Re-read, not patched.** A write can change more than the row it was
+    // made on, so everything else on screen would otherwise be quietly stale.
+    await waitFor(() => expect(mocked.debugVariables).toHaveBeenCalledTimes(2));
+  });
+
+  /// Escape has to leave the program exactly as it was — the only safe thing a
+  /// half-typed value can do.
+  it("writes nothing when an edit is abandoned", async () => {
+    const user = userEvent.setup();
+    mocked.debugStack.mockResolvedValue([
+      { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 8, column: 2, canRestart: true },
+    ]);
+    mocked.debugVariables.mockResolvedValue([
+      { name: "tax", value: "1185", kind: "int", children: 0, parent: 12 },
+    ]);
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+
+    const panel = screen.getByRole("region", { name: "Debugger for Orders" });
+    await user.click(await within(panel).findByLabelText("Change tax"));
+    await user.type(within(panel).getByLabelText("New value for tax"), "9999{Escape}");
+
+    expect(mocked.debugSetVariable).not.toHaveBeenCalled();
+    expect(within(panel).queryByLabelText("New value for tax")).not.toBeInTheDocument();
+  });
+
+  /// **A value that opened and then refused would be worse than one that never
+  /// opened.** netcoredbg and js-debug can assign to an expression; Delve
+  /// cannot, and reports so.
+  it("offers no editing where the adapter cannot write", async () => {
+    const user = userEvent.setup();
+    mocked.debugStart.mockResolvedValue({
+      session: "dbg-go-1",
+      language: "go",
+      breakpoints: [],
+      conditions: true,
+      logPoints: true,
+      hitCounts: false,
+      restartFrame: false,
+      hovers: true,
+      setVariable: false,
+      setExpression: false,
+    });
+    mocked.debugStack.mockResolvedValue([
+      { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 8, column: 2, canRestart: true },
+    ]);
+    mocked.debugVariables.mockResolvedValue([
+      { name: "tax", value: "1185", kind: "int", children: 0, parent: 12 },
+    ]);
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+
+    const panel = screen.getByRole("region", { name: "Debugger for Orders" });
+    await within(panel).findByText("1185");
+    expect(within(panel).queryByLabelText("Change tax")).not.toBeInTheDocument();
+  });
+
+  /// **A watch is an expression, not a name in a container**, so it goes
+  /// through the other request entirely. Delve reports `setVariable` and not
+  /// `setExpression`, which is why these are two capabilities and not one.
+  it("assigns to a watched expression through setExpression", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("coperativeai.watches", JSON.stringify({ "5": ["order.Total"] }));
+    mocked.debugStack.mockResolvedValue([
+      { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 8, column: 2, canRestart: true },
+    ]);
+    mocked.debugVariables.mockResolvedValue([]);
+    mocked.debugEvaluate.mockResolvedValue({
+      name: "order.Total",
+      value: "12995",
+      kind: "int",
+      children: 0,
+      parent: 0,
+    });
+    mocked.debugSetExpression.mockResolvedValue({
+      name: "order.Total",
+      value: "1",
+      kind: "int",
+      children: 0,
+      parent: 0,
+    });
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+
+    const panel = screen.getByRole("region", { name: "Debugger for Orders" });
+    await user.click(await within(panel).findByLabelText("Change order.Total"));
+    const box = within(panel).getByLabelText("New value for order.Total");
+    await user.clear(box);
+    await user.type(box, "1{Enter}");
+
+    expect(mocked.debugSetExpression).toHaveBeenCalledWith("dbg-go-1", "order.Total", 1000, "1");
   });
 
   /// **The editor follows the selection, not only the stop.** Picking a caller
@@ -306,6 +454,7 @@ describe("DebugSession", () => {
       value: "12995",
       kind: "int",
       children: 0,
+      parent: 12,
     });
     render(<DebugSession solution={sol()} />);
 
@@ -341,7 +490,9 @@ describe("DebugSession", () => {
     mocked.debugVariables.mockResolvedValue([]);
     mocked.debugEvaluate.mockImplementation(async (_s: string, expression: string) => {
       if (expression === "subtotal + tax") throw "could not find symbol value for subtotal";
-      return { name: expression, value: "2", kind: "int", children: 0 };
+      // An evaluated expression has no container, so `parent` is zero — there
+      // is nothing for `setVariable` to name it by.
+      return { name: expression, value: "2", kind: "int", children: 0, parent: 0 };
     });
     render(<DebugSession solution={sol()} />);
 
@@ -372,7 +523,7 @@ describe("DebugSession", () => {
       { id: 1001, name: "main.main", path: "C:/repos/orders/main.go", line: 12, column: 2, canRestart: true },
     ]);
     mocked.debugVariables.mockResolvedValue([]);
-    mocked.debugEvaluate.mockResolvedValue({ name: "total", value: "12995", kind: "int", children: 0 });
+    mocked.debugEvaluate.mockResolvedValue({ name: "total", value: "12995", kind: "int", children: 0, parent: 12 });
     render(<DebugSession solution={sol()} />);
 
     await user.click(screen.getByLabelText("Debug Orders"));
@@ -407,10 +558,11 @@ describe("DebugSession", () => {
       value: "[]string len: 2",
       kind: "[]string",
       children: 9,
+      parent: 12,
     });
     mocked.debugExpand.mockResolvedValue([
-      { name: "[0]", value: "desk", kind: "string", children: 0 },
-      { name: "[1]", value: "lamp", kind: "string", children: 0 },
+      { name: "[0]", value: "desk", kind: "string", children: 0, parent: 12 },
+      { name: "[1]", value: "lamp", kind: "string", children: 0, parent: 12 },
     ]);
     render(<DebugSession solution={sol()} />);
 
@@ -438,7 +590,7 @@ describe("DebugSession", () => {
       { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 12, column: 2, canRestart: true },
     ]);
     mocked.debugVariables.mockResolvedValue([]);
-    mocked.debugEvaluate.mockResolvedValue({ name: "total", value: "12995", kind: "int", children: 0 });
+    mocked.debugEvaluate.mockResolvedValue({ name: "total", value: "12995", kind: "int", children: 0, parent: 12 });
     render(<DebugSession solution={sol()} />);
 
     await user.click(screen.getByLabelText("Debug Orders"));
@@ -691,6 +843,8 @@ describe("DebugSession", () => {
       hitCounts: false,
       restartFrame: false,
       hovers: true,
+      setVariable: true,
+      setExpression: true,
     });
     mocked.debugStack.mockResolvedValue([
       { id: 1000, name: "inner", path: "C:/repos/orders/main.go", line: 2, column: 2, canRestart: true },
@@ -785,6 +939,8 @@ describe("DebugSession", () => {
       hitCounts: true,
       restartFrame: true,
       hovers: true,
+      setVariable: true,
+      setExpression: true,
     });
     render(<DebugSession solution={sol()} />);
 

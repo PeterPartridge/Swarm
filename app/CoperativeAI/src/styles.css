@@ -7716,6 +7716,28 @@ button.ready-action.link:hover {
   white-space: nowrap;
 }
 
+/* A value that can be written to. Underlined on hover rather than made to look
+   like a button: the pane is a list of values first, and a row of buttons would
+   read as a row of actions. */
+.var-settable {
+  padding: 0;
+  text-align: left;
+  background: none;
+  border: none;
+  cursor: text;
+}
+
+.var-settable:hover {
+  text-decoration: underline dotted;
+}
+
+.var-edit {
+  flex: 1;
+  min-width: 0;
+  padding: 0 0.2rem;
+  font-size: 0.72rem;
+}
+
 .var-kind {
   flex: none;
   font-size: 0.62rem;

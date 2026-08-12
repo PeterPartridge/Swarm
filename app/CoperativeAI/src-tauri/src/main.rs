@@ -242,6 +242,8 @@ fn main() {
             commands::debugging::debug_restart_frame,
             commands::debugging::debug_threads,
             commands::debugging::debug_evaluate,
+            commands::debugging::debug_set_variable,
+            commands::debugging::debug_set_expression,
             commands::debugging::debug_stop,
             commands::workspace::file_properties,
             commands::ai_settings::list_ai_providers,
