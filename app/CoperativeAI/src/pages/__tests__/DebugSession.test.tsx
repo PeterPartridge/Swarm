@@ -886,6 +886,59 @@ describe("DebugSession", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  /// **A breakpoint in a closed file is invisible and still stops the
+  /// program.** The strip above the editor only knows about the file that is
+  /// open, so a mark left behind halts a run with nothing on screen to explain
+  /// it, and no way to clear it short of remembering where it was.
+  it("lists every breakpoint in the Solution, including closed files", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem(
+      "coperativeai.breakpoints",
+      JSON.stringify({
+        "5": {
+          "main.go": [{ line: 8, condition: "i == 7", log: "", hits: "" }],
+          "orders/repo.go": [{ line: 44, condition: "", log: "round", hits: "3" }],
+        },
+      }),
+    );
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+
+    const list = await screen.findByLabelText("Breakpoints in Orders");
+    expect(within(list).getByText("main.go:8")).toBeInTheDocument();
+    // The one nobody has open, which is the entire point.
+    expect(within(list).getByText("orders/repo.go:44")).toBeInTheDocument();
+    // What makes each behave differently is shown, or two rows that stop very
+    // differently would look identical.
+    expect(within(list).getByText("if i == 7")).toBeInTheDocument();
+    expect(within(list).getByText("hits 3")).toBeInTheDocument();
+    expect(within(list).getByText("logs")).toBeInTheDocument();
+  });
+
+  /// **Removed means removed now.** A breakpoint taken off a list while the
+  /// program is stopped, and only really removed at the next launch, would be
+  /// worse than one that did nothing — because you would believe it.
+  it("pushes a removal straight into the running session", async () => {
+    const user = userEvent.setup();
+    mocked.debugSetBreakpoints.mockResolvedValue([]);
+    localStorage.setItem(
+      "coperativeai.breakpoints",
+      JSON.stringify({ "5": { "main.go": [{ line: 8, condition: "", log: "", hits: "" }] } }),
+    );
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+
+    const list = await screen.findByLabelText("Breakpoints in Orders");
+    await user.click(within(list).getByLabelText("Remove the breakpoint at main.go line 8"));
+
+    expect(mocked.debugSetBreakpoints).toHaveBeenCalledWith("dbg-go-1", []);
+    expect(screen.queryByLabelText("Breakpoints in Orders")).not.toBeInTheDocument();
+  });
+
   /// **The case this exists for is deadlock.** The thread that stopped is
   /// rarely the one holding the lock, so a debugger that only ever showed the
   /// stopped thread could not show you the problem at all.

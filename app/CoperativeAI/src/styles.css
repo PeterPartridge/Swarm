@@ -7756,6 +7756,37 @@ button.ready-action.link:hover {
   border-radius: 3px;
 }
 
+/* Every breakpoint in the Solution, including the ones in files nobody has
+   open — which is the whole reason it exists. */
+.session-marks ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.session-marks li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.15rem 0;
+  font-size: 0.68rem;
+}
+
+.mark-where {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fg-bright);
+}
+
+.mark-extra {
+  flex: none;
+  font-size: 0.62rem;
+  color: var(--fg-dim);
+}
+
 .output-line {
   display: flex;
   gap: 0.4rem;

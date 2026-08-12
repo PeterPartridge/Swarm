@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { absoluteFor, loadBreakpoints } from "../../lib/breakpoints";
+import {
+  absoluteFor,
+  allMarksIn,
+  loadBreakpoints,
+  toggleBreakpoint,
+  type BreakpointStore,
+} from "../../lib/breakpoints";
 import {
   addWatch,
   loadWatches,
@@ -309,6 +315,13 @@ export default function DebugSession({
   /// A caveat about this launch, from the backend. Not an error: something true
   /// about what is running that would otherwise be discovered by confusion.
   const [note, setNote] = useState<string | null>(null);
+  /// Every breakpoint in this Solution, whichever file it is in.
+  ///
+  /// **A breakpoint in a closed file is invisible and still stops the program.**
+  /// The strip above the editor only knows about the file that is open, so a
+  /// mark left behind halts a run with nothing on screen to explain it — and no
+  /// way to clear it short of remembering where it was.
+  const [marks, setMarks] = useState<BreakpointStore>(() => loadBreakpoints());
 
   /// The session id as the event listener sees it. A listener registered once
   /// would otherwise capture the id from the render it was created in, and stop
@@ -582,8 +595,14 @@ export default function DebugSession({
     // A new run is a clean one. The only place this is cleared: a step does not
     // undo a write, so the note about one outlives the program moving on.
     setWritten([]);
+    setNote(null);
+    // The editor's gutter writes to the same store, so this is read afresh
+    // rather than held from mount — otherwise the list would show whatever
+    // happened to be marked when the panel first appeared.
+    const onDisk = loadBreakpoints();
+    setMarks(onDisk);
     try {
-      const marks = absoluteFor(loadBreakpoints(), solution.id, solution.localPath);
+      const marks = absoluteFor(onDisk, solution.id, solution.localPath);
       const started = await debugStart(language ?? "go", solution.localPath, marks);
       setSession(started.session);
       current.current = started.session;
@@ -790,6 +809,24 @@ export default function DebugSession({
     );
   })();
 
+  const everyMark = allMarksIn(marks, solution.id);
+
+  /// Takes a breakpoint away from wherever it is, and tells a running session.
+  ///
+  /// **Pushed straight down when something is running.** A breakpoint removed
+  /// from a list while the program is stopped on the next one, and only
+  /// actually removed at the next launch, would be worse than one that did
+  /// nothing — because you would believe it.
+  function dropMark(path: string, line: number) {
+    const next = toggleBreakpoint(marks, solution.id, path, line);
+    setMarks(next);
+    if (session && solution.localPath) {
+      void debugSetBreakpoints(session, absoluteFor(next, solution.id, solution.localPath)).catch(
+        (e) => setError(String(e)),
+      );
+    }
+  }
+
   const stopped = state === "stopped";
   const kept = watchesIn(watches, solution.id);
 
@@ -852,6 +889,37 @@ export default function DebugSession({
       {/* Said once at the start: it is about what was launched, not about
           anything that has happened since. */}
       {note && <p className="session-written" role="status">{note}</p>}
+
+      {/* Only when there is something to show: an empty list is furniture. */}
+      {solution.localPath && everyMark.length > 0 && (
+        <div className="session-marks" aria-label={`Breakpoints in ${solution.name}`}>
+          <span className="palette-label">Breakpoints</span>
+          <ul>
+            {everyMark.map(({ path, mark }) => (
+              <li key={`${path}:${mark.line}`}>
+                <span className="mark-where card-mono">
+                  {path}:{mark.line}
+                </span>
+                {mark.log !== "" && <em className="build-break-kind">logs</em>}
+                {mark.condition !== "" && (
+                  <span className="mark-extra card-mono">if {mark.condition}</span>
+                )}
+                {mark.hits !== "" && (
+                  <span className="mark-extra card-mono">hits {mark.hits}</span>
+                )}
+                <button
+                  type="button"
+                  className="watch-drop"
+                  aria-label={`Remove the breakpoint at ${path} line ${mark.line}`}
+                  onClick={() => dropMark(path, mark.line)}
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {/* **Stated for the rest of the session.** Not a warning before the fact —
           a confirmation would be in the way twenty times an hour and would be
           clicked through without reading — but a standing note that this run is
@@ -973,6 +1041,13 @@ export default function DebugSession({
                           type="button"
                           className="frame-again"
                           aria-label={`Run ${f.name} again`}
+                          // **What it cannot undo, said where the press is.**
+                          // The stack is rewound; a file that was written, a row
+                          // that was inserted and a message that was sent have
+                          // all still happened. That is inherent to what the
+                          // protocol offers rather than a gap here, and the one
+                          // place it matters is the moment before pressing.
+                          title={`Runs ${f.name} again from its first line. Anything it already did — files written, messages sent — stays done.`}
                           onClick={() => restartFrame(f.id)}
                         >
                           Run again

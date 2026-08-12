@@ -122,6 +122,25 @@ export function marksIn(
   return store[String(solutionId)]?.[path] ?? [];
 }
 
+/** Every breakpoint in one Solution, whichever file it is in.
+ *
+ *  **Because a breakpoint in a closed file is invisible and still stops the
+ *  program.** The strip above the editor only knows about the file that is
+ *  open, so a mark left in a file since closed halts a run with nothing on
+ *  screen to explain why — and no way to clear it short of remembering where it
+ *  was and opening that file again.
+ *
+ *  Sorted by path and then line, so the same set always reads the same way. */
+export function allMarksIn(
+  store: BreakpointStore,
+  solutionId: number,
+): { path: string; mark: Mark }[] {
+  const files = store[String(solutionId)] ?? {};
+  return Object.entries(files)
+    .flatMap(([path, marks]) => marks.map((mark) => ({ path, mark })))
+    .sort((a, b) => a.path.localeCompare(b.path) || a.mark.line - b.mark.line);
+}
+
 /** Adds a line, or takes it away if it is already there.
  *
  *  Returns a new store rather than mutating: it is React state, and a mutated
