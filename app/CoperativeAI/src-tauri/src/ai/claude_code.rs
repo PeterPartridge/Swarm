@@ -471,6 +471,18 @@ async fn print_turn(
 
     let stdout = String::from_utf8_lossy(&finished.stdout).into_owned();
     if !finished.status.success() {
+        // **A failing exit still prints the envelope, and the envelope says
+        // why.** This used to return the raw JSON — four hundred characters of
+        // `usage` and `session_id` with the one useful field buried in the
+        // middle, and truncated out of sight as often as not. Worse, it meant
+        // the commonest failure of all went unrecognised: an expired sign-in
+        // is reported as `result`, and `read_output` knows to append the one
+        // step that fixes it, but nothing reached `read_output` because this
+        // returned first.
+        // On `Ok` this discards the reply and falls through to the raw detail
+        // below — a process that exited non-zero is not to be trusted with a
+        // reply however well-formed the envelope looked.
+        read_output(&stdout)?;
         let stderr = String::from_utf8_lossy(&finished.stderr);
         let detail = if stderr.trim().is_empty() {
             stdout.trim().to_string()
@@ -832,12 +844,13 @@ mod tests {
         assert!(!turn_args("claude-haiku-4-5", "low").contains(&"--effort".to_string()));
     }
 
-    /// **Caught against the real CLI.** A failed turn exits 0 and comes back
-    /// as a normal envelope with `is_error` set and the reason in `result` —
-    /// an expired sign-in being far and away the commonest. Reading only the
-    /// exit status took that sentence as the model's reply and then failed on
-    /// it for not being JSON, burying the actual cause under a parser
-    /// complaint.
+    /// **Caught against the real CLI**, and the exit status is not the signal.
+    ///
+    /// A failed turn comes back as a normal envelope with `is_error` set and
+    /// the reason in `result` — an expired sign-in being far and away the
+    /// commonest. It has been seen exiting **0** and exiting **1** for the same
+    /// failure, so neither status can be trusted to mean anything: the envelope
+    /// is what has to be read, whichever way the process ended.
     ///
     /// The envelope below is the one this machine returned, trimmed.
     #[test]
@@ -852,6 +865,28 @@ mod tests {
             err.contains("sign in again"),
             "and a dead sign-in must say what fixes it, since nothing else will: {err}"
         );
+    }
+
+    /// **The whole envelope, exactly as the CLI printed it on a failing run.**
+    ///
+    /// Kept verbatim rather than trimmed because the trimmed one hid the bug:
+    /// a non-zero exit returned the raw JSON without ever reading `result`, so
+    /// what reached the screen was four hundred characters of `usage` and
+    /// `session_id` with the one useful sentence buried in the middle — and
+    /// truncated away as often as not. Note `subtype: "success"` and
+    /// `api_error_status: null` sitting beside a plain authentication failure.
+    #[test]
+    fn the_real_failing_envelope_yields_the_reason_and_not_the_json() {
+        let output = r#"{"is_error":true,"duration_api_ms":0,"num_turns":1,"stop_reason":"stop_sequence","session_id":"982dc6f5-b7e1-45fe-968a-2214afe98899","total_cost_usd":0,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0},"modelUsage":{},"permission_denials":[],"terminal_reason":"api_error","subtype":"success","api_error_status":null,"result":"Failed to authenticate: OAuth session expired and could not be refreshed","type":"result","duration_ms":329}"#;
+
+        let err = read_output(output).expect_err("a failing run must not read as a reply");
+
+        assert!(err.contains("OAuth session expired"), "{err}");
+        assert!(err.contains("sign in again"), "{err}");
+        // Nobody should be reading session ids and token counts to find out
+        // that they need to log in.
+        assert!(!err.contains("session_id"), "the JSON must not reach a person: {err}");
+        assert!(!err.contains("num_turns"), "the JSON must not reach a person: {err}");
     }
 
     /// The hint belongs only on sign-in failures — pinned on every error it

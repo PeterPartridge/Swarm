@@ -23,6 +23,16 @@ pub struct ProbeResult {
     pub passed: bool,
     /// What was checked, in words a person can act on.
     pub detail: String,
+    /// Whether the model **answered at all**.
+    ///
+    /// **A failed probe and an unanswered one are different findings**, and
+    /// conflating them made this app say things it had not seen. Every probe
+    /// here judges a behaviour — invented an architecture kind, proposed a
+    /// forbidden technology, invented work from an empty brief — and every one
+    /// of those claims needs an answer to have been read. When the call never
+    /// reached the model, there is no answer, and the only honest thing to
+    /// report is that the model could not be asked.
+    pub answered: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -41,11 +51,19 @@ impl ValidationReport {
     /// that is wrong at one job would silently be handed that job.
     pub fn finish(model: &str, probes: Vec<ProbeResult>) -> Self {
         let passed = probes.iter().all(|p| p.passed);
-        let suggested_fixes = probes
+        // Only a probe that was actually answered can say anything about how
+        // the model behaves. The rest describe a model that could not be
+        // reached, and their names are not evidence of anything.
+        let mut suggested_fixes: Vec<String> = probes
             .iter()
-            .filter(|p| !p.passed)
+            .filter(|p| !p.passed && p.answered)
             .map(|p| suggest(&p.probe))
             .collect();
+        if let Some(why) = unreachable(&probes) {
+            // First, because it is the cause: any behavioural finding beside it
+            // is about a different probe that did get through.
+            suggested_fixes.insert(0, why);
+        }
         ValidationReport {
             model: model.to_string(),
             passed,
@@ -60,6 +78,31 @@ impl ValidationReport {
     pub fn failures(&self) -> Vec<&ProbeResult> {
         self.probes.iter().filter(|p| !p.passed).collect()
     }
+}
+
+/// The one honest thing to say when probes went unanswered.
+///
+/// Quotes the error rather than summarising it, because the error is the only
+/// evidence there is — and a model that never ran cannot have "invented" or
+/// "proposed" anything.
+fn unreachable(probes: &[ProbeResult]) -> Option<String> {
+    let silent: Vec<&ProbeResult> = probes.iter().filter(|p| !p.answered).collect();
+    let first = silent.first()?;
+    let all = silent.len() == probes.len();
+    Some(format!(
+        "{} of the {} checks got no answer from the model at all, so nothing here is a \
+         judgement about how it behaves — it could not be asked. {}The first failure was: {}",
+        silent.len(),
+        probes.len(),
+        if all {
+            "Every check failed the same way, which points at the model not being reachable \
+             rather than at the model itself: check that it is installed, that its command \
+             runs on its own, and that any key or sign-in it needs is in place. "
+        } else {
+            ""
+        },
+        first.detail,
+    ))
 }
 
 fn suggest(probe: &str) -> String {
@@ -94,11 +137,13 @@ pub fn check_work_items(result: &Result<Generated, String>) -> ProbeResult {
             probe: "workItemInterpretation".into(),
             passed: true,
             detail: format!("returned {} work items in the required shape", items.len()),
+            answered: true,
         },
         Ok(Generated::Items(_)) => ProbeResult {
             probe: "workItemInterpretation".into(),
             passed: false,
             detail: "parsed, but contained no usable items".into(),
+            answered: true,
         },
         // Declining a well-specified probe is a failure of this probe: the
         // brief given is deliberately complete.
@@ -106,11 +151,13 @@ pub fn check_work_items(result: &Result<Generated, String>) -> ProbeResult {
             probe: "workItemInterpretation".into(),
             passed: false,
             detail: format!("declined a fully specified brief: {reason}"),
+            answered: true,
         },
         Err(e) => ProbeResult {
             probe: "workItemInterpretation".into(),
             passed: false,
             detail: format!("no usable answer: {e}"),
+            answered: false,
         },
     }
 }
@@ -122,10 +169,12 @@ pub fn check_strategy(
 ) -> Vec<ProbeResult> {
     let draft = match result {
         Ok(GeneratedStrategy::Strategy(draft)) => draft,
+        // Declining is an answer — a wrong one for a brief this complete, but
+        // the model did speak, so the verdict is about its judgement.
         Ok(GeneratedStrategy::Blocked { reason, .. }) => {
-            return failed_triplet(&format!("declined a fully specified brief: {reason}"), disallowed)
+            return failed_triplet(&format!("declined a fully specified brief: {reason}"), true)
         }
-        Err(e) => return failed_triplet(&format!("no usable answer: {e}"), disallowed),
+        Err(e) => return failed_triplet(&format!("no usable answer: {e}"), false),
     };
 
     let mut probes = vec![ProbeResult {
@@ -136,6 +185,7 @@ pub fn check_strategy(
         } else {
             format!("produced a strategy with {} options", draft.options.len())
         },
+        answered: true,
     }];
 
     // The app files options by kind; an invented kind cannot be filed.
@@ -153,6 +203,7 @@ pub fn check_strategy(
         } else {
             format!("invented kinds: {}", invented.join(", "))
         },
+        answered: true,
     });
 
     // Checked against what it says it will USE — never its prose. A model that
@@ -171,17 +222,23 @@ pub fn check_strategy(
         } else {
             format!("proposed forbidden technology: {}", violations.join(", "))
         },
+        answered: true,
     });
     probes
 }
 
-fn failed_triplet(detail: &str, _disallowed: &str) -> Vec<ProbeResult> {
+/// The three strategy probes, all failed the same way.
+///
+/// `answered` is passed in rather than guessed from the text: a model that
+/// declined has spoken and can be judged, and one that never replied has not.
+fn failed_triplet(detail: &str, answered: bool) -> Vec<ProbeResult> {
     ["solutionStrategy", "architectureKinds", "respectsDisallowed"]
         .iter()
         .map(|probe| ProbeResult {
             probe: (*probe).to_string(),
             passed: false,
             detail: detail.to_string(),
+            answered,
         })
         .collect()
 }
@@ -198,11 +255,13 @@ pub fn check_declines_vague(result: &Result<Generated, String>) -> ProbeResult {
             } else {
                 format!("declined and asked: {what_is_needed}")
             },
+            answered: true,
         },
         Ok(Generated::Items(items)) => ProbeResult {
             probe: "declinesVagueWork".into(),
             passed: false,
             detail: format!("invented {} items from a brief with nothing in it", items.len()),
+            answered: true,
         },
         // An error is not a decline. The model has to *use* the escape hatch,
         // not merely fail to answer.
@@ -210,6 +269,7 @@ pub fn check_declines_vague(result: &Result<Generated, String>) -> ProbeResult {
             probe: "declinesVagueWork".into(),
             passed: false,
             detail: format!("no usable answer: {e}"),
+            answered: false,
         },
     }
 }
@@ -323,8 +383,8 @@ mod tests {
         let report = ValidationReport::finish(
             "ornith:9b",
             vec![
-                ProbeResult { probe: "workItemInterpretation".into(), passed: true, detail: "ok".into() },
-                ProbeResult { probe: "architectureKinds".into(), passed: false, detail: "invented kinds".into() },
+                ProbeResult { probe: "workItemInterpretation".into(), passed: true, detail: "ok".into(), answered: true },
+                ProbeResult { probe: "architectureKinds".into(), passed: false, detail: "invented kinds".into(), answered: true },
             ],
         );
         assert!(!report.passed, "all-or-nothing: one failure blocks the model");
@@ -333,11 +393,98 @@ mod tests {
         assert!(report.suggested_fixes[0].contains("can only file"));
     }
 
+    /// **The bug this field exists for.** Every probe failed because the model
+    /// could not be reached — and the report said it had invented architecture
+    /// kinds and proposed a forbidden technology, neither of which anybody had
+    /// seen it do. A verdict about behaviour needs an answer to have been read.
+    #[test]
+    fn a_model_that_never_answered_is_not_accused_of_anything() {
+        let silent = |probe: &str| ProbeResult {
+            probe: probe.into(),
+            passed: false,
+            detail: "no usable answer: Claude Code exited with an error".into(),
+            answered: false,
+        };
+        let report = ValidationReport::finish(
+            "claude-fable-5",
+            vec![
+                silent("workItemInterpretation"),
+                silent("solutionStrategy"),
+                silent("architectureKinds"),
+                silent("respectsDisallowed"),
+                silent("declinesVagueWork"),
+            ],
+        );
+
+        assert!(!report.passed);
+        // One finding, about the model not being reachable — not five verdicts
+        // about work it never did.
+        assert_eq!(report.suggested_fixes.len(), 1, "{:?}", report.suggested_fixes);
+        let said = &report.suggested_fixes[0];
+        assert!(said.contains("no answer"), "{said}");
+        assert!(said.contains("Claude Code exited with an error"), "{said}");
+        for accusation in ["invented", "proposed", "cannot be trusted"] {
+            assert!(
+                !said.contains(accusation),
+                "nothing was observed, so nothing may be alleged: {said}"
+            );
+        }
+    }
+
+    /// A model that answered badly and a call that never landed can happen in
+    /// the same run, and each deserves its own words.
+    #[test]
+    fn a_real_finding_survives_beside_an_unanswered_probe() {
+        let report = ValidationReport::finish(
+            "half-there",
+            vec![
+                ProbeResult {
+                    probe: "architectureKinds".into(),
+                    passed: false,
+                    detail: "invented kinds: lambda".into(),
+                    answered: true,
+                },
+                ProbeResult {
+                    probe: "declinesVagueWork".into(),
+                    passed: false,
+                    detail: "no usable answer: timed out".into(),
+                    answered: false,
+                },
+            ],
+        );
+
+        assert_eq!(report.suggested_fixes.len(), 2);
+        // The unreachable one first: it is the cause, and the other finding is
+        // about a probe that did get through.
+        assert!(report.suggested_fixes[0].contains("no answer"));
+        assert!(report.suggested_fixes[1].contains("can only file"));
+        // With only some probes silent, the "check it is installed" advice
+        // would be wrong — the model plainly ran for the other one.
+        assert!(!report.suggested_fixes[0].contains("installed"));
+    }
+
+    /// Declining is an answer. A model that used the escape hatch on a brief
+    /// that did not warrant it has shown its judgement, and is judged.
+    #[test]
+    fn declining_counts_as_having_answered() {
+        let blocked: Result<GeneratedStrategy, String> = Ok(GeneratedStrategy::Blocked {
+            reason: "not enough detail".into(),
+            what_is_needed: "a brief".into(),
+        });
+        let probes = check_strategy(&blocked, "Java");
+
+        assert!(probes.iter().all(|p| !p.passed));
+        assert!(
+            probes.iter().all(|p| p.answered),
+            "it spoke, so it can be judged: {probes:?}"
+        );
+    }
+
     #[test]
     fn a_clean_run_passes_with_no_fixes_to_suggest() {
         let report = ValidationReport::finish(
             "claude-haiku",
-            vec![ProbeResult { probe: "workItemInterpretation".into(), passed: true, detail: "ok".into() }],
+            vec![ProbeResult { probe: "workItemInterpretation".into(), passed: true, detail: "ok".into(), answered: true }],
         );
         assert!(report.passed);
         assert!(report.suggested_fixes.is_empty());
