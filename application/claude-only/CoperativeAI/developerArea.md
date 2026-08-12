@@ -34,6 +34,76 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 37 — the debugger stops lying about itself
+
+Three things the app was saying that were not true, found by using it rather than by reading it.
+
+### My Feedback
+
+**A breakpoint reported as unset while the program stopped on it.** Nothing is bound until the program actually runs, so the handshake's answer is provisional — js-debug replies `verified: false` with "breakpoint.provisionalBreakpoint" and binds it a moment later. The UI heard the first answer and had no way to hear the second.
+
+**My first fix was wrong, and the real adapter said so.** I invented an event for the child session to report its own `setBreakpoints` result. Running it proved that wrong twice: the child's answer is provisional in exactly the same way — captured verbatim as `verified: false, "breakpoint.provisionalBreakpoint"` — and **DAP already has the mechanism**, a `breakpoint` event sent when a breakpoint's state really changes, which the same run produced as `{"breakpoint":{"line":3,"verified":true,…},"reason":"changed"}`. The invention is gone and the protocol's own event is handled, matched by the `id` the adapter gave when it took the breakpoint — line numbers cannot do it, because *moving* a breakpoint is the other thing this event reports.
+
+**A log point's message and the debugger clearing its throat looked identical.** DAP marks output produced at a known place with a source and a line; an adapter's own chatter carries neither. Captured from a real Delve run:
+
+```
+{"category":"console","output":"Type 'dlv help' for list of commands.\n"}
+{"category":"stdout","line":8,"source":{"path":"…/main.go"},"output":"…"}
+```
+
+So the panel shows `main.go:8` beside messages that claim a location, and the log-point test now asserts the marking is there — the thing the UI relies on is pinned against the real adapter rather than remembered from one run.
+
+**A run that was written into is not a reproduction of anything.** Changing a value silently turns the rest of a session into a story about a program that never ran, and nothing recorded it — so "it does not reproduce" half an hour later had no way of knowing why. The panel states it for the rest of the session. Not a confirmation before the fact: that would be in the way twenty times an hour and clicked through unread. A refused write records nothing, because it changed nothing.
+
+**And the Debug build is what gets debugged.** `built_assembly` picked the most recent, so a `dotnet build -c Release` after a Debug build meant debugging optimised code — lines moved, calls inlined, locals gone. That presents as a debugger stopping on the wrong line and unable to see variables that are plainly there, which reads as this app being broken. Debug now wins however old it is; newest only ever decides between two of the same configuration. Where only Release exists it is still used, with a note saying what to expect.
+
+### Your Feedback
+
+- **The new note field is neither an error nor a capability.** It is something true about what is running that would otherwise be discovered by confusion, and it is deliberately not dressed as an alert — nothing failed, and sending somebody to look for a fault that is not there is its own problem.
+- **508 scratch folders in `%TEMP%` became 1.** Three test helpers each left a uniquely named directory behind. Deleting on `Drop` is the obvious answer and the wrong one: a failing test's scratch folder is exactly what you want to look at. They live under one parent now and are swept by a *later* run — six hours, enough to inspect a failure over lunch. Sweeping is forgiving by design, because tidiness must never be why a suite goes red.
+- **One piece of debt turned out not to be debt.** I had written down "a hover only works in the file the debugger stopped in" as too strict. It is not: hovering a local called `i` in a *different* file would evaluate the stopped frame's `i` and show a confidently wrong answer. The gate stays.
+
+### Technical Debt
+
+- **Nothing validates a condition, an interpolation, a hit count or a watch as it is typed.** All four read as a breakpoint that never fires until the refusal appears on starting.
+- **Restarting a frame does not undo what it did** — a file written or a message sent has still happened — and nothing says so before the press.
+- **The thread list has no filter**, and nothing shows what a thread is waiting on.
+- **The breakpoint strip is only for the open file**, and is three boxes wide.
+- **Only one js-debug child**, and **debugpy has no launch shape** — no real Python here to verify one against.
+
+## Round 36 — the app can sign itself in
+
+### My Feedback
+
+**"Why can't the app kick off OAuth?"** It can, and the comment saying it could not was stale — written before this app grew PTY terminals, and never revisited.
+
+**`--version` was never a health check.** Proved on this machine in one line: `--version said "2.1.227 (Claude Code)"; auth says AuthState { logged_in: false, auth_method: "none" }`. A dead sign-in leaves the version answering perfectly happily, which is why the Test button reported a working provider right up until the first real turn failed. `claude auth status` answers directly, runs no model — so it costs nothing off the plan — and comes back in about a second. A non-zero exit is the signed-out answer rather than a failure; the JSON prints either way.
+
+**And there was now a way to fix it from inside the app.** `open_claude_sign_in` opens a terminal on the Build board and types `claude auth login` into it. **Typed into a shell rather than run as the terminal's own program**, deliberately: the login can then be answered, abandoned and run again in the same panel, and what it printed stays on screen. A PTY that *was* the login would close on the first mistake and take the reason with it.
+
+**The setup panel said, in as many words, that none of this was possible** — "This app cannot check it — proving it would mean spending your allowance every time this page opened." Both halves were wrong. It now has a real state line, a Sign in button, and being signed in counts towards being ready: a provider that is installed, added and first in the chain still cannot run a single turn without it.
+
+### Your Feedback
+
+- **One test asserted the old claim and was right to at the time.** It now asserts the opposite and says why it changed, rather than being quietly deleted.
+- **`claude_code_auth` was removed after one commit.** I added it, then folded the sign-in into `claude_code_status` — and two commands answering the same question drift.
+- **A doc comment on a Rust function parameter is a compile error**, which I found the direct way. It moved to the function's own doc, where it reads better anyway.
+
+## Round 35 — the app stops accusing models it never reached
+
+### My Feedback
+
+**Five probes returned nothing, and the report said what the model had done wrong.** "The model invented architecture kinds." "Proposed a technology the developer rules forbid." "Invented work from a brief with nothing in it." Nobody had seen it do any of those things — every call had failed before reaching a model. Each probe honestly recorded "no usable answer", and then the suggestions were looked up by **probe name alone**, ignoring why it failed.
+
+**This is the failure the platform exists to prevent, committed by the platform.** A verdict about behaviour needs an answer to have been read. `ProbeResult` now records whether the model answered at all, and only an answered probe can produce a behavioural finding. Declining counts as answering — a model that used the escape hatch on a complete brief has shown its judgement and is judged.
+
+**And the reason was buried.** Claude Code exited non-zero, and that path returned the raw JSON envelope — four hundred characters of `usage` and `session_id` with the useful field in the middle, truncated out of sight as often as not. The envelope's `result` said "Failed to authenticate: OAuth session expired and could not be refreshed", and `read_output` already knew to append the one step that fixes it — but nothing reached `read_output`, because the exit-status branch returned first.
+
+### Your Feedback
+
+- **My first summary was itself repetitive.** It added a sixth copy of a sentence already on all five rows, and put a generic "check it is installed and signed in" checklist beside a message that named the cause *and* the fix. Vague advice next to a specific diagnosis only makes the specific one look less certain. It now says it once when every probe failed identically, and quotes the error only when the failures actually differ.
+- **A test's premise was out of date.** It said a failed turn exits 0. The same failure has now been seen exiting both 0 and 1, so the exit status is not the signal — the envelope is, and the comment says so.
+
 ## Round 34 — changing a value in a running program
 
 ### My Feedback
