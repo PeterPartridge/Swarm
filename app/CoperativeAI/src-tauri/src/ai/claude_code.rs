@@ -112,7 +112,7 @@ fn managed_roots() -> Vec<std::path::PathBuf> {
     roots
 }
 
-fn home_dir() -> Option<std::path::PathBuf> {
+pub fn home_dir() -> Option<std::path::PathBuf> {
     std::env::var_os("USERPROFILE")
         .or_else(|| std::env::var_os("HOME"))
         .map(std::path::PathBuf::from)
@@ -497,6 +497,66 @@ async fn print_turn(
     Ok(stdout)
 }
 
+/// Whether the CLI is signed in, and how.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthState {
+    pub logged_in: bool,
+    /// How it is signed in — a subscription, an API key, or nothing. Reported
+    /// rather than interpreted: the app cares only whether a turn will run, and
+    /// the rest is worth showing to whoever is working out why it will not.
+    #[serde(default)]
+    pub auth_method: String,
+}
+
+/// Asks the CLI whether it is signed in.
+///
+/// **The check `--version` cannot do.** A dead sign-in leaves `claude --version`
+/// answering perfectly happily, which is why the Test button reported a working
+/// install right up until the first real turn failed. This asks directly.
+///
+/// Free in both senses: it runs no model, so it spends none of the plan's
+/// allowance, and it answers in about a second. That is what makes it usable as
+/// an ordinary health check rather than something to press sparingly.
+///
+/// **A non-zero exit is the signed-out answer, not a failure** — the JSON is
+/// printed either way, so it is read first and the exit status is not consulted
+/// at all.
+pub async fn auth_status(configured_exe: &str) -> Result<AuthState, String> {
+    let (exe, _) = discover(configured_exe).await?;
+    let output = tokio::time::timeout(
+        Duration::from_secs(30),
+        tokio::process::Command::new(&exe)
+            .args(["auth", "status"])
+            .stdin(Stdio::null())
+            .output(),
+    )
+    .await
+    .map_err(|_| "Claude Code did not answer whether it is signed in".to_string())?
+    .map_err(|e| format!("could not ask Claude Code whether it is signed in: {e}"))?;
+
+    let said = String::from_utf8_lossy(&output.stdout);
+    let json = extract_json(&said).map_err(|_| {
+        "Claude Code did not say whether it is signed in — it may be too old to know the \
+         `auth status` command."
+            .to_string()
+    })?;
+    serde_json::from_str::<AuthState>(json)
+        .map_err(|e| format!("could not read what Claude Code said about its sign-in: {e}"))
+}
+
+/// What to run to sign in, for the Admin panel to open in a terminal.
+///
+/// **Handed out rather than run here.** Signing in opens a browser and waits for
+/// a person, so it belongs in a terminal somebody is looking at — which this app
+/// has had since the process registry landed. Returning the command keeps the
+/// knowledge of *what* to run beside everything else about the CLI, without this
+/// module deciding *where* it runs.
+pub async fn sign_in_command(configured_exe: &str) -> Result<Vec<String>, String> {
+    let (exe, _) = discover(configured_exe).await?;
+    Ok(vec![exe.display().to_string(), "auth".into(), "login".into()])
+}
+
 /// Zero, always — see the module note. The subscription was charged, and by how
 /// much is not something this process can find out.
 fn unmetered() -> Usage {
@@ -566,10 +626,14 @@ fn read_output(output: &str) -> Result<(String, Usage), String> {
         // Handed back as the error it is. The commonest one by far is an
         // expired sign-in, which reads as nonsense if it reaches a JSON parser.
         //
-        // A sign-in failure gets the one thing that fixes it appended, because
-        // the app cannot do that step itself: it has no terminal to run the
-        // login in, and `--version` keeps answering happily while the session
-        // is dead — so nothing else here will ever mention it.
+        // A sign-in failure says what fixes it, because `--version` keeps
+        // answering happily while the session is dead — so a turn failing is
+        // otherwise the first moment anything mentions it.
+        //
+        // This app *can* run the login itself: it has had real PTY terminals
+        // since the process registry landed, and `sign_in_command` below is
+        // what the Admin panel opens in one. The sentence stays because a turn
+        // can fail here long after anybody has looked at that panel.
         let lower = said.to_lowercase();
         let fix = if lower.contains("authenticate") || lower.contains("oauth") {
             " Run `claude` in a terminal and sign in again."
@@ -887,6 +951,35 @@ mod tests {
         // that they need to log in.
         assert!(!err.contains("session_id"), "the JSON must not reach a person: {err}");
         assert!(!err.contains("num_turns"), "the JSON must not reach a person: {err}");
+    }
+
+    /// **Against the real CLI**, and the pair is the point: `--version` answers
+    /// happily while the sign-in is dead, so a health check that asks only that
+    /// is reporting something it has not established.
+    #[test]
+    #[ignore = "asks the real Claude Code on this machine"]
+    fn the_sign_in_state_is_readable_where_the_version_says_nothing() {
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        runtime.block_on(async {
+            let Ok(said) = version("").await else {
+                eprintln!("skipping: no Claude Code on this machine");
+                return;
+            };
+            assert!(!said.trim().is_empty(), "it answered --version happily");
+
+            let state = auth_status("")
+                .await
+                .expect("it should say whether it is signed in");
+            eprintln!("--version said {said:?}; auth says {state:?}");
+
+            // Nothing is asserted about *which* way round it is — that depends
+            // on whoever runs this. What is asserted is that the question has
+            // an answer at all, which is the thing `--version` cannot give.
+            assert!(
+                state.logged_in || !state.auth_method.is_empty(),
+                "signed out has to say so rather than come back blank: {state:?}"
+            );
+        });
     }
 
     /// The hint belongs only on sign-in failures — pinned on every error it

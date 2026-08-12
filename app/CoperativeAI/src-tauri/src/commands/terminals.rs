@@ -151,6 +151,60 @@ pub async fn open_terminal(
     spawn_terminal(&app, &terminals, solution_id, &cwd, cols, rows)
 }
 
+/// Opens a terminal and starts the Claude Code sign-in in it.
+///
+/// **The answer to "why can't the app just do this?"** — it can, and this is
+/// it. Signing in opens a browser and then waits for a person to come back and
+/// confirm, so it cannot be a silent background call; what it needs is a
+/// terminal somebody is looking at, and this app has had real ones since the
+/// process registry landed. The claim in `ai::claude_code` that there was no
+/// terminal to run a login in was true when it was written and is not now.
+///
+/// The command is **typed into a shell** rather than run as the terminal's own
+/// program, because that is what makes it recoverable: the login can be
+/// answered, abandoned, and run again in the same panel, and whatever it prints
+/// stays on screen afterwards. A PTY that *was* the login would close on the
+/// first mistake and take the reason with it.
+///
+/// Opened in the home folder, which always exists — this is about the machine's
+/// sign-in rather than about any one Solution.
+#[tauri::command]
+pub async fn open_claude_sign_in(
+    app: AppHandle,
+    terminals: State<'_, Terminals>,
+    executable: String,
+    cols: u16,
+    rows: u16,
+) -> Result<OpenedTerminal, String> {
+    // Discovery runs first: a sign-in typed into a shell that has no `claude`
+    // on its PATH fails as "command not found", which reads as a broken app
+    // rather than a missing install.
+    let argv = crate::ai::claude_code::sign_in_command(&executable).await?;
+    let home = crate::ai::claude_code::home_dir()
+        .ok_or_else(|| "this machine reports no home folder to open a terminal in".to_string())?;
+
+    // Solution zero: this terminal belongs to the machine, not to a repository.
+    let opened = spawn_terminal(&app, &terminals, 0, &home.display().to_string(), cols, rows)?;
+
+    // Quoted, because the discovered path routinely contains spaces — the
+    // desktop app keeps its copy under `AppData\Roaming\Claude\...`.
+    let typed = format!(
+        "& \"{}\" {}\r",
+        argv[0],
+        argv[1..].join(" ")
+    );
+    {
+        let mut sessions = terminals
+            .0
+            .lock()
+            .map_err(|_| "the terminal list is in a bad state".to_string())?;
+        if let Some(running) = sessions.get_mut(&opened.id) {
+            running.session.write(&typed)?;
+        }
+    }
+    Ok(opened)
+}
+
 /// Opens a shell in a run's worktree.
 ///
 /// A run's agent must start in its own checkout, not the main one — that is the

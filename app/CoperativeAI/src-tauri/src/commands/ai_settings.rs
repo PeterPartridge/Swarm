@@ -279,6 +279,19 @@ pub async fn install_claude_code() -> Result<String, String> {
 /// `executable` is a path for installs that are not on `PATH`; empty means
 /// `claude`. It is checked before the row is written, so a typo is a refusal
 /// rather than a provider that fails on first use.
+/// Whether Claude Code is signed in, and how.
+///
+/// **Separate from the Test button, which cannot answer this.** That asks
+/// `--version`, and a dead sign-in leaves that answering perfectly happily — so a
+/// provider could look healthy right up until the first real turn failed. This
+/// runs no model, so it costs nothing to ask and can be asked often.
+#[tauri::command]
+pub async fn claude_code_auth(
+    executable: String,
+) -> Result<crate::ai::claude_code::AuthState, String> {
+    crate::ai::claude_code::auth_status(&executable).await
+}
+
 #[tauri::command]
 pub async fn add_claude_code_provider(
     db: State<'_, AppDb>,

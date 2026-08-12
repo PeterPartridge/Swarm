@@ -88,19 +88,27 @@ impl ValidationReport {
 fn unreachable(probes: &[ProbeResult]) -> Option<String> {
     let silent: Vec<&ProbeResult> = probes.iter().filter(|p| !p.answered).collect();
     let first = silent.first()?;
-    let all = silent.len() == probes.len();
+
+    // **Said once.** Every one of these rows already carries the same sentence,
+    // and the first version of this added a sixth copy of it — with a generic
+    // "check it is installed and signed in" checklist beside a message that
+    // already named the cause and the fix. Vague advice next to a specific
+    // diagnosis only makes the specific one look less certain.
+    let same = silent.iter().all(|p| p.detail == first.detail);
+    if silent.len() == probes.len() && same {
+        return Some(format!(
+            "None of the {} checks got an answer, so nothing above is a judgement about how this \
+             model behaves — it could not be asked. Every one failed the same way, which is a \
+             fault in reaching it rather than in the model.",
+            probes.len()
+        ));
+    }
+
     Some(format!(
-        "{} of the {} checks got no answer from the model at all, so nothing here is a \
-         judgement about how it behaves — it could not be asked. {}The first failure was: {}",
+        "{} of the {} checks got no answer at all, so those are not judgements about how the \
+         model behaves — it could not be asked. The first was: {}",
         silent.len(),
         probes.len(),
-        if all {
-            "Every check failed the same way, which points at the model not being reachable \
-             rather than at the model itself: check that it is installed, that its command \
-             runs on its own, and that any key or sign-in it needs is in place. "
-        } else {
-            ""
-        },
         first.detail,
     ))
 }
@@ -421,8 +429,18 @@ mod tests {
         // about work it never did.
         assert_eq!(report.suggested_fixes.len(), 1, "{:?}", report.suggested_fixes);
         let said = &report.suggested_fixes[0];
-        assert!(said.contains("no answer"), "{said}");
-        assert!(said.contains("Claude Code exited with an error"), "{said}");
+        assert!(said.contains("could not be asked"), "{said}");
+        // **Said once.** Every row already carries the sentence; repeating it
+        // here made six copies of it on screen, and pinning that keeps it at
+        // five.
+        assert!(
+            !said.contains("Claude Code exited with an error"),
+            "the rows already say it: {said}"
+        );
+        assert!(
+            !said.contains("installed"),
+            "generic advice beside a named cause only makes the cause look less certain: {said}"
+        );
         for accusation in ["invented", "proposed", "cannot be trusted"] {
             assert!(
                 !said.contains(accusation),
@@ -456,11 +474,11 @@ mod tests {
         assert_eq!(report.suggested_fixes.len(), 2);
         // The unreachable one first: it is the cause, and the other finding is
         // about a probe that did get through.
-        assert!(report.suggested_fixes[0].contains("no answer"));
+        assert!(report.suggested_fixes[0].contains("could not be asked"));
         assert!(report.suggested_fixes[1].contains("can only file"));
-        // With only some probes silent, the "check it is installed" advice
-        // would be wrong — the model plainly ran for the other one.
-        assert!(!report.suggested_fixes[0].contains("installed"));
+        // Mixed, so the one that failed is quoted — unlike the all-silent case,
+        // where every row says the same thing already.
+        assert!(report.suggested_fixes[0].contains("timed out"));
     }
 
     /// Declining is an answer. A model that used the escape hatch on a brief
