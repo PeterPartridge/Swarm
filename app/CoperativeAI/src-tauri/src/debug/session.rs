@@ -15,6 +15,7 @@
 use crate::debug::adapters::Transport;
 use crate::debug::wire::{self, Decoded};
 use std::io::{Read, Write};
+use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
 use crate::debug::loopbacks;
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};
@@ -44,12 +45,46 @@ pub struct Capabilities {
 
 /// A live adapter and the pipe to it.
 pub struct Session {
-    reader: Box<dyn Read + Send>,
+    /// Chunks as they arrive, from a thread that does the blocking.
+    ///
+    /// **Not a reader.** Reading on the calling thread cannot be given up on: a
+    /// pipe has no `set_read_timeout`, so an adapter that simply went quiet
+    /// hung the caller forever with its deadline unreachable. A socket timeout
+    /// fixed that for TCP only, and both remaining languages — debugpy and
+    /// netcoredbg — are stdio.
+    chunks: Receiver<Vec<u8>>,
     writer: Box<dyn Write + Send>,
     child: Option<Child>,
     seq: i64,
     /// Bytes read but not yet a whole message. A read is not a message.
     buffer: Vec<u8>,
+}
+
+/// Moves a reader onto its own thread, handing back what it reads.
+///
+/// The thread ends when the adapter closes or the receiver is dropped, so a
+/// finished session leaves nothing parked.
+fn pump(mut reader: Box<dyn Read + Send>) -> Receiver<Vec<u8>> {
+    let (tx, rx) = channel::<Vec<u8>>();
+    std::thread::spawn(move || {
+        let mut chunk = [0u8; 8192];
+        loop {
+            match reader.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if tx.send(chunk[..n].to_vec()).is_err() {
+                        break;
+                    }
+                }
+                // A TCP read that timed out is "nothing yet", not the end.
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::TimedOut => {}
+                Err(_) => break,
+            }
+        }
+    });
+    rx
 }
 
 impl Session {
@@ -108,7 +143,7 @@ impl Session {
             .take()
             .ok_or_else(|| format!("{program} gave no input pipe"))?;
         Ok(Session {
-            reader: Box::new(stdout),
+            chunks: pump(Box::new(stdout)),
             writer: Box::new(stdin),
             child: Some(child),
             seq: 0,
@@ -169,7 +204,7 @@ impl Session {
                     // the deadline can actually win.
                     let _ = read.set_read_timeout(Some(POLL));
                     return Ok(Session {
-                        reader: Box::new(read),
+                        chunks: pump(Box::new(read)),
                         writer: Box::new(stream),
                         child: Some(child),
                         seq: 0,
@@ -250,15 +285,17 @@ impl Session {
             if Instant::now() >= deadline {
                 return Err("the adapter did not answer in time".into());
             }
-            let mut chunk = [0u8; 8192];
-            match self.reader.read(&mut chunk) {
-                Ok(0) => return Err("the adapter closed the connection".into()),
-                Ok(n) => self.buffer.extend_from_slice(&chunk[..n]),
-                // Nothing said yet — go round, and let the deadline decide.
-                Err(e)
-                    if e.kind() == std::io::ErrorKind::WouldBlock
-                        || e.kind() == std::io::ErrorKind::TimedOut => {}
-                Err(e) => return Err(format!("could not read from the adapter: {e}")),
+            match self
+                .chunks
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            {
+                Ok(chunk) => self.buffer.extend_from_slice(&chunk),
+                Err(RecvTimeoutError::Timeout) => {
+                    return Err("the adapter did not answer in time".into())
+                }
+                Err(RecvTimeoutError::Disconnected) => {
+                    return Err("the adapter closed the connection".into())
+                }
             }
         }
     }
