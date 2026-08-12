@@ -62,6 +62,7 @@ export default function CodeWindow({
   onChange,
   onSaved,
   breakpoints,
+  logPoints,
   onToggleBreakpoint,
   stoppedLine,
 }: {
@@ -76,6 +77,10 @@ export default function CodeWindow({
   onSaved: (savedContent: string) => void;
   /** Lines with a breakpoint on them, drawn in the gutter. */
   breakpoints?: number[];
+  /** Lines that print instead of stopping. Drawn differently on purpose: a log
+   *  point wearing a breakpoint's dot is a mark that never stops, which reads
+   *  as a debugger that is broken. */
+  logPoints?: number[];
   /** A click in the gutter. Absent, the gutter is not drawn at all — a margin
    *  you can click that does nothing is worse than no margin. */
   onToggleBreakpoint?: (line: number) => void;
@@ -180,16 +185,28 @@ export default function CodeWindow({
     const m = monacoRef.current;
     if (!e?.deltaDecorations || !m?.Range) return;
     const Range = m.Range;
-    const next = (breakpoints ?? []).map((line: number) => ({
-      range: new Range(line, 1, line, 1),
-      options: {
-        isWholeLine: false,
-        glyphMarginClassName: "breakpoint-dot",
-        glyphMarginHoverMessage: { value: `Breakpoint on line ${line}` },
-      },
-    }));
+    const next = [
+      ...(breakpoints ?? []).map((line: number) => ({
+        range: new Range(line, 1, line, 1),
+        options: {
+          isWholeLine: false,
+          glyphMarginClassName: "breakpoint-dot",
+          glyphMarginHoverMessage: { value: `Breakpoint on line ${line}` },
+        },
+      })),
+      ...(logPoints ?? []).map((line: number) => ({
+        range: new Range(line, 1, line, 1),
+        options: {
+          isWholeLine: false,
+          glyphMarginClassName: "breakpoint-dot logpoint",
+          glyphMarginHoverMessage: {
+            value: `Log point on line ${line} — prints, does not stop`,
+          },
+        },
+      })),
+    ];
     decorations.current = e.deltaDecorations(decorations.current, next);
-  }, [breakpoints]);
+  }, [breakpoints, logPoints]);
 
   useEffect(() => {
     drawBreakpoints();

@@ -3,9 +3,11 @@ import {
   absoluteFor,
   linesIn,
   loadBreakpoints,
+  logLinesIn,
   marksIn,
   relativeTo,
   setCondition,
+  setLog,
   toggleBreakpoint,
 } from "../../lib/breakpoints";
 
@@ -51,11 +53,11 @@ describe("breakpoints", () => {
   it("hands the adapter absolute paths", () => {
     const store = toggleBreakpoint({}, 1, "src/main.go", 8);
     expect(absoluteFor(store, 1, "C:/repos/shop")).toEqual([
-      { path: "C:/repos/shop/src/main.go", line: 8, condition: "" },
+      { path: "C:/repos/shop/src/main.go", line: 8, condition: "", log: "" },
     ]);
     // A trailing separator on the working copy must not double up.
     expect(absoluteFor(store, 1, "C:/repos/shop/")).toEqual([
-      { path: "C:/repos/shop/src/main.go", line: 8, condition: "" },
+      { path: "C:/repos/shop/src/main.go", line: 8, condition: "", log: "" },
     ]);
   });
 
@@ -65,7 +67,7 @@ describe("breakpoints", () => {
     let store = toggleBreakpoint({}, 1, "src/main.go", 8);
     store = setCondition(store, 1, "src/main.go", 8, "i == 7");
     expect(absoluteFor(store, 1, "C:/repos/shop")).toEqual([
-      { path: "C:/repos/shop/src/main.go", line: 8, condition: "i == 7" },
+      { path: "C:/repos/shop/src/main.go", line: 8, condition: "i == 7", log: "" },
     ]);
   });
 
@@ -75,7 +77,7 @@ describe("breakpoints", () => {
     let store = toggleBreakpoint({}, 1, "src/main.go", 8);
     store = setCondition(store, 1, "src/main.go", 8, "i == 7");
     store = setCondition(store, 1, "src/main.go", 8, "");
-    expect(marksIn(store, 1, "src/main.go")).toEqual([{ line: 8, condition: "" }]);
+    expect(marksIn(store, 1, "src/main.go")).toEqual([{ line: 8, condition: "", log: "" }]);
   });
 
   /// A condition on a line with no breakpoint would be a condition on nothing.
@@ -93,9 +95,50 @@ describe("breakpoints", () => {
       JSON.stringify({ "3": { "cmd/main.go": [4, 9] } }),
     );
     expect(marksIn(loadBreakpoints(), 3, "cmd/main.go")).toEqual([
-      { line: 4, condition: "" },
-      { line: 9, condition: "" },
+      { line: 4, condition: "", log: "" },
+      { line: 9, condition: "", log: "" },
     ]);
+  });
+
+  /// The store has grown twice now, so a mark written between the two shapes —
+  /// a line and a condition, no message — is a real thing to find on somebody's
+  /// machine.
+  it("reads a breakpoint stored before log points existed", () => {
+    localStorage.setItem(
+      "coperativeai.breakpoints",
+      JSON.stringify({ "3": { "cmd/main.go": [{ line: 4, condition: "i == 7" }] } }),
+    );
+    expect(marksIn(loadBreakpoints(), 3, "cmd/main.go")).toEqual([
+      { line: 4, condition: "i == 7", log: "" },
+    ]);
+  });
+
+  /// **A log point does not stop, so it must not draw the stopping dot.** The
+  /// gutter is the only place the difference is visible before the program runs.
+  it("keeps log points out of the lines that stop", () => {
+    let store = toggleBreakpoint({}, 1, "src/main.go", 8);
+    store = toggleBreakpoint(store, 1, "src/main.go", 12);
+    store = setLog(store, 1, "src/main.go", 12, "round {i}");
+
+    expect(linesIn(store, 1, "src/main.go")).toEqual([8]);
+    expect(logLinesIn(store, 1, "src/main.go")).toEqual([12]);
+  });
+
+  /// Clearing the message turns it back into an ordinary breakpoint rather than
+  /// removing it — the mark in the gutter is the same mark either way.
+  it("turns a log point back into a breakpoint when its message is cleared", () => {
+    let store = toggleBreakpoint({}, 1, "src/main.go", 12);
+    store = setLog(store, 1, "src/main.go", 12, "round {i}");
+    store = setLog(store, 1, "src/main.go", 12, "");
+
+    expect(linesIn(store, 1, "src/main.go")).toEqual([12]);
+    expect(logLinesIn(store, 1, "src/main.go")).toEqual([]);
+  });
+
+  /// A message on a line with no breakpoint would be a message on nothing.
+  it("will not put a message on a line that has no breakpoint", () => {
+    const store = toggleBreakpoint({}, 1, "src/main.go", 8);
+    expect(setLog(store, 1, "src/main.go", 99, "hello")).toBe(store);
   });
 
   it("survives a reload, because it is stored per machine", () => {

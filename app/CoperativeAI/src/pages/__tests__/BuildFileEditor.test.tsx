@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import BuildFileEditor from "../../components/code/BuildFileEditor";
@@ -80,8 +80,58 @@ describe("BuildFileEditor breakpoint conditions", () => {
     await user.type(box, "i == 7");
 
     expect(marksIn(loadBreakpoints(), 5, "main.go")).toEqual([
-      { line: 8, condition: "i == 7" },
+      { line: 8, condition: "i == 7", log: "" },
     ]);
+  });
+
+  /// **The feature that removes a rebuild.** A message on the line prints and
+  /// carries on instead of stopping — the `println` you would otherwise add.
+  it("takes a message that prints instead of stopping, and stores it", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem(
+      "coperativeai.breakpoints",
+      JSON.stringify({ "5": { "main.go": [{ line: 8, condition: "", log: "" }] } }),
+    );
+    render(<BuildFileEditor solution={sol()} path="main.go" onClose={() => {}} />);
+    await waitFor(() => expect(mocked.readSolutionFile).toHaveBeenCalled());
+
+    const box = screen.getByLabelText("Message for line 8");
+    expect(box).toHaveAttribute("placeholder", "print instead of stopping");
+
+    // `{{` is userEvent's escape for a literal brace — the typed text is
+    // `round {i}`, which is the interpolation the adapter evaluates.
+    await user.type(box, "round {{i}");
+
+    expect(marksIn(loadBreakpoints(), 5, "main.go")).toEqual([
+      { line: 8, condition: "", log: "round {i}" },
+    ]);
+  });
+
+  /// **A mark that never stops must say so**, or it reads as a debugger that is
+  /// not working.
+  it("says which breakpoints log rather than stop", async () => {
+    localStorage.setItem(
+      "coperativeai.breakpoints",
+      JSON.stringify({
+        "5": {
+          "main.go": [
+            { line: 8, condition: "", log: "" },
+            { line: 12, condition: "", log: "round {i}" },
+          ],
+        },
+      }),
+    );
+    render(<BuildFileEditor solution={sol()} path="main.go" onClose={() => {}} />);
+    await waitFor(() => expect(mocked.readSolutionFile).toHaveBeenCalled());
+
+    const strip = screen.getByLabelText("Breakpoints in main.go");
+    expect(within(strip).getAllByText("logs")).toHaveLength(1);
+    // And the condition box changes what it promises, since the line no longer
+    // stops at all.
+    expect(screen.getByLabelText("Condition for line 12")).toHaveAttribute(
+      "placeholder",
+      "log every time",
+    );
   });
 
   /// The adapter evaluates the expression inside the running program, so it is

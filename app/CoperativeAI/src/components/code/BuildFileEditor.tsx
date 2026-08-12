@@ -4,8 +4,10 @@ import { hueFor, markFor } from "../ai/AgentLane";
 import {
   linesIn,
   loadBreakpoints,
+  logLinesIn,
   marksIn,
   setCondition,
+  setLog,
   toggleBreakpoint,
   type BreakpointStore,
 } from "../../lib/breakpoints";
@@ -92,16 +94,31 @@ export default function BuildFileEditor({
         <div className="build-file-breaks" aria-label={`Breakpoints in ${path}`}>
           {marksHere.map((m) => (
             <div className="build-break" key={m.line}>
-              <span className="build-break-line card-mono">line {m.line}</span>
+              <span className="build-break-line card-mono">
+                line {m.line}
+                {/* A log point does not stop, and the row has to say so — a
+                    mark that never stops otherwise reads as a debugger that is
+                    not working. */}
+                {m.log !== "" && <em className="build-break-kind">logs</em>}
+              </span>
               <input
                 type="text"
                 aria-label={`Condition for line ${m.line}`}
-                placeholder="stop every time"
+                placeholder={m.log === "" ? "stop every time" : "log every time"}
                 value={m.condition}
                 onChange={(e) =>
                   setMarks((prev) =>
                     setCondition(prev, solution.id, path, m.line, e.target.value),
                   )
+                }
+              />
+              <input
+                type="text"
+                aria-label={`Message for line ${m.line}`}
+                placeholder="print instead of stopping"
+                value={m.log}
+                onChange={(e) =>
+                  setMarks((prev) => setLog(prev, solution.id, path, m.line, e.target.value))
                 }
               />
             </div>
@@ -110,8 +127,10 @@ export default function BuildFileEditor({
               Go Solution — because the adapter evaluates it in the running
               process, not here. Saying so beats somebody trying JavaScript. */}
           <p className="hint">
-            Written in {solution.language ?? "the program's own language"} and evaluated by the
-            debugger, in the running program.
+            Conditions are written in {solution.language ?? "the program's own language"} and
+            evaluated by the debugger, in the running program. A message makes the line{" "}
+            <strong>print and carry on</strong> instead of stopping — <code>{"{i}"}</code> inside it
+            is evaluated the same way, and the output appears in the debugger panel.
           </p>
         </div>
       )}
@@ -131,6 +150,7 @@ export default function BuildFileEditor({
           onChange={setValue}
           onSaved={(contents) => setSaved(contents)}
           breakpoints={linesIn(marks, solution.id, path)}
+          logPoints={logLinesIn(marks, solution.id, path)}
           onToggleBreakpoint={(line) =>
             setMarks((prev) => toggleBreakpoint(prev, solution.id, path, line))
           }

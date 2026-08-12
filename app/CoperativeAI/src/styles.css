@@ -7198,6 +7198,15 @@ button.ready-action.link:hover {
   font-size: 0.72rem;
 }
 
+.build-break-kind {
+  margin-left: 0.35rem;
+  font-style: normal;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-dim);
+}
+
 .build-file-mark {
   display: flex;
   align-items: center;
@@ -7395,6 +7404,14 @@ button.ready-action.link:hover {
   border-radius: 50%;
   background: var(--bad);
   box-shadow: 0 0 6px color-mix(in srgb, var(--bad) 60%, transparent);
+}
+
+/* A log point prints and carries on, so it must not wear the stopping dot:
+   hollow, and in the neutral colour rather than the alarming one. */
+.breakpoint-dot.logpoint::after {
+  background: transparent;
+  border: 2px solid var(--fg-dim);
+  box-shadow: none;
 }
 
 /* ---------------------------------------------------------------------------

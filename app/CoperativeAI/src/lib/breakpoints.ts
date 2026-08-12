@@ -12,12 +12,18 @@
 
 const KEY = "coperativeai.breakpoints";
 
-/** One breakpoint: a line, and optionally what has to be true to stop there. */
+/** One breakpoint: a line, and optionally what to do there beyond stopping. */
 export interface Mark {
   line: number;
   /** An expression in the debugged language, evaluated by the adapter in the
    *  running program. Empty means stop every time. */
   condition: string;
+  /** A message to print **instead of** stopping — a log point. `{expr}` inside
+   *  it is evaluated in the program. Empty means stop, as normal.
+   *
+   *  This is the `println` you would otherwise add, without the edit and
+   *  without the rebuild, which is the whole reason it earns a box. */
+  log: string;
 }
 
 /** Every breakpoint on this machine: `solutionId → path → marks`. */
@@ -28,11 +34,16 @@ export type BreakpointStore = Record<string, Record<string, Mark[]>>;
  *  Read and converted rather than discarded — somebody's breakpoints are not
  *  worth losing over a shape change, and this store is per machine so there is
  *  no migration anywhere else to do it. */
-type StoredFile = Mark[] | number[];
+type StoredFile = (Partial<Mark> & { line: number })[] | number[];
 
 function marksOf(stored: StoredFile): Mark[] {
   return stored.map((entry) =>
-    typeof entry === "number" ? { line: entry, condition: "" } : entry,
+    typeof entry === "number"
+      ? { line: entry, condition: "", log: "" }
+      : // Fields are defaulted one by one rather than by shape, because the
+        // store has grown twice now and a mark written between the two is a
+        // real thing to find on somebody's machine.
+        { line: entry.line, condition: entry.condition ?? "", log: entry.log ?? "" },
   );
 }
 
@@ -63,13 +74,30 @@ function save(store: BreakpointStore): void {
   }
 }
 
-/** The lines marked in one file — what the gutter draws. */
+/** The lines that stop the program — the ordinary dots in the gutter. */
 export function linesIn(
   store: BreakpointStore,
   solutionId: number,
   path: string,
 ): number[] {
-  return marksIn(store, solutionId, path).map((m) => m.line);
+  return marksIn(store, solutionId, path)
+    .filter((m) => m.log === "")
+    .map((m) => m.line);
+}
+
+/** The lines that print instead of stopping.
+ *
+ *  Kept apart from `linesIn` so the gutter can draw them differently: a log
+ *  point that looked like a breakpoint would be a mark that never stops, which
+ *  reads as a debugger that is broken. */
+export function logLinesIn(
+  store: BreakpointStore,
+  solutionId: number,
+  path: string,
+): number[] {
+  return marksIn(store, solutionId, path)
+    .filter((m) => m.log !== "")
+    .map((m) => m.line);
 }
 
 /** The breakpoints in one file, conditions included. */
@@ -94,7 +122,7 @@ export function toggleBreakpoint(
   const held = marksIn(store, solutionId, path);
   const next = held.some((m) => m.line === line)
     ? held.filter((m) => m.line !== line)
-    : [...held, { line, condition: "" }].sort((a, b) => a.line - b.line);
+    : [...held, { line, condition: "", log: "" }].sort((a, b) => a.line - b.line);
   return write(store, solutionId, path, next);
 }
 
@@ -109,13 +137,38 @@ export function setCondition(
   line: number,
   condition: string,
 ): BreakpointStore {
+  return amend(store, solutionId, path, line, (m) => ({ ...m, condition }));
+}
+
+/** Sets or clears the message one breakpoint prints instead of stopping.
+ *
+ *  Clearing it turns a log point back into an ordinary breakpoint rather than
+ *  removing it — the mark in the gutter is the same mark either way. */
+export function setLog(
+  store: BreakpointStore,
+  solutionId: number,
+  path: string,
+  line: number,
+  log: string,
+): BreakpointStore {
+  return amend(store, solutionId, path, line, (m) => ({ ...m, log }));
+}
+
+function amend(
+  store: BreakpointStore,
+  solutionId: number,
+  path: string,
+  line: number,
+  change: (mark: Mark) => Mark,
+): BreakpointStore {
   const held = marksIn(store, solutionId, path);
+  // A change to a line with no breakpoint would be a setting on nothing.
   if (!held.some((m) => m.line === line)) return store;
   return write(
     store,
     solutionId,
     path,
-    held.map((m) => (m.line === line ? { ...m, condition } : m)),
+    held.map((m) => (m.line === line ? change(m) : m)),
   );
 }
 
@@ -150,11 +203,16 @@ export function absoluteFor(
   store: BreakpointStore,
   solutionId: number,
   localPath: string,
-): { path: string; line: number; condition: string }[] {
+): { path: string; line: number; condition: string; log: string }[] {
   const root = localPath.replace(/[/\\]+$/, "");
   const files = store[String(solutionId)] ?? {};
   return Object.entries(files).flatMap(([path, marks]) =>
-    marks.map((m) => ({ path: `${root}/${path}`, line: m.line, condition: m.condition })),
+    marks.map((m) => ({
+      path: `${root}/${path}`,
+      line: m.line,
+      condition: m.condition,
+      log: m.log,
+    })),
   );
 }
 

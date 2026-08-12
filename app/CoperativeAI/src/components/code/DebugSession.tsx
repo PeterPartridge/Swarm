@@ -177,6 +177,8 @@ export default function DebugSession({
   /// has started, because it is the adapter’s own answer to `initialize`
   /// rather than something this app can know in advance.
   const [conditions, setConditions] = useState<boolean | null>(null);
+  /// The same, for printing a message instead of stopping.
+  const [logPoints, setLogPoints] = useState<boolean | null>(null);
 
   /// The session id as the event listener sees it. A listener registered once
   /// would otherwise capture the id from the render it was created in, and stop
@@ -315,6 +317,7 @@ export default function DebugSession({
       current.current = started.session;
       setState("running");
       setConditions(started.conditions);
+      setLogPoints(started.logPoints);
 
       // Where they actually landed, not where they were asked for: an adapter
       // slides a breakpoint to the next executable line.
@@ -457,6 +460,12 @@ export default function DebugSession({
         <p className="hint">
           This debugger does not evaluate breakpoint conditions, so any condition you have set
           holds its breakpoint back rather than being ignored.
+        </p>
+      )}
+      {logPoints === false && (
+        <p className="hint">
+          This debugger cannot print a message instead of stopping, so any log message you have
+          set holds its breakpoint back rather than turning it into an ordinary stop.
         </p>
       )}
 

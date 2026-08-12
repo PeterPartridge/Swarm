@@ -112,6 +112,17 @@ pub struct Breakpoint {
     /// breakpoints stored before conditions existed still load.
     #[serde(default)]
     pub condition: String,
+    /// A message to print instead of stopping — a **log point**.
+    ///
+    /// The point of it is that the program keeps running: this is the `println`
+    /// you would otherwise add, without the edit and without the rebuild.
+    /// `{expr}` inside the message is evaluated in the program, so
+    /// `total is {subtotal + tax}` prints the sum.
+    ///
+    /// A breakpoint with one of these does not stop, so setting a log message
+    /// and expecting a stop is the one confusion the UI has to head off.
+    #[serde(default)]
+    pub log: String,
 }
 
 /// One DAP connection: somewhere to write, and everything waiting for a reply.
@@ -247,7 +258,25 @@ struct Core {
     /// time — which is the opposite of what was asked for — so the condition is
     /// never sent blind.
     conditional: AtomicBool,
+    /// Whether the adapter said it can print a message instead of stopping.
+    ///
+    /// Same failure shape as `conditional`, and worse in effect: an adapter
+    /// that ignores `logMessage` **stops** at a breakpoint whose whole purpose
+    /// was not to.
+    log_points: AtomicBool,
     on_event: EventSink,
+}
+
+/// What an adapter said it can do with a breakpoint beyond stopping at a line.
+///
+/// One value rather than two loose `bool`s: they are read together, passed
+/// together and mixed up if they are ever passed positionally.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Honours {
+    /// `supportsConditionalBreakpoints`.
+    pub conditions: bool,
+    /// `supportsLogPoints`.
+    pub log_points: bool,
 }
 
 /// Where every event goes on its way to the window.
@@ -257,6 +286,13 @@ struct Core {
 type EventSink = Box<dyn Fn(&str, Value) + Send + Sync>;
 
 impl Core {
+    fn honours(&self) -> Honours {
+        Honours {
+            conditions: self.conditional.load(Ordering::Relaxed),
+            log_points: self.log_points.load(Ordering::Relaxed),
+        }
+    }
+
     /// Where a request about the running program should go.
     fn talker(&self) -> Arc<Channel> {
         self.active
@@ -308,9 +344,10 @@ impl Live {
             active: Mutex::new(None),
             port,
             breakpoints: Mutex::new(Vec::new()),
-            // Assumed absent until `initialize` says otherwise: a condition is
-            // never sent to an adapter that has not claimed it can honour one.
+            // Assumed absent until `initialize` says otherwise: neither is ever
+            // sent to an adapter that has not claimed it can honour it.
             conditional: AtomicBool::new(false),
+            log_points: AtomicBool::new(false),
             on_event: Box::new(on_event),
         });
 
@@ -337,6 +374,12 @@ impl Live {
                 .unwrap_or(false),
             Ordering::Relaxed,
         );
+        self.core.log_points.store(
+            body.get("supportsLogPoints")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            Ordering::Relaxed,
+        );
         Ok(())
     }
 
@@ -350,7 +393,7 @@ impl Live {
             arguments,
             breakpoints,
             self.configuration_done,
-            self.core.conditional.load(Ordering::Relaxed),
+            self.core.honours(),
         )
     }
 
@@ -364,19 +407,15 @@ impl Live {
         if let Ok(mut held) = self.core.breakpoints.lock() {
             *held = breakpoints.to_vec();
         }
-        set_breakpoints(
-            &self.core.talker(),
-            breakpoints,
-            self.core.conditional.load(Ordering::Relaxed),
-        )
+        set_breakpoints(&self.core.talker(), breakpoints, self.core.honours())
     }
 
-    /// Whether the adapter will evaluate a breakpoint condition.
+    /// What this adapter will do with a breakpoint beyond stopping at a line.
     ///
     /// Surfaced so the UI can say "this debugger cannot do that" instead of
     /// showing a box whose contents would be quietly dropped.
-    pub fn supports_conditions(&self) -> bool {
-        self.core.conditional.load(Ordering::Relaxed)
+    pub fn honours(&self) -> Honours {
+        self.core.honours()
     }
 
     /// Where the program is stopped, innermost frame first.
@@ -553,7 +592,7 @@ fn configure_and_launch(
     arguments: Value,
     breakpoints: &[Breakpoint],
     configuration_done: bool,
-    conditional: bool,
+    honours: Honours,
 ) -> Result<(), String> {
     // Sent, not awaited: the response may not come until configuration is
     // finished, and waiting here would deadlock against that.
@@ -561,7 +600,7 @@ fn configure_and_launch(
 
     // Breakpoints set before this are dropped by most adapters, silently.
     channel.wait_until_ready()?;
-    set_breakpoints(channel, breakpoints, conditional)?;
+    set_breakpoints(channel, breakpoints, honours)?;
     if configuration_done {
         channel.request("configurationDone", json!({}))?;
     }
@@ -583,17 +622,23 @@ fn configure_and_launch(
 fn set_breakpoints(
     channel: &Channel,
     breakpoints: &[Breakpoint],
-    conditional: bool,
+    honours: Honours,
 ) -> Result<Vec<Value>, String> {
     let mut by_file: HashMap<&str, Vec<&Breakpoint>> = HashMap::new();
-    // A conditional breakpoint sent to an adapter that cannot evaluate one is
-    // worse than none: the field is ignored and the program stops *every* time,
-    // which is the opposite of what was asked for. So it is held back and
-    // reported, below, rather than armed unconditionally.
-    let mut refused = Vec::new();
+    // An extra sent to an adapter that cannot honour it is worse than none,
+    // because DAP has no failure for it — the field is simply ignored, and what
+    // is left behaves like a plain breakpoint. A dropped condition stops
+    // *every* time; a dropped log message **stops**, at a breakpoint whose
+    // whole purpose was not to. Both are the opposite of what was asked for, so
+    // neither is sent blind: they are held back and reported, below.
+    let mut refused: Vec<(&Breakpoint, &str)> = Vec::new();
     for bp in breakpoints {
-        if !bp.condition.is_empty() && !conditional {
-            refused.push(bp);
+        if !bp.condition.is_empty() && !honours.conditions {
+            refused.push((bp, "evaluate breakpoint conditions"));
+            continue;
+        }
+        if !bp.log.is_empty() && !honours.log_points {
+            refused.push((bp, "print a message instead of stopping"));
             continue;
         }
         by_file.entry(bp.path.as_str()).or_default().push(bp);
@@ -601,7 +646,7 @@ fn set_breakpoints(
     // Every file that had one still has to be sent even if everything in it was
     // refused — `setBreakpoints` replaces the file's whole set, so an unsent
     // file keeps whatever the adapter last armed.
-    for bp in &refused {
+    for (bp, _) in &refused {
         by_file.entry(bp.path.as_str()).or_default();
     }
 
@@ -615,11 +660,16 @@ fn set_breakpoints(
                 "breakpoints": wanted
                     .iter()
                     .map(|b| {
-                        if b.condition.is_empty() {
-                            json!({ "line": b.line })
-                        } else {
-                            json!({ "line": b.line, "condition": b.condition })
+                        let mut one = json!({ "line": b.line });
+                        if !b.condition.is_empty() {
+                            one["condition"] = json!(b.condition);
                         }
+                        // With this set the adapter prints and carries on
+                        // rather than stopping — that is the whole feature.
+                        if !b.log.is_empty() {
+                            one["logMessage"] = json!(b.log);
+                        }
+                        one
                     })
                     .collect::<Vec<_>>(),
             }),
@@ -640,14 +690,16 @@ fn set_breakpoints(
         }
     }
 
-    for bp in refused {
+    for (bp, what) in refused {
         verified.push(json!({
             "path": bp.path,
             "requested": bp.line,
             "line": Value::Null,
             "verified": false,
-            "message": "this debugger cannot evaluate breakpoint conditions, so this breakpoint \
-                        was not set — clearing the condition would arm it",
+            "message": format!(
+                "this debugger cannot {what}, so this breakpoint was not set — clearing that \
+                 would arm it",
+            ),
         }));
     }
     Ok(verified)
@@ -718,15 +770,15 @@ fn open_child(core: Arc<Core>, configuration: Value) {
             .lock()
             .map(|held| held.clone())
             .unwrap_or_default();
-        // The child is the same product as the root, so it honours conditions
-        // exactly when the root said it could.
-        let conditional = core.conditional.load(Ordering::Relaxed);
+        // The child is the same product as the root, so it honours exactly what
+        // the root said it could.
+        let honours = core.honours();
         if let Err(why) = configure_and_launch(
             &channel,
             configuration,
             &breakpoints,
             configuration_done,
-            conditional,
+            honours,
         ) {
             (core.on_event)("dap-broken", json!({ "message": why }));
         }
@@ -1008,6 +1060,7 @@ mod tests {
             path: source.display().to_string(),
             line: 8,
             condition: String::new(),
+            log: String::new(),
         }];
         live.launch(
             json!({
@@ -1047,6 +1100,116 @@ mod tests {
             Some("1185".to_string()),
             "tax should be set at this line. Saw: {vars:?}"
         );
+
+        live.stop();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A log point, against a real debugger.**
+    ///
+    /// The assertion is the *absence* of a stop. A log point that were sent as
+    /// a plain breakpoint would stop on the first iteration, and a test that
+    /// only checked "the message was printed" would not catch it — the message
+    /// arrives either way. So this waits for `terminated` and fails if a
+    /// `stopped` turns up first.
+    #[test]
+    #[ignore = "needs Delve and a Go toolchain"]
+    fn a_log_point_prints_and_lets_the_program_run_on() {
+        let found = crate::debug::adapters::discover();
+        let go = found.iter().find(|a| a.language == "go").expect("go");
+        if !go.available {
+            eprintln!("skipping: {}", go.problem);
+            return;
+        }
+
+        let dir = std::env::temp_dir().join(format!("coperativeai-dap-log-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch");
+        std::fs::write(dir.join("go.mod"), "module scratch\n\ngo 1.21\n").expect("go.mod");
+        let source = dir.join("main.go");
+        std::fs::write(
+            &source,
+            "package main\n\
+             \n\
+             import \"fmt\"\n\
+             \n\
+             func main() {\n\
+             \ttotal := 0\n\
+             \tfor i := 0; i < 3; i++ {\n\
+             \t\ttotal += i\n\
+             \t}\n\
+             \tfmt.Println(total)\n\
+             }\n",
+        )
+        .expect("main.go");
+
+        let (tx, rx) = channel::<(String, Value)>();
+        let mut live = Live::start(&go.argv, Transport::Tcp, Some(&dir), move |name, body| {
+            let _ = tx.send((name.to_string(), body));
+        })
+        .expect("start Delve");
+        live.initialize("go").expect("initialize");
+        assert!(
+            live.honours().log_points,
+            "Delve reports supporting log points"
+        );
+
+        // Line 8 is `total += i`, inside the loop. As a breakpoint this stops
+        // three times; as a log point it should print three times and stop
+        // never. `{i}` is evaluated in the program.
+        live.launch(
+            json!({
+                "request": "launch",
+                "mode": "debug",
+                "program": dir.display().to_string(),
+                "cwd": dir.display().to_string(),
+            }),
+            &[Breakpoint {
+                path: source.display().to_string(),
+                line: 8,
+                condition: String::new(),
+                log: "round {i}".into(),
+            }],
+        )
+        .expect("launch");
+
+        let deadline = Instant::now() + Duration::from_secs(120);
+        let mut printed = Vec::new();
+        let mut ended = false;
+        while Instant::now() < deadline && !ended {
+            let left = deadline.saturating_duration_since(Instant::now());
+            match rx.recv_timeout(left) {
+                Ok((name, body)) if name == "stopped" => {
+                    panic!("a log point must not stop the program: {body}")
+                }
+                Ok((name, body)) if name == "output" => {
+                    if let Some(text) = body.get("output").and_then(|o| o.as_str()) {
+                        printed.push(text.to_string());
+                    }
+                }
+                Ok((name, _)) if name == "terminated" || name == "dap-closed" => ended = true,
+                Ok((name, body)) if name == "dap-broken" => panic!("the adapter broke: {body}"),
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+
+        assert!(ended, "the program should have run to the end. Saw: {printed:?}");
+        let logged: Vec<&String> = printed.iter().filter(|t| t.contains("round")).collect();
+        assert_eq!(
+            logged.len(),
+            3,
+            "three times round the loop, three messages. Saw: {printed:?}"
+        );
+        // `{i}` is interpolated by the adapter, out of the running program.
+        assert!(
+            logged.iter().any(|t| t.contains("round 2")),
+            "the expression should be evaluated, not printed literally. Saw: {printed:?}"
+        );
+        // Nothing is asserted about the program's *own* stdout: Delve gives the
+        // debuggee its own console rather than relaying it as DAP `output`, so
+        // `fmt.Println` does not appear here. That the program reached the end
+        // is what `terminated` above says, and it says it without ambiguity.
 
         live.stop();
         let _ = std::fs::remove_dir_all(&dir);
@@ -1096,7 +1259,7 @@ mod tests {
         .expect("start Delve");
         live.initialize("go").expect("initialize");
         assert!(
-            live.supports_conditions(),
+            live.honours().conditions,
             "Delve reports supporting conditional breakpoints"
         );
 
@@ -1113,6 +1276,7 @@ mod tests {
                 path: source.display().to_string(),
                 line: 8,
                 condition: "i == 7".into(),
+                log: String::new(),
             }],
         )
         .expect("launch");
@@ -1199,7 +1363,7 @@ mod tests {
                 "program": dir.display().to_string(),
                 "cwd": dir.display().to_string(),
             }),
-            &[Breakpoint { path: source.display().to_string(), line: 12, condition: String::new() }],
+            &[Breakpoint { path: source.display().to_string(), line: 12, condition: String::new(), log: String::new() }],
         )
         .expect("launch");
 
@@ -1285,6 +1449,7 @@ mod tests {
             path: source.display().to_string(),
             line: 3,
             condition: String::new(),
+            log: String::new(),
         }];
         live.launch(
             json!({
@@ -1391,6 +1556,7 @@ mod tests {
             path: source.display().to_string(),
             line: 3,
             condition: String::new(),
+            log: String::new(),
         }];
         live.launch(
             json!({
@@ -1444,9 +1610,9 @@ mod tests {
     #[test]
     fn breakpoints_are_grouped_by_file() {
         let list = vec![
-            Breakpoint { path: "a.go".into(), line: 3, condition: String::new() },
-            Breakpoint { path: "b.go".into(), line: 9, condition: String::new() },
-            Breakpoint { path: "a.go".into(), line: 12, condition: String::new() },
+            Breakpoint { path: "a.go".into(), line: 3, condition: String::new(), log: String::new() },
+            Breakpoint { path: "b.go".into(), line: 9, condition: String::new(), log: String::new() },
+            Breakpoint { path: "a.go".into(), line: 12, condition: String::new(), log: String::new() },
         ];
         let mut by_file: HashMap<&str, Vec<i64>> = HashMap::new();
         for bp in &list {

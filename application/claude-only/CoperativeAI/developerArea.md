@@ -34,6 +34,39 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 28 — log points
+
+### My Feedback
+
+**The feature that removes a rebuild.** A message on a breakpoint makes the line print and carry on instead of stopping — the `println` you would otherwise add, without the edit, the rebuild or the tidying up afterwards. `{expr}` inside it is evaluated in the running program.
+
+**The assertion is the *absence* of a stop.** Verified against Delve on a Go loop of three with `round {i}` on the line inside it: three messages, `round 0`/`1`/`2`, and the program ran to `terminated` without ever stopping. A log point accidentally sent as a plain breakpoint would stop on the first iteration — and a test that only checked "the message was printed" would not catch it, because the message arrives either way. So the test fails on the first `stopped` it sees.
+
+**A dropped `logMessage` is worse than a dropped condition**, which is why it is refused the same way. DAP has no failure for either: an adapter that lacks the capability just ignores the field. A dropped condition stops *every* time; a dropped log message **stops**, at a breakpoint whose whole purpose was not to. So `supportsLogPoints` is read from `initialize` and the breakpoint is held back with a message saying which thing the debugger cannot do.
+
+**A log point gets its own glyph** — hollow, in the neutral colour rather than the alarming one. A mark that looks like a breakpoint and never stops reads as a debugger that is broken, and the gutter is the only place the difference is visible before the program runs.
+
+**`Honours` replaced two loose `bool`s.** Conditions and log points are read together, passed together, and would be swapped sooner or later if they were ever passed positionally.
+
+### Your Feedback
+
+- **The store has grown twice now**, so fields are defaulted one at a time rather than by shape: a mark written between the two versions — a line and a condition, no message — is a real thing to find on somebody's machine, and it loads.
+- **Clearing a message turns a log point back into an ordinary breakpoint** rather than removing it. It is the same mark in the gutter either way.
+- **The condition box changes what it promises** when a message is set: "log every time" rather than "stop every time", because the line no longer stops at all.
+- **One assertion was wrong and was removed rather than weakened.** The test also checked the program's own `fmt.Println` output arrived — it does not: Delve gives the debuggee its own console rather than relaying it as DAP `output`. `terminated` already says the program reached the end, without ambiguity.
+- **`{` is userEvent's keyboard syntax**, so typing `round {i}` in a test types a key called `i`. Escaped as `{{`, with a note, because the next person will hit it too.
+- **All nine real-adapter tests pass** — `setBreakpoints` changed again, and it is the one request all three debuggers depend on.
+
+### Technical Debt
+
+- **No hit counts.** `hitCondition` rides on the same request as the two fields now sent, and "stop the 500th time" is the one of the three this app still cannot express.
+- **A bad message is only found on starting**, same as a bad condition: nothing checks the interpolation as it is typed.
+- **Log output is not marked as coming from a log point.** It arrives in the debugger panel mixed in with everything else the adapter says, so a message and a program's own output look alike.
+- **Conditions and messages are only editable in the open file.** There is still no list of every breakpoint in the Solution.
+- **Still one thread**; **stepping does not follow the selected frame**; **nothing is watched**.
+- **debugpy has no launch shape** and cannot be verified here — no real Python on this machine.
+- Carried: only one js-debug child; the root's provisional breakpoints reach the UI; `built_assembly` picks the newest build rather than a configured one; the Rust suite leaves scratch directories in `%TEMP%`.
+
 ## Round 27 — conditional breakpoints
 
 ### My Feedback

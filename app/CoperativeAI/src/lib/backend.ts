@@ -1642,6 +1642,9 @@ export interface Breakpoint {
    *  Empty means stop every time. Evaluated by the adapter in the running
    *  program, so it is the program’s own language rather than JavaScript. */
   condition: string;
+  /** A message to print **instead of** stopping. `{expr}` inside it is
+   *  evaluated in the program. Empty means stop, as normal. */
+  log: string;
 }
 
 /** Where a stopped program is, innermost frame first. */
@@ -1680,6 +1683,8 @@ export interface StartedDebug {
    *  editor can say "this debugger cannot do that" rather than offering a box
    *  whose contents would be dropped on the floor. */
   conditions: boolean;
+  /** Whether it will print a message instead of stopping. */
+  logPoints: boolean;
 }
 
 /** Starts a program under its debugger with breakpoints already set.
