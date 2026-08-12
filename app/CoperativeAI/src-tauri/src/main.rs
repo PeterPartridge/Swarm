@@ -251,7 +251,6 @@ fn main() {
             commands::ai_settings::add_ai_provider,
             commands::ai_settings::add_ollama_provider,
             commands::ai_settings::add_claude_code_provider,
-            commands::ai_settings::claude_code_auth,
             commands::ai_settings::add_ollama_cloud_provider,
             commands::ai_settings::claude_code_status,
             commands::ai_settings::install_claude_code,

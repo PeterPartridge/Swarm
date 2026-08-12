@@ -739,6 +739,46 @@ describe("DebugSession", () => {
   });
 
 
+  /// **A log point's message and the debugger clearing its throat looked
+  /// alike.** DAP marks output produced at a known place with a source and a
+  /// line, and an adapter's own chatter carries neither — verified against the
+  /// real Delve, whose log points arrive with `line` and `source` set and whose
+  /// "Type 'dlv help'…" banner does not.
+  it("says which line printed a log point message, and leaves chatter alone", async () => {
+    const user = userEvent.setup();
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+
+    act(() => {
+      emit?.({
+        session: "dbg-go-1",
+        event: "output",
+        body: { category: "console", output: "Type 'dlv help' for list of commands.\n" },
+      });
+      emit?.({
+        session: "dbg-go-1",
+        event: "output",
+        body: {
+          category: "stdout",
+          output: "> [Go 1]: round 2\n",
+          line: 8,
+          source: { path: "C:/repos/orders/main.go" },
+        },
+      });
+    });
+
+    const panel = screen.getByRole("region", { name: "Debugger for Orders" });
+    const out = await within(panel).findByLabelText("Program output");
+    // The message says where it came from…
+    expect(within(out).getByText("main.go:8")).toBeInTheDocument();
+    // …and the chatter is left as it is rather than given a location it never
+    // claimed.
+    expect(out).toHaveTextContent("Type 'dlv help'");
+    expect(within(out).queryAllByText(/^main\.go:/)).toHaveLength(1);
+  });
+
   /// **The case this exists for is deadlock.** The thread that stopped is
   /// rarely the one holding the lock, so a debugger that only ever showed the
   /// stopped thread could not show you the problem at all.

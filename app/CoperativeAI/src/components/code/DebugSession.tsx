@@ -186,10 +186,18 @@ function VariableTree({
   );
 }
 
-/** One line of the program's own output. */
+/** One line of the program's own output.
+ *
+ *  **Where it came from is part of it.** A log point's output carries a source
+ *  and a line — that is how DAP marks output produced at a known place — and
+ *  the adapter's own chatter carries neither. Running the two together made a
+ *  message printed by a breakpoint indistinguishable from the debugger clearing
+ *  its throat. */
 interface Line {
   at: number;
   text: string;
+  /** The file and line that printed it, when the adapter said. */
+  from?: string;
 }
 
 /** What the adapter told us, as it arrives. */
@@ -511,8 +519,17 @@ export default function DebugSession({
         }
       } else if (event === "output") {
         const text = String(body?.output ?? "");
+        // Present only when the adapter knows where the output came from, which
+        // in practice means a log point — see `a_log_point_prints…` in
+        // `debug::live`, which pins that against the real Delve.
+        const where = body?.source as { path?: string } | undefined;
+        const line = body?.line as number | undefined;
+        const from =
+          where?.path && line
+            ? `${where.path.split(/[/\\]/).pop()}:${line}`
+            : undefined;
         if (text.trim() !== "") {
-          setOutput((prev) => [...prev.slice(-200), { at: Date.now(), text }]);
+          setOutput((prev) => [...prev.slice(-200), { at: Date.now(), text, from }]);
         }
       } else if (event === "terminated" || event === "exited" || event === "dap-closed") {
         setState("ended");
@@ -1070,9 +1087,17 @@ export default function DebugSession({
           )}
 
           {output.length > 0 && (
-            <pre className="session-output" aria-label="Program output">
-              {output.map((l) => l.text).join("")}
-            </pre>
+            <div className="session-output" aria-label="Program output">
+              {output.map((l, i) => (
+                <div className="output-line" key={`${l.at}-${i}`}>
+                  {/* Which line printed it, where the adapter said — otherwise a
+                      log point's message and the debugger's own chatter look
+                      exactly alike. */}
+                  {l.from && <span className="output-from card-mono">{l.from}</span>}
+                  <span className="output-text">{l.text}</span>
+                </div>
+              ))}
+            </div>
           )}
         </>
       )}

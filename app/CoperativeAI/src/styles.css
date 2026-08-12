@@ -7744,6 +7744,28 @@ button.ready-action.link:hover {
   color: var(--fg-dim);
 }
 
+.output-line {
+  display: flex;
+  gap: 0.4rem;
+  align-items: baseline;
+}
+
+/* Which line printed it. Quiet, and in the same column each time, so a run of
+   messages from one log point reads as a run rather than as noise. */
+.output-from {
+  flex: none;
+  min-width: 6rem;
+  font-size: 0.6rem;
+  color: var(--fg-dim);
+}
+
+.output-text {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .session-output {
   max-height: 12rem;
   margin: 0;

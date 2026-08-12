@@ -2203,7 +2203,21 @@ mod tests {
                     panic!("a log point must not stop the program: {body}")
                 }
                 Ok((name, body)) if name == "output" => {
+                    // **How a log point's output is told apart from anything
+                    // else the adapter says.** Captured from this run: the
+                    // messages carry `source` and `line` —
+                    // `{"category":"stdout","line":8,"source":{"path":"…main.go"},…}`
+                    // — and Delve's own chatter carries neither
+                    // (`{"category":"console","output":"Type 'dlv help' …"}`).
+                    // That is what lets the panel say which line printed what
+                    // rather than running the two together.
                     if let Some(text) = body.get("output").and_then(|o| o.as_str()) {
+                        if text.contains("round") {
+                            assert!(
+                                body.get("line").is_some() && body.get("source").is_some(),
+                                "a log point's output should say where it came from: {body}"
+                            );
+                        }
                         printed.push(text.to_string());
                     }
                 }
