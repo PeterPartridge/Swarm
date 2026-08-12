@@ -15,7 +15,8 @@
 use crate::debug::adapters::Transport;
 use crate::debug::wire::{self, Decoded};
 use std::io::{Read, Write};
-use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
+use crate::debug::loopbacks;
+use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -24,6 +25,8 @@ use std::time::{Duration, Instant};
 const REPLY_TIMEOUT: Duration = Duration::from_secs(20);
 /// How long to let a TCP adapter get its listener up.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a single read waits before letting the deadline be checked again.
+const POLL: Duration = Duration::from_millis(250);
 
 /// What an adapter said it can do.
 #[derive(Debug, Default)]
@@ -134,7 +137,7 @@ impl Session {
         let mut child = Self::spawn(program, &filled, cwd, false)?;
 
         let deadline = Instant::now() + CONNECT_TIMEOUT;
-        let addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, port);
+        let addrs = loopbacks(port);
         loop {
             // A dead adapter is reported as itself rather than as a timeout —
             // "could not connect" when the real answer is "it exited at once"
@@ -149,11 +152,22 @@ impl Session {
                     why.trim()
                 ));
             }
-            match TcpStream::connect(addr) {
+            match addrs
+                .iter()
+                .find_map(|a| TcpStream::connect(a).ok())
+                .ok_or(())
+            {
                 Ok(stream) => {
                     let read = stream
                         .try_clone()
                         .map_err(|e| format!("could not read from {program}: {e}"))?;
+                    // **Without this the client can hang forever.** A blocking
+                    // read only returns when there is something to read, so a
+                    // deadline checked between reads is never reached if the
+                    // adapter simply goes quiet — which js-debug does after
+                    // `disconnect`. A short timeout turns the wait into a poll
+                    // the deadline can actually win.
+                    let _ = read.set_read_timeout(Some(POLL));
                     return Ok(Session {
                         reader: Box::new(read),
                         writer: Box::new(stream),
@@ -162,12 +176,14 @@ impl Session {
                         buffer: Vec::new(),
                     });
                 }
-                Err(_) if Instant::now() < deadline => {
+                Err(()) if Instant::now() < deadline => {
                     std::thread::sleep(Duration::from_millis(60));
                 }
-                Err(e) => {
+                Err(()) => {
                     let _ = child.kill();
-                    return Err(format!("{program} never accepted a connection: {e}"));
+                    return Err(format!(
+                        "{program} never accepted a connection on 127.0.0.1:{port} or [::1]:{port}"
+                    ));
                 }
             }
         }
@@ -238,6 +254,10 @@ impl Session {
             match self.reader.read(&mut chunk) {
                 Ok(0) => return Err("the adapter closed the connection".into()),
                 Ok(n) => self.buffer.extend_from_slice(&chunk[..n]),
+                // Nothing said yet — go round, and let the deadline decide.
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::TimedOut => {}
                 Err(e) => return Err(format!("could not read from the adapter: {e}")),
             }
         }
@@ -275,11 +295,11 @@ impl Session {
 
     /// Asks the adapter to shut down, then makes sure it has.
     pub fn shutdown(&mut self) {
-        // Best effort in both halves: an adapter that has already gone is the
-        // ordinary case, not a failure worth reporting.
-        if let Ok(seq) = self.request("disconnect", serde_json::json!({ "restart": false })) {
-            let _ = self.wait_for_response(seq);
-        }
+        // Sent, not awaited. **js-debug does not answer `disconnect`** on its
+        // server session, so waiting for one hangs until the timeout — and the
+        // child is killed immediately after regardless, which is what actually
+        // ends it.
+        let _ = self.request("disconnect", serde_json::json!({ "restart": false }));
         if let Some(child) = self.child.as_mut() {
             let _ = child.kill();
             let _ = child.wait();
@@ -320,6 +340,39 @@ mod tests {
         // Binding it proves nothing else took it in the gap.
         let held = TcpListener::bind((Ipv4Addr::LOCALHOST, port));
         assert!(held.is_ok(), "the offered port should be bindable");
+    }
+
+    /// js-debug is found and speaks DAP.
+    ///
+    /// Ignored by default because it needs js-debug on the machine — it is not
+    /// an npm package, it ships as a GitHub release tarball, so CI will not have
+    /// it. Its handshake is worth pinning separately from Delve's: js-debug is a
+    /// *server* rather than a one-shot adapter, and the difference shows up in
+    /// how the session is driven rather than in the framing.
+    #[test]
+    #[ignore = "needs js-debug extracted on this machine"]
+    fn js_debug_completes_the_dap_handshake() {
+        let found = crate::debug::adapters::discover();
+        let js = found
+            .iter()
+            .find(|a| a.language == "typescript")
+            .expect("typescript is reported on");
+        if !js.available {
+            eprintln!("skipping: {}", js.problem);
+            return;
+        }
+
+        let (program, args) = js.argv.split_first().expect("argv");
+        let mut session =
+            Session::start(program, args, Transport::Tcp, None).expect("start js-debug");
+        let caps = session.initialize("pwa-node").expect("initialize");
+        session.shutdown();
+
+        assert!(
+            caps.configuration_done,
+            "js-debug should support configurationDone. Raw capabilities: {}",
+            caps.raw
+        );
     }
 
     /// **The real handshake, against a real debugger.** Ignored by default

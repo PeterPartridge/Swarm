@@ -17,6 +17,22 @@
 //! looks like it works. A breakpoint that silently does nothing costs more than
 //! no breakpoint at all.
 
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+
+/// Both loopback addresses, because adapters do not agree on one.
+///
+/// Delve is told `--listen=127.0.0.1:PORT` and binds IPv4. **js-debug binds
+/// `::1` and nothing else**, so connecting to 127.0.0.1 gets "actively refused"
+/// — which reads exactly like an adapter that failed to start, and cost a
+/// confusing failure before it was pinned down. Trying both is the only thing
+/// that works for every adapter without special-casing each one.
+fn loopbacks(port: u16) -> [SocketAddr; 2] {
+    [
+        SocketAddr::from((Ipv4Addr::LOCALHOST, port)),
+        SocketAddr::from((Ipv6Addr::LOCALHOST, port)),
+    ]
+}
+
 pub mod adapters;
 pub mod live;
 pub mod session;

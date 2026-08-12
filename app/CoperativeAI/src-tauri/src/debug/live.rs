@@ -23,6 +23,32 @@
 //!
 //! Breakpoints set before `initialized` are dropped on the floor by most
 //! adapters — silently, which is the worst way for it to fail.
+//!
+//! # js-debug is two sessions, not one
+//!
+//! Delve is one process and one conversation. **js-debug is a server**, and the
+//! sequence below is a real capture rather than a reading of the spec:
+//!
+//! ```text
+//! root:  initialize → initialized → setBreakpoints → configurationDone → launch
+//! root:  ← REVERSE REQUEST startDebugging { configuration: { __pendingTargetId } }
+//! client: reply success, then open a SECOND connection to the same port
+//! child: initialize → setBreakpoints → configurationDone → launch(configuration)
+//! child: ← thread → continued → stopped   ← the breakpoint hits HERE
+//! ```
+//!
+//! Two consequences this module does not yet handle, and which are the whole of
+//! what is left for TypeScript:
+//!
+//! 1. **Reverse requests.** The adapter sends `type: "request"` *to us*, and
+//!    expects a response. Ignoring one leaves js-debug waiting forever.
+//! 2. **The child owns the program.** `stackTrace`, `variables` and every step
+//!    must go to the child connection; the root only supervises. A breakpoint
+//!    set on the root comes back `verified: false`
+//!    ("breakpoint.provisionalBreakpoint") until the child claims it.
+//!
+//! Delve needs none of this, which is why the Go path works today and the
+//! TypeScript one is still refused at `launch_arguments` rather than half-wired.
 
 use crate::debug::adapters::Transport;
 use crate::debug::wire::{self, Decoded};
@@ -30,7 +56,8 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream};
+use crate::debug::loopbacks;
+use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
@@ -41,6 +68,9 @@ use std::time::{Duration, Instant};
 const REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long to let a TCP adapter get its listener up.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long a single read waits before the loop goes round again. Only so the
+/// reader thread is interruptible; a session is meant to wait indefinitely.
+const POLL: Duration = Duration::from_millis(250);
 
 /// Where a program has stopped, in the terms the editor shows.
 #[derive(Clone, Debug, Serialize, Default)]
@@ -397,8 +427,10 @@ impl Live {
 
     /// Ends the program and the adapter with it.
     pub fn stop(&mut self) {
-        let _ = self.request("terminate", json!({ "restart": false }));
-        let _ = self.request("disconnect", json!({ "restart": false }));
+        // Both sent without waiting: not every adapter answers either one, and
+        // killing the child below is what actually ends the program.
+        let _ = self.send("terminate", json!({ "restart": false }));
+        let _ = self.send("disconnect", json!({ "restart": false }));
         if let Some(child) = self.child.as_mut() {
             let _ = child.kill();
             let _ = child.wait();
@@ -446,6 +478,11 @@ fn read_loop<F>(
         match reader.read(&mut chunk) {
             Ok(0) => break,
             Ok(n) => buffer.extend_from_slice(&chunk[..n]),
+            // A quiet adapter is the normal state of a running program, not the
+            // end of one — only a real error ends the loop.
+            Err(e)
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut => {}
             Err(_) => break,
         }
     }
@@ -548,7 +585,7 @@ fn connect_tcp(
     let mut child = spawn(program, &filled, cwd, false)?;
 
     let deadline = Instant::now() + CONNECT_TIMEOUT;
-    let addr = SocketAddrV4::new(Ipv4Addr::LOCALHOST, port);
+    let addrs = loopbacks(port);
     loop {
         // A dead adapter is reported as itself: "could not connect" when the
         // truth is "it exited at once" sends somebody to look at their firewall.
@@ -559,19 +596,27 @@ fn connect_tcp(
             }
             return Err(format!("{program} exited straight away ({status}). {}", why.trim()));
         }
-        match TcpStream::connect(addr) {
+        match addrs
+            .iter()
+            .find_map(|a| TcpStream::connect(a).ok())
+            .ok_or(())
+        {
             Ok(stream) => {
                 let read = stream
                     .try_clone()
                     .map_err(|e| format!("could not read from {program}: {e}"))?;
+                // See session.rs: a blocking read cannot be given up on.
+                let _ = read.set_read_timeout(Some(POLL));
                 return Ok((Box::new(read), Box::new(stream), child));
             }
-            Err(_) if Instant::now() < deadline => {
+            Err(()) if Instant::now() < deadline => {
                 std::thread::sleep(Duration::from_millis(60));
             }
-            Err(e) => {
+            Err(()) => {
                 let _ = child.kill();
-                return Err(format!("{program} never accepted a connection: {e}"));
+                return Err(format!(
+                    "{program} never accepted a connection on 127.0.0.1:{port} or [::1]:{port}"
+                ));
             }
         }
     }

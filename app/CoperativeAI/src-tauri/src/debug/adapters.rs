@@ -10,7 +10,7 @@
 //!
 //! | Language | Adapter | Transport | Comes from |
 //! |---|---|---|---|
-//! | TypeScript / JavaScript | `js-debug` | TCP | npm `@vscode/js-debug`, or VS Code |
+//! | TypeScript / JavaScript | `js-debug` | TCP | its GitHub release, or VS Code |
 //! | Python | `debugpy` | stdio | `pip install debugpy` |
 //! | Go | Delve (`dlv dap`) | TCP | `go install github.com/go-delve/delve/cmd/dlv@latest` |
 //! | C# | `netcoredbg` | stdio | Samsung's netcoredbg release |
@@ -207,7 +207,7 @@ fn js_debug() -> AdapterStatus {
         ),
         (_, None) => (
             false,
-            "js-debug was not found. Installing it puts dapDebugServer.js where this can host it."
+            "js-debug was not found. It is not an npm package — it ships as a release tarball              and inside the VS Code JavaScript Debugger extension."
                 .to_string(),
         ),
     };
@@ -234,28 +234,54 @@ fn js_debug() -> AdapterStatus {
         },
         version: node.as_ref().map(|(_, v)| format!("node {v}")).unwrap_or_default(),
         problem,
-        install: "npm install -g @vscode/js-debug".into(),
+        // Not an npm package: `npm i -g @vscode/js-debug` 404s, which is what
+        // this used to say. The release tarball is the real distribution.
+        install: "Download js-debug-dap from github.com/microsoft/vscode-js-debug/releases                   and extract it to ~/.js-debug (or install the VS Code JavaScript Debugger)"
+            .into(),
     }
 }
 
-/// Where `dapDebugServer.js` might be: the npm package, or VS Code's bundle.
+/// Where `dapDebugServer.js` might be.
+///
+/// **Not npm.** `@vscode/js-debug` is not a published package — asking for it
+/// gets a 404, which is what the app used to tell people to run. js-debug ships
+/// as a GitHub release tarball (`js-debug-dap-vX.Y.Z.tar.gz`, extracting to a
+/// `js-debug/` folder) and inside the VS Code extension, and those are the two
+/// places worth looking.
 fn js_debug_script() -> Option<PathBuf> {
     let mut roots: Vec<PathBuf> = Vec::new();
 
-    // The npm global root, asked for rather than assumed — it moves with the
-    // Node install and with `npm config set prefix`.
-    if let Ok(out) = Command::new(if cfg!(windows) { "npm.cmd" } else { "npm" })
-        .args(["root", "-g"])
-        .stdin(Stdio::null())
-        .output()
-    {
-        let root = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if !root.is_empty() {
-            roots.push(PathBuf::from(root).join("@vscode").join("js-debug"));
-        }
-    }
-
     if let Some(h) = home() {
+        // Where the release tarball would sensibly be unpacked.
+        roots.push(h.join(".js-debug"));
+        roots.push(h.join("js-debug"));
+        roots.push(h.join("AppData").join("Local").join("js-debug"));
+        roots.push(h.join(".local").join("share").join("js-debug"));
+
+        // The VS Code extension, whose folder carries its version — so the
+        // directory is scanned rather than guessed, and the newest wins.
+        for dir in [
+            h.join(".vscode").join("extensions"),
+            h.join(".vscode-insiders").join("extensions"),
+        ] {
+            if let Ok(entries) = std::fs::read_dir(&dir) {
+                let mut found: Vec<PathBuf> = entries
+                    .flatten()
+                    .map(|e| e.path())
+                    .filter(|p| {
+                        p.file_name()
+                            .and_then(|n| n.to_str())
+                            .is_some_and(|n| n.starts_with("ms-vscode.js-debug-"))
+                    })
+                    .collect();
+                // Newest last by name, which for `…-1.117.0` orders well enough
+                // to prefer a later release over an earlier one.
+                found.sort();
+                roots.extend(found.into_iter().rev());
+            }
+        }
+
+        // The copy bundled inside a VS Code install.
         roots.push(
             h.join("AppData")
                 .join("Local")
@@ -275,7 +301,14 @@ fn js_debug_script() -> Option<PathBuf> {
     ));
 
     for root in roots {
-        for rel in ["src/dapDebugServer.js", "dist/dapDebugServer.js"] {
+        // `js-debug/src/…` is the tarball extracted as-is: the archive contains
+        // a `js-debug/` folder, so unpacking it into `~/.js-debug` — the obvious
+        // thing to do, and what this app tells people to do — nests it once.
+        for rel in [
+            "src/dapDebugServer.js",
+            "js-debug/src/dapDebugServer.js",
+            "dist/src/dapDebugServer.js",
+        ] {
             let candidate = root.join(rel);
             if candidate.is_file() {
                 return Some(candidate);

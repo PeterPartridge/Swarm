@@ -34,6 +34,64 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 23 — js-debug: four bugs found by actually talking to it
+
+### My Feedback
+
+**Installing it found the first bug immediately.** `npm install -g @vscode/js-debug` returns a **404** — that package does not exist, and it is what the app's own Debuggers panel told people to run. js-debug ships as a GitHub release tarball (`js-debug-dap-vX.Y.Z.tar.gz`) and inside the VS Code extension. Discovery now looks in both, scanning the versioned `ms-vscode.js-debug-<version>` extension folders and preferring the newest, and knows the tarball nests a `js-debug/` folder when unpacked.
+
+**Then three bugs that only a real conversation could have found:**
+
+1. **js-debug binds `::1` and nothing else.** Delve is told `--listen=127.0.0.1:PORT` and binds IPv4; js-debug binds IPv6 loopback. Connecting to `127.0.0.1` got "actively refused", which reads exactly like an adapter that failed to start. Both are tried now, from one shared `loopbacks` helper.
+2. **A blocking read could never time out.** `read_message` checked its deadline *between* reads, but the read itself blocks until something arrives — so an adapter that simply goes quiet hung the client forever, with the timeout unreachable. The socket has a 250ms poll timeout now and a timed-out read means "nothing yet", not failure.
+3. **js-debug never answers `disconnect`.** Waiting for that reply hung shutdown. It is sent and not awaited; killing the child is what actually ends it.
+
+**(2) and (3) also protected Go** — that path was one silent adapter away from the same hang, and both Delve tests still pass.
+
+**js-debug's handshake is verified end to end.** Its launch is not wired, and now for a documented reason.
+
+### Your Feedback
+
+- **The launch model is a capture, not a reading of the spec.** js-debug answers `launch` with a **`startDebugging` reverse request**; the client must reply and open a **second connection** to the same port, and the child session is where `stopped` arrives. A breakpoint set on the root comes back `verified: false` ("breakpoint.provisionalBreakpoint") until the child claims it. That sequence is written into `live.rs` so the next round implements a known thing rather than a guessed one.
+- **I stopped short of wiring it deliberately.** It needs reverse-request dispatch and request routing to a child channel — a real refactor of `Live`, at the end of a very long turn, around the one debugger that currently works. Half a refactor there would have been worse than none.
+- **The install instruction being wrong is the kind of bug this project cares about**: an app that confidently tells you to run a command that 404s is worse than one that says it does not know how.
+- **js-debug was downloaded and left on the machine** at `~/.js-debug` (1.2 MB). `Remove-Item -Recurse ~/.js-debug` removes it; discovery then reports TypeScript unavailable again, correctly.
+
+### Technical Debt
+
+- **js-debug launch: reverse requests and the child session.** The whole of what is left for TypeScript, now fully specified in the module note.
+- **`Live` has one channel.** A child session needs request routing — `stackTrace` and every step must go to the child, not the root.
+- **debugpy and netcoredbg still have no launch shape**, and neither is installed here to verify against.
+- **The stdio transport has no read timeout** — only TCP got one, because a pipe has no `set_read_timeout`. A silent stdio adapter can still hang; it needs a reader thread with a channel.
+- Carried: variables do not expand; one thread only; no conditional breakpoints; stepping does not follow the selected frame.
+
+## Round 22 — The stopped line, and where the controls had to go
+
+### My Feedback
+
+**A stop opens its file and highlights the line** — a band across it and an arrow in the glyph margin, scrolled into view if it was off screen. Amber, matching every other "stopped" in this app: green would read as "fine", and this is the state you are meant to act on.
+
+**The stepping controls had to move.** Opening the file replaces the Debug board with the editor, and a debugger whose Continue button disappears at the moment it stops is no use at all. `DebugToolbar` sits above the middle pane instead, which is where every editor puts it and for the same reason. It exists only while stopped — a toolbar that is always present with everything greyed out is furniture.
+
+**`relativeTo` is the inverse of what breakpoints send.** An adapter reports where it stopped as an absolute path; the editor works in repository-relative ones. Separators are normalised and case is folded **only on Windows** — folding a POSIX path would match two genuinely different files, and there is a test for exactly that.
+
+**Two decoration sets, not one.** `deltaDecorations` replaces whichever set it is handed, so sharing one between the breakpoints and the stopped line would clear the dots every time the program stepped.
+
+### Your Feedback
+
+- **A frame the working copy does not contain resolves to nothing, on purpose.** The Go runtime, a dependency under `GOPATH`: real frames at real paths that no Solution here can open. The toolbar still appears and the stack still lists the frame; no file is opened and nothing is highlighted. Guessing at a file would be worse than showing none, and `C:/repos/orders-api` is not inside `C:/repos/orders` however similar the prefix looks — also tested.
+- **The highlight clears before the step is sent, not after it answers.** The program is already moving by the time the adapter replies, and an arrow left on the old line for that gap points at somewhere it no longer is. `resume` in the panel does the same, because not every adapter sends `continued` for a step.
+- **The callbacks are held in refs.** The event listener is registered once; a parent re-render would otherwise leave it calling a stale copy — the same reason the session id is a ref.
+- **The shell died mid-round.** Every command, including `node --version`, returned exit 107 with no output for several minutes. It recovered and the full gates ran clean; worth knowing it can happen, and worth not reporting a round as verified in the window where it cannot be.
+
+### Technical Debt
+
+- **The highlight only reaches a file the workspace can open.** A stop in a dependency shows in the stack and nowhere else.
+- **Stepping does not follow the frame you select.** Clicking a lower frame shows its variables but does not move the highlight to it.
+- **The toolbar names the innermost frame only**, so a stop deep in a call chain says the least useful name of the ones available.
+- **Nothing scrolls the file if it was already open at another line** beyond Monaco's reveal-if-outside-viewport, which does nothing when the line is technically visible but at the very edge.
+- Carried: js-debug, debugpy and netcoredbg have no launch shape; variables do not expand; one thread only; no conditional breakpoints.
+
 ## Round 21 — The stepping UI: stop, look, step
 
 ### My Feedback
