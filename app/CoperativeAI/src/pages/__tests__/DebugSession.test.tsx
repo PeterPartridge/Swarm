@@ -96,6 +96,15 @@ describe("DebugSession", () => {
     expect(screen.queryByText(/is not wired up yet/)).not.toBeInTheDocument();
   });
 
+  /// C# launches now, through netcoredbg — verified against the real adapter
+  /// in the Rust suite, stopping a real program on a real line.
+  it("offers to debug a C# Solution", () => {
+    render(<DebugSession solution={sol({ language: "C# (.NET 8)" })} />);
+
+    expect(screen.getByLabelText("Debug Orders")).toBeEnabled();
+    expect(screen.queryByText(/is not wired up yet/)).not.toBeInTheDocument();
+  });
+
   it("says so when there is no working copy to run", () => {
     render(<DebugSession solution={sol({ localPath: null })} />);
     expect(screen.getByLabelText("Debug Orders")).toBeDisabled();

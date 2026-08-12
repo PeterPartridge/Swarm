@@ -34,6 +34,7 @@ fn loopbacks(port: u16) -> [SocketAddr; 2] {
 }
 
 pub mod adapters;
+pub mod dotnet;
 pub mod live;
 pub mod session;
 pub mod wire;

@@ -34,6 +34,35 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 25 — C# debugs, and the stdio pipe stops hanging
+
+### My Feedback
+
+**A breakpoint stops a real C# program.** Same bar as Go and TypeScript: a scratch console app, `dotnet build`, a breakpoint on `int total = subtotal + tax;`, and an assertion that it stopped on that line with `subtotal = 11810` and `tax = 1185` read out of the live process. **Three of four languages debug for real now.**
+
+**The stdio hang from round 24's debt is fixed, and it had to be fixed first.** A pipe has no `set_read_timeout`, so the socket poll added for js-debug covered TCP only — an adapter that simply went quiet blocked the calling thread forever with its deadline unreachable. The reader moved to its own thread handing chunks back over a channel, so the wait is a `recv_timeout` the deadline can win. One shape for both transports rather than a socket-only special case. netcoredbg is the first stdio adapter driven end to end, so it is what proves that fix rather than only asserting it.
+
+**netcoredbg, not vsdbg.** Microsoft's `vsdbg` is the better debugger and its licence permits use only from Visual Studio and VS Code, so driving it from here would be a licence breach. Samsung's netcoredbg is MIT and speaks the same protocol.
+
+**C# is the first language whose launch target is not source.** Delve is handed a folder and compiles it; js-debug is handed a `.js` and runs it; netcoredbg is handed a **built `.dll`** that has to exist already. Finding it is less obvious than it looks — `obj/` holds intermediate assemblies, `ref/` and `refint/` hold reference assemblies with no code in them at all, and the output folder holds every dependency. The signal used is a sibling **`.runtimeconfig.json`**, which the SDK writes only for an assembly meant to be executed. Matching on the folder name would break the moment a project is named differently from its directory.
+
+**Nothing built is a real state and is said plainly** — "run `dotnet build` there first" — rather than starting a debugger against a file that is not there.
+
+### Your Feedback
+
+- **It passed first try**, which is worth noting only because the two before it did not: the two-session work for js-debug and the reader-thread fix had already absorbed the problems netcoredbg would otherwise have surfaced.
+- **The extraction path caught the same trap as js-debug.** The release zip contains a `netcoredbg/` folder, so unpacking it into `~/.netcoredbg` — the obvious thing, and what this app suggests — nests it once. Discovery looks in both, as it already did for the js-debug tarball.
+- **The install string the app shows was wrong before it was ever used**, in the same way `@vscode/js-debug` was: it said "put it on PATH" with no source. It now names the release zip and the folder to extract to.
+- **`built_assembly` has five unit tests and no adapter**, because every failure mode is a filesystem shape — an unbuilt project, an `obj/` tree, dependencies beside the program, two target frameworks. Those are cheap to test properly and expensive to debug through a live debugger.
+- **The netcoredbg handshake gets its own test** beyond the breakpoint one, because it is the first stdio adapter here and so it is the regression guard for the pump.
+
+### Technical Debt
+
+- **debugpy is the last one, and it cannot be verified here.** There is no real Python on this machine — `python.exe` on PATH is a Microsoft Store alias stub that prints "Python was not found". Building a launch shape for it would be unverifiable, which is the position js-debug was in before it was installed and the reason nothing was built for it then either.
+- **C# is only launched, never attached.** A running ASP.NET process cannot be debugged; `attach` is a different request shape and untested here.
+- **`built_assembly` picks the newest build, not the configured one.** A project built in Release after Debug will be debugged in Release, where the optimiser moves lines around and variables vanish. There is no configuration picker yet.
+- Carried: variables do not expand; one thread only; no conditional breakpoints; stepping does not follow the selected frame; only one js-debug child; the root's provisional breakpoints are reported to the UI.
+
 ## Round 24 — TypeScript debugs, and a session becomes two connections
 
 ### My Feedback

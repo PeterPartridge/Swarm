@@ -1015,6 +1015,120 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// **The first stdio adapter driven end to end**, and the first language
+    /// whose launch target is a build output rather than source.
+    ///
+    /// Delve and js-debug both run over TCP, so until this passed, the reader
+    /// thread was only ever proven against sockets. It also exercises
+    /// `dotnet::built_assembly`: the debugger is pointed at the `.dll` while the
+    /// breakpoint is set on the `.cs`, and only matching debug symbols connect
+    /// the two.
+    #[test]
+    #[ignore = "needs netcoredbg and the .NET SDK"]
+    fn a_breakpoint_stops_a_real_csharp_program_and_shows_its_variables() {
+        let found = crate::debug::adapters::discover();
+        let cs = found.iter().find(|a| a.language == "csharp").expect("csharp");
+        if !cs.available {
+            eprintln!("skipping: {}", cs.problem);
+            return;
+        }
+
+        let dir = std::env::temp_dir().join(format!("coperativeai-dap-cs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch");
+        std::fs::write(
+            dir.join("Scratch.csproj"),
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n\
+             \x20 <PropertyGroup>\n\
+             \x20   <OutputType>Exe</OutputType>\n\
+             \x20   <TargetFramework>net8.0</TargetFramework>\n\
+             \x20   <DebugType>portable</DebugType>\n\
+             \x20 </PropertyGroup>\n\
+             </Project>\n",
+        )
+        .expect("csproj");
+        let source = dir.join("Program.cs");
+        std::fs::write(
+            &source,
+            "int subtotal = 11810;\n\
+             int tax = 1185;\n\
+             int total = subtotal + tax;\n\
+             System.Console.WriteLine(total);\n",
+        )
+        .expect("Program.cs");
+
+        let built = Command::new("dotnet")
+            .args(["build", "-c", "Debug"])
+            .current_dir(&dir)
+            .output()
+            .expect("run dotnet build");
+        assert!(
+            built.status.success(),
+            "dotnet build failed:\n{}",
+            String::from_utf8_lossy(&built.stdout)
+        );
+        let dll = crate::debug::dotnet::built_assembly(&dir).expect("the build produced an assembly");
+
+        let (tx, rx) = channel::<(String, Value)>();
+        let mut live = Live::start(&cs.argv, Transport::Stdio, Some(&dir), move |name, body| {
+            let _ = tx.send((name.to_string(), body));
+        })
+        .expect("start netcoredbg");
+
+        live.initialize("coreclr").expect("initialize");
+
+        // Line 3 is `int total = subtotal + tax;` — `subtotal` and `tax` are set
+        // there and `total` is not yet.
+        let breakpoints = vec![Breakpoint {
+            path: source.display().to_string(),
+            line: 3,
+        }];
+        live.launch(
+            json!({
+                "type": "coreclr",
+                "request": "launch",
+                "name": "coperativeai",
+                "program": dll.display().to_string(),
+                "cwd": dir.display().to_string(),
+                "stopAtEntry": false,
+                "justMyCode": true,
+            }),
+            &breakpoints,
+        )
+        .expect("launch");
+
+        let stopped = wait_for_stop(&rx, 120);
+        let thread_id = stopped
+            .get("threadId")
+            .and_then(|t| t.as_i64())
+            .expect("a stop names its thread");
+
+        let frames = live.stack(thread_id).expect("stackTrace");
+        let top = frames.first().expect("at least one frame");
+        assert_eq!(top.line, 3, "it stopped somewhere else: {frames:?}");
+        assert!(
+            top.path.to_lowercase().ends_with("program.cs"),
+            "stopped in the wrong file: {}",
+            top.path
+        );
+
+        let vars = live.variables(top.id).expect("variables");
+        let named = |want: &str| vars.iter().find(|v| v.name == want).cloned();
+        assert_eq!(
+            named("subtotal").map(|v| v.value),
+            Some("11810".to_string()),
+            "subtotal should be set at this line. Saw: {vars:?}"
+        );
+        assert_eq!(
+            named("tax").map(|v| v.value),
+            Some("1185".to_string()),
+            "tax should be set at this line. Saw: {vars:?}"
+        );
+
+        live.stop();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Removing the last breakpoint in a file still has to send that file, or
     /// the adapter keeps the old set and the program stops at a line the UI no
     /// longer shows.

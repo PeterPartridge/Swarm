@@ -373,6 +373,11 @@ fn netcoredbg() -> AdapterStatus {
     if let Some(h) = home() {
         extra.push(h.join(".netcoredbg"));
         extra.push(h.join("netcoredbg"));
+        // The release zip contains a `netcoredbg/` folder, so unpacking it into
+        // `~/.netcoredbg` — the obvious thing, and what this app suggests —
+        // nests it once. Same shape as js-debug's tarball.
+        extra.push(h.join(".netcoredbg").join("netcoredbg"));
+        extra.push(h.join("netcoredbg").join("netcoredbg"));
     }
     // `--version` is enough to prove it runs; the DAP mode is a different flag.
     let found = first_that_runs("netcoredbg", extra, &["--version"]);
@@ -399,7 +404,8 @@ fn netcoredbg() -> AdapterStatus {
              only from Visual Studio and VS Code."
                 .into()
         },
-        install: "Download a netcoredbg release and put it on PATH".into(),
+        install: "Download netcoredbg-win64.zip from github.com/Samsung/netcoredbg/releases                   and extract it to ~/.netcoredbg"
+            .into(),
     }
 }
 

@@ -193,9 +193,31 @@ fn launch_arguments(language: &str, program: &str) -> Result<serde_json::Value, 
                 .map(|d| d.display().to_string())
                 .unwrap_or_else(|| program.to_string()),
         })),
+        // netcoredbg debugs the **built assembly**, so unlike Go and TypeScript
+        // there is a step that has to have happened first. Saying "build it"
+        // plainly beats launching a debugger that stops at nothing.
+        "csharp" => {
+            let root = std::path::Path::new(program);
+            let Some(dll) = crate::debug::dotnet::built_assembly(root) else {
+                return Err(format!(
+                    "nothing has been built in {} yet. C# is debugged through its compiled \
+                     assembly, so run `dotnet build` there first.",
+                    root.display()
+                ));
+            };
+            Ok(serde_json::json!({
+                "type": "coreclr",
+                "request": "launch",
+                "name": "CoperativeAI",
+                "program": dll.display().to_string(),
+                "cwd": program,
+                "stopAtEntry": false,
+                "justMyCode": true,
+            }))
+        }
         other => Err(format!(
             "launching {other} is not wired up yet — the adapter is found and speaks DAP, but its \
-             launch shape is still to do. Go and TypeScript work today."
+             launch shape is still to do. Go, TypeScript and C# work today."
         )),
     }
 }

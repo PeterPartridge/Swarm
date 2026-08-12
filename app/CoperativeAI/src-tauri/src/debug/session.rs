@@ -412,6 +412,37 @@ mod tests {
         );
     }
 
+    /// netcoredbg is found and speaks DAP over **stdio**.
+    ///
+    /// Worth its own test beyond "another adapter": it is the first stdio
+    /// adapter to be driven here, so it is what proves the reader-thread pump
+    /// rather than only the TCP path.
+    #[test]
+    #[ignore = "needs netcoredbg extracted on this machine"]
+    fn netcoredbg_completes_the_dap_handshake() {
+        let found = crate::debug::adapters::discover();
+        let cs = found
+            .iter()
+            .find(|a| a.language == "csharp")
+            .expect("csharp is reported on");
+        if !cs.available {
+            eprintln!("skipping: {}", cs.problem);
+            return;
+        }
+
+        let (program, args) = cs.argv.split_first().expect("argv");
+        let mut session =
+            Session::start(program, args, Transport::Stdio, None).expect("start netcoredbg");
+        let caps = session.initialize("coreclr").expect("initialize");
+        session.shutdown();
+
+        assert!(
+            caps.configuration_done,
+            "netcoredbg should support configurationDone. Raw capabilities: {}",
+            caps.raw
+        );
+    }
+
     /// **The real handshake, against a real debugger.** Ignored by default
     /// because it needs Delve installed, and CI does not have it — run it with
     /// `cargo test -- --ignored` on a machine that does.

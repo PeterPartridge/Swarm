@@ -1676,8 +1676,8 @@ export interface StartedDebug {
 
 /** Starts a program under its debugger with breakpoints already set.
  *
- *  Go works today; the other three adapters are found and speak DAP but their
- *  launch shapes are still to do, and this says so rather than starting
+ *  Go, TypeScript and C# work today; debugpy is found and speaks DAP but its
+ *  launch shape is still to do, and this says so rather than starting
  *  something that never stops. */
 export const debugStart = (
   language: string,
