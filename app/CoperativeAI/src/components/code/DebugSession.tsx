@@ -306,6 +306,9 @@ export default function DebugSession({
   /// effect of a write does not end when the program moves on, so neither does
   /// the note about it.
   const [written, setWritten] = useState<{ what: string; to: string }[]>([]);
+  /// A caveat about this launch, from the backend. Not an error: something true
+  /// about what is running that would otherwise be discovered by confusion.
+  const [note, setNote] = useState<string | null>(null);
 
   /// The session id as the event listener sees it. A listener registered once
   /// would otherwise capture the id from the render it was created in, and stop
@@ -592,6 +595,7 @@ export default function DebugSession({
       hoversRef.current = started.hovers;
       setCanSetVariable(started.setVariable);
       setCanSetExpression(started.setExpression);
+      setNote(started.note || null);
 
       // Kept as rows: this is the adapter's first answer, and a later
       // `breakpoint` event can change any of them.
@@ -845,6 +849,9 @@ export default function DebugSession({
       )}
       {error && <p role="alert">{error}</p>}
       {placedSaid && <p className="hint">{placedSaid}</p>}
+      {/* Said once at the start: it is about what was launched, not about
+          anything that has happened since. */}
+      {note && <p className="session-written" role="status">{note}</p>}
       {/* **Stated for the rest of the session.** Not a warning before the fact —
           a confirmation would be in the way twenty times an hour and would be
           clicked through without reading — but a standing note that this run is

@@ -1768,6 +1768,12 @@ export interface StartedDebug {
    *  expression itself. Delve reports the first and not the second, so for Go a
    *  local can be changed and a watch cannot. */
   setExpression: boolean;
+  /** A caveat about this particular launch, or empty.
+   *
+   *  **Not an error and not a capability** — something true about what is
+   *  running that somebody would otherwise discover by being confused. So far
+   *  only C# has one, when the only build available was optimised. */
+  note: string;
 }
 
 /** Starts a program under its debugger with breakpoints already set.

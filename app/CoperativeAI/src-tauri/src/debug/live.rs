@@ -2044,7 +2044,7 @@ mod tests {
             .output()
             .expect("run dotnet build");
         assert!(built.status.success(), "dotnet build failed");
-        let dll = crate::debug::dotnet::built_assembly(&dir).expect("an assembly");
+        let (dll, _) = crate::debug::dotnet::built_assembly(&dir).expect("an assembly");
 
         let (tx, rx) = channel::<(String, Value)>();
         let mut live = Live::start(&cs.argv, Transport::Stdio, Some(&dir), move |name, body| {
@@ -2604,7 +2604,9 @@ mod tests {
             "dotnet build failed:\n{}",
             String::from_utf8_lossy(&built.stdout)
         );
-        let dll = crate::debug::dotnet::built_assembly(&dir).expect("the build produced an assembly");
+        let (dll, configuration) =
+            crate::debug::dotnet::built_assembly(&dir).expect("the build produced an assembly");
+        assert_eq!(configuration, "Debug", "a Debug build is what this asked for");
 
         let (tx, rx) = channel::<(String, Value)>();
         let mut live = Live::start(&cs.argv, Transport::Stdio, Some(&dir), move |name, body| {

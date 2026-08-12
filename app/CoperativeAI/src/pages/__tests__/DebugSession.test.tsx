@@ -86,6 +86,7 @@ describe("DebugSession", () => {
       hovers: true,
       setVariable: true,
       setExpression: true,
+      note: "",
     });
     mocked.debugStop.mockResolvedValue();
     mocked.debugResume.mockResolvedValue();
@@ -418,6 +419,7 @@ describe("DebugSession", () => {
       hovers: true,
       setVariable: false,
       setExpression: false,
+      note: "",
     });
     mocked.debugStack.mockResolvedValue([
       { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 8, column: 2, canRestart: true },
@@ -710,6 +712,7 @@ describe("DebugSession", () => {
       hovers: true,
       setVariable: true,
       setExpression: true,
+      note: "",
     });
     render(<DebugSession solution={sol({ language: "TypeScript (vite)" })} />);
 
@@ -752,6 +755,7 @@ describe("DebugSession", () => {
       hovers: true,
       setVariable: true,
       setExpression: true,
+      note: "",
     });
     render(<DebugSession solution={sol({ language: "TypeScript (vite)" })} />);
 
@@ -794,6 +798,7 @@ describe("DebugSession", () => {
       hovers: true,
       setVariable: true,
       setExpression: true,
+      note: "",
     });
     render(<DebugSession solution={sol()} />);
 
@@ -850,6 +855,35 @@ describe("DebugSession", () => {
     // claimed.
     expect(out).toHaveTextContent("Type 'dlv help'");
     expect(within(out).queryAllByText(/^main\.go:/)).toHaveLength(1);
+  });
+
+  /// **A caveat is not an error.** Debugging an optimised build is a poor
+  /// experience rather than a useless one, and somebody with only a Release
+  /// build may have a reason — but finding out by watching the debugger stop on
+  /// the wrong line and deciding this app is broken is the failure to avoid.
+  it("passes on a caveat about what was launched", async () => {
+    const user = userEvent.setup();
+    mocked.debugStart.mockResolvedValue({
+      session: "dbg-cs-1",
+      language: "csharp",
+      breakpoints: [],
+      conditions: true,
+      logPoints: false,
+      hitCounts: false,
+      restartFrame: false,
+      hovers: false,
+      setVariable: true,
+      setExpression: true,
+      note: "Only a Release build was found, so that is what is being debugged.",
+    });
+    render(<DebugSession solution={sol({ language: "C# (.NET 8)" })} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+
+    expect(await screen.findByText(/Only a Release build was found/)).toBeInTheDocument();
+    // Not an error: nothing failed, and dressing it as one would send somebody
+    // looking for a fault that is not there.
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   /// **The case this exists for is deadlock.** The thread that stopped is
@@ -1088,6 +1122,7 @@ describe("DebugSession", () => {
       hovers: true,
       setVariable: true,
       setExpression: true,
+      note: "",
     });
     mocked.debugStack.mockResolvedValue([
       { id: 1000, name: "inner", path: "C:/repos/orders/main.go", line: 2, column: 2, canRestart: true },
@@ -1185,6 +1220,7 @@ describe("DebugSession", () => {
       hovers: true,
       setVariable: true,
       setExpression: true,
+      note: "",
     });
     render(<DebugSession solution={sol()} />);
 

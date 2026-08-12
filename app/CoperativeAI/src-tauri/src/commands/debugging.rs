@@ -200,6 +200,12 @@ pub struct StartedDebug {
     /// reports the first and not the second.
     pub set_variable: bool,
     pub set_expression: bool,
+    /// A caveat about this particular launch, or empty.
+    ///
+    /// **Not an error and not a capability** — something true about what is
+    /// running that somebody would otherwise discover by being confused. So far
+    /// only C# has one, when the only build available was optimised.
+    pub note: String,
 }
 
 /// The launch arguments for one language.
@@ -210,9 +216,10 @@ pub struct StartedDebug {
 /// differs too; netcoredbg is given a **built assembly**, which has to exist
 /// already. debugpy has no shape here yet, and saying so beats a session that
 /// starts and never stops.
-fn launch_arguments(language: &str, program: &str) -> Result<serde_json::Value, String> {
+fn launch_arguments(language: &str, program: &str) -> Result<(serde_json::Value, String), String> {
+    let plain = |v: serde_json::Value| Ok((v, String::new()));
     match language {
-        "go" => Ok(serde_json::json!({
+        "go" => plain(serde_json::json!({
             "request": "launch",
             "mode": "debug",
             "program": program,
@@ -221,7 +228,7 @@ fn launch_arguments(language: &str, program: &str) -> Result<serde_json::Value, 
         // js-debug wants the file rather than the folder, and answers this with
         // a `startDebugging` reverse request — see `debug::live`, which opens
         // the child session that actually runs the program.
-        "typescript" => Ok(serde_json::json!({
+        "typescript" => plain(serde_json::json!({
             "type": "pwa-node",
             "request": "launch",
             "name": "CoperativeAI",
@@ -236,22 +243,40 @@ fn launch_arguments(language: &str, program: &str) -> Result<serde_json::Value, 
         // plainly beats launching a debugger that stops at nothing.
         "csharp" => {
             let root = std::path::Path::new(program);
-            let Some(dll) = crate::debug::dotnet::built_assembly(root) else {
+            let Some((dll, configuration)) = crate::debug::dotnet::built_assembly(root) else {
                 return Err(format!(
                     "nothing has been built in {} yet. C# is debugged through its compiled \
                      assembly, so run `dotnet build` there first.",
                     root.display()
                 ));
             };
-            Ok(serde_json::json!({
-                "type": "coreclr",
-                "request": "launch",
-                "name": "CoperativeAI",
-                "program": dll.display().to_string(),
-                "cwd": program,
-                "stopAtEntry": false,
-                "justMyCode": true,
-            }))
+            // **Said rather than refused.** Debugging optimised code is a poor
+            // experience but not a useless one, and somebody with only a
+            // Release build may have a good reason. What must not happen is
+            // finding out by watching the debugger stop on the wrong line and
+            // deciding this app is broken.
+            let note = if configuration.eq_ignore_ascii_case("debug") {
+                String::new()
+            } else {
+                format!(
+                    "Only a {configuration} build was found, so that is what is being debugged. \
+                     The compiler moves lines around and drops locals when it optimises, so \
+                     expect stops on unexpected lines and variables that are not there. Run \
+                     `dotnet build` for a Debug build."
+                )
+            };
+            Ok((
+                serde_json::json!({
+                    "type": "coreclr",
+                    "request": "launch",
+                    "name": "CoperativeAI",
+                    "program": dll.display().to_string(),
+                    "cwd": program,
+                    "stopAtEntry": false,
+                    "justMyCode": true,
+                }),
+                note,
+            ))
         }
         other => Err(format!(
             "launching {other} is not wired up yet — the adapter is found and speaks DAP, but its \
@@ -269,7 +294,7 @@ pub async fn debug_start(
     program: String,
     breakpoints: Vec<Breakpoint>,
 ) -> Result<StartedDebug, String> {
-    let arguments = launch_arguments(&language, &program)?;
+    let (arguments, note) = launch_arguments(&language, &program)?;
     let found = adapters::discover();
     let Some(adapter) = found.into_iter().find(|a| a.language == language) else {
         return Err(format!("no adapter is configured for {language}"));
@@ -319,6 +344,7 @@ pub async fn debug_start(
         hovers: honours.hovers,
         set_variable: honours.set_variable,
         set_expression: honours.set_expression,
+        note,
     })
 }
 

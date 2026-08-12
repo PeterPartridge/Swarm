@@ -21,17 +21,36 @@
 
 use std::path::{Path, PathBuf};
 
-/// The newest runnable assembly built under `root`, if there is one.
-pub fn built_assembly(root: &Path) -> Option<PathBuf> {
+/// A runnable assembly built under `root`, and which configuration it came
+/// from.
+///
+/// **Debug wins over anything newer.** Picking the most recent build sounds
+/// right and is not: somebody who ran `dotnet build -c Release` after a Debug
+/// build would then be debugging optimised code, where the compiler has moved
+/// lines around, inlined calls and dropped locals altogether. That presents as
+/// a debugger that stops on the wrong line and cannot see variables that are
+/// plainly in the source — which reads as this app being broken.
+///
+/// So a Debug build is preferred however old it is, and the configuration is
+/// handed back so the caller can say plainly when there was only a Release one.
+pub fn built_assembly(root: &Path) -> Option<(PathBuf, String)> {
     let bin = root.join("bin");
     if !bin.is_dir() {
         return None;
     }
 
-    let mut best: Option<(std::time::SystemTime, PathBuf)> = None;
+    // Newest within a configuration, but never across one: a stale Debug build
+    // is still a better thing to debug than a fresh Release one.
+    let mut best: Option<(bool, std::time::SystemTime, PathBuf, String)> = None;
     // bin/<configuration>/<target framework>/ — two levels, and no deeper:
     // `publish/` and `ref/` below that are not what a debugger wants.
     for configuration in read_dirs(&bin) {
+        let name = configuration
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default()
+            .to_string();
+        let debuggable = name.eq_ignore_ascii_case("debug");
         for framework in read_dirs(&configuration) {
             for entry in std::fs::read_dir(&framework).into_iter().flatten().flatten() {
                 let path = entry.path();
@@ -47,13 +66,24 @@ pub fn built_assembly(root: &Path) -> Option<PathBuf> {
                     .metadata()
                     .and_then(|m| m.modified())
                     .unwrap_or(std::time::UNIX_EPOCH);
-                if best.as_ref().is_none_or(|(newest, _)| when > *newest) {
-                    best = Some((when, path));
+                // Debug first, then newest. Ordering the tuple this way is the
+                // whole rule: a Debug build only ever loses to another Debug
+                // build, and a Release one only ever wins when nothing else is
+                // there.
+                let better = best
+                    .as_ref()
+                    .is_none_or(|(was_debug, newest, _, _)| match (debuggable, was_debug) {
+                        (true, false) => true,
+                        (false, true) => false,
+                        _ => when > *newest,
+                    });
+                if better {
+                    best = Some((debuggable, when, path, name.clone()));
                 }
             }
         }
     }
-    best.map(|(_, path)| path)
+    best.map(|(_, _, path, configuration)| (path, configuration))
 }
 
 fn read_dirs(at: &Path) -> Vec<PathBuf> {
@@ -71,14 +101,7 @@ mod tests {
     use super::*;
 
     fn scratch(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "coperativeai-dotnet-{}-{name}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("scratch");
-        dir
+        crate::testing::scratch("dotnet", name)
     }
 
     /// A dll with a runtimeconfig beside it is the program.
@@ -90,8 +113,7 @@ mod tests {
         std::fs::write(out.join("Shop.dll"), "x").expect("dll");
         std::fs::write(out.join("Shop.runtimeconfig.json"), "{}").expect("config");
 
-        assert_eq!(built_assembly(&root), Some(out.join("Shop.dll")));
-        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(built_assembly(&root), Some((out.join("Shop.dll"), "Debug".into())));
     }
 
     /// **The one that would launch something unrunnable.** `obj/` holds
@@ -108,7 +130,6 @@ mod tests {
 
         // Nothing under bin/, so nothing to launch — obj/ is not an answer.
         assert_eq!(built_assembly(&root), None);
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// The output folder is full of dependencies. Only the program has a
@@ -123,8 +144,7 @@ mod tests {
         std::fs::write(out.join("Shop.dll"), "x").expect("dll");
         std::fs::write(out.join("Shop.runtimeconfig.json"), "{}").expect("config");
 
-        assert_eq!(built_assembly(&root), Some(out.join("Shop.dll")));
-        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(built_assembly(&root), Some((out.join("Shop.dll"), "Debug".into())));
     }
 
     /// Nothing built is a real state, and the caller has to be able to say
@@ -134,7 +154,49 @@ mod tests {
         let root = scratch("unbuilt");
         std::fs::write(root.join("Shop.csproj"), "<Project />").expect("csproj");
         assert_eq!(built_assembly(&root), None);
-        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// **Debug wins over anything newer, and that is the rule.** Picking the
+    /// most recent build sounds right and is not: somebody who ran
+    /// `dotnet build -c Release` after a Debug build would be debugging
+    /// optimised code, where lines have moved, calls have been inlined and
+    /// locals are simply gone. That looks exactly like a broken debugger.
+    #[test]
+    fn a_debug_build_is_preferred_over_a_newer_release_one() {
+        let root = scratch("prefers-debug");
+        let debug = root.join("bin").join("Debug").join("net8.0");
+        let release = root.join("bin").join("Release").join("net8.0");
+        for dir in [&debug, &release] {
+            std::fs::create_dir_all(dir).expect("out");
+            std::fs::write(dir.join("Shop.dll"), "x").expect("dll");
+            std::fs::write(dir.join("Shop.runtimeconfig.json"), "{}").expect("config");
+        }
+        // Release built *after* Debug, which is the case that used to lose.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(release.join("Shop.dll"), "xx").expect("touch");
+
+        assert_eq!(
+            built_assembly(&root),
+            Some((debug.join("Shop.dll"), "Debug".into())),
+            "a stale Debug build still beats a fresh Release one"
+        );
+    }
+
+    /// Only a Release build is a real situation, and it is used — but the
+    /// configuration comes back so the caller can say so rather than leaving
+    /// somebody to work out why the debugger keeps stopping in odd places.
+    #[test]
+    fn only_a_release_build_is_used_and_named() {
+        let root = scratch("release-only");
+        let release = root.join("bin").join("Release").join("net8.0");
+        std::fs::create_dir_all(&release).expect("out");
+        std::fs::write(release.join("Shop.dll"), "x").expect("dll");
+        std::fs::write(release.join("Shop.runtimeconfig.json"), "{}").expect("config");
+
+        assert_eq!(
+            built_assembly(&root),
+            Some((release.join("Shop.dll"), "Release".into()))
+        );
     }
 
     /// Rebuilding into a second target framework must not send the debugger at
@@ -153,7 +215,6 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(20));
         std::fs::write(new.join("Shop.dll"), "xx").expect("touch");
 
-        assert_eq!(built_assembly(&root), Some(new.join("Shop.dll")));
-        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(built_assembly(&root), Some((new.join("Shop.dll"), "Debug".into())));
     }
 }
