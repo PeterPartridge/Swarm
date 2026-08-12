@@ -6,10 +6,10 @@
 //! breakpoint, `output` whenever the program prints, and `terminated` when it
 //! ends, none of it in reply to anything.
 //!
-//! So this is the usual shape for a protocol like it: one reader thread, a map
-//! of outstanding requests keyed by `seq`, and a sink for everything that is not
-//! a reply. A request blocks its caller until its own response arrives; events
-//! reach the UI as they happen.
+//! So this is the usual shape for a protocol like it: one reader thread per
+//! connection, a map of outstanding requests keyed by `seq`, and a sink for
+//! everything that is not a reply. A request blocks its caller until its own
+//! response arrives; events reach the UI as they happen.
 //!
 //! **The launch sequence is fixed by the protocol** and getting it wrong is the
 //! classic way a debugger appears to work and never stops anywhere:
@@ -27,41 +27,42 @@
 //! # js-debug is two sessions, not one
 //!
 //! Delve is one process and one conversation. **js-debug is a server**, and the
-//! sequence below is a real capture rather than a reading of the spec:
+//! sequence below was captured from a real run rather than read off the spec:
 //!
 //! ```text
 //! root:  initialize → initialized → setBreakpoints → configurationDone → launch
 //! root:  ← REVERSE REQUEST startDebugging { configuration: { __pendingTargetId } }
 //! client: reply success, then open a SECOND connection to the same port
-//! child: initialize → setBreakpoints → configurationDone → launch(configuration)
+//! child: initialize → initialized → setBreakpoints → configurationDone → launch
 //! child: ← thread → continued → stopped   ← the breakpoint hits HERE
 //! ```
 //!
-//! Two consequences this module does not yet handle, and which are the whole of
-//! what is left for TypeScript:
+//! Two consequences, and they are why this module is built around a
+//! [`Channel`] rather than one writer:
 //!
-//! 1. **Reverse requests.** The adapter sends `type: "request"` *to us*, and
-//!    expects a response. Ignoring one leaves js-debug waiting forever.
-//! 2. **The child owns the program.** `stackTrace`, `variables` and every step
-//!    must go to the child connection; the root only supervises. A breakpoint
-//!    set on the root comes back `verified: false`
-//!    ("breakpoint.provisionalBreakpoint") until the child claims it.
+//! 1. **Reverse requests.** The adapter sends `type: "request"` *to us* and
+//!    waits for a response. Ignoring one leaves js-debug hanging.
+//! 2. **The child owns the program.** Once a child exists, `stackTrace`,
+//!    `variables` and every step go to it; the root only supervises. A
+//!    breakpoint set on the root comes back `verified: false`
+//!    ("breakpoint.provisionalBreakpoint") until the child claims it, so the
+//!    breakpoints are kept and re-sent on the child's own handshake.
 //!
-//! Delve needs none of this, which is why the Go path works today and the
-//! TypeScript one is still refused at `launch_arguments` rather than half-wired.
+//! Delve needs none of this — it never sends a reverse request, so its session
+//! simply never grows a child and every request goes to the one connection.
 
 use crate::debug::adapters::Transport;
+use crate::debug::loopbacks;
 use crate::debug::wire::{self, Decoded};
 use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use crate::debug::loopbacks;
-use std::net::{Ipv4Addr, TcpListener, TcpStream};
+use std::net::{TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 /// How long to wait for one request's answer.
@@ -105,79 +106,44 @@ pub struct Breakpoint {
     pub line: i64,
 }
 
-/// A live adapter, its program, and everything in flight.
-pub struct Live {
+/// One DAP connection: somewhere to write, and everything waiting for a reply.
+///
+/// A session has one of these for Delve and two for js-debug, which is the
+/// whole reason it is a type rather than three fields on `Live`.
+struct Channel {
     writer: Mutex<Box<dyn Write + Send>>,
     seq: AtomicI64,
-    pending: Arc<Mutex<HashMap<i64, SyncSender<Value>>>>,
-    /// Set once `initialized` has arrived, so configuration is not sent early.
-    ready: Arc<(Mutex<bool>, std::sync::Condvar)>,
-    child: Option<Child>,
-    /// What the adapter said it can do, from `initialize`.
-    pub configuration_done: bool,
+    pending: Mutex<HashMap<i64, SyncSender<Value>>>,
+    /// Set when this connection's `initialized` event arrives.
+    ready: (Mutex<bool>, Condvar),
 }
 
-impl Live {
-    /// Starts an adapter and wires its reader thread up.
-    ///
-    /// `on_event` is called for every event the adapter sends, on the reader
-    /// thread — so it must not block, and in the app it does nothing but hand
-    /// the value to Tauri's emitter.
-    pub fn start<F>(
-        argv: &[String],
-        transport: Transport,
-        cwd: Option<&std::path::Path>,
-        on_event: F,
-    ) -> Result<Self, String>
-    where
-        F: Fn(&str, Value) + Send + 'static,
-    {
-        let (program, args) = argv
-            .split_first()
-            .ok_or("no debug adapter command to run")?;
-        let (reader, writer, child) = match transport {
-            Transport::Stdio => connect_stdio(program, args, cwd)?,
-            Transport::Tcp => connect_tcp(program, args, cwd)?,
-        };
-
-        let pending: Arc<Mutex<HashMap<i64, SyncSender<Value>>>> = Arc::default();
-        let ready = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
-
-        let held = Arc::clone(&pending);
-        let flag = Arc::clone(&ready);
-        std::thread::spawn(move || read_loop(reader, held, flag, on_event));
-
-        Ok(Live {
+impl Channel {
+    fn new(writer: Box<dyn Write + Send>) -> Self {
+        Channel {
             writer: Mutex::new(writer),
             seq: AtomicI64::new(0),
-            pending,
-            ready,
-            child: Some(child),
-            configuration_done: false,
-        })
+            pending: Mutex::new(HashMap::new()),
+            ready: (Mutex::new(false), Condvar::new()),
+        }
     }
 
-    /// Sends a request and waits for its own response.
-    pub fn request(&self, command: &str, arguments: Value) -> Result<Value, String> {
-        let rx = self.send(command, arguments)?;
-        let reply = rx
-            .recv_timeout(REPLY_TIMEOUT)
-            .map_err(|_| format!("the adapter did not answer {command} in time"))?;
-        if reply.get("success").and_then(|s| s.as_bool()) == Some(false) {
-            let why = reply
-                .get("message")
-                .and_then(|m| m.as_str())
-                .unwrap_or("the adapter refused, without saying why");
-            return Err(why.to_string());
-        }
-        Ok(reply.get("body").cloned().unwrap_or(Value::Null))
+    /// Writes one message. One guard, taken once — writing and flushing through
+    /// two `lock()` calls in the same expression deadlocks a non-reentrant
+    /// mutex against itself, and looks exactly like an adapter that will not
+    /// answer.
+    fn write(&self, body: &str, what: &str) -> Result<(), String> {
+        let mut writer = self
+            .writer
+            .lock()
+            .map_err(|_| "the debug session is in a bad state".to_string())?;
+        writer
+            .write_all(&wire::frame(body))
+            .and_then(|()| writer.flush())
+            .map_err(|e| format!("could not send {what} to the adapter: {e}"))
     }
 
     /// Sends a request and hands back the channel its response will arrive on.
-    ///
-    /// Separate from [`Self::request`] because `launch` must be **sent** before
-    /// configuration and **awaited** after it — several adapters do not answer
-    /// it until `configurationDone`, so waiting in place deadlocks.
     fn send(&self, command: &str, arguments: Value) -> Result<Receiver<Value>, String> {
         let seq = self.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let (tx, rx) = sync_channel(1);
@@ -185,89 +151,54 @@ impl Live {
             .lock()
             .map_err(|_| "the debug session is in a bad state".to_string())?
             .insert(seq, tx);
-
-        let body = json!({
-            "seq": seq,
-            "type": "request",
-            "command": command,
-            "arguments": arguments,
-        })
-        .to_string();
-        // One guard, taken once. Writing and then flushing through two separate
-        // `lock()` calls in the same expression deadlocks a non-reentrant mutex
-        // against itself — the adapter starts, nothing is ever sent, and it
-        // looks exactly like a debugger that will not answer.
-        {
-            let mut writer = self
-                .writer
-                .lock()
-                .map_err(|_| "the debug session is in a bad state".to_string())?;
-            writer
-                .write_all(&wire::frame(&body))
-                .and_then(|()| writer.flush())
-                .map_err(|e| format!("could not send {command} to the adapter: {e}"))?;
-        }
+        self.write(
+            &json!({
+                "seq": seq,
+                "type": "request",
+                "command": command,
+                "arguments": arguments,
+            })
+            .to_string(),
+            command,
+        )?;
         Ok(rx)
     }
 
-    /// The opening handshake.
-    pub fn initialize(&mut self, adapter_id: &str) -> Result<(), String> {
-        let body = self.request(
-            "initialize",
-            json!({
-                "clientID": "coperativeai",
-                "clientName": "CoperativeAI",
-                "adapterID": adapter_id,
-                "locale": "en",
-                // Lines and columns from 1, because that is what an editor
-                // shows. Claiming otherwise offsets every breakpoint by one.
-                "linesStartAt1": true,
-                "columnsStartAt1": true,
-                "pathFormat": "path",
-                "supportsRunInTerminalRequest": false,
-            }),
-        )?;
-        self.configuration_done = body
-            .get("supportsConfigurationDoneRequest")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        Ok(())
-    }
-
-    /// Launches a program, sets its breakpoints, and lets it run.
-    ///
-    /// The order is the protocol's, not a preference — see the module note.
-    pub fn launch(&self, arguments: Value, breakpoints: &[Breakpoint]) -> Result<(), String> {
-        // Sent, not awaited: the response may not come until configuration is
-        // finished, and waiting here would deadlock against that.
-        let launched = self.send("launch", arguments)?;
-
-        // Breakpoints set before this are dropped by most adapters, silently.
-        self.wait_until_ready()?;
-        self.apply_breakpoints(breakpoints)?;
-        if self.configuration_done {
-            self.request("configurationDone", json!({}))?;
-        }
-
-        launched
+    /// Sends a request and waits for its own response.
+    fn request(&self, command: &str, arguments: Value) -> Result<Value, String> {
+        let rx = self.send(command, arguments)?;
+        let reply = rx
             .recv_timeout(REPLY_TIMEOUT)
-            .map_err(|_| "the adapter never confirmed the launch".to_string())
-            .and_then(|reply| {
-                if reply.get("success").and_then(|s| s.as_bool()) == Some(false) {
-                    Err(reply
-                        .get("message")
-                        .and_then(|m| m.as_str())
-                        .unwrap_or("the adapter refused to launch the program")
-                        .to_string())
-                } else {
-                    Ok(())
-                }
-            })
+            .map_err(|_| format!("the adapter did not answer {command} in time"))?;
+        if reply.get("success").and_then(|s| s.as_bool()) == Some(false) {
+            return Err(reply
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("the adapter refused, without saying why")
+                .to_string());
+        }
+        Ok(reply.get("body").cloned().unwrap_or(Value::Null))
     }
 
-    /// Waits for the `initialized` event.
+    /// Answers a request the **adapter** made of us. Leaving one unanswered
+    /// leaves js-debug waiting forever.
+    fn respond(&self, to: &Value) {
+        let seq = self.seq.fetch_add(1, Ordering::SeqCst) + 1;
+        let body = json!({
+            "seq": seq,
+            "type": "response",
+            "request_seq": to.get("seq").and_then(|s| s.as_i64()).unwrap_or_default(),
+            "command": to.get("command").and_then(|c| c.as_str()).unwrap_or_default(),
+            "success": true,
+            "body": {},
+        })
+        .to_string();
+        let _ = self.write(&body, "a reply");
+    }
+
+    /// Waits for this connection's `initialized` event.
     fn wait_until_ready(&self) -> Result<(), String> {
-        let (lock, cond) = &*self.ready;
+        let (lock, cond) = &self.ready;
         let mut ready = lock
             .lock()
             .map_err(|_| "the debug session is in a bad state".to_string())?;
@@ -287,65 +218,140 @@ impl Live {
         }
         Ok(())
     }
+}
 
-    /// Sends every breakpoint, grouped by file.
+/// Everything a reader thread needs, shared between them.
+struct Core {
+    root: Arc<Channel>,
+    /// The child session, once the adapter has asked for one. Requests about
+    /// the program go here in preference to the root.
+    active: Mutex<Option<Arc<Channel>>>,
+    /// The port the adapter is listening on, so a child can be opened on it.
+    /// None for a stdio adapter, which cannot have children.
+    port: Option<u16>,
+    /// Kept so a child can be given them: a breakpoint set on the root is only
+    /// provisional until a child claims it.
+    breakpoints: Mutex<Vec<Breakpoint>>,
+    on_event: EventSink,
+}
+
+/// Where every event goes on its way to the window.
+///
+/// `Sync` as well as `Send`, because js-debug has two connections and therefore
+/// two reader threads calling this.
+type EventSink = Box<dyn Fn(&str, Value) + Send + Sync>;
+
+impl Core {
+    /// Where a request about the running program should go.
+    fn talker(&self) -> Arc<Channel> {
+        self.active
+            .lock()
+            .ok()
+            .and_then(|held| held.clone())
+            .unwrap_or_else(|| Arc::clone(&self.root))
+    }
+}
+
+/// A live adapter, its program, and everything in flight.
+pub struct Live {
+    core: Arc<Core>,
+    child: Option<Child>,
+    configuration_done: bool,
+}
+
+impl Live {
+    /// Starts an adapter and wires its reader thread up.
+    ///
+    /// `on_event` is called for every event the adapter sends, from a reader
+    /// thread — so it must not block, and in the app it does nothing but hand
+    /// the value to Tauri's emitter. It must be `Sync` because js-debug has two
+    /// connections and therefore two readers.
+    pub fn start<F>(
+        argv: &[String],
+        transport: Transport,
+        cwd: Option<&std::path::Path>,
+        on_event: F,
+    ) -> Result<Self, String>
+    where
+        F: Fn(&str, Value) + Send + Sync + 'static,
+    {
+        let (program, args) = argv.split_first().ok_or("no debug adapter command to run")?;
+        let wired: WiredTcp = match transport {
+            // A stdio adapter has no port, and so can never have a child.
+            Transport::Stdio => {
+                let (r, w, c) = connect_stdio(program, args, cwd)?;
+                (r, w, c, 0)
+            }
+            Transport::Tcp => connect_tcp(program, args, cwd)?,
+        };
+        let (reader, writer, child, port) = wired;
+        let port = if port == 0 { None } else { Some(port) };
+
+        let root = Arc::new(Channel::new(writer));
+        let core = Arc::new(Core {
+            root: Arc::clone(&root),
+            active: Mutex::new(None),
+            port,
+            breakpoints: Mutex::new(Vec::new()),
+            on_event: Box::new(on_event),
+        });
+
+        let held = Arc::clone(&core);
+        std::thread::spawn(move || read_loop(reader, held, root, true));
+
+        Ok(Live {
+            core,
+            child: Some(child),
+            configuration_done: false,
+        })
+    }
+
+    /// The opening handshake, on the root connection.
+    pub fn initialize(&mut self, adapter_id: &str) -> Result<(), String> {
+        let body = self.core.root.request("initialize", initialize_args(adapter_id))?;
+        self.configuration_done = body
+            .get("supportsConfigurationDoneRequest")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        Ok(())
+    }
+
+    /// Launches a program, sets its breakpoints, and lets it run.
+    pub fn launch(&self, arguments: Value, breakpoints: &[Breakpoint]) -> Result<(), String> {
+        if let Ok(mut held) = self.core.breakpoints.lock() {
+            *held = breakpoints.to_vec();
+        }
+        configure_and_launch(&self.core.root, arguments, breakpoints, self.configuration_done)
+    }
+
+    /// Sends every breakpoint, grouped by file, to whichever connection owns
+    /// the program.
     ///
     /// **`setBreakpoints` replaces the whole file's set**, so a file with none
     /// left still has to be sent — otherwise removing the last breakpoint in a
     /// file leaves it armed in the adapter and the program keeps stopping there.
     pub fn apply_breakpoints(&self, breakpoints: &[Breakpoint]) -> Result<Vec<Value>, String> {
-        let mut by_file: HashMap<&str, Vec<i64>> = HashMap::new();
-        for bp in breakpoints {
-            by_file.entry(bp.path.as_str()).or_default().push(bp.line);
+        if let Ok(mut held) = self.core.breakpoints.lock() {
+            *held = breakpoints.to_vec();
         }
-        let mut verified = Vec::new();
-        for (path, lines) in by_file {
-            let body = self.request(
-                "setBreakpoints",
-                json!({
-                    "source": { "path": path },
-                    "breakpoints": lines.iter().map(|l| json!({ "line": l })).collect::<Vec<_>>(),
-                }),
-            )?;
-            // The adapter answers with where it *actually* put each one — it
-            // slides a breakpoint to the next executable line, and a UI that
-            // kept showing the requested line would be lying about where the
-            // program will stop.
-            if let Some(list) = body.get("breakpoints").and_then(|b| b.as_array()) {
-                for (i, got) in list.iter().enumerate() {
-                    verified.push(json!({
-                        "path": path,
-                        "requested": lines.get(i).copied().unwrap_or_default(),
-                        "line": got.get("line").and_then(|l| l.as_i64()),
-                        "verified": got.get("verified").and_then(|v| v.as_bool()).unwrap_or(false),
-                        "message": got.get("message").and_then(|m| m.as_str()).unwrap_or(""),
-                    }));
-                }
-            }
-        }
-        Ok(verified)
+        set_breakpoints(&self.core.talker(), breakpoints)
     }
 
     /// Where the program is stopped, innermost frame first.
     pub fn stack(&self, thread_id: i64) -> Result<Vec<Frame>, String> {
-        let body = self.request(
+        let body = self.core.talker().request(
             "stackTrace",
             json!({ "threadId": thread_id, "startFrame": 0, "levels": 40 }),
         )?;
-        let frames = body
+        Ok(body
             .get("stackFrames")
             .and_then(|f| f.as_array())
             .cloned()
-            .unwrap_or_default();
-        Ok(frames
+            .unwrap_or_default()
             .iter()
             .map(|f| Frame {
                 id: f.get("id").and_then(|v| v.as_i64()).unwrap_or_default(),
-                name: f
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or_default()
-                    .to_string(),
+                name: text(f, "name"),
                 path: f
                     .get("source")
                     .and_then(|s| s.get("path"))
@@ -360,14 +366,15 @@ impl Live {
 
     /// What is in scope in one frame, flattened across its scopes.
     pub fn variables(&self, frame_id: i64) -> Result<Vec<Variable>, String> {
-        let scopes = self.request("scopes", json!({ "frameId": frame_id }))?;
+        let talker = self.core.talker();
+        let scopes = talker.request("scopes", json!({ "frameId": frame_id }))?;
         let mut out = Vec::new();
-        let list = scopes
+        for scope in scopes
             .get("scopes")
             .and_then(|s| s.as_array())
             .cloned()
-            .unwrap_or_default();
-        for scope in list {
+            .unwrap_or_default()
+        {
             // Registers and other expensive scopes are marked so a client can
             // skip them; fetching one per stop would make stepping crawl.
             if scope.get("expensive").and_then(|e| e.as_bool()) == Some(true) {
@@ -379,7 +386,7 @@ impl Live {
             if reference == 0 {
                 continue;
             }
-            let body = self.request("variables", json!({ "variablesReference": reference }))?;
+            let body = talker.request("variables", json!({ "variablesReference": reference }))?;
             for v in body
                 .get("variables")
                 .and_then(|v| v.as_array())
@@ -387,21 +394,9 @@ impl Live {
                 .unwrap_or_default()
             {
                 out.push(Variable {
-                    name: v
-                        .get("name")
-                        .and_then(|s| s.as_str())
-                        .unwrap_or_default()
-                        .to_string(),
-                    value: v
-                        .get("value")
-                        .and_then(|s| s.as_str())
-                        .unwrap_or_default()
-                        .to_string(),
-                    kind: v
-                        .get("type")
-                        .and_then(|s| s.as_str())
-                        .unwrap_or_default()
-                        .to_string(),
+                    name: text(&v, "name"),
+                    value: text(&v, "value"),
+                    kind: text(&v, "type"),
                     children: v
                         .get("variablesReference")
                         .and_then(|s| s.as_i64())
@@ -421,16 +416,24 @@ impl Live {
             "out" => "stepOut",
             other => return Err(format!("no such way to resume: {other}")),
         };
-        self.request(command, json!({ "threadId": thread_id }))?;
+        self.core
+            .talker()
+            .request(command, json!({ "threadId": thread_id }))?;
         Ok(())
     }
 
     /// Ends the program and the adapter with it.
     pub fn stop(&mut self) {
-        // Both sent without waiting: not every adapter answers either one, and
-        // killing the child below is what actually ends the program.
-        let _ = self.send("terminate", json!({ "restart": false }));
-        let _ = self.send("disconnect", json!({ "restart": false }));
+        // Sent without waiting, to every connection: not every adapter answers
+        // either one — js-debug answers neither — and killing the adapter below
+        // is what actually ends the program.
+        for channel in [Some(self.core.talker()), Some(Arc::clone(&self.core.root))]
+            .into_iter()
+            .flatten()
+        {
+            let _ = channel.send("terminate", json!({ "restart": false }));
+            let _ = channel.send("disconnect", json!({ "restart": false }));
+        }
         if let Some(child) = self.child.as_mut() {
             let _ = child.kill();
             let _ = child.wait();
@@ -447,15 +450,178 @@ impl Drop for Live {
     }
 }
 
-/// Reads the adapter forever: replies go to whoever asked, events to the sink.
-fn read_loop<F>(
+fn text(value: &Value, key: &str) -> String {
+    value
+        .get(key)
+        .and_then(|s| s.as_str())
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn initialize_args(adapter_id: &str) -> Value {
+    json!({
+        "clientID": "coperativeai",
+        "clientName": "CoperativeAI",
+        "adapterID": adapter_id,
+        "locale": "en",
+        // Lines and columns from 1, because that is what an editor shows.
+        // Claiming otherwise offsets every breakpoint by one.
+        "linesStartAt1": true,
+        "columnsStartAt1": true,
+        "pathFormat": "path",
+        "supportsRunInTerminalRequest": false,
+        // Without this js-debug will not ask us to open a child session, and
+        // the program runs with nothing watching it.
+        "supportsStartDebuggingRequest": true,
+    })
+}
+
+/// `launch`, then configuration, then the launch's answer — the order the
+/// protocol fixes. Shared by the root and by any child session, because the
+/// sequence is the same on both.
+fn configure_and_launch(
+    channel: &Channel,
+    arguments: Value,
+    breakpoints: &[Breakpoint],
+    configuration_done: bool,
+) -> Result<(), String> {
+    // Sent, not awaited: the response may not come until configuration is
+    // finished, and waiting here would deadlock against that.
+    let launched = channel.send("launch", arguments)?;
+
+    // Breakpoints set before this are dropped by most adapters, silently.
+    channel.wait_until_ready()?;
+    set_breakpoints(channel, breakpoints)?;
+    if configuration_done {
+        channel.request("configurationDone", json!({}))?;
+    }
+
+    let reply = launched
+        .recv_timeout(REPLY_TIMEOUT)
+        .map_err(|_| "the adapter never confirmed the launch".to_string())?;
+    if reply.get("success").and_then(|s| s.as_bool()) == Some(false) {
+        return Err(reply
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("the adapter refused to launch the program")
+            .to_string());
+    }
+    Ok(())
+}
+
+/// One `setBreakpoints` per file, and the adapter's answer about each.
+fn set_breakpoints(channel: &Channel, breakpoints: &[Breakpoint]) -> Result<Vec<Value>, String> {
+    let mut by_file: HashMap<&str, Vec<i64>> = HashMap::new();
+    for bp in breakpoints {
+        by_file.entry(bp.path.as_str()).or_default().push(bp.line);
+    }
+    let mut verified = Vec::new();
+    for (path, lines) in by_file {
+        let body = channel.request(
+            "setBreakpoints",
+            json!({
+                "source": { "path": path },
+                "breakpoints": lines.iter().map(|l| json!({ "line": l })).collect::<Vec<_>>(),
+            }),
+        )?;
+        // The adapter answers with where it *actually* put each one — it slides
+        // a breakpoint to the next executable line, and a UI that kept showing
+        // the requested line would be lying about where the program will stop.
+        if let Some(list) = body.get("breakpoints").and_then(|b| b.as_array()) {
+            for (i, got) in list.iter().enumerate() {
+                verified.push(json!({
+                    "path": path,
+                    "requested": lines.get(i).copied().unwrap_or_default(),
+                    "line": got.get("line").and_then(|l| l.as_i64()),
+                    "verified": got.get("verified").and_then(|v| v.as_bool()).unwrap_or(false),
+                    "message": got.get("message").and_then(|m| m.as_str()).unwrap_or(""),
+                }));
+            }
+        }
+    }
+    Ok(verified)
+}
+
+/// Opens the second connection js-debug asked for and runs its handshake.
+///
+/// On its own thread, because it is started from inside a reader thread while
+/// answering a reverse request — and it makes requests of its own, which that
+/// reader is the one who would have to deliver.
+fn open_child(core: Arc<Core>, configuration: Value) {
+    let Some(port) = core.port else {
+        (core.on_event)(
+            "dap-broken",
+            json!({ "message": "the adapter asked for a child session but is not a server" }),
+        );
+        return;
+    };
+
+    std::thread::spawn(move || {
+        let stream = loopbacks(port)
+            .iter()
+            .find_map(|a| TcpStream::connect(a).ok());
+        let Some(stream) = stream else {
+            (core.on_event)(
+                "dap-broken",
+                json!({ "message": "could not open the child debug session" }),
+            );
+            return;
+        };
+        let Ok(reader) = stream.try_clone() else { return };
+        let _ = reader.set_read_timeout(Some(POLL));
+
+        let channel = Arc::new(Channel::new(Box::new(stream)));
+        let held = Arc::clone(&core);
+        let mine = Arc::clone(&channel);
+        std::thread::spawn(move || read_loop(Box::new(reader), held, mine, false));
+
+        // The child owns the program from here, so every later request goes to
+        // it — set before the handshake, so a `stopped` that arrives during it
+        // is answered against the right connection.
+        if let Ok(mut active) = core.active.lock() {
+            *active = Some(Arc::clone(&channel));
+        }
+
+        let adapter_id = configuration
+            .get("type")
+            .and_then(|t| t.as_str())
+            .unwrap_or("pwa-node")
+            .to_string();
+        let done = channel
+            .request("initialize", initialize_args(&adapter_id))
+            .map(|body| {
+                body.get("supportsConfigurationDoneRequest")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+            });
+        let Ok(configuration_done) = done else {
+            (core.on_event)(
+                "dap-broken",
+                json!({ "message": "the child debug session would not start" }),
+            );
+            return;
+        };
+
+        let breakpoints = core
+            .breakpoints
+            .lock()
+            .map(|held| held.clone())
+            .unwrap_or_default();
+        if let Err(why) = configure_and_launch(&channel, configuration, &breakpoints, configuration_done)
+        {
+            (core.on_event)("dap-broken", json!({ "message": why }));
+        }
+    });
+}
+
+/// Reads one connection forever: replies go to whoever asked, events to the
+/// sink, and requests from the adapter get answered.
+fn read_loop(
     mut reader: Box<dyn Read + Send>,
-    pending: Arc<Mutex<HashMap<i64, SyncSender<Value>>>>,
-    ready: Arc<(Mutex<bool>, std::sync::Condvar)>,
-    on_event: F,
-) where
-    F: Fn(&str, Value),
-{
+    core: Arc<Core>,
+    channel: Arc<Channel>,
+    is_root: bool,
+) {
     let mut buffer: Vec<u8> = Vec::new();
     let mut chunk = [0u8; 8192];
     loop {
@@ -466,10 +632,10 @@ fn read_loop<F>(
             match wire::decode(&buffer) {
                 Decoded::Message { body, used } => {
                     buffer.drain(..used);
-                    dispatch(&body, &pending, &ready, &on_event);
+                    dispatch(&body, &core, &channel);
                 }
                 Decoded::Bad(why) => {
-                    on_event("dap-broken", json!({ "message": why }));
+                    (core.on_event)("dap-broken", json!({ "message": why }));
                     return;
                 }
                 Decoded::Incomplete => break,
@@ -486,17 +652,14 @@ fn read_loop<F>(
             Err(_) => break,
         }
     }
-    on_event("dap-closed", json!({}));
+    // Only the root closing means the session is over. A child that ends is one
+    // program finishing, which the `terminated` event has already said.
+    if is_root {
+        (core.on_event)("dap-closed", json!({}));
+    }
 }
 
-fn dispatch<F>(
-    body: &str,
-    pending: &Arc<Mutex<HashMap<i64, SyncSender<Value>>>>,
-    ready: &Arc<(Mutex<bool>, std::sync::Condvar)>,
-    on_event: &F,
-) where
-    F: Fn(&str, Value),
-{
+fn dispatch(body: &str, core: &Arc<Core>, channel: &Arc<Channel>) {
     let Ok(message) = serde_json::from_str::<Value>(body) else {
         return;
     };
@@ -505,7 +668,11 @@ fn dispatch<F>(
             let Some(seq) = message.get("request_seq").and_then(|s| s.as_i64()) else {
                 return;
             };
-            let waiting = pending.lock().ok().and_then(|mut held| held.remove(&seq));
+            let waiting = channel
+                .pending
+                .lock()
+                .ok()
+                .and_then(|mut held| held.remove(&seq));
             if let Some(tx) = waiting {
                 // A caller that has given up leaves a channel nobody reads;
                 // failing to send is ordinary, not an error.
@@ -519,19 +686,35 @@ fn dispatch<F>(
                 .unwrap_or_default()
                 .to_string();
             if name == "initialized" {
-                let (lock, cond) = &**ready;
+                let (lock, cond) = &channel.ready;
                 if let Ok(mut flag) = lock.lock() {
                     *flag = true;
                     cond.notify_all();
                 }
             }
-            on_event(&name, message.get("body").cloned().unwrap_or(Value::Null));
+            (core.on_event)(&name, message.get("body").cloned().unwrap_or(Value::Null));
+        }
+        // A request from the adapter. Every one is answered, because an
+        // unanswered reverse request leaves js-debug waiting forever.
+        Some("request") => {
+            channel.respond(&message);
+            if message.get("command").and_then(|c| c.as_str()) == Some("startDebugging") {
+                let configuration = message
+                    .get("arguments")
+                    .and_then(|a| a.get("configuration"))
+                    .cloned()
+                    .unwrap_or_else(|| json!({}));
+                open_child(Arc::clone(core), configuration);
+            }
         }
         _ => {}
     }
 }
 
 type Wired = (Box<dyn Read + Send>, Box<dyn Write + Send>, Child);
+/// A TCP adapter also hands back the port it is listening on, because a child
+/// session connects to the same one.
+type WiredTcp = (Box<dyn Read + Send>, Box<dyn Write + Send>, Child, u16);
 
 fn spawn(
     program: &str,
@@ -576,7 +759,7 @@ fn connect_tcp(
     program: &str,
     args: &[String],
     cwd: Option<&std::path::Path>,
-) -> Result<Wired, String> {
+) -> Result<WiredTcp, String> {
     let port = free_port()?;
     let filled: Vec<String> = args
         .iter()
@@ -594,7 +777,10 @@ fn connect_tcp(
             if let Some(mut err) = child.stderr.take() {
                 let _ = err.read_to_string(&mut why);
             }
-            return Err(format!("{program} exited straight away ({status}). {}", why.trim()));
+            return Err(format!(
+                "{program} exited straight away ({status}). {}",
+                why.trim()
+            ));
         }
         match addrs
             .iter()
@@ -607,7 +793,7 @@ fn connect_tcp(
                     .map_err(|e| format!("could not read from {program}: {e}"))?;
                 // See session.rs: a blocking read cannot be given up on.
                 let _ = read.set_read_timeout(Some(POLL));
-                return Ok((Box::new(read), Box::new(stream), child));
+                return Ok((Box::new(read), Box::new(stream), child, port));
             }
             Err(()) if Instant::now() < deadline => {
                 std::thread::sleep(Duration::from_millis(60));
@@ -623,7 +809,7 @@ fn connect_tcp(
 }
 
 fn free_port() -> Result<u16, String> {
-    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+    let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
         .map_err(|e| format!("could not find a free port for the debug adapter: {e}"))?;
     listener
         .local_addr()
@@ -636,15 +822,28 @@ mod tests {
     use super::*;
     use std::sync::mpsc::channel;
 
+    /// Waits for a `stopped`, failing loudly if the program ends first.
+    fn wait_for_stop(rx: &std::sync::mpsc::Receiver<(String, Value)>, secs: u64) -> Value {
+        let deadline = Instant::now() + Duration::from_secs(secs);
+        while Instant::now() < deadline {
+            let left = deadline.saturating_duration_since(Instant::now());
+            match rx.recv_timeout(left) {
+                Ok((name, body)) if name == "stopped" => return body,
+                Ok((name, body)) if name == "dap-broken" => {
+                    panic!("the adapter broke: {body}");
+                }
+                Ok((name, body)) if name == "terminated" || name == "dap-closed" => {
+                    panic!("the program ended without stopping: {name} {body}");
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        panic!("the program never stopped");
+    }
+
     /// **The whole feature, against a real debugger.** Ignored by default: it
-    /// needs Delve *and* a Go toolchain, and CI has neither. Run it with
-    /// `cargo test -- --ignored` on a machine that does.
-    ///
-    /// It writes a tiny Go program, breaks on a line in the middle of it, and
-    /// asserts the program really stopped there with the right variable in
-    /// scope. Nothing short of that proves the launch sequence is right — a
-    /// debugger that never stops looks identical to one that has not been asked
-    /// to.
+    /// needs Delve *and* a Go toolchain, and CI has neither.
     #[test]
     #[ignore = "needs Delve and a Go toolchain"]
     fn a_breakpoint_stops_a_real_go_program_and_shows_its_variables() {
@@ -684,8 +883,8 @@ mod tests {
         live.initialize("go").expect("initialize");
 
         // Line 8 is `total := subtotal + tax`, so at the stop `subtotal` and
-        // `tax` are set and `total` is not yet — which is what makes this a
-        // real assertion rather than "something happened".
+        // `tax` are set and `total` is not yet — which is what makes this a real
+        // assertion rather than "something happened".
         let breakpoints = vec![Breakpoint {
             path: source.display().to_string(),
             line: 8,
@@ -701,24 +900,7 @@ mod tests {
         )
         .expect("launch");
 
-        // Wait for it to stop, ignoring the output and thread chatter.
-        let deadline = Instant::now() + Duration::from_secs(120);
-        let mut stopped: Option<Value> = None;
-        while Instant::now() < deadline {
-            let left = deadline.saturating_duration_since(Instant::now());
-            match rx.recv_timeout(left) {
-                Ok((name, body)) if name == "stopped" => {
-                    stopped = Some(body);
-                    break;
-                }
-                Ok((name, body)) if name == "terminated" || name == "dap-closed" => {
-                    panic!("the program ended without stopping: {name} {body}");
-                }
-                Ok(_) => {}
-                Err(_) => break,
-            }
-        }
-        let stopped = stopped.expect("the program should have stopped at the breakpoint");
+        let stopped = wait_for_stop(&rx, 120);
         let thread_id = stopped
             .get("threadId")
             .and_then(|t| t.as_i64())
@@ -750,6 +932,89 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// **The two-session model, against the real js-debug.**
+    ///
+    /// This is the test the whole `Channel` split exists for: js-debug answers
+    /// `launch` with a `startDebugging` reverse request, and the breakpoint only
+    /// hits on the *child* connection. If requests were still going to the root,
+    /// the stack below would come back empty.
+    #[test]
+    #[ignore = "needs js-debug extracted on this machine"]
+    fn a_breakpoint_stops_a_real_node_program_through_js_debug() {
+        let found = crate::debug::adapters::discover();
+        let js = found
+            .iter()
+            .find(|a| a.language == "typescript")
+            .expect("typescript");
+        if !js.available {
+            eprintln!("skipping: {}", js.problem);
+            return;
+        }
+
+        let dir = std::env::temp_dir().join(format!("coperativeai-dap-js-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch");
+        let source = dir.join("app.js");
+        std::fs::write(
+            &source,
+            "const subtotal = 11810;\n\
+             const tax = 1185;\n\
+             const total = subtotal + tax;\n\
+             console.log(total);\n",
+        )
+        .expect("app.js");
+
+        let (tx, rx) = channel::<(String, Value)>();
+        let mut live = Live::start(&js.argv, Transport::Tcp, Some(&dir), move |name, body| {
+            let _ = tx.send((name.to_string(), body));
+        })
+        .expect("start js-debug");
+
+        live.initialize("pwa-node").expect("initialize");
+
+        // Line 3 is `const total = subtotal + tax;` — `subtotal` and `tax` are
+        // set there and `total` is not.
+        let breakpoints = vec![Breakpoint {
+            path: source.display().to_string(),
+            line: 3,
+        }];
+        live.launch(
+            json!({
+                "type": "pwa-node",
+                "request": "launch",
+                "name": "coperativeai",
+                "program": source.display().to_string(),
+                "cwd": dir.display().to_string(),
+            }),
+            &breakpoints,
+        )
+        .expect("launch");
+
+        let stopped = wait_for_stop(&rx, 90);
+        let thread_id = stopped
+            .get("threadId")
+            .and_then(|t| t.as_i64())
+            .expect("a stop names its thread");
+
+        let frames = live.stack(thread_id).expect("stackTrace");
+        let top = frames.first().expect("at least one frame");
+        assert_eq!(top.line, 3, "it stopped somewhere else: {frames:?}");
+        assert!(
+            top.path.to_lowercase().ends_with("app.js"),
+            "stopped in the wrong file: {}",
+            top.path
+        );
+
+        let vars = live.variables(top.id).expect("variables");
+        assert!(
+            vars.iter().any(|v| v.name == "subtotal" && v.value == "11810"),
+            "subtotal should be set at this line. Saw: {vars:?}"
+        );
+
+        live.stop();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Removing the last breakpoint in a file still has to send that file, or
     /// the adapter keeps the old set and the program stops at a line the UI no
     /// longer shows.
@@ -769,20 +1034,16 @@ mod tests {
         assert_eq!(by_file["b.go"], vec![9]);
     }
 
+    /// js-debug will not offer a child session unless the client says it can
+    /// handle one — and then the program runs with nothing watching it.
     #[test]
-    fn only_the_four_ways_to_resume_are_accepted() {
-        // The mapping is the API's whole surface here, and a typo in it is a
-        // button that silently does nothing.
-        for (word, _) in [
-            ("continue", "continue"),
-            ("over", "next"),
-            ("in", "stepIn"),
-            ("out", "stepOut"),
-        ] {
-            assert!(
-                matches!(word, "continue" | "over" | "in" | "out"),
-                "{word} should be a way to resume"
-            );
-        }
+    fn the_handshake_says_we_can_open_a_child_session() {
+        let args = initialize_args("pwa-node");
+        assert_eq!(
+            args.get("supportsStartDebuggingRequest").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+        // Lines from 1, or every breakpoint is off by one.
+        assert_eq!(args.get("linesStartAt1").and_then(|v| v.as_bool()), Some(true));
     }
 }

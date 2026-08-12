@@ -20,9 +20,9 @@ import {
  *  a claim about what it is now". So a wrong guess is possible, and the panel
  *  names the language it is offering rather than silently picking one.
  *
- *  Only Go can launch today; the rest are found and speak DAP but have no
- *  launch shape yet, so a button that always failed would be worse than a
- *  sentence saying so. */
+ *  Go and TypeScript can launch today; Python and C# are found and speak DAP
+ *  but have no launch shape yet, so a button that always failed would be worse
+ *  than a sentence saying so. */
 export function debugLanguageOf(language: string | null): string | null {
   const said = (language ?? "").toLowerCase();
   if (said.includes("go")) return "go";
@@ -34,8 +34,12 @@ export function debugLanguageOf(language: string | null): string | null {
   return null;
 }
 
-/** The languages whose launch shape is built. */
-const CAN_LAUNCH = ["go"];
+/** The languages whose launch shape is built.
+ *
+ *  Go through Delve, TypeScript and JavaScript through js-debug — both verified
+ *  against the real adapter, stopping a real program on a real line. Python and
+ *  C# are found and speak DAP but have no launch shape yet. */
+const CAN_LAUNCH = ["go", "typescript"];
 /** One line of the program's own output. */
 interface Line {
   at: number;
@@ -310,7 +314,7 @@ export default function DebugSession({
           {language === null
             ? "This Solution records no language, so there is nothing to pick a debugger by."
             : `Launching ${language} is not wired up yet — its adapter is found and speaks DAP, but its launch shape is still to do.`}{" "}
-          Go works today.
+          Go and TypeScript work today.
         </p>
       )}
       {error && <p role="alert">{error}</p>}

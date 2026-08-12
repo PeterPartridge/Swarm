@@ -34,6 +34,38 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 24 — TypeScript debugs, and a session becomes two connections
+
+### My Feedback
+
+**A breakpoint stops a real Node program.** Verified the way Go was: a scratch program, a breakpoint in the middle of it, and an assertion that it stopped on that line with `subtotal = 11810` read out of the live process. Nothing weaker would prove it.
+
+**`Live` is built around a `Channel` now** — one DAP connection, with its own `seq`, its own pending-request map and its own `initialized` flag. Delve gets one and never grows a second, because it never sends a reverse request. js-debug gets two, and `Core::talker()` routes every request about the running program to the child once one exists.
+
+**Three things that fall out of the two-session model and are each easy to get wrong:**
+
+1. **Every reverse request is answered**, not only `startDebugging`. An unanswered one leaves js-debug waiting forever, which presents as a program that never starts.
+2. **`supportsStartDebuggingRequest` must be declared in `initialize`.** Without it js-debug never offers the child, and the program runs with nothing watching it — no error, just a breakpoint that never hits.
+3. **The breakpoints are kept on the session** so the child's handshake can re-send them. The root's copy comes back `verified: false` ("provisionalBreakpoint") and only becomes real when the child claims it.
+
+**Only the root closing ends the session.** A child ending is one program finishing, which `terminated` has already reported — treating it as the end would have made every completed run look like a crashed adapter.
+
+### Your Feedback
+
+- **Both Delve tests still pass**, which was the point of having them: this refactor touched every path, and the Go debugger is the one that already worked.
+- **The child is registered as `active` before its handshake**, not after — a `stopped` arriving mid-handshake must be answerable against the right connection.
+- **The `configure_and_launch` sequence is shared** between root and child rather than written twice. It is the part of DAP that is easiest to get subtly wrong, and two copies would drift.
+- **Committing first was worth it.** Rounds 22–23 went onto `debug-adapter-protocol` as two commits before this refactor started, so the working Go debugger had a known-good point to return to.
+- **Clippy's `type_complexity` lint caught two real readability problems** — the wired-connection tuple and the event sink are named types now.
+
+### Technical Debt
+
+- **debugpy and netcoredbg still have no launch shape**, and neither is installed here, so building one would be unverifiable — the same position js-debug was in before it was installed.
+- **The stdio transport still has no read timeout.** Only TCP got one; a pipe has no `set_read_timeout`, so a silent stdio adapter can still hang. Both remaining languages are stdio, so this must be fixed before either lands.
+- **Only one child.** js-debug can nest further sessions (a worker, a child process); the second `startDebugging` would replace the first as `active`.
+- **The root's provisional breakpoints are reported to the UI**, so a TypeScript session briefly says a breakpoint could not be verified when it simply has not been claimed yet.
+- Carried: variables do not expand; one thread only; no conditional breakpoints; stepping does not follow the selected frame.
+
 ## Round 23 — js-debug: four bugs found by actually talking to it
 
 ### My Feedback

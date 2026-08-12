@@ -79,12 +79,21 @@ describe("DebugSession", () => {
   });
 
   /// A launch shape that is not built must not be offered as a button that
-  /// always fails — the panel names the language and says Go works.
+  /// always fails — the panel names the language and says which do work.
   it("will not offer to debug a language whose launch is not built", () => {
     render(<DebugSession solution={sol({ language: "Python (venv)" })} />);
 
     expect(screen.getByLabelText("Debug Orders")).toBeDisabled();
     expect(screen.getByText(/Launching python is not wired up yet/)).toBeInTheDocument();
+  });
+
+  /// TypeScript launches now, through js-debug — verified against the real
+  /// adapter in the Rust suite, and offered here because of it.
+  it("offers to debug a TypeScript Solution", () => {
+    render(<DebugSession solution={sol({ language: "TypeScript (vite)" })} />);
+
+    expect(screen.getByLabelText("Debug Orders")).toBeEnabled();
+    expect(screen.queryByText(/is not wired up yet/)).not.toBeInTheDocument();
   });
 
   it("says so when there is no working copy to run", () => {

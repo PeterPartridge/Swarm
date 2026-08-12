@@ -180,9 +180,22 @@ fn launch_arguments(language: &str, program: &str) -> Result<serde_json::Value, 
             "program": program,
             "cwd": program,
         })),
+        // js-debug wants the file rather than the folder, and answers this with
+        // a `startDebugging` reverse request — see `debug::live`, which opens
+        // the child session that actually runs the program.
+        "typescript" => Ok(serde_json::json!({
+            "type": "pwa-node",
+            "request": "launch",
+            "name": "CoperativeAI",
+            "program": program,
+            "cwd": std::path::Path::new(program)
+                .parent()
+                .map(|d| d.display().to_string())
+                .unwrap_or_else(|| program.to_string()),
+        })),
         other => Err(format!(
             "launching {other} is not wired up yet — the adapter is found and speaks DAP, but its \
-             launch shape is still to do. Go works today."
+             launch shape is still to do. Go and TypeScript work today."
         )),
     }
 }
