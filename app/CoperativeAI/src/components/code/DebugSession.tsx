@@ -5,6 +5,7 @@ import {
   debugResume,
   debugSetBreakpoints,
   debugExpand,
+  debugRestartFrame,
   debugStack,
   debugStart,
   debugStop,
@@ -181,6 +182,10 @@ export default function DebugSession({
   const [logPoints, setLogPoints] = useState<boolean | null>(null);
   /// The same again, for counting hits before stopping.
   const [hitCounts, setHitCounts] = useState<boolean | null>(null);
+  /// Whether a frame can be run again. Unlike the three breakpoint extras this
+  /// is not about breakpoints at all — it is the only per-frame operation DAP
+  /// has, and so the only thing selecting a frame can actually do.
+  const [canRestartFrame, setCanRestartFrame] = useState<boolean | null>(null);
 
   /// The session id as the event listener sees it. A listener registered once
   /// would otherwise capture the id from the render it was created in, and stop
@@ -321,6 +326,7 @@ export default function DebugSession({
       setConditions(started.conditions);
       setLogPoints(started.logPoints);
       setHitCounts(started.hitCounts);
+      setCanRestartFrame(started.restartFrame);
 
       // Where they actually landed, not where they were asked for: an adapter
       // slides a breakpoint to the next executable line.
@@ -367,6 +373,21 @@ export default function DebugSession({
     setFrames([]);
     setVariables([]);
     resumedRef.current?.();
+  }
+
+  /// Puts the program back at the start of one call.
+  ///
+  /// Not treated as a resume: the adapter answers with a fresh `stopped`, so
+  /// the highlight and the stack are replaced by that event rather than
+  /// guessed at here.
+  async function restartFrame(frame: number) {
+    if (!session) return;
+    try {
+      await debugRestartFrame(session, frame);
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
   }
 
   async function resume(how: "continue" | "over" | "in" | "out") {
@@ -508,7 +529,7 @@ export default function DebugSession({
               <div className="session-stack">
                 <span className="palette-label">Call stack</span>
                 <ul>
-                  {frames.map((f) => (
+                  {frames.map((f, depth) => (
                     <li key={f.id}>
                       <button
                         type="button"
@@ -525,9 +546,35 @@ export default function DebugSession({
                           {f.path ? `${f.path.split(/[/\\]/).pop()}:${f.line}` : "no source"}
                         </span>
                       </button>
+                      {/* The only thing DAP lets a *frame* be told to do. It is
+                          offered per frame rather than once, because a runtime
+                          frame cannot be restarted even where its neighbours
+                          can — `canRestart` says which. */}
+                      {canRestartFrame && f.canRestart && depth > 0 && (
+                        <button
+                          type="button"
+                          className="frame-again"
+                          aria-label={`Run ${f.name} again`}
+                          onClick={() => restartFrame(f.id)}
+                        >
+                          Run again
+                        </button>
+                      )}
                     </li>
                   ))}
                 </ul>
+                {/* **The mismatch this round is really about.** Selecting a
+                    caller and stepping steps the innermost frame, because DAP's
+                    step requests carry a thread and nothing else. Saying so is
+                    the only honest option: there is no version of this app that
+                    could make stepping follow the selection. */}
+                {frames.length > 1 && frameId !== frames[0]?.id && (
+                  <p className="hint">
+                    Stepping always acts on <strong>{frames[0]?.name}</strong>, the innermost
+                    frame — the debugger steps a thread, not a frame. Running a frame again is
+                    the one thing that acts on the frame you picked.
+                  </p>
+                )}
               </div>
 
               <div className="session-vars">

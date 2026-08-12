@@ -34,6 +34,38 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 30 — the frame you select, and the one that gets stepped
+
+### My Feedback
+
+**The debt I had written down was not fixable, and finding that out was the round.** "Stepping does not follow the selected frame" had been carried for four rounds as a thing to build. It cannot be built: DAP's `next`, `stepIn` and `stepOut` carry a `threadId` **and nothing else**. Stepping is a thread operation, so it always acts on the innermost frame however the stack is selected. There is no version of this app that could make it do otherwise.
+
+**So the fix is to say so, in the place where the mismatch is visible.** Select a caller and the panel says: stepping always acts on `inner`, the innermost frame — the debugger steps a thread, not a frame. It names the frame rather than saying "the innermost one", because that is the thing somebody is about to be surprised by.
+
+**And then to offer what DAP *does* give per frame.** `restartFrame` is the only request in the protocol that names a frame, and it is what "do something with the frame I picked" actually means: the program is put back at the start of that call. Verified against js-debug — stopped deep inside `inner`, restarting `outer` put the program back at the top of `outer` with `inner` gone off the stack entirely. **The assertion is that it went backwards**, which is the only thing that distinguishes this from any other resume.
+
+**Gated twice, because there are two different reasons it might not work.** The adapter-wide `supportsRestartFrame` — js-debug reports it; Delve and netcoredbg do not — and DAP's per-frame `canRestart`, because a runtime or native frame is on the stack and cannot be restarted even where its neighbours can. Either being false means no button rather than a button that fails.
+
+### Your Feedback
+
+- **Not offered on the innermost frame.** Restarting the call you are already in is "step out and step back in", which the step controls already do — and it would be the one place the button looked like it was about the selection when it was not.
+- **The restart is not treated as a resume.** The adapter answers with a fresh `stopped`, so the highlight and the stack are replaced by that event rather than guessed at optimistically.
+- **The per-frame button sits under its frame, not inside it.** The frame row is already a button — the one that selects it — and a button inside a button is not a thing.
+- **`canRestart` defaults to true**, per DAP: an absent field means "assume yes if the adapter supports it at all", so the capability is the outer gate and the field only ever narrows it.
+- **All twelve real-adapter tests pass**, one of them new.
+
+### Technical Debt
+
+- **Restarting a frame does not undo what it did.** The stack is rewound; a file that was written, a row that was inserted and a message that was sent have all still happened. That is inherent to `restartFrame` rather than a gap here, but it is worth a word in the UI that is not there yet.
+- **Only js-debug can do it**, so for two of the three languages selecting a frame still does nothing but show its variables.
+- **Still one thread.** This is now the largest remaining gap: every session shows the thread that stopped, and a deadlock is exactly the case where the others matter.
+- **Nothing is watched** — no expression box, so a value not in scope as a named local cannot be looked at.
+- **Nothing validates a condition, an interpolation or a hit count as it is typed.**
+- **Log output is not marked as coming from a log point.**
+- **The breakpoint strip is only for the open file**, and is now three boxes wide.
+- **debugpy has no launch shape** and cannot be verified here — no real Python on this machine.
+- Carried: only one js-debug child; the root's provisional breakpoints reach the UI; `built_assembly` picks the newest build rather than a configured one; the Rust suite leaves scratch directories in `%TEMP%`.
+
 ## Round 29 — hit counts, and the first real difference between the adapters
 
 ### My Feedback

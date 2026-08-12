@@ -14,6 +14,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     debugStack: vi.fn(),
     debugVariables: vi.fn(),
     debugExpand: vi.fn(),
+    debugRestartFrame: vi.fn(),
     debugSetBreakpoints: vi.fn(),
   };
 });
@@ -77,6 +78,7 @@ describe("DebugSession", () => {
       conditions: true,
       logPoints: true,
       hitCounts: true,
+      restartFrame: true,
     });
     mocked.debugStop.mockResolvedValue();
     mocked.debugResume.mockResolvedValue();
@@ -121,8 +123,8 @@ describe("DebugSession", () => {
   it("shows the stack and the variables when the program stops", async () => {
     const user = userEvent.setup();
     mocked.debugStack.mockResolvedValue([
-      { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 8, column: 2 },
-      { id: 1001, name: "runtime.main", path: "", line: 267, column: 1 },
+      { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 8, column: 2, canRestart: true },
+      { id: 1001, name: "runtime.main", path: "", line: 267, column: 1, canRestart: true },
     ]);
     mocked.debugVariables.mockResolvedValue([
       { name: "subtotal", value: "11810", kind: "int", children: 0 },
@@ -160,7 +162,7 @@ describe("DebugSession", () => {
   it("opens a variable to show its fields, and closes it again", async () => {
     const user = userEvent.setup();
     mocked.debugStack.mockResolvedValue([
-      { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 12, column: 2 },
+      { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 12, column: 2, canRestart: true },
     ]);
     mocked.debugVariables.mockResolvedValue([
       { name: "order", value: "main.Order {Subtotal: 11810, Tax: 1185}", kind: "main.Order", children: 4 },
@@ -197,7 +199,7 @@ describe("DebugSession", () => {
   it("forgets what was open when the program moves on", async () => {
     const user = userEvent.setup();
     mocked.debugStack.mockResolvedValue([
-      { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 12, column: 2 },
+      { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 12, column: 2, canRestart: true },
     ]);
     mocked.debugVariables.mockResolvedValue([
       { name: "order", value: "main.Order {...}", kind: "main.Order", children: 4 },
@@ -229,7 +231,7 @@ describe("DebugSession", () => {
   it("says why a variable would not open", async () => {
     const user = userEvent.setup();
     mocked.debugStack.mockResolvedValue([
-      { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 12, column: 2 },
+      { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 12, column: 2, canRestart: true },
     ]);
     mocked.debugVariables.mockResolvedValue([
       { name: "order", value: "main.Order {...}", kind: "main.Order", children: 4 },
@@ -248,6 +250,120 @@ describe("DebugSession", () => {
     await user.click(within(panel).getByLabelText("Open order"));
 
     expect(await within(panel).findByText(/that debug session has ended/)).toBeInTheDocument();
+  });
+
+  /// **What DAP cannot do, said out loud.** `next`, `stepIn` and `stepOut`
+  /// carry a thread and nothing else, so a step always acts on the innermost
+  /// frame however the stack is selected. There is no version of this app that
+  /// could make stepping follow the selection, so it says so instead.
+  it("says that stepping acts on the innermost frame, not the selected one", async () => {
+    const user = userEvent.setup();
+    mocked.debugStack.mockResolvedValue([
+      { id: 1000, name: "inner", path: "C:/repos/orders/main.go", line: 2, column: 2, canRestart: true },
+      { id: 1001, name: "outer", path: "C:/repos/orders/main.go", line: 6, column: 2, canRestart: true },
+    ]);
+    mocked.debugVariables.mockResolvedValue([]);
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+
+    const panel = screen.getByRole("region", { name: "Debugger for Orders" });
+    await within(panel).findByLabelText("Frame inner");
+    // Nothing to warn about while the innermost frame is the selected one.
+    expect(within(panel).queryByText(/Stepping always acts on/)).not.toBeInTheDocument();
+
+    await user.click(within(panel).getByLabelText("Frame outer"));
+
+    // And it names the frame that will actually be stepped, rather than
+    // leaving "the innermost one" to be worked out from the list.
+    const notice = await within(panel).findByText(/Stepping always acts on/);
+    expect(notice).toHaveTextContent("inner");
+  });
+
+  /// **The one thing selecting a frame can actually do.** `restartFrame` is the
+  /// only DAP request that names a frame rather than a thread.
+  it("runs one frame again from its first line", async () => {
+    const user = userEvent.setup();
+    mocked.debugRestartFrame.mockResolvedValue();
+    mocked.debugStack.mockResolvedValue([
+      { id: 1000, name: "inner", path: "C:/repos/orders/main.go", line: 2, column: 2, canRestart: true },
+      { id: 1001, name: "outer", path: "C:/repos/orders/main.go", line: 6, column: 2, canRestart: true },
+    ]);
+    mocked.debugVariables.mockResolvedValue([]);
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+
+    const panel = screen.getByRole("region", { name: "Debugger for Orders" });
+    await within(panel).findByLabelText("Run outer again");
+    // Not offered on the innermost frame: restarting where you already are is
+    // "step out and back in", which the step controls already do.
+    expect(within(panel).queryByLabelText("Run inner again")).not.toBeInTheDocument();
+
+    await user.click(within(panel).getByLabelText("Run outer again"));
+    expect(mocked.debugRestartFrame).toHaveBeenCalledWith("dbg-go-1", 1001);
+  });
+
+  /// A runtime frame is on the stack and cannot be restarted even where its
+  /// neighbours can — offering a button that always failed would be worse than
+  /// not offering one.
+  it("offers no restart on a frame the adapter says cannot be restarted", async () => {
+    const user = userEvent.setup();
+    mocked.debugStack.mockResolvedValue([
+      { id: 1000, name: "inner", path: "C:/repos/orders/main.go", line: 2, column: 2, canRestart: true },
+      { id: 1001, name: "runtime.main", path: "", line: 267, column: 1, canRestart: false },
+    ]);
+    mocked.debugVariables.mockResolvedValue([]);
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+
+    const panel = screen.getByRole("region", { name: "Debugger for Orders" });
+    await within(panel).findByLabelText("Frame runtime.main");
+    expect(within(panel).queryByLabelText("Run runtime.main again")).not.toBeInTheDocument();
+  });
+
+  /// An adapter that cannot do it at all — Delve and netcoredbg both report no
+  /// `supportsRestartFrame` — gets no button rather than a failing one.
+  it("offers no restart when the adapter cannot do it", async () => {
+    const user = userEvent.setup();
+    mocked.debugStart.mockResolvedValue({
+      session: "dbg-go-1",
+      language: "go",
+      breakpoints: [],
+      conditions: true,
+      logPoints: true,
+      hitCounts: false,
+      restartFrame: false,
+    });
+    mocked.debugStack.mockResolvedValue([
+      { id: 1000, name: "inner", path: "C:/repos/orders/main.go", line: 2, column: 2, canRestart: true },
+      { id: 1001, name: "outer", path: "C:/repos/orders/main.go", line: 6, column: 2, canRestart: true },
+    ]);
+    mocked.debugVariables.mockResolvedValue([]);
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+
+    const panel = screen.getByRole("region", { name: "Debugger for Orders" });
+    await within(panel).findByLabelText("Frame outer");
+    expect(within(panel).queryByLabelText("Run outer again")).not.toBeInTheDocument();
   });
 
   /// Stepping a program that is running has nothing to step, so the controls
@@ -323,6 +439,7 @@ describe("DebugSession", () => {
       conditions: false,
       logPoints: true,
       hitCounts: true,
+      restartFrame: true,
     });
     render(<DebugSession solution={sol()} />);
 

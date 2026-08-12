@@ -84,6 +84,14 @@ pub struct Frame {
     pub path: String,
     pub line: i64,
     pub column: i64,
+    /// Whether **this** frame can be run again.
+    ///
+    /// Separate from the adapter-wide capability: a runtime or native frame is
+    /// on the stack and cannot be restarted even where the adapter can restart
+    /// others. DAP says an absent field means "assume yes if the adapter
+    /// supports it at all", so the default here is true and the capability is
+    /// the outer gate.
+    pub can_restart: bool,
 }
 
 /// One name and value in scope.
@@ -278,6 +286,8 @@ struct Core {
     /// breakpoint. Ignoring `hitCondition` stops on the *first* hit — usually
     /// the one iteration somebody already knows is fine.
     hit_counts: AtomicBool,
+    /// Whether the adapter can rewind to the start of a frame.
+    restart_frame: AtomicBool,
     on_event: EventSink,
 }
 
@@ -293,6 +303,15 @@ pub struct Honours {
     pub log_points: bool,
     /// `supportsHitConditionalBreakpoints`.
     pub hit_counts: bool,
+    /// `supportsRestartFrame` — the only thing DAP offers that acts on a
+    /// **frame** rather than a thread.
+    ///
+    /// Worth naming here because the absence of the others is what makes this
+    /// one matter: `next`, `stepIn` and `stepOut` all take a `threadId` and
+    /// nothing else, so stepping always acts on the innermost frame no matter
+    /// which one is selected. Selecting a caller and stepping is not a thing
+    /// the protocol can express — restarting that caller is.
+    pub restart_frame: bool,
 }
 
 /// Where every event goes on its way to the window.
@@ -307,6 +326,7 @@ impl Core {
             conditions: self.conditional.load(Ordering::Relaxed),
             log_points: self.log_points.load(Ordering::Relaxed),
             hit_counts: self.hit_counts.load(Ordering::Relaxed),
+            restart_frame: self.restart_frame.load(Ordering::Relaxed),
         }
     }
 
@@ -366,6 +386,7 @@ impl Live {
             conditional: AtomicBool::new(false),
             log_points: AtomicBool::new(false),
             hit_counts: AtomicBool::new(false),
+            restart_frame: AtomicBool::new(false),
             on_event: Box::new(on_event),
         });
 
@@ -400,6 +421,12 @@ impl Live {
         );
         self.core.hit_counts.store(
             body.get("supportsHitConditionalBreakpoints")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            Ordering::Relaxed,
+        );
+        self.core.restart_frame.store(
+            body.get("supportsRestartFrame")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false),
             Ordering::Relaxed,
@@ -465,6 +492,10 @@ impl Live {
                     .to_string(),
                 line: f.get("line").and_then(|v| v.as_i64()).unwrap_or_default(),
                 column: f.get("column").and_then(|v| v.as_i64()).unwrap_or_default(),
+                can_restart: f
+                    .get("canRestart")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true),
             })
             .collect())
     }
@@ -514,7 +545,30 @@ impl Live {
         read_variables(&self.core.talker(), reference)
     }
 
+    /// Runs one frame again from its first line.
+    ///
+    /// **The only per-frame operation in the protocol.** Stepping takes a
+    /// thread, so it always acts on the innermost frame; this takes a
+    /// `frameId`, and it is what "do something with the frame I selected"
+    /// actually means. The program is put back at the start of that call with
+    /// everything it did since undone as far as the stack is concerned —
+    /// side effects it already had are, of course, still had.
+    pub fn restart_frame(&self, frame_id: i64) -> Result<(), String> {
+        if !self.core.restart_frame.load(Ordering::Relaxed) {
+            return Err("this debugger cannot run a frame again".into());
+        }
+        self.core
+            .talker()
+            .request("restartFrame", json!({ "frameId": frame_id }))?;
+        Ok(())
+    }
+
     /// Continue, or one of the three steps.
+    ///
+    /// **Takes a thread, not a frame**, because that is all DAP offers: `next`,
+    /// `stepIn` and `stepOut` carry a `threadId` and nothing else. Whichever
+    /// frame is selected in the UI, a step acts on the innermost one — see
+    /// [`Live::restart_frame`] for the operation that does take a frame.
     pub fn resume(&self, how: &str, thread_id: i64) -> Result<(), String> {
         let command = match how {
             "continue" => "continue",
@@ -1132,6 +1186,118 @@ mod tests {
             named("tax").map(|v| v.value),
             Some("1185".to_string()),
             "tax should be set at this line. Saw: {vars:?}"
+        );
+
+        live.stop();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **Running one frame again, against a real debugger.**
+    ///
+    /// This exists because of what DAP *cannot* do: `next`, `stepIn` and
+    /// `stepOut` take a `threadId` and nothing else, so a step always acts on
+    /// the innermost frame however the UI's stack is selected. `restartFrame`
+    /// is the only request that names a frame, and js-debug is the only adapter
+    /// here that reports it.
+    ///
+    /// The assertion is that the program goes **backwards**: stopped deep in
+    /// `inner`, restarting the caller puts it back at the top of `outer`, with
+    /// `inner` gone off the stack.
+    #[test]
+    #[ignore = "needs js-debug extracted on this machine"]
+    fn one_frame_can_be_run_again_from_its_first_line() {
+        let found = crate::debug::adapters::discover();
+        let js = found
+            .iter()
+            .find(|a| a.language == "typescript")
+            .expect("typescript");
+        if !js.available {
+            eprintln!("skipping: {}", js.problem);
+            return;
+        }
+
+        let dir =
+            std::env::temp_dir().join(format!("coperativeai-dap-frame-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch");
+        let source = dir.join("app.js");
+        std::fs::write(
+            &source,
+            "function inner(n) {\n\
+             \x20 const doubled = n * 2;\n\
+             \x20 return doubled;\n\
+             }\n\
+             function outer() {\n\
+             \x20 const a = inner(3);\n\
+             \x20 return a;\n\
+             }\n\
+             console.log(outer());\n",
+        )
+        .expect("app.js");
+
+        let (tx, rx) = channel::<(String, Value)>();
+        let mut live = Live::start(&js.argv, Transport::Tcp, Some(&dir), move |name, body| {
+            let _ = tx.send((name.to_string(), body));
+        })
+        .expect("start js-debug");
+        live.initialize("pwa-node").expect("initialize");
+        assert!(
+            live.honours().restart_frame,
+            "js-debug reports supporting restartFrame"
+        );
+
+        // Line 2 is `const doubled = n * 2;`, inside `inner`.
+        live.launch(
+            json!({
+                "type": "pwa-node",
+                "request": "launch",
+                "name": "coperativeai",
+                "program": source.display().to_string(),
+                "cwd": dir.display().to_string(),
+            }),
+            &[Breakpoint {
+                path: source.display().to_string(),
+                line: 2,
+                condition: String::new(),
+                log: String::new(),
+                hits: String::new(),
+            }],
+        )
+        .expect("launch");
+
+        let stopped = wait_for_stop(&rx, 90);
+        let thread_id = stopped.get("threadId").and_then(|t| t.as_i64()).expect("thread");
+        let frames = live.stack(thread_id).expect("stackTrace");
+        assert_eq!(frames.first().map(|f| f.line), Some(2), "stack: {frames:?}");
+
+        // The caller — the frame a person would select to say "run that again".
+        let caller = frames
+            .iter()
+            .find(|f| f.name.contains("outer"))
+            .unwrap_or_else(|| panic!("outer should be on the stack: {frames:?}"))
+            .clone();
+
+        live.restart_frame(caller.id).expect("restartFrame");
+
+        // It stops again, and this time above where it was: back in `outer`,
+        // with `inner` no longer on the stack at all.
+        let again = wait_for_stop(&rx, 60);
+        let thread_id = again.get("threadId").and_then(|t| t.as_i64()).expect("thread");
+        let after = live.stack(thread_id).expect("stackTrace");
+        let top = after.first().expect("a frame");
+        assert!(
+            top.name.contains("outer"),
+            "it should be back in the caller. Saw: {after:?}"
+        );
+        assert!(
+            !after.iter().any(|f| f.name.contains("inner")),
+            "the call that was in progress should be gone. Saw: {after:?}"
+        );
+        assert!(
+            top.line <= caller.line,
+            "it should have gone backwards, not forwards: was line {}, now {}",
+            caller.line,
+            top.line
         );
 
         live.stop();

@@ -1661,6 +1661,10 @@ export interface Frame {
   path: string;
   line: number;
   column: number;
+  /** Whether **this** frame can be run again. A runtime or native frame is on
+   *  the stack and cannot be restarted even where the adapter can restart
+   *  others. */
+  canRestart: boolean;
 }
 
 /** One name and value in scope. */
@@ -1693,6 +1697,12 @@ export interface StartedDebug {
   logPoints: boolean;
   /** Whether it will count hits before honouring a breakpoint. */
   hitCounts: boolean;
+  /** Whether one frame can be run again from its first line.
+   *
+   *  The only thing DAP offers that acts on a **frame**: `next`, `stepIn` and
+   *  `stepOut` all take a thread, so a step always acts on the innermost frame
+   *  however the stack is selected. */
+  restartFrame: boolean;
 }
 
 /** Starts a program under its debugger with breakpoints already set.
@@ -1732,6 +1742,13 @@ export const debugExpand = (
   session: string,
   reference: number,
 ): Promise<DebugVariable[]> => invoke("debug_expand", { session, reference });
+/** Runs one frame again from its first line.
+ *
+ *  The only per-frame operation there is. Everything else about a stopped
+ *  program — every step — acts on the thread, and therefore on the innermost
+ *  frame whichever one is selected. */
+export const debugRestartFrame = (session: string, frameId: number): Promise<void> =>
+  invoke("debug_restart_frame", { session, frameId });
 export const debugStop = (session: string): Promise<void> =>
   invoke("debug_stop", { session });
 

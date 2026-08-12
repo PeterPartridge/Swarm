@@ -190,6 +190,9 @@ pub struct StartedDebug {
     pub log_points: bool,
     /// Whether it will count hits before honouring a breakpoint.
     pub hit_counts: bool,
+    /// Whether one frame can be run again from its first line — the only thing
+    /// DAP offers that acts on a frame rather than a thread.
+    pub restart_frame: bool,
 }
 
 /// The launch arguments for one language.
@@ -305,6 +308,7 @@ pub async fn debug_start(
         conditions: honours.conditions,
         log_points: honours.log_points,
         hit_counts: honours.hit_counts,
+        restart_frame: honours.restart_frame,
     })
 }
 
@@ -397,6 +401,26 @@ pub async fn debug_expand(
         return Err("that debug session has ended".into());
     };
     live.expand(reference)
+}
+
+/// Runs one frame again from its first line.
+///
+/// The only per-frame operation there is: stepping takes a thread and so always
+/// acts on the innermost frame, whichever one is selected.
+#[tauri::command]
+pub async fn debug_restart_frame(
+    sessions: State<'_, DebugSessions>,
+    session: String,
+    frame_id: i64,
+) -> Result<(), String> {
+    let held = sessions
+        .0
+        .lock()
+        .map_err(|_| "the debug sessions are in a bad state".to_string())?;
+    let Some(live) = held.get(&session) else {
+        return Err("that debug session has ended".into());
+    };
+    live.restart_frame(frame_id)
 }
 
 /// Ends a session and the program under it.

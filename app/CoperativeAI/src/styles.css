@@ -7541,6 +7541,24 @@ button.ready-action.link:hover {
   white-space: nowrap;
 }
 
+/* The one per-frame action. Sits under its frame rather than inside the
+   selecting button, because nesting a button in a button is not a thing. */
+.frame-again {
+  margin: 0.1rem 0 0.25rem 0.6rem;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.62rem;
+  color: var(--fg-dim);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.frame-again:hover {
+  color: var(--fg-bright);
+  border-color: var(--fg-dim);
+}
+
 .frame-at {
   flex: none;
   font-family: ui-monospace, Consolas, monospace;
