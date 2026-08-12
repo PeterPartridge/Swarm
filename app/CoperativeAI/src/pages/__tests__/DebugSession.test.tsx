@@ -74,6 +74,7 @@ describe("DebugSession", () => {
       session: "dbg-go-1",
       language: "go",
       breakpoints: [],
+      conditions: true,
     });
     mocked.debugStop.mockResolvedValue();
     mocked.debugResume.mockResolvedValue();
@@ -293,9 +294,43 @@ describe("DebugSession", () => {
     await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
     await user.click(screen.getByLabelText("Send the current breakpoints"));
 
-    // Absolute, because an adapter matches what the compiler recorded.
+    // Absolute, because an adapter matches what the compiler recorded. The
+    // stored shape above is the pre-conditions one, so this also proves it is
+    // read rather than dropped.
     expect(mocked.debugSetBreakpoints).toHaveBeenCalledWith("dbg-go-1", [
-      { path: "C:/repos/orders/main.go", line: 8 },
+      { path: "C:/repos/orders/main.go", line: 8, condition: "" },
     ]);
+  });
+
+  /// **A refusal carries the adapter's own words.** "3 could not be set" is not
+  /// an answer; "this debugger cannot evaluate breakpoint conditions" is.
+  it("says why a breakpoint could not be set", async () => {
+    const user = userEvent.setup();
+    mocked.debugStart.mockResolvedValue({
+      session: "dbg-go-1",
+      language: "go",
+      breakpoints: [
+        {
+          path: "C:/repos/orders/main.go",
+          requested: 8,
+          line: null,
+          verified: false,
+          message: "this debugger cannot evaluate breakpoint conditions",
+        },
+      ],
+      conditions: false,
+    });
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+
+    expect(
+      await screen.findByText(/this debugger cannot evaluate breakpoint conditions/),
+    ).toBeInTheDocument();
+    // And said once for the session as a whole, so somebody who has typed a
+    // condition knows before wondering why nothing stopped.
+    expect(
+      screen.getByText(/This debugger does not evaluate breakpoint conditions/),
+    ).toBeInTheDocument();
   });
 });

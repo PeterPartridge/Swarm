@@ -1638,6 +1638,10 @@ export interface Breakpoint {
   /** Absolute, because that is what an adapter matches against. */
   path: string;
   line: number;
+  /** An expression in the debugged language that has to be true to stop here.
+   *  Empty means stop every time. Evaluated by the adapter in the running
+   *  program, so it is the program’s own language rather than JavaScript. */
+  condition: string;
 }
 
 /** Where a stopped program is, innermost frame first. */
@@ -1672,6 +1676,10 @@ export interface StartedDebug {
     verified: boolean;
     message: string;
   }[];
+  /** Whether this adapter will evaluate a breakpoint condition. Reported so the
+   *  editor can say "this debugger cannot do that" rather than offering a box
+   *  whose contents would be dropped on the floor. */
+  conditions: boolean;
 }
 
 /** Starts a program under its debugger with breakpoints already set.

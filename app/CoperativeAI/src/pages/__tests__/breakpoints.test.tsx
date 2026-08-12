@@ -3,7 +3,9 @@ import {
   absoluteFor,
   linesIn,
   loadBreakpoints,
+  marksIn,
   relativeTo,
+  setCondition,
   toggleBreakpoint,
 } from "../../lib/breakpoints";
 
@@ -49,11 +51,50 @@ describe("breakpoints", () => {
   it("hands the adapter absolute paths", () => {
     const store = toggleBreakpoint({}, 1, "src/main.go", 8);
     expect(absoluteFor(store, 1, "C:/repos/shop")).toEqual([
-      { path: "C:/repos/shop/src/main.go", line: 8 },
+      { path: "C:/repos/shop/src/main.go", line: 8, condition: "" },
     ]);
     // A trailing separator on the working copy must not double up.
     expect(absoluteFor(store, 1, "C:/repos/shop/")).toEqual([
-      { path: "C:/repos/shop/src/main.go", line: 8 },
+      { path: "C:/repos/shop/src/main.go", line: 8, condition: "" },
+    ]);
+  });
+
+  /// **A condition rides with the breakpoint it belongs to**, because the
+  /// adapter is told both in one message.
+  it("carries a condition through to the adapter", () => {
+    let store = toggleBreakpoint({}, 1, "src/main.go", 8);
+    store = setCondition(store, 1, "src/main.go", 8, "i == 7");
+    expect(absoluteFor(store, 1, "C:/repos/shop")).toEqual([
+      { path: "C:/repos/shop/src/main.go", line: 8, condition: "i == 7" },
+    ]);
+  });
+
+  /// Clearing a condition means "stop every time", not "stop caring" — the
+  /// breakpoint stays.
+  it("keeps the breakpoint when its condition is cleared", () => {
+    let store = toggleBreakpoint({}, 1, "src/main.go", 8);
+    store = setCondition(store, 1, "src/main.go", 8, "i == 7");
+    store = setCondition(store, 1, "src/main.go", 8, "");
+    expect(marksIn(store, 1, "src/main.go")).toEqual([{ line: 8, condition: "" }]);
+  });
+
+  /// A condition on a line with no breakpoint would be a condition on nothing.
+  it("will not condition a line that has no breakpoint", () => {
+    const store = toggleBreakpoint({}, 1, "src/main.go", 8);
+    expect(setCondition(store, 1, "src/main.go", 99, "x > 1")).toBe(store);
+  });
+
+  /// **Breakpoints stored before conditions existed still load.** They were a
+  /// bare list of line numbers, and somebody's marks are not worth losing over
+  /// a shape change.
+  it("reads breakpoints stored in the old shape", () => {
+    localStorage.setItem(
+      "coperativeai.breakpoints",
+      JSON.stringify({ "3": { "cmd/main.go": [4, 9] } }),
+    );
+    expect(marksIn(loadBreakpoints(), 3, "cmd/main.go")).toEqual([
+      { line: 4, condition: "" },
+      { line: 9, condition: "" },
     ]);
   });
 

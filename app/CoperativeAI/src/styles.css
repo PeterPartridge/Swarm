@@ -7169,6 +7169,35 @@ button.ready-action.link:hover {
   border-bottom: 1px solid var(--line);
 }
 
+/* One row per breakpoint in the open file, each with its condition. */
+.build-file-breaks {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.build-break {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.build-break-line {
+  flex: none;
+  min-width: 4.5rem;
+  font-size: 0.68rem;
+  color: var(--fg-dim);
+}
+
+.build-break input {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.72rem;
+}
+
 .build-file-mark {
   display: flex;
   align-items: center;

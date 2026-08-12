@@ -4,6 +4,8 @@ import { hueFor, markFor } from "../ai/AgentLane";
 import {
   linesIn,
   loadBreakpoints,
+  marksIn,
+  setCondition,
   toggleBreakpoint,
   type BreakpointStore,
 } from "../../lib/breakpoints";
@@ -59,6 +61,10 @@ export default function BuildFileEditor({
   }, [load]);
 
   const dirty = value !== saved;
+  /// The breakpoints in this file, so each can be given a condition. Only shown
+  /// when there is at least one — an empty strip would be a control with
+  /// nothing to act on.
+  const marksHere = marksIn(marks, solution.id, path);
 
   return (
     <section
@@ -81,6 +87,34 @@ export default function BuildFileEditor({
           Close
         </button>
       </header>
+
+      {marksHere.length > 0 && (
+        <div className="build-file-breaks" aria-label={`Breakpoints in ${path}`}>
+          {marksHere.map((m) => (
+            <div className="build-break" key={m.line}>
+              <span className="build-break-line card-mono">line {m.line}</span>
+              <input
+                type="text"
+                aria-label={`Condition for line ${m.line}`}
+                placeholder="stop every time"
+                value={m.condition}
+                onChange={(e) =>
+                  setMarks((prev) =>
+                    setCondition(prev, solution.id, path, m.line, e.target.value),
+                  )
+                }
+              />
+            </div>
+          ))}
+          {/* The expression is the debugged program's own language — Go for a
+              Go Solution — because the adapter evaluates it in the running
+              process, not here. Saying so beats somebody trying JavaScript. */}
+          <p className="hint">
+            Written in {solution.language ?? "the program's own language"} and evaluated by the
+            debugger, in the running program.
+          </p>
+        </div>
+      )}
 
       {error && <p role="alert">{error}</p>}
       {loading && <p className="hint">Reading…</p>}

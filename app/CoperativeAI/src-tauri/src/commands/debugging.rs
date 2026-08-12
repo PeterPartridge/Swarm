@@ -163,6 +163,11 @@ pub struct StartedDebug {
     /// next executable line, and showing the requested line instead would be a
     /// lie about where the program will stop.
     pub breakpoints: Vec<serde_json::Value>,
+    /// Whether this adapter will evaluate a breakpoint condition.
+    ///
+    /// Reported so the editor can say "this debugger cannot do that" rather
+    /// than offering a box whose contents would be dropped on the floor.
+    pub conditions: bool,
 }
 
 /// The launch arguments for one language.
@@ -264,6 +269,7 @@ pub async fn debug_start(
     live.launch(arguments, &breakpoints)?;
     let placed = live.apply_breakpoints(&breakpoints)?;
 
+    let conditions = live.supports_conditions();
     sessions
         .0
         .lock()
@@ -274,6 +280,7 @@ pub async fn debug_start(
         session: id,
         language,
         breakpoints: placed,
+        conditions,
     })
 }
 

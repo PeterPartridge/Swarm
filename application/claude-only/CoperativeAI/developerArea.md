@@ -34,6 +34,38 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 27 — conditional breakpoints
+
+### My Feedback
+
+**The mismatch this closes.** The Debuggers panel already reported that every adapter here supports conditional breakpoints, and there was nowhere to set one — a capability displayed and not offered. Each breakpoint in the open file now gets a condition box under the header.
+
+**The assertion that matters is not "it stopped" but which iteration it stopped on.** A Go loop of ten with `i == 7` on the breakpoint stopped once, at `i == 7`, with `total == 21` — 0+1+…+6, so the six earlier iterations really did run through. A dropped condition would have stopped at `i == 0`, and a test that only checked "it stopped somewhere" would have passed either way.
+
+**A condition an adapter cannot evaluate holds its breakpoint back rather than arming it.** DAP has no failure here: an adapter that does not support conditions simply ignores the field and stops **every** time — the opposite of what was asked for. So the capability is read from `initialize`, and a conditional breakpoint aimed at an adapter without it is not sent at all, and comes back as a refusal saying why and what to do about it. The file is still sent, empty if need be, because `setBreakpoints` replaces a file's whole set and an unsent file keeps whatever was last armed.
+
+**A refusal now carries the adapter's own words.** "3 could not be set" is not an answer; "this debugger cannot evaluate breakpoint conditions, so this breakpoint was not set — clearing the condition would arm it" is.
+
+**The stored shape changed, so it migrates.** Breakpoints were a bare list of line numbers per file and are now a line plus a condition. The old shape is read and converted on load rather than discarded — somebody's marks are not worth losing over a shape change, and being per machine there is nowhere else to migrate them.
+
+### Your Feedback
+
+- **The condition box says whose language it is in.** The adapter evaluates the expression inside the running program, so a Go Solution takes a Go expression — not JavaScript, and not anything this app parses. Saying so beats letting somebody find out.
+- **Clearing a condition keeps the breakpoint.** "Stop every time" and "stop caring" are different intentions and the box only expresses the first.
+- **A condition on a line with no breakpoint returns the store unchanged**, rather than inventing a breakpoint to hang it on.
+- **The strip appears only when the file has a breakpoint.** An always-present empty panel would be a control with nothing to act on.
+- **The capability is said once per session too**, on starting, because that is the only moment the adapter's own answer is known — the boxes in the editor are there whether or not a session exists.
+- **Every one of the eight real-adapter tests still passes**, which was the point of having them: `setBreakpoints` changed shape and it is the one request all three debuggers depend on.
+
+### Technical Debt
+
+- **No hit counts and no log points.** DAP carries `hitCondition` and `logMessage` on the same request that now carries `condition`, and neither is offered — a log point in particular is the thing that saves a rebuild.
+- **A bad condition is only found on starting.** Nothing checks the expression as it is typed, so a typo reads as a breakpoint that never hits until the refusal appears.
+- **Conditions are only editable in the open file.** There is no list of every breakpoint in the Solution, so one set in a file since closed can only be changed by opening it again.
+- **Still one thread**; **stepping does not follow the selected frame**; **nothing is watched**.
+- **debugpy has no launch shape** and cannot be verified here — no real Python on this machine.
+- Carried: only one js-debug child; the root's provisional breakpoints reach the UI; `built_assembly` picks the newest build rather than a configured one; the Rust suite leaves scratch directories in `%TEMP%`.
+
 ## Round 26 — variables open
 
 ### My Feedback

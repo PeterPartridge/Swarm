@@ -60,7 +60,7 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
@@ -104,6 +104,14 @@ pub struct Variable {
 pub struct Breakpoint {
     pub path: String,
     pub line: i64,
+    /// An expression in the debugged language that has to be true for the
+    /// program to stop here. Empty means stop every time.
+    ///
+    /// **Evaluated by the adapter, in the program**, not by this app: it is the
+    /// debuggee's own language, its own scope and its own types. Defaulted so
+    /// breakpoints stored before conditions existed still load.
+    #[serde(default)]
+    pub condition: String,
 }
 
 /// One DAP connection: somewhere to write, and everything waiting for a reply.
@@ -232,6 +240,13 @@ struct Core {
     /// Kept so a child can be given them: a breakpoint set on the root is only
     /// provisional until a child claims it.
     breakpoints: Mutex<Vec<Breakpoint>>,
+    /// Whether the adapter said it can evaluate breakpoint conditions.
+    ///
+    /// Read from `initialize`, before any breakpoint is sent. An adapter that
+    /// cannot do this ignores a `condition` field silently and stops every
+    /// time — which is the opposite of what was asked for — so the condition is
+    /// never sent blind.
+    conditional: AtomicBool,
     on_event: EventSink,
 }
 
@@ -293,6 +308,9 @@ impl Live {
             active: Mutex::new(None),
             port,
             breakpoints: Mutex::new(Vec::new()),
+            // Assumed absent until `initialize` says otherwise: a condition is
+            // never sent to an adapter that has not claimed it can honour one.
+            conditional: AtomicBool::new(false),
             on_event: Box::new(on_event),
         });
 
@@ -313,6 +331,12 @@ impl Live {
             .get("supportsConfigurationDoneRequest")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        self.core.conditional.store(
+            body.get("supportsConditionalBreakpoints")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            Ordering::Relaxed,
+        );
         Ok(())
     }
 
@@ -321,7 +345,13 @@ impl Live {
         if let Ok(mut held) = self.core.breakpoints.lock() {
             *held = breakpoints.to_vec();
         }
-        configure_and_launch(&self.core.root, arguments, breakpoints, self.configuration_done)
+        configure_and_launch(
+            &self.core.root,
+            arguments,
+            breakpoints,
+            self.configuration_done,
+            self.core.conditional.load(Ordering::Relaxed),
+        )
     }
 
     /// Sends every breakpoint, grouped by file, to whichever connection owns
@@ -334,7 +364,19 @@ impl Live {
         if let Ok(mut held) = self.core.breakpoints.lock() {
             *held = breakpoints.to_vec();
         }
-        set_breakpoints(&self.core.talker(), breakpoints)
+        set_breakpoints(
+            &self.core.talker(),
+            breakpoints,
+            self.core.conditional.load(Ordering::Relaxed),
+        )
+    }
+
+    /// Whether the adapter will evaluate a breakpoint condition.
+    ///
+    /// Surfaced so the UI can say "this debugger cannot do that" instead of
+    /// showing a box whose contents would be quietly dropped.
+    pub fn supports_conditions(&self) -> bool {
+        self.core.conditional.load(Ordering::Relaxed)
     }
 
     /// Where the program is stopped, innermost frame first.
@@ -511,6 +553,7 @@ fn configure_and_launch(
     arguments: Value,
     breakpoints: &[Breakpoint],
     configuration_done: bool,
+    conditional: bool,
 ) -> Result<(), String> {
     // Sent, not awaited: the response may not come until configuration is
     // finished, and waiting here would deadlock against that.
@@ -518,7 +561,7 @@ fn configure_and_launch(
 
     // Breakpoints set before this are dropped by most adapters, silently.
     channel.wait_until_ready()?;
-    set_breakpoints(channel, breakpoints)?;
+    set_breakpoints(channel, breakpoints, conditional)?;
     if configuration_done {
         channel.request("configurationDone", json!({}))?;
     }
@@ -537,18 +580,48 @@ fn configure_and_launch(
 }
 
 /// One `setBreakpoints` per file, and the adapter's answer about each.
-fn set_breakpoints(channel: &Channel, breakpoints: &[Breakpoint]) -> Result<Vec<Value>, String> {
-    let mut by_file: HashMap<&str, Vec<i64>> = HashMap::new();
+fn set_breakpoints(
+    channel: &Channel,
+    breakpoints: &[Breakpoint],
+    conditional: bool,
+) -> Result<Vec<Value>, String> {
+    let mut by_file: HashMap<&str, Vec<&Breakpoint>> = HashMap::new();
+    // A conditional breakpoint sent to an adapter that cannot evaluate one is
+    // worse than none: the field is ignored and the program stops *every* time,
+    // which is the opposite of what was asked for. So it is held back and
+    // reported, below, rather than armed unconditionally.
+    let mut refused = Vec::new();
     for bp in breakpoints {
-        by_file.entry(bp.path.as_str()).or_default().push(bp.line);
+        if !bp.condition.is_empty() && !conditional {
+            refused.push(bp);
+            continue;
+        }
+        by_file.entry(bp.path.as_str()).or_default().push(bp);
     }
+    // Every file that had one still has to be sent even if everything in it was
+    // refused — `setBreakpoints` replaces the file's whole set, so an unsent
+    // file keeps whatever the adapter last armed.
+    for bp in &refused {
+        by_file.entry(bp.path.as_str()).or_default();
+    }
+
     let mut verified = Vec::new();
-    for (path, lines) in by_file {
+    for (path, wanted) in by_file {
+        let lines: Vec<i64> = wanted.iter().map(|b| b.line).collect();
         let body = channel.request(
             "setBreakpoints",
             json!({
                 "source": { "path": path },
-                "breakpoints": lines.iter().map(|l| json!({ "line": l })).collect::<Vec<_>>(),
+                "breakpoints": wanted
+                    .iter()
+                    .map(|b| {
+                        if b.condition.is_empty() {
+                            json!({ "line": b.line })
+                        } else {
+                            json!({ "line": b.line, "condition": b.condition })
+                        }
+                    })
+                    .collect::<Vec<_>>(),
             }),
         )?;
         // The adapter answers with where it *actually* put each one — it slides
@@ -565,6 +638,17 @@ fn set_breakpoints(channel: &Channel, breakpoints: &[Breakpoint]) -> Result<Vec<
                 }));
             }
         }
+    }
+
+    for bp in refused {
+        verified.push(json!({
+            "path": bp.path,
+            "requested": bp.line,
+            "line": Value::Null,
+            "verified": false,
+            "message": "this debugger cannot evaluate breakpoint conditions, so this breakpoint \
+                        was not set — clearing the condition would arm it",
+        }));
     }
     Ok(verified)
 }
@@ -634,8 +718,16 @@ fn open_child(core: Arc<Core>, configuration: Value) {
             .lock()
             .map(|held| held.clone())
             .unwrap_or_default();
-        if let Err(why) = configure_and_launch(&channel, configuration, &breakpoints, configuration_done)
-        {
+        // The child is the same product as the root, so it honours conditions
+        // exactly when the root said it could.
+        let conditional = core.conditional.load(Ordering::Relaxed);
+        if let Err(why) = configure_and_launch(
+            &channel,
+            configuration,
+            &breakpoints,
+            configuration_done,
+            conditional,
+        ) {
             (core.on_event)("dap-broken", json!({ "message": why }));
         }
     });
@@ -915,6 +1007,7 @@ mod tests {
         let breakpoints = vec![Breakpoint {
             path: source.display().to_string(),
             line: 8,
+            condition: String::new(),
         }];
         live.launch(
             json!({
@@ -953,6 +1046,96 @@ mod tests {
             named("tax").map(|v| v.value),
             Some("1185".to_string()),
             "tax should be set at this line. Saw: {vars:?}"
+        );
+
+        live.stop();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A condition, against a real debugger.**
+    ///
+    /// The assertion that matters is not "it stopped" but **which iteration it
+    /// stopped on**. A loop of ten with `i == 7` on the breakpoint has to stop
+    /// once, at 7 — a condition that were silently dropped would stop at 0, and
+    /// a test that only checked "it stopped somewhere" would pass either way.
+    #[test]
+    #[ignore = "needs Delve and a Go toolchain"]
+    fn a_condition_decides_which_time_round_the_loop_it_stops() {
+        let found = crate::debug::adapters::discover();
+        let go = found.iter().find(|a| a.language == "go").expect("go");
+        if !go.available {
+            eprintln!("skipping: {}", go.problem);
+            return;
+        }
+
+        let dir = std::env::temp_dir().join(format!("coperativeai-dap-cond-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch");
+        std::fs::write(dir.join("go.mod"), "module scratch\n\ngo 1.21\n").expect("go.mod");
+        let source = dir.join("main.go");
+        std::fs::write(
+            &source,
+            "package main\n\
+             \n\
+             import \"fmt\"\n\
+             \n\
+             func main() {\n\
+             \ttotal := 0\n\
+             \tfor i := 0; i < 10; i++ {\n\
+             \t\ttotal += i\n\
+             \t}\n\
+             \tfmt.Println(total)\n\
+             }\n",
+        )
+        .expect("main.go");
+
+        let (tx, rx) = channel::<(String, Value)>();
+        let mut live = Live::start(&go.argv, Transport::Tcp, Some(&dir), move |name, body| {
+            let _ = tx.send((name.to_string(), body));
+        })
+        .expect("start Delve");
+        live.initialize("go").expect("initialize");
+        assert!(
+            live.supports_conditions(),
+            "Delve reports supporting conditional breakpoints"
+        );
+
+        // Line 8 is `total += i`, inside the loop. Without the condition this
+        // stops ten times, the first at i == 0.
+        live.launch(
+            json!({
+                "request": "launch",
+                "mode": "debug",
+                "program": dir.display().to_string(),
+                "cwd": dir.display().to_string(),
+            }),
+            &[Breakpoint {
+                path: source.display().to_string(),
+                line: 8,
+                condition: "i == 7".into(),
+            }],
+        )
+        .expect("launch");
+
+        let stopped = wait_for_stop(&rx, 120);
+        let thread_id = stopped.get("threadId").and_then(|t| t.as_i64()).expect("thread");
+        let frames = live.stack(thread_id).expect("stackTrace");
+        let top = frames.first().expect("a frame");
+        assert_eq!(top.line, 8, "it stopped somewhere else: {frames:?}");
+
+        let vars = live.variables(top.id).expect("variables");
+        let named = |want: &str| vars.iter().find(|v| v.name == want).cloned();
+        assert_eq!(
+            named("i").map(|v| v.value),
+            Some("7".to_string()),
+            "the condition should have held it until i == 7. Saw: {vars:?}"
+        );
+        // 0+1+…+6, so the loop really did run past six earlier iterations
+        // without stopping.
+        assert_eq!(
+            named("total").map(|v| v.value),
+            Some("21".to_string()),
+            "the earlier iterations should have run through. Saw: {vars:?}"
         );
 
         live.stop();
@@ -1016,7 +1199,7 @@ mod tests {
                 "program": dir.display().to_string(),
                 "cwd": dir.display().to_string(),
             }),
-            &[Breakpoint { path: source.display().to_string(), line: 12 }],
+            &[Breakpoint { path: source.display().to_string(), line: 12, condition: String::new() }],
         )
         .expect("launch");
 
@@ -1101,6 +1284,7 @@ mod tests {
         let breakpoints = vec![Breakpoint {
             path: source.display().to_string(),
             line: 3,
+            condition: String::new(),
         }];
         live.launch(
             json!({
@@ -1206,6 +1390,7 @@ mod tests {
         let breakpoints = vec![Breakpoint {
             path: source.display().to_string(),
             line: 3,
+            condition: String::new(),
         }];
         live.launch(
             json!({
@@ -1259,9 +1444,9 @@ mod tests {
     #[test]
     fn breakpoints_are_grouped_by_file() {
         let list = vec![
-            Breakpoint { path: "a.go".into(), line: 3 },
-            Breakpoint { path: "b.go".into(), line: 9 },
-            Breakpoint { path: "a.go".into(), line: 12 },
+            Breakpoint { path: "a.go".into(), line: 3, condition: String::new() },
+            Breakpoint { path: "b.go".into(), line: 9, condition: String::new() },
+            Breakpoint { path: "a.go".into(), line: 12, condition: String::new() },
         ];
         let mut by_file: HashMap<&str, Vec<i64>> = HashMap::new();
         for bp in &list {

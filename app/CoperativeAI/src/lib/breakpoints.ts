@@ -12,13 +12,43 @@
 
 const KEY = "coperativeai.breakpoints";
 
-/** Every breakpoint on this machine: `solutionId → path → lines`. */
-export type BreakpointStore = Record<string, Record<string, number[]>>;
+/** One breakpoint: a line, and optionally what has to be true to stop there. */
+export interface Mark {
+  line: number;
+  /** An expression in the debugged language, evaluated by the adapter in the
+   *  running program. Empty means stop every time. */
+  condition: string;
+}
+
+/** Every breakpoint on this machine: `solutionId → path → marks`. */
+export type BreakpointStore = Record<string, Record<string, Mark[]>>;
+
+/** What was stored before conditions existed: a bare list of line numbers.
+ *
+ *  Read and converted rather than discarded — somebody's breakpoints are not
+ *  worth losing over a shape change, and this store is per machine so there is
+ *  no migration anywhere else to do it. */
+type StoredFile = Mark[] | number[];
+
+function marksOf(stored: StoredFile): Mark[] {
+  return stored.map((entry) =>
+    typeof entry === "number" ? { line: entry, condition: "" } : entry,
+  );
+}
 
 export function loadBreakpoints(): BreakpointStore {
   try {
     const raw = localStorage.getItem(KEY);
-    return raw ? (JSON.parse(raw) as BreakpointStore) : {};
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, Record<string, StoredFile>>;
+    const out: BreakpointStore = {};
+    for (const [solution, files] of Object.entries(parsed)) {
+      out[solution] = {};
+      for (const [path, stored] of Object.entries(files)) {
+        out[solution][path] = marksOf(stored);
+      }
+    }
+    return out;
   } catch {
     // A machine that refuses localStorage still debugs for this session.
     return {};
@@ -33,12 +63,21 @@ function save(store: BreakpointStore): void {
   }
 }
 
-/** The lines marked in one file. */
+/** The lines marked in one file — what the gutter draws. */
 export function linesIn(
   store: BreakpointStore,
   solutionId: number,
   path: string,
 ): number[] {
+  return marksIn(store, solutionId, path).map((m) => m.line);
+}
+
+/** The breakpoints in one file, conditions included. */
+export function marksIn(
+  store: BreakpointStore,
+  solutionId: number,
+  path: string,
+): Mark[] {
   return store[String(solutionId)]?.[path] ?? [];
 }
 
@@ -52,19 +91,49 @@ export function toggleBreakpoint(
   path: string,
   line: number,
 ): BreakpointStore {
+  const held = marksIn(store, solutionId, path);
+  const next = held.some((m) => m.line === line)
+    ? held.filter((m) => m.line !== line)
+    : [...held, { line, condition: "" }].sort((a, b) => a.line - b.line);
+  return write(store, solutionId, path, next);
+}
+
+/** Sets or clears what has to be true for one breakpoint to stop the program.
+ *
+ *  An empty condition is stored as empty rather than removing the breakpoint:
+ *  clearing a condition means "stop every time", not "stop caring". */
+export function setCondition(
+  store: BreakpointStore,
+  solutionId: number,
+  path: string,
+  line: number,
+  condition: string,
+): BreakpointStore {
+  const held = marksIn(store, solutionId, path);
+  if (!held.some((m) => m.line === line)) return store;
+  return write(
+    store,
+    solutionId,
+    path,
+    held.map((m) => (m.line === line ? { ...m, condition } : m)),
+  );
+}
+
+function write(
+  store: BreakpointStore,
+  solutionId: number,
+  path: string,
+  marks: Mark[],
+): BreakpointStore {
   const key = String(solutionId);
   const forSolution = { ...(store[key] ?? {}) };
-  const held = forSolution[path] ?? [];
-  const next = held.includes(line)
-    ? held.filter((l) => l !== line)
-    : [...held, line].sort((a, b) => a - b);
 
   // An empty list is dropped rather than kept as `[]`. It matters more than it
   // looks: `setBreakpoints` replaces a file's whole set, so "this file, with
   // none" and "this file, not mentioned" are different messages to an adapter,
   // and only the first clears it.
-  if (next.length === 0) delete forSolution[path];
-  else forSolution[path] = next;
+  if (marks.length === 0) delete forSolution[path];
+  else forSolution[path] = marks;
 
   const updated = { ...store, [key]: forSolution };
   if (Object.keys(forSolution).length === 0) delete updated[key];
@@ -81,11 +150,11 @@ export function absoluteFor(
   store: BreakpointStore,
   solutionId: number,
   localPath: string,
-): { path: string; line: number }[] {
+): { path: string; line: number; condition: string }[] {
   const root = localPath.replace(/[/\\]+$/, "");
   const files = store[String(solutionId)] ?? {};
-  return Object.entries(files).flatMap(([path, lines]) =>
-    lines.map((line) => ({ path: `${root}/${path}`, line })),
+  return Object.entries(files).flatMap(([path, marks]) =>
+    marks.map((m) => ({ path: `${root}/${path}`, line: m.line, condition: m.condition })),
   );
 }
 

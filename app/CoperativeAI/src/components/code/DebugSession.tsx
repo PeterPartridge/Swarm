@@ -173,6 +173,10 @@ export default function DebugSession({
   const [opened, setOpened] = useState<Record<string, Opened>>({});
   const [output, setOutput] = useState<Line[]>([]);
   const [placed, setPlaced] = useState<string | null>(null);
+  /// Whether this adapter evaluates breakpoint conditions. Null until a session
+  /// has started, because it is the adapter’s own answer to `initialize`
+  /// rather than something this app can know in advance.
+  const [conditions, setConditions] = useState<boolean | null>(null);
 
   /// The session id as the event listener sees it. A listener registered once
   /// would otherwise capture the id from the render it was created in, and stop
@@ -310,19 +314,26 @@ export default function DebugSession({
       setSession(started.session);
       current.current = started.session;
       setState("running");
+      setConditions(started.conditions);
 
       // Where they actually landed, not where they were asked for: an adapter
       // slides a breakpoint to the next executable line.
       const moved = started.breakpoints.filter(
         (b) => b.verified && b.line !== null && b.line !== b.requested,
       );
+      // A refusal carries the adapter’s own words — "this debugger cannot
+      // evaluate breakpoint conditions" is the answer somebody needs, and a
+      // bare count of failures is not.
       const refused = started.breakpoints.filter((b) => !b.verified);
+      const why = [...new Set(refused.map((b) => b.message).filter(Boolean))];
       setPlaced(
         [
           moved.length > 0
             ? `${moved.length} moved to the next line that runs`
             : "",
-          refused.length > 0 ? `${refused.length} could not be set` : "",
+          refused.length > 0
+            ? `${refused.length} could not be set${why.length > 0 ? `: ${why.join("; ")}` : ""}`
+            : "",
         ]
           .filter(Boolean)
           .join(" · ") || null,
@@ -440,6 +451,14 @@ export default function DebugSession({
       )}
       {error && <p role="alert">{error}</p>}
       {placed && <p className="hint">{placed}</p>}
+      {/* Said once, on starting: the condition boxes in the editor are always
+          there, and this is the only moment the adapter’s own answer is known. */}
+      {conditions === false && (
+        <p className="hint">
+          This debugger does not evaluate breakpoint conditions, so any condition you have set
+          holds its breakpoint back rather than being ignored.
+        </p>
+      )}
 
       {session !== null && (
         <>
