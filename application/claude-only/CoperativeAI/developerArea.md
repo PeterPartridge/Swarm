@@ -34,6 +34,45 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 29 — hit counts, and the first real difference between the adapters
+
+### My Feedback
+
+**The triple is finished**: a condition, a message, and now a hit count on every breakpoint. The hit count is the one a condition cannot express — "stop the seventh time this line is reached" needs no variable to test against, and works on a line where nothing in scope counts the iterations.
+
+**The interesting finding is that the adapters differ, and I read their answers rather than assuming.** Writing the test against Delve failed on the capability assertion, so I probed all three:
+
+| | conditions | log points | hit counts |
+|---|---|---|---|
+| js-debug | ✅ | ✅ | ✅ |
+| Delve | ✅ | ✅ | ❌ |
+| netcoredbg | ✅ | ❌ | ❌ |
+
+So the hit-count test runs against **js-debug**, and it stopped on the seventh hit — `i == 6`, because the hit count is one-based and the loop counter is not. That off-by-one is exactly what the assertion pins down.
+
+**The refusal path is now verified against an adapter that really cannot do it.** netcoredbg reports neither log points nor hit counts, which makes it the proof that holding a breakpoint back is real rather than a branch nothing reaches: both extras were refused with the reason named, and **nothing was armed** — no stop arrived in twenty seconds. That last assertion is the point. DAP has no failure for an unsupported extra; the field is ignored, so a log message sent anyway becomes an ordinary breakpoint and **stops**, which is the opposite of what was asked for.
+
+**The grammar belongs to the adapter, not to this app.** js-debug takes `7`; Delve takes `== 7`. DAP says only that `hitCondition` is something the adapter understands. So it is passed through verbatim and the debugger's own complaint is what a person sees, rather than this app inventing a grammar and being wrong for one of them.
+
+**The Debuggers panel now reports all three**, and says the absences plainly: "No log points or hit counts, so a breakpoint using that is held back rather than armed plain." That is the round-27 mismatch again — a capability the app now uses, and a panel that was still only reporting two of them.
+
+### Your Feedback
+
+- **The probe was temporary and was removed.** It existed to read the three capability replies; the answers are in the table above and in the module note, so keeping a test that only prints would have been keeping a thing nobody would run again.
+- **The store has grown three times**, so the load defaults every field individually. There is now a test per intermediate shape — bare line numbers, line-plus-condition, and line-plus-condition-plus-message — because each is a real thing to find on somebody's machine.
+- **The hit-count box is narrower than the others** on purpose: it holds a number or a short comparison, and equal width would crowd out the message.
+- **All eleven real-adapter tests pass**, two of them new.
+
+### Technical Debt
+
+- **The breakpoint triple is done, and the UI is now three boxes wide.** It works, but a row of `line 8 | condition | hits | message` is dense, and a breakpoint list for the whole Solution would be a better home for it than a strip above one file.
+- **Nothing validates any of the three as it is typed.** A bad condition, a bad interpolation and a bad hit-count grammar all read as a breakpoint that never fires until the refusal appears on starting.
+- **Log output is not marked as coming from a log point**, so a message and the program's own output look alike in the panel.
+- **Conditions, counts and messages are only editable in the open file.**
+- **Still one thread**; **stepping does not follow the selected frame**; **nothing is watched**.
+- **debugpy has no launch shape** and cannot be verified here — no real Python on this machine.
+- Carried: only one js-debug child; the root's provisional breakpoints reach the UI; `built_assembly` picks the newest build rather than a configured one; the Rust suite leaves scratch directories in `%TEMP%`.
+
 ## Round 28 — log points
 
 ### My Feedback

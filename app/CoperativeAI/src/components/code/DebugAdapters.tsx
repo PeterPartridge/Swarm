@@ -120,7 +120,26 @@ export default function DebugAdapters() {
                     <>
                       Speaks DAP. Breakpoints{" "}
                       {result.conditionalBreakpoints ? "can carry conditions" : "are plain"}
-                      {result.functionBreakpoints ? ", and can be set on a function" : ""}.
+                      {result.functionBreakpoints ? ", can be set on a function" : ""}
+                      {result.logPoints ? ", can print instead of stopping" : ""}
+                      {result.hitCounts ? ", and can count hits first" : ""}.{" "}
+                      {/* The absences are the useful half: this app offers all
+                          three on every breakpoint, and an adapter that cannot
+                          do one holds that breakpoint back rather than arming a
+                          different one. Saying so here beats finding out on
+                          starting. */}
+                      {(!result.logPoints || !result.hitCounts) && (
+                        <em>
+                          No{" "}
+                          {[
+                            !result.logPoints ? "log points" : "",
+                            !result.hitCounts ? "hit counts" : "",
+                          ]
+                            .filter(Boolean)
+                            .join(" or ")}
+                          , so a breakpoint using that is held back rather than armed plain.
+                        </em>
+                      )}
                     </>
                   ) : (
                     <>It started but did not complete the handshake: {result.problem}</>

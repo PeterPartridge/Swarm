@@ -179,6 +179,8 @@ export default function DebugSession({
   const [conditions, setConditions] = useState<boolean | null>(null);
   /// The same, for printing a message instead of stopping.
   const [logPoints, setLogPoints] = useState<boolean | null>(null);
+  /// The same again, for counting hits before stopping.
+  const [hitCounts, setHitCounts] = useState<boolean | null>(null);
 
   /// The session id as the event listener sees it. A listener registered once
   /// would otherwise capture the id from the render it was created in, and stop
@@ -318,6 +320,7 @@ export default function DebugSession({
       setState("running");
       setConditions(started.conditions);
       setLogPoints(started.logPoints);
+      setHitCounts(started.hitCounts);
 
       // Where they actually landed, not where they were asked for: an adapter
       // slides a breakpoint to the next executable line.
@@ -466,6 +469,12 @@ export default function DebugSession({
         <p className="hint">
           This debugger cannot print a message instead of stopping, so any log message you have
           set holds its breakpoint back rather than turning it into an ordinary stop.
+        </p>
+      )}
+      {hitCounts === false && (
+        <p className="hint">
+          This debugger cannot count hits, so any hit count you have set holds its breakpoint back
+          rather than stopping on the first time round.
         </p>
       )}
 

@@ -80,7 +80,7 @@ describe("BuildFileEditor breakpoint conditions", () => {
     await user.type(box, "i == 7");
 
     expect(marksIn(loadBreakpoints(), 5, "main.go")).toEqual([
-      { line: 8, condition: "i == 7", log: "" },
+      { line: 8, condition: "i == 7", log: "", hits: "" },
     ]);
   });
 
@@ -103,7 +103,30 @@ describe("BuildFileEditor breakpoint conditions", () => {
     await user.type(box, "round {{i}");
 
     expect(marksIn(loadBreakpoints(), 5, "main.go")).toEqual([
-      { line: 8, condition: "", log: "round {i}" },
+      { line: 8, condition: "", log: "round {i}", hits: "" },
+    ]);
+  });
+
+  /// **The one a condition cannot express.** "Stop the seventh time round"
+  /// needs no variable to test against, and works where nothing in scope counts.
+  it("takes a hit count, and stores it verbatim", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem(
+      "coperativeai.breakpoints",
+      JSON.stringify({ "5": { "main.go": [{ line: 8, condition: "", log: "", hits: "" }] } }),
+    );
+    render(<BuildFileEditor solution={sol()} path="main.go" onClose={() => {}} />);
+    await waitFor(() => expect(mocked.readSolutionFile).toHaveBeenCalled());
+
+    const box = screen.getByLabelText("Hit count for line 8");
+    expect(box).toHaveAttribute("placeholder", "every hit");
+
+    // Delve's grammar, kept as typed: the app does not parse it, because
+    // js-debug wants a bare number for the same thing.
+    await user.type(box, "== 7");
+
+    expect(marksIn(loadBreakpoints(), 5, "main.go")).toEqual([
+      { line: 8, condition: "", log: "", hits: "== 7" },
     ]);
   });
 

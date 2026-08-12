@@ -39,6 +39,10 @@ pub struct Capabilities {
     pub function_breakpoints: bool,
     /// Whether a hit count or a condition can be attached to a breakpoint.
     pub conditional_breakpoints: bool,
+    /// Printing a message instead of stopping, and counting hits first. These
+    /// two are where the three adapters actually differ.
+    pub log_points: bool,
+    pub hit_counts: bool,
     /// The raw `body` of the initialize response, for anything not modelled yet.
     pub raw: String,
 }
@@ -326,6 +330,8 @@ impl Session {
             configuration_done: flag("supportsConfigurationDoneRequest"),
             function_breakpoints: flag("supportsFunctionBreakpoints"),
             conditional_breakpoints: flag("supportsConditionalBreakpoints"),
+            log_points: flag("supportsLogPoints"),
+            hit_counts: flag("supportsHitConditionalBreakpoints"),
             raw: body.to_string(),
         })
     }

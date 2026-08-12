@@ -76,6 +76,7 @@ describe("DebugSession", () => {
       breakpoints: [],
       conditions: true,
       logPoints: true,
+      hitCounts: true,
     });
     mocked.debugStop.mockResolvedValue();
     mocked.debugResume.mockResolvedValue();
@@ -299,7 +300,7 @@ describe("DebugSession", () => {
     // stored shape above is the pre-conditions one, so this also proves it is
     // read rather than dropped.
     expect(mocked.debugSetBreakpoints).toHaveBeenCalledWith("dbg-go-1", [
-      { path: "C:/repos/orders/main.go", line: 8, condition: "", log: "" },
+      { path: "C:/repos/orders/main.go", line: 8, condition: "", log: "", hits: "" },
     ]);
   });
 
@@ -321,6 +322,7 @@ describe("DebugSession", () => {
       ],
       conditions: false,
       logPoints: true,
+      hitCounts: true,
     });
     render(<DebugSession solution={sol()} />);
 

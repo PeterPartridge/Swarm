@@ -39,6 +39,14 @@ pub struct AdapterCheck {
     pub configuration_done: bool,
     pub conditional_breakpoints: bool,
     pub function_breakpoints: bool,
+    /// Printing a message instead of stopping, and counting hits first.
+    ///
+    /// Reported for the same reason as the condition flag: this app offers all
+    /// three on every breakpoint, and an adapter that cannot do one of them
+    /// holds that breakpoint back. Saying which up front beats finding out on
+    /// starting — and these two are where the adapters actually differ.
+    pub log_points: bool,
+    pub hit_counts: bool,
     /// Why it did not, in words somebody can act on.
     pub problem: String,
     /// Everything the adapter said about itself, verbatim. Shown rather than
@@ -64,6 +72,8 @@ pub async fn debug_check(language: String) -> Result<AdapterCheck, String> {
                 configuration_done: false,
                 conditional_breakpoints: false,
                 function_breakpoints: false,
+                log_points: false,
+                hit_counts: false,
                 problem: "no adapter is configured for that language".into(),
                 reported: String::new(),
             };
@@ -76,6 +86,8 @@ pub async fn debug_check(language: String) -> Result<AdapterCheck, String> {
                 configuration_done: false,
                 conditional_breakpoints: false,
                 function_breakpoints: false,
+                log_points: false,
+                hit_counts: false,
                 problem: adapter.problem,
                 reported: String::new(),
             };
@@ -92,6 +104,8 @@ pub async fn debug_check(language: String) -> Result<AdapterCheck, String> {
                     configuration_done: false,
                     conditional_breakpoints: false,
                     function_breakpoints: false,
+                    log_points: false,
+                    hit_counts: false,
                     problem,
                     reported: String::new(),
                 }
@@ -110,6 +124,8 @@ pub async fn debug_check(language: String) -> Result<AdapterCheck, String> {
                 configuration_done: caps.configuration_done,
                 conditional_breakpoints: caps.conditional_breakpoints,
                 function_breakpoints: caps.function_breakpoints,
+                log_points: caps.log_points,
+                hit_counts: caps.hit_counts,
                 problem: String::new(),
                 reported: caps.raw,
             },
@@ -119,6 +135,8 @@ pub async fn debug_check(language: String) -> Result<AdapterCheck, String> {
                 configuration_done: false,
                 conditional_breakpoints: false,
                 function_breakpoints: false,
+                log_points: false,
+                hit_counts: false,
                 problem,
                 reported: String::new(),
             },
@@ -170,6 +188,8 @@ pub struct StartedDebug {
     pub conditions: bool,
     /// Whether it will print a message instead of stopping.
     pub log_points: bool,
+    /// Whether it will count hits before honouring a breakpoint.
+    pub hit_counts: bool,
 }
 
 /// The launch arguments for one language.
@@ -284,6 +304,7 @@ pub async fn debug_start(
         breakpoints: placed,
         conditions: honours.conditions,
         log_points: honours.log_points,
+        hit_counts: honours.hit_counts,
     })
 }
 

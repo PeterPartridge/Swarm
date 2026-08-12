@@ -7198,6 +7198,13 @@ button.ready-action.link:hover {
   font-size: 0.72rem;
 }
 
+/* Narrower than the expression boxes: a hit count is a number or a short
+   comparison, and giving it equal width would crowd out the message. */
+.build-break-hits {
+  flex: none;
+  width: 6rem;
+}
+
 .build-break-kind {
   margin-left: 0.35rem;
   font-style: normal;

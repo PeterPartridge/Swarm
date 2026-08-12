@@ -7,6 +7,7 @@ import {
   marksIn,
   relativeTo,
   setCondition,
+  setHits,
   setLog,
   toggleBreakpoint,
 } from "../../lib/breakpoints";
@@ -53,11 +54,11 @@ describe("breakpoints", () => {
   it("hands the adapter absolute paths", () => {
     const store = toggleBreakpoint({}, 1, "src/main.go", 8);
     expect(absoluteFor(store, 1, "C:/repos/shop")).toEqual([
-      { path: "C:/repos/shop/src/main.go", line: 8, condition: "", log: "" },
+      { path: "C:/repos/shop/src/main.go", line: 8, condition: "", log: "", hits: "" },
     ]);
     // A trailing separator on the working copy must not double up.
     expect(absoluteFor(store, 1, "C:/repos/shop/")).toEqual([
-      { path: "C:/repos/shop/src/main.go", line: 8, condition: "", log: "" },
+      { path: "C:/repos/shop/src/main.go", line: 8, condition: "", log: "", hits: "" },
     ]);
   });
 
@@ -67,7 +68,7 @@ describe("breakpoints", () => {
     let store = toggleBreakpoint({}, 1, "src/main.go", 8);
     store = setCondition(store, 1, "src/main.go", 8, "i == 7");
     expect(absoluteFor(store, 1, "C:/repos/shop")).toEqual([
-      { path: "C:/repos/shop/src/main.go", line: 8, condition: "i == 7", log: "" },
+      { path: "C:/repos/shop/src/main.go", line: 8, condition: "i == 7", log: "", hits: "" },
     ]);
   });
 
@@ -77,7 +78,7 @@ describe("breakpoints", () => {
     let store = toggleBreakpoint({}, 1, "src/main.go", 8);
     store = setCondition(store, 1, "src/main.go", 8, "i == 7");
     store = setCondition(store, 1, "src/main.go", 8, "");
-    expect(marksIn(store, 1, "src/main.go")).toEqual([{ line: 8, condition: "", log: "" }]);
+    expect(marksIn(store, 1, "src/main.go")).toEqual([{ line: 8, condition: "", log: "", hits: "" }]);
   });
 
   /// A condition on a line with no breakpoint would be a condition on nothing.
@@ -95,8 +96,8 @@ describe("breakpoints", () => {
       JSON.stringify({ "3": { "cmd/main.go": [4, 9] } }),
     );
     expect(marksIn(loadBreakpoints(), 3, "cmd/main.go")).toEqual([
-      { line: 4, condition: "", log: "" },
-      { line: 9, condition: "", log: "" },
+      { line: 4, condition: "", log: "", hits: "" },
+      { line: 9, condition: "", log: "", hits: "" },
     ]);
   });
 
@@ -109,8 +110,36 @@ describe("breakpoints", () => {
       JSON.stringify({ "3": { "cmd/main.go": [{ line: 4, condition: "i == 7" }] } }),
     );
     expect(marksIn(loadBreakpoints(), 3, "cmd/main.go")).toEqual([
-      { line: 4, condition: "i == 7", log: "" },
+      { line: 4, condition: "i == 7", log: "", hits: "" },
     ]);
+  });
+
+  /// **The store has grown three times now**, so every intermediate shape has
+  /// to load — this is the one written after log points and before hit counts.
+  it("reads a breakpoint stored before hit counts existed", () => {
+    localStorage.setItem(
+      "coperativeai.breakpoints",
+      JSON.stringify({ "3": { "cmd/main.go": [{ line: 4, condition: "", log: "round {i}" }] } }),
+    );
+    expect(marksIn(loadBreakpoints(), 3, "cmd/main.go")).toEqual([
+      { line: 4, condition: "", log: "round {i}", hits: "" },
+    ]);
+  });
+
+  /// **The grammar belongs to the adapter**, so the value is stored verbatim
+  /// rather than parsed here — js-debug takes `7`, Delve takes `== 7`, and
+  /// inventing a single grammar would be wrong for one of them.
+  it("stores a hit count exactly as it was written", () => {
+    let store = toggleBreakpoint({}, 1, "src/main.go", 8);
+    store = setHits(store, 1, "src/main.go", 8, "== 7");
+    expect(absoluteFor(store, 1, "C:/repos/shop")).toEqual([
+      { path: "C:/repos/shop/src/main.go", line: 8, condition: "", log: "", hits: "== 7" },
+    ]);
+  });
+
+  it("will not put a hit count on a line that has no breakpoint", () => {
+    const store = toggleBreakpoint({}, 1, "src/main.go", 8);
+    expect(setHits(store, 1, "src/main.go", 99, "7")).toBe(store);
   });
 
   /// **A log point does not stop, so it must not draw the stopping dot.** The

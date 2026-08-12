@@ -123,6 +123,16 @@ pub struct Breakpoint {
     /// and expecting a stop is the one confusion the UI has to head off.
     #[serde(default)]
     pub log: String,
+    /// How many times the line has to be reached before this counts — the
+    /// answer to "stop the 500th time round, not the first".
+    ///
+    /// **The syntax belongs to the adapter, not to DAP.** The protocol says
+    /// only that it is an expression the adapter understands; Delve takes
+    /// `== 7`, `> 100`, `% 3`, and each debugger is free to differ. So it is
+    /// passed through verbatim and the adapter's own complaint is what a person
+    /// sees, rather than this app inventing a grammar and being wrong about it.
+    #[serde(default)]
+    pub hits: String,
 }
 
 /// One DAP connection: somewhere to write, and everything waiting for a reply.
@@ -264,6 +274,10 @@ struct Core {
     /// that ignores `logMessage` **stops** at a breakpoint whose whole purpose
     /// was not to.
     log_points: AtomicBool,
+    /// Whether the adapter said it can count hits before honouring a
+    /// breakpoint. Ignoring `hitCondition` stops on the *first* hit — usually
+    /// the one iteration somebody already knows is fine.
+    hit_counts: AtomicBool,
     on_event: EventSink,
 }
 
@@ -277,6 +291,8 @@ pub struct Honours {
     pub conditions: bool,
     /// `supportsLogPoints`.
     pub log_points: bool,
+    /// `supportsHitConditionalBreakpoints`.
+    pub hit_counts: bool,
 }
 
 /// Where every event goes on its way to the window.
@@ -290,6 +306,7 @@ impl Core {
         Honours {
             conditions: self.conditional.load(Ordering::Relaxed),
             log_points: self.log_points.load(Ordering::Relaxed),
+            hit_counts: self.hit_counts.load(Ordering::Relaxed),
         }
     }
 
@@ -348,6 +365,7 @@ impl Live {
             // sent to an adapter that has not claimed it can honour it.
             conditional: AtomicBool::new(false),
             log_points: AtomicBool::new(false),
+            hit_counts: AtomicBool::new(false),
             on_event: Box::new(on_event),
         });
 
@@ -376,6 +394,12 @@ impl Live {
         );
         self.core.log_points.store(
             body.get("supportsLogPoints")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+            Ordering::Relaxed,
+        );
+        self.core.hit_counts.store(
+            body.get("supportsHitConditionalBreakpoints")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false),
             Ordering::Relaxed,
@@ -641,6 +665,10 @@ fn set_breakpoints(
             refused.push((bp, "print a message instead of stopping"));
             continue;
         }
+        if !bp.hits.is_empty() && !honours.hit_counts {
+            refused.push((bp, "count hits before stopping"));
+            continue;
+        }
         by_file.entry(bp.path.as_str()).or_default().push(bp);
     }
     // Every file that had one still has to be sent even if everything in it was
@@ -668,6 +696,10 @@ fn set_breakpoints(
                         // rather than stopping — that is the whole feature.
                         if !b.log.is_empty() {
                             one["logMessage"] = json!(b.log);
+                        }
+                        // Verbatim: the grammar is the adapter's, not DAP's.
+                        if !b.hits.is_empty() {
+                            one["hitCondition"] = json!(b.hits);
                         }
                         one
                     })
@@ -1061,6 +1093,7 @@ mod tests {
             line: 8,
             condition: String::new(),
             log: String::new(),
+            hits: String::new(),
         }];
         live.launch(
             json!({
@@ -1100,6 +1133,214 @@ mod tests {
             Some("1185".to_string()),
             "tax should be set at this line. Saw: {vars:?}"
         );
+
+        live.stop();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A hit count, against a real debugger — and only one has it.**
+    ///
+    /// Of the three adapters here, **js-debug alone reports
+    /// `supportsHitConditionalBreakpoints`**; Delve and netcoredbg do not, and
+    /// their capability replies were read to check rather than assumed. So this
+    /// runs against Node, and the other two refuse a hit count with a reason —
+    /// see `an_adapter_refuses_what_it_cannot_do`.
+    ///
+    /// The assertion is again *which* time it stopped. Without the hit count it
+    /// stops on the first, so a dropped field fails loudly here.
+    #[test]
+    #[ignore = "needs js-debug extracted on this machine"]
+    fn a_hit_count_decides_which_time_round_the_loop_it_stops() {
+        let found = crate::debug::adapters::discover();
+        let js = found
+            .iter()
+            .find(|a| a.language == "typescript")
+            .expect("typescript");
+        if !js.available {
+            eprintln!("skipping: {}", js.problem);
+            return;
+        }
+
+        let dir = std::env::temp_dir().join(format!("coperativeai-dap-hits-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch");
+        let source = dir.join("app.js");
+        std::fs::write(
+            &source,
+            "let total = 0;\n\
+             for (let i = 0; i < 10; i++) {\n\
+             \x20 total += i;\n\
+             }\n\
+             console.log(total);\n",
+        )
+        .expect("app.js");
+
+        let (tx, rx) = channel::<(String, Value)>();
+        let mut live = Live::start(&js.argv, Transport::Tcp, Some(&dir), move |name, body| {
+            let _ = tx.send((name.to_string(), body));
+        })
+        .expect("start js-debug");
+        live.initialize("pwa-node").expect("initialize");
+        assert!(
+            live.honours().hit_counts,
+            "js-debug reports supporting hit-conditional breakpoints"
+        );
+
+        // Line 3 is `total += i;`, reached once per iteration. The hit count is
+        // one-based and the loop counter is not, so the seventh hit is
+        // `i == 6` — and that difference is exactly what this pins down.
+        live.launch(
+            json!({
+                "type": "pwa-node",
+                "request": "launch",
+                "name": "coperativeai",
+                "program": source.display().to_string(),
+                "cwd": dir.display().to_string(),
+            }),
+            &[Breakpoint {
+                path: source.display().to_string(),
+                line: 3,
+                condition: String::new(),
+                log: String::new(),
+                hits: "7".into(),
+            }],
+        )
+        .expect("launch");
+
+        let stopped = wait_for_stop(&rx, 90);
+        let thread_id = stopped.get("threadId").and_then(|t| t.as_i64()).expect("thread");
+        let frames = live.stack(thread_id).expect("stackTrace");
+        let top = frames.first().expect("a frame");
+        assert_eq!(top.line, 3, "it stopped somewhere else: {frames:?}");
+
+        let vars = live.variables(top.id).expect("variables");
+        assert!(
+            vars.iter().any(|v| v.name == "i" && v.value == "6"),
+            "the seventh hit is i == 6, not i == 0. Saw: {vars:?}"
+        );
+
+        live.stop();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **The refusal path, against an adapter that really cannot do it.**
+    ///
+    /// netcoredbg reports neither `supportsLogPoints` nor
+    /// `supportsHitConditionalBreakpoints`, which makes it the proof that the
+    /// holding-back is real rather than a branch nothing reaches. DAP gives no
+    /// failure for an unsupported extra — the field is simply ignored — so a
+    /// log message sent anyway would turn into an ordinary breakpoint and
+    /// **stop**, which is the opposite of what was asked for.
+    #[test]
+    #[ignore = "needs netcoredbg and the .NET SDK"]
+    fn an_adapter_refuses_what_it_cannot_do() {
+        let found = crate::debug::adapters::discover();
+        let cs = found.iter().find(|a| a.language == "csharp").expect("csharp");
+        if !cs.available {
+            eprintln!("skipping: {}", cs.problem);
+            return;
+        }
+
+        let dir =
+            std::env::temp_dir().join(format!("coperativeai-dap-refuse-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch");
+        std::fs::write(
+            dir.join("Scratch.csproj"),
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n\
+             \x20 <PropertyGroup>\n\
+             \x20   <OutputType>Exe</OutputType>\n\
+             \x20   <TargetFramework>net8.0</TargetFramework>\n\
+             \x20   <DebugType>portable</DebugType>\n\
+             \x20 </PropertyGroup>\n\
+             </Project>\n",
+        )
+        .expect("csproj");
+        let source = dir.join("Program.cs");
+        std::fs::write(
+            &source,
+            "int total = 0;\n\
+             for (int i = 0; i < 10; i++) { total += i; }\n\
+             System.Console.WriteLine(total);\n",
+        )
+        .expect("Program.cs");
+
+        let built = Command::new("dotnet")
+            .args(["build", "-c", "Debug"])
+            .current_dir(&dir)
+            .output()
+            .expect("run dotnet build");
+        assert!(built.status.success(), "dotnet build failed");
+        let dll = crate::debug::dotnet::built_assembly(&dir).expect("an assembly");
+
+        let (tx, rx) = channel::<(String, Value)>();
+        let mut live = Live::start(&cs.argv, Transport::Stdio, Some(&dir), move |name, body| {
+            let _ = tx.send((name.to_string(), body));
+        })
+        .expect("start netcoredbg");
+        live.initialize("coreclr").expect("initialize");
+
+        let honours = live.honours();
+        assert!(honours.conditions, "netcoredbg does do conditions");
+        assert!(!honours.log_points, "netcoredbg reports no log points");
+        assert!(!honours.hit_counts, "netcoredbg reports no hit counts");
+
+        // A log point and a hit count, neither of which this adapter can do.
+        let asked = vec![
+            Breakpoint {
+                path: source.display().to_string(),
+                line: 2,
+                condition: String::new(),
+                log: "round {i}".into(),
+                hits: String::new(),
+            },
+            Breakpoint {
+                path: source.display().to_string(),
+                line: 3,
+                condition: String::new(),
+                log: String::new(),
+                hits: "== 7".into(),
+            },
+        ];
+        live.launch(
+            json!({
+                "type": "coreclr",
+                "request": "launch",
+                "name": "coperativeai",
+                "program": dll.display().to_string(),
+                "cwd": dir.display().to_string(),
+                "stopAtEntry": false,
+                "justMyCode": true,
+            }),
+            &asked,
+        )
+        .expect("launch");
+
+        let placed = live.apply_breakpoints(&asked).expect("setBreakpoints");
+        let refused: Vec<&Value> = placed
+            .iter()
+            .filter(|b| b.get("verified").and_then(|v| v.as_bool()) == Some(false))
+            .collect();
+        assert_eq!(refused.len(), 2, "both should be held back. Saw: {placed:?}");
+        let words: Vec<&str> = refused
+            .iter()
+            .filter_map(|b| b.get("message").and_then(|m| m.as_str()))
+            .collect();
+        assert!(
+            words.iter().any(|m| m.contains("print a message instead of stopping")),
+            "the refusal should name what it cannot do. Saw: {words:?}"
+        );
+        assert!(
+            words.iter().any(|m| m.contains("count hits before stopping")),
+            "the refusal should name what it cannot do. Saw: {words:?}"
+        );
+
+        // And nothing armed: the program must not stop at a line whose whole
+        // point was not to.
+        let quiet = rx.recv_timeout(Duration::from_secs(20));
+        if let Ok((name, body)) = quiet {
+            assert_ne!(name, "stopped", "nothing should have been armed: {body}");
+        }
 
         live.stop();
         let _ = std::fs::remove_dir_all(&dir);
@@ -1169,6 +1410,7 @@ mod tests {
                 line: 8,
                 condition: String::new(),
                 log: "round {i}".into(),
+                hits: String::new(),
             }],
         )
         .expect("launch");
@@ -1277,6 +1519,7 @@ mod tests {
                 line: 8,
                 condition: "i == 7".into(),
                 log: String::new(),
+            hits: String::new(),
             }],
         )
         .expect("launch");
@@ -1363,7 +1606,7 @@ mod tests {
                 "program": dir.display().to_string(),
                 "cwd": dir.display().to_string(),
             }),
-            &[Breakpoint { path: source.display().to_string(), line: 12, condition: String::new(), log: String::new() }],
+            &[Breakpoint { path: source.display().to_string(), line: 12, condition: String::new(), log: String::new(), hits: String::new() }],
         )
         .expect("launch");
 
@@ -1450,6 +1693,7 @@ mod tests {
             line: 3,
             condition: String::new(),
             log: String::new(),
+            hits: String::new(),
         }];
         live.launch(
             json!({
@@ -1557,6 +1801,7 @@ mod tests {
             line: 3,
             condition: String::new(),
             log: String::new(),
+            hits: String::new(),
         }];
         live.launch(
             json!({
@@ -1610,9 +1855,9 @@ mod tests {
     #[test]
     fn breakpoints_are_grouped_by_file() {
         let list = vec![
-            Breakpoint { path: "a.go".into(), line: 3, condition: String::new(), log: String::new() },
-            Breakpoint { path: "b.go".into(), line: 9, condition: String::new(), log: String::new() },
-            Breakpoint { path: "a.go".into(), line: 12, condition: String::new(), log: String::new() },
+            Breakpoint { path: "a.go".into(), line: 3, condition: String::new(), log: String::new(), hits: String::new() },
+            Breakpoint { path: "b.go".into(), line: 9, condition: String::new(), log: String::new(), hits: String::new() },
+            Breakpoint { path: "a.go".into(), line: 12, condition: String::new(), log: String::new(), hits: String::new() },
         ];
         let mut by_file: HashMap<&str, Vec<i64>> = HashMap::new();
         for bp in &list {

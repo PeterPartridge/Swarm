@@ -24,6 +24,14 @@ export interface Mark {
    *  This is the `println` you would otherwise add, without the edit and
    *  without the rebuild, which is the whole reason it earns a box. */
   log: string;
+  /** How many times the line has to be reached first — "stop the 500th time
+   *  round, not the first".
+   *
+   *  **The grammar is the adapter's**, not this app's: js-debug takes `7`,
+   *  Delve takes `== 7`, and DAP says only that it is something the adapter
+   *  understands. Passed through verbatim so the debugger's own complaint is
+   *  what a person sees. */
+  hits: string;
 }
 
 /** Every breakpoint on this machine: `solutionId → path → marks`. */
@@ -39,11 +47,16 @@ type StoredFile = (Partial<Mark> & { line: number })[] | number[];
 function marksOf(stored: StoredFile): Mark[] {
   return stored.map((entry) =>
     typeof entry === "number"
-      ? { line: entry, condition: "", log: "" }
+      ? { line: entry, condition: "", log: "", hits: "" }
       : // Fields are defaulted one by one rather than by shape, because the
-        // store has grown twice now and a mark written between the two is a
-        // real thing to find on somebody's machine.
-        { line: entry.line, condition: entry.condition ?? "", log: entry.log ?? "" },
+        // store has grown three times now and a mark written at any of those
+        // points is a real thing to find on somebody's machine.
+        {
+          line: entry.line,
+          condition: entry.condition ?? "",
+          log: entry.log ?? "",
+          hits: entry.hits ?? "",
+        },
   );
 }
 
@@ -122,7 +135,7 @@ export function toggleBreakpoint(
   const held = marksIn(store, solutionId, path);
   const next = held.some((m) => m.line === line)
     ? held.filter((m) => m.line !== line)
-    : [...held, { line, condition: "", log: "" }].sort((a, b) => a.line - b.line);
+    : [...held, { line, condition: "", log: "", hits: "" }].sort((a, b) => a.line - b.line);
   return write(store, solutionId, path, next);
 }
 
@@ -152,6 +165,17 @@ export function setLog(
   log: string,
 ): BreakpointStore {
   return amend(store, solutionId, path, line, (m) => ({ ...m, log }));
+}
+
+/** Sets or clears how many hits one breakpoint waits for. */
+export function setHits(
+  store: BreakpointStore,
+  solutionId: number,
+  path: string,
+  line: number,
+  hits: string,
+): BreakpointStore {
+  return amend(store, solutionId, path, line, (m) => ({ ...m, hits }));
 }
 
 function amend(
@@ -203,7 +227,7 @@ export function absoluteFor(
   store: BreakpointStore,
   solutionId: number,
   localPath: string,
-): { path: string; line: number; condition: string; log: string }[] {
+): { path: string; line: number; condition: string; log: string; hits: string }[] {
   const root = localPath.replace(/[/\\]+$/, "");
   const files = store[String(solutionId)] ?? {};
   return Object.entries(files).flatMap(([path, marks]) =>
@@ -212,6 +236,7 @@ export function absoluteFor(
       line: m.line,
       condition: m.condition,
       log: m.log,
+      hits: m.hits,
     })),
   );
 }

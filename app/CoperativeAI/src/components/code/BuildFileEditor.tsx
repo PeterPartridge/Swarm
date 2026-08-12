@@ -7,6 +7,7 @@ import {
   logLinesIn,
   marksIn,
   setCondition,
+  setHits,
   setLog,
   toggleBreakpoint,
   type BreakpointStore,
@@ -114,6 +115,16 @@ export default function BuildFileEditor({
               />
               <input
                 type="text"
+                className="build-break-hits"
+                aria-label={`Hit count for line ${m.line}`}
+                placeholder="every hit"
+                value={m.hits}
+                onChange={(e) =>
+                  setMarks((prev) => setHits(prev, solution.id, path, m.line, e.target.value))
+                }
+              />
+              <input
+                type="text"
                 aria-label={`Message for line ${m.line}`}
                 placeholder="print instead of stopping"
                 value={m.log}
@@ -130,7 +141,9 @@ export default function BuildFileEditor({
             Conditions are written in {solution.language ?? "the program's own language"} and
             evaluated by the debugger, in the running program. A message makes the line{" "}
             <strong>print and carry on</strong> instead of stopping — <code>{"{i}"}</code> inside it
-            is evaluated the same way, and the output appears in the debugger panel.
+            is evaluated the same way, and the output appears in the debugger panel. A hit count
+            waits for that many visits first, in the debugger&rsquo;s own grammar
+            (<code>7</code> for js-debug, <code>== 7</code> for Delve).
           </p>
         </div>
       )}

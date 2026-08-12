@@ -180,6 +180,8 @@ describe("DebugBoard", () => {
       configurationDone: true,
       conditionalBreakpoints: true,
       functionBreakpoints: true,
+      logPoints: true,
+      hitCounts: true,
       problem: "",
       reported: "{}",
     });

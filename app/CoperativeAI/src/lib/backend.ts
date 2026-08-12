@@ -1620,6 +1620,8 @@ export interface AdapterCheck {
   configurationDone: boolean;
   conditionalBreakpoints: boolean;
   functionBreakpoints: boolean;
+  logPoints: boolean;
+  hitCounts: boolean;
   problem: string;
   /** Everything the adapter said about itself, verbatim. */
   reported: string;
@@ -1645,6 +1647,10 @@ export interface Breakpoint {
   /** A message to print **instead of** stopping. `{expr}` inside it is
    *  evaluated in the program. Empty means stop, as normal. */
   log: string;
+  /** How many times the line has to be reached first. The grammar belongs to
+   *  the adapter — js-debug takes `7`, Delve takes `== 7` — so it is passed
+   *  through verbatim. */
+  hits: string;
 }
 
 /** Where a stopped program is, innermost frame first. */
@@ -1685,6 +1691,8 @@ export interface StartedDebug {
   conditions: boolean;
   /** Whether it will print a message instead of stopping. */
   logPoints: boolean;
+  /** Whether it will count hits before honouring a breakpoint. */
+  hitCounts: boolean;
 }
 
 /** Starts a program under its debugger with breakpoints already set.
