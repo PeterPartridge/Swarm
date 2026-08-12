@@ -515,12 +515,7 @@ mod tests {
     /// A real repository with one commit on `main`, nested a level down so the
     /// worktrees (which land beside it) cannot collide between tests.
     fn temp_repo(name: &str) -> Option<std::path::PathBuf> {
-        let enclosing = std::env::temp_dir().join(format!(
-            "coperativeai-loop-{}-{name}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        ));
-        let _ = std::fs::remove_dir_all(&enclosing);
+        let enclosing = crate::testing::scratch("loop", name);
         let dir = enclosing.join("repo");
         std::fs::create_dir_all(&dir).ok()?;
         let run = |args: &[&str]| {

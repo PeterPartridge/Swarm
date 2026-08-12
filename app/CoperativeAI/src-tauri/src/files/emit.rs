@@ -396,10 +396,7 @@ mod tests {
     }
 
     fn temp_dir(name: &str) -> String {
-        let dir = std::env::temp_dir().join(format!("coperativeai-emit-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).expect("create temp dir");
-        dir.to_string_lossy().into_owned()
+        crate::testing::scratch_str("emit", name)
     }
 
     fn file(path: &str, contents: &str) -> EmitFile {
@@ -551,7 +548,7 @@ mod tests {
 
     #[test]
     fn a_missing_root_is_reported_rather_than_created() {
-        let missing = std::env::temp_dir().join("coperativeai-emit-does-not-exist-xyz");
+        let missing = crate::testing::missing("emit");
         let err = write_files(&missing.to_string_lossy(), &[file("a.md", "x")], &HashMap::new())
             .expect_err("must fail");
         assert!(err.contains("no longer exists"), "got: {err}");

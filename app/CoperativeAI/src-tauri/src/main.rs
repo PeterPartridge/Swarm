@@ -14,6 +14,10 @@ mod design;
 mod files;
 mod git;
 mod terminal;
+/// Scratch folders for the tests that need a real filesystem. Test-only, so it
+/// is not compiled into the shipped binary.
+#[cfg(test)]
+mod testing;
 mod tooling;
 
 use std::path::PathBuf;

@@ -921,12 +921,7 @@ ddd4\u{1f}\u{1f}tag: v1\u{1f}First commit\u{1f}Ada\u{1f}1700000100
     /// gets its own enclosing folder, which is also what the real layout looks
     /// like — a repo in a projects folder, not loose in temp.
     fn temp_repo_with_commit(name: &str) -> Option<std::path::PathBuf> {
-        let enclosing = std::env::temp_dir().join(format!(
-            "coperativeai-wt-{}-{name}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        ));
-        let _ = std::fs::remove_dir_all(&enclosing);
+        let enclosing = crate::testing::scratch("worktree", name);
         let dir = enclosing.join("repo");
         std::fs::create_dir_all(&dir).ok()?;
         let run = |args: &[&str]| {
