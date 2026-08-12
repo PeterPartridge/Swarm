@@ -7617,6 +7617,56 @@ button.ready-action.link:hover {
   font-size: 0.72rem;
 }
 
+/* The watch pane. Sits beside the variables rather than under them: they are
+   two answers to the same question at the same moment, and putting one below
+   the other would make the second look like a consequence of the first. */
+.session-watch {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.watch-add {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.watch-add input {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.72rem;
+}
+
+.watch-add button {
+  flex: none;
+  font-size: 0.68rem;
+}
+
+.watch-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Kept out of the flow until the row is hovered would hide it from a keyboard;
+   it is simply quiet instead. */
+.watch-drop {
+  flex: none;
+  padding: 0 0.25rem;
+  font-size: 0.8rem;
+  line-height: 1;
+  color: var(--fg-dim);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.watch-drop:hover {
+  color: var(--bad);
+}
+
 /* Nested fields step in, so depth is readable without a guide line. */
 .var-tree .var-tree {
   padding-left: 0.85rem;

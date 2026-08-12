@@ -2,8 +2,16 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { absoluteFor, loadBreakpoints } from "../../lib/breakpoints";
 import {
+  addWatch,
+  loadWatches,
+  removeWatch,
+  watchesIn,
+  type WatchStore,
+} from "../../lib/watches";
+import {
   debugResume,
   debugSetBreakpoints,
+  debugEvaluate,
   debugExpand,
   debugRestartFrame,
   debugStack,
@@ -51,6 +59,16 @@ const CAN_LAUNCH = ["go", "typescript", "csharp"];
 /** A variable that has been opened: its fields, or why they could not be got. */
 interface Opened {
   fields?: DebugVariable[];
+  problem?: string;
+}
+
+/** What one watched expression last came to in the selected frame.
+ *
+ *  **A problem is an ordinary answer here**, not a failure: an expression that
+ *  is out of scope in the frame you happen to have selected is a normal thing
+ *  to be looking at, because you set it for a different one. */
+interface Watched {
+  value?: DebugVariable;
   problem?: string;
 }
 
@@ -175,6 +193,13 @@ export default function DebugSession({
   /// is what you are looking at and what a step will act on.
   const [threads, setThreads] = useState<DebugThread[]>([]);
   const [stoppedOn, setStoppedOn] = useState<number | null>(null);
+  /// The expressions being kept an eye on, and what each last came to.
+  ///
+  /// The list lives on this machine and outlasts the session — see lib/watches
+  /// — while the answers belong to one frame and are thrown away with it.
+  const [watches, setWatches] = useState<WatchStore>(() => loadWatches());
+  const [watched, setWatched] = useState<Record<string, Watched>>({});
+  const [typed, setTyped] = useState("");
   const [frames, setFrames] = useState<Frame[]>([]);
   const [frameId, setFrameId] = useState<number | null>(null);
   const [variables, setVariables] = useState<DebugVariable[]>([]);
@@ -208,6 +233,38 @@ export default function DebugSession({
   const resumedRef = useRef(onResumed);
   resumedRef.current = onResumed;
 
+  /// The watches, in a ref so evaluating them does not re-make `showFrame` on
+  /// every keystroke in the add box — which would re-run the effect that calls
+  /// it and re-fetch the variables for no reason.
+  const watchesRef = useRef<string[]>([]);
+  watchesRef.current = watchesIn(watches, solution.id);
+
+  /// Works out every watch against one frame.
+  ///
+  /// **Re-run rather than remembered**, for the same reason an expansion is:
+  /// the answer belongs to a frame and a moment, and showing yesterday's value
+  /// under today's expression is worse than showing nothing.
+  ///
+  /// Each expression is asked for on its own so one that is out of scope leaves
+  /// the others alone — a single failed watch must not blank the pane.
+  const evaluateWatches = useCallback(async (id: string, frame: number) => {
+    const wanted = watchesRef.current;
+    if (wanted.length === 0) {
+      setWatched({});
+      return;
+    }
+    const answers = await Promise.all(
+      wanted.map(async (expression): Promise<[string, Watched]> => {
+        try {
+          return [expression, { value: await debugEvaluate(id, expression, frame) }];
+        } catch (e) {
+          return [expression, { problem: String(e) }];
+        }
+      }),
+    );
+    setWatched(Object.fromEntries(answers));
+  }, []);
+
   const showFrame = useCallback(
     async (id: string, frame: number) => {
       setFrameId(frame);
@@ -221,8 +278,12 @@ export default function DebugSession({
       } catch (e) {
         setError(String(e));
       }
+      // After the variables rather than beside them: a watch is usually about
+      // something in this frame, and the frame's own values are what somebody
+      // looks at first.
+      await evaluateWatches(id, frame);
     },
-    [],
+    [evaluateWatches],
   );
 
   /// Shows one thread: its stack, its innermost frame, and that frame's
@@ -320,6 +381,10 @@ export default function DebugSession({
         setFrames([]);
         setVariables([]);
         setOpened({});
+        // The answers go, the expressions stay: what a watch came to belonged
+        // to a frame that no longer exists, but the question is still the
+        // question.
+        setWatched({});
         // The list goes too: while the program runs it is a snapshot of a
         // moment that has passed, and a picker offering threads that may have
         // ended is worse than none.
@@ -336,6 +401,7 @@ export default function DebugSession({
         setFrames([]);
         setVariables([]);
         setOpened({});
+        setWatched({});
         setThreads([]);
         setStoppedOn(null);
         resumedRef.current?.();
@@ -420,6 +486,40 @@ export default function DebugSession({
     resumedRef.current?.();
   }
 
+  /// Opening a watch reuses the variable machinery exactly: a watch that comes
+  /// back a struct is a struct, and its fields are fetched a level at a time
+  /// like any other. Only the top row differs, because that one has an
+  /// expression rather than a name and can carry a problem instead of a value.
+  const onToggleWatch = toggleVariable;
+
+  /// Starts watching an expression, and works it out straight away.
+  ///
+  /// Evaluated on adding rather than at the next stop, because the reason
+  /// somebody types one is to see it **now** — waiting for the next step would
+  /// make the box feel broken.
+  async function watch() {
+    const expression = typed.trim();
+    if (expression === "") return;
+    setWatches((prev) => addWatch(prev, solution.id, expression));
+    setTyped("");
+    if (!session || frameId === null) return;
+    try {
+      const value = await debugEvaluate(session, expression, frameId);
+      setWatched((prev) => ({ ...prev, [expression]: { value } }));
+    } catch (e) {
+      setWatched((prev) => ({ ...prev, [expression]: { problem: String(e) } }));
+    }
+  }
+
+  function unwatch(expression: string) {
+    setWatches((prev) => removeWatch(prev, solution.id, expression));
+    setWatched((prev) => {
+      const next = { ...prev };
+      delete next[expression];
+      return next;
+    });
+  }
+
   /// Puts the program back at the start of one call.
   ///
   /// Not treated as a resume: the adapter answers with a fresh `stopped`, so
@@ -472,6 +572,7 @@ export default function DebugSession({
   }
 
   const stopped = state === "stopped";
+  const kept = watchesIn(watches, solution.id);
 
   return (
     <section className="debug-session" aria-label={`Debugger for ${solution.name}`}>
@@ -653,6 +754,96 @@ export default function DebugSession({
                     frame — the debugger steps a thread, not a frame. Running a frame again is
                     the one thing that acts on the frame you picked.
                   </p>
+                )}
+              </div>
+
+              <div className="session-watch">
+                <span className="palette-label">Watch</span>
+                {/* **What the variable list cannot answer.** That shows what
+                    happens to have a name in scope; this shows what somebody
+                    wants to know — `subtotal + tax`, `len(items)` — none of
+                    which are variables anywhere. */}
+                <form
+                  className="watch-add"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void watch();
+                  }}
+                >
+                  <input
+                    type="text"
+                    aria-label="Watch an expression"
+                    placeholder={`an expression in ${solution.language ?? "the program's language"}`}
+                    value={typed}
+                    onChange={(e) => setTyped(e.target.value)}
+                  />
+                  <button type="submit" disabled={typed.trim() === ""}>
+                    Watch
+                  </button>
+                </form>
+
+                {kept.length === 0 ? (
+                  <p className="hint">
+                    Nothing watched. An expression here is worked out by the debugger inside the
+                    running program, in the frame selected above.
+                  </p>
+                ) : (
+                  <ul className="watch-list">
+                    {kept.map((expression) => {
+                      const answer = watched[expression];
+                      const path = `watch/${expression}`;
+                      const open = opened[path];
+                      return (
+                        <li key={expression}>
+                          <div className="var-row">
+                            {answer?.value && answer.value.children > 0 ? (
+                              <button
+                                type="button"
+                                className="var-open"
+                                aria-expanded={open !== undefined}
+                                aria-label={`${open !== undefined ? "Close" : "Open"} ${expression}`}
+                                onClick={() => onToggleWatch(path, answer.value!.children)}
+                              >
+                                {open !== undefined ? "▾" : "▸"}
+                              </button>
+                            ) : (
+                              <span className="var-open empty" aria-hidden="true" />
+                            )}
+                            <span className="var-name">{expression}</span>
+                            {/* An expression out of scope in *this* frame is an
+                                ordinary answer — you set it for another one —
+                                so it is said on the row rather than raised over
+                                the panel. */}
+                            <span
+                              className={answer?.problem ? "var-value hint" : "var-value card-mono"}
+                            >
+                              {answer?.problem ?? answer?.value?.value ?? "—"}
+                            </span>
+                            {answer?.value?.kind && (
+                              <span className="var-kind">{answer.value.kind}</span>
+                            )}
+                            <button
+                              type="button"
+                              className="watch-drop"
+                              aria-label={`Stop watching ${expression}`}
+                              onClick={() => unwatch(expression)}
+                            >
+                              ×
+                            </button>
+                          </div>
+                          {open?.problem && <p className="hint var-problem">{open.problem}</p>}
+                          {open?.fields && open.fields.length > 0 && (
+                            <VariableTree
+                              variables={open.fields}
+                              at={path}
+                              opened={opened}
+                              onToggle={toggleVariable}
+                            />
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
                 )}
               </div>
 

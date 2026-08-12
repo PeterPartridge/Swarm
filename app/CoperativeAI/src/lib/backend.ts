@@ -1748,6 +1748,21 @@ export const debugResume = (
  *  exit. */
 export const debugThreads = (session: string): Promise<DebugThread[]> =>
   invoke("debug_threads", { session });
+/** Works out what an expression comes to, in one frame.
+ *
+ *  **What the variable list cannot do.** That shows what happens to have a name
+ *  in scope; this shows what you want to know — `subtotal + tax`,
+ *  `len(items)` — none of which are variables.
+ *
+ *  Evaluated in the frame, by the adapter, in the program's own language, so
+ *  the same expression against a caller is a different question. Rejecting is
+ *  ordinary: an expression out of scope in the selected frame is a normal thing
+ *  to be looking at, and the message belongs against that one row. */
+export const debugEvaluate = (
+  session: string,
+  expression: string,
+  frameId: number,
+): Promise<DebugVariable> => invoke("debug_evaluate", { session, expression, frameId });
 export const debugStack = (session: string, threadId: number): Promise<Frame[]> =>
   invoke("debug_stack", { session, threadId });
 export const debugVariables = (

@@ -34,6 +34,43 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 32 — watch expressions
+
+### My Feedback
+
+**What the variable list cannot answer.** That list shows what happens to have a name in scope. A watch shows what somebody actually wants to know — `subtotal + tax`, `len(items)`, `order.Customer.Region` — and none of those are variables anywhere, so none can be read off a scope no matter how well it is displayed.
+
+**The test asserts an expression that is not a variable**, deliberately. `subtotal + tax` came back `12995` and `len(items)` came back `2` — a call into the program's own standard library. A "watch" that merely looked names up in the variable list would pass for `subtotal` and fail both of these, which is exactly why the assertion is not `subtotal`.
+
+**Evaluated in the frame, by the adapter, in the program's language.** The same expression against a caller is a different question: verified by evaluating `subtotal + tax` against `main`, where those parameters do not exist, and getting an error — **and then evaluating `tax` in the inner frame again to prove the session was still perfectly usable**. That second half matters more than the first.
+
+**So an out-of-scope watch is an ordinary answer, not a failure.** You set it for a different frame; the message goes on that one row and the other watches are untouched. Each expression is asked for on its own, so one failure cannot blank the pane.
+
+**A watch that comes back a struct opens like any variable**, through the same machinery — because it is the same kind of answer. Only the top row differs: it carries an expression rather than a name, and can hold a problem instead of a value.
+
+**The expression outlasts the session; the answer does not.** The list is per Solution on this machine, like breakpoints, because it is one person's questions about shared code. The values are thrown away the moment the program moves, since a number under an expression that was true one step ago is worse than nothing.
+
+### Your Feedback
+
+- **Worked out on adding, not at the next stop.** The reason somebody types an expression is to see it now — waiting for the next step would make the box feel broken.
+- **Order is insertion order, not sorted.** Sorting would move a watch you just added away from where you were looking.
+- **A duplicate is refused**: two rows that always agree are noise, and a second request per stop for an answer already on screen.
+- **The watches are held in a ref for evaluation**, so typing in the add box does not re-make the callback that fetches variables and cause a re-fetch on every keystroke.
+- **`context: "watch"`** is sent rather than `"repl"`, which tells the adapter this is a value being displayed rather than a command being run — side effects avoided where the adapter can avoid them.
+- **All fourteen real-adapter tests pass.**
+
+### Technical Debt
+
+- **Nothing can be changed.** `setVariable` and `setExpression` both exist in DAP and both are reported by the adapters here; there is no way to put a value into a running program yet, which is the other half of a watch pane.
+- **Hovering a variable in the editor shows nothing.** `evaluate` with `context: "hover"` is the same request this round added, and the editor is where somebody would first reach for it.
+- **The thread list has no filter**, and nothing shows what a thread is waiting on.
+- **Restarting a frame does not undo what it did**, and only js-debug can do it at all.
+- **Nothing validates a condition, an interpolation or a hit count as it is typed** — nor a watch, which now joins them.
+- **Log output is not marked as coming from a log point.**
+- **The breakpoint strip is only for the open file**, and is three boxes wide.
+- **debugpy has no launch shape** and cannot be verified here — no real Python on this machine.
+- Carried: only one js-debug child; the root's provisional breakpoints reach the UI; `built_assembly` picks the newest build rather than a configured one; the Rust suite leaves scratch directories in `%TEMP%`.
+
 ## Round 31 — every thread, not just the one that stopped
 
 ### My Feedback

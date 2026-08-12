@@ -403,6 +403,32 @@ pub async fn debug_expand(
     live.expand(reference)
 }
 
+/// Works out what an expression comes to, in one frame.
+///
+/// The thing the variable list cannot do: it shows what happens to have a name
+/// in scope, and a watch shows what somebody wants to know.
+///
+/// **Errors are the ordinary case, not a failure of the session.** A watch that
+/// is out of scope in the frame you have selected is a normal thing to be
+/// looking at — you set it for a different frame — so the message comes back to
+/// be shown against that one expression rather than raised over the panel.
+#[tauri::command]
+pub async fn debug_evaluate(
+    sessions: State<'_, DebugSessions>,
+    session: String,
+    expression: String,
+    frame_id: i64,
+) -> Result<Variable, String> {
+    let held = sessions
+        .0
+        .lock()
+        .map_err(|_| "the debug sessions are in a bad state".to_string())?;
+    let Some(live) = held.get(&session) else {
+        return Err("that debug session has ended".into());
+    };
+    live.evaluate(&expression, frame_id)
+}
+
 /// Every thread the program has.
 ///
 /// Read at each stop rather than kept: threads come and go, and DAP's `thread`

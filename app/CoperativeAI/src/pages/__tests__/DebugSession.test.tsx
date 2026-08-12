@@ -16,6 +16,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     debugExpand: vi.fn(),
     debugRestartFrame: vi.fn(),
     debugThreads: vi.fn(),
+    debugEvaluate: vi.fn(),
     debugSetBreakpoints: vi.fn(),
   };
 });
@@ -254,6 +255,171 @@ describe("DebugSession", () => {
     await user.click(within(panel).getByLabelText("Open order"));
 
     expect(await within(panel).findByText(/that debug session has ended/)).toBeInTheDocument();
+  });
+
+  /// **What the variable list cannot answer.** That shows what happens to have
+  /// a name in scope; a watch shows what somebody wants to know, and
+  /// `subtotal + tax` is not a variable anywhere.
+  it("works out a watched expression in the selected frame", async () => {
+    const user = userEvent.setup();
+    mocked.debugStack.mockResolvedValue([
+      { id: 1000, name: "main.priced", path: "C:/repos/orders/main.go", line: 8, column: 2, canRestart: true },
+    ]);
+    mocked.debugVariables.mockResolvedValue([]);
+    mocked.debugEvaluate.mockResolvedValue({
+      name: "subtotal + tax",
+      value: "12995",
+      kind: "int",
+      children: 0,
+    });
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+
+    const panel = screen.getByRole("region", { name: "Debugger for Orders" });
+    await within(panel).findByLabelText("Watch an expression");
+
+    await user.type(within(panel).getByLabelText("Watch an expression"), "subtotal + tax");
+    await user.click(within(panel).getByRole("button", { name: "Watch" }));
+
+    // Worked out on adding rather than at the next stop: the reason somebody
+    // types one is to see it now.
+    expect(mocked.debugEvaluate).toHaveBeenCalledWith("dbg-go-1", "subtotal + tax", 1000);
+    expect(await within(panel).findByText("12995")).toBeInTheDocument();
+  });
+
+  /// **Out of scope is an ordinary answer, not a broken session.** You set the
+  /// watch for a different frame, and the message belongs on that one row.
+  it("says on the row when a watch is out of scope, and keeps the rest", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem(
+      "coperativeai.watches",
+      JSON.stringify({ "5": ["subtotal + tax", "len(items)"] }),
+    );
+    mocked.debugStack.mockResolvedValue([
+      { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 12, column: 2, canRestart: true },
+    ]);
+    mocked.debugVariables.mockResolvedValue([]);
+    mocked.debugEvaluate.mockImplementation(async (_s: string, expression: string) => {
+      if (expression === "subtotal + tax") throw "could not find symbol value for subtotal";
+      return { name: expression, value: "2", kind: "int", children: 0 };
+    });
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+
+    const panel = screen.getByRole("region", { name: "Debugger for Orders" });
+    expect(
+      await within(panel).findByText(/could not find symbol value for subtotal/),
+    ).toBeInTheDocument();
+    // The one that did work is unaffected — a single failed watch must not
+    // blank the pane.
+    expect(within(panel).getByText("2")).toBeInTheDocument();
+    // And nothing was raised over the panel as a session error.
+    expect(within(panel).queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  /// A watch belongs to a frame, so picking a different one asks again rather
+  /// than leaving the last frame's answer under the same expression.
+  it("works the watches out again when a different frame is picked", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("coperativeai.watches", JSON.stringify({ "5": ["total"] }));
+    mocked.debugStack.mockResolvedValue([
+      { id: 1000, name: "main.priced", path: "C:/repos/orders/main.go", line: 8, column: 2, canRestart: true },
+      { id: 1001, name: "main.main", path: "C:/repos/orders/main.go", line: 12, column: 2, canRestart: true },
+    ]);
+    mocked.debugVariables.mockResolvedValue([]);
+    mocked.debugEvaluate.mockResolvedValue({ name: "total", value: "12995", kind: "int", children: 0 });
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+
+    const panel = screen.getByRole("region", { name: "Debugger for Orders" });
+    await waitFor(() =>
+      expect(mocked.debugEvaluate).toHaveBeenCalledWith("dbg-go-1", "total", 1000),
+    );
+
+    await user.click(within(panel).getByLabelText("Frame main.main"));
+
+    await waitFor(() =>
+      expect(mocked.debugEvaluate).toHaveBeenCalledWith("dbg-go-1", "total", 1001),
+    );
+  });
+
+  /// A watch that comes back a struct opens like any variable — the same
+  /// machinery, because it is the same kind of answer.
+  it("opens a watch that came back with fields", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("coperativeai.watches", JSON.stringify({ "5": ["items"] }));
+    mocked.debugStack.mockResolvedValue([
+      { id: 1000, name: "main.priced", path: "C:/repos/orders/main.go", line: 8, column: 2, canRestart: true },
+    ]);
+    mocked.debugVariables.mockResolvedValue([]);
+    mocked.debugEvaluate.mockResolvedValue({
+      name: "items",
+      value: "[]string len: 2",
+      kind: "[]string",
+      children: 9,
+    });
+    mocked.debugExpand.mockResolvedValue([
+      { name: "[0]", value: "desk", kind: "string", children: 0 },
+      { name: "[1]", value: "lamp", kind: "string", children: 0 },
+    ]);
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+
+    const panel = screen.getByRole("region", { name: "Debugger for Orders" });
+    await within(panel).findByLabelText("Open items");
+    await user.click(within(panel).getByLabelText("Open items"));
+
+    expect(mocked.debugExpand).toHaveBeenCalledWith("dbg-go-1", 9);
+    expect(await within(panel).findByText("desk")).toBeInTheDocument();
+  });
+
+  /// The expression outlasts the session; the answer does not. Showing the last
+  /// value against a program that has moved on would be worse than showing
+  /// nothing.
+  it("keeps the expression but drops its value when the program moves", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("coperativeai.watches", JSON.stringify({ "5": ["total"] }));
+    mocked.debugStack.mockResolvedValue([
+      { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 12, column: 2, canRestart: true },
+    ]);
+    mocked.debugVariables.mockResolvedValue([]);
+    mocked.debugEvaluate.mockResolvedValue({ name: "total", value: "12995", kind: "int", children: 0 });
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+
+    const panel = screen.getByRole("region", { name: "Debugger for Orders" });
+    expect(await within(panel).findByText("12995")).toBeInTheDocument();
+
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "continued", body: {} });
+    });
+
+    expect(within(panel).queryByText("12995")).not.toBeInTheDocument();
   });
 
   /// **The case this exists for is deadlock.** The thread that stopped is

@@ -562,6 +562,46 @@ impl Live {
         Ok(out)
     }
 
+    /// Works out what an expression comes to, in one frame.
+    ///
+    /// **The thing the variable list cannot do.** That list shows what happens
+    /// to have a name in scope; a watch shows what you want to know —
+    /// `subtotal + tax`, `len(items)`, `order.Customer.Region`. None of those
+    /// are variables, and none of them can be read off a scope.
+    ///
+    /// Evaluated **in the frame**, by the adapter, in the program's own
+    /// language. So the same expression against a caller and against the
+    /// innermost frame are different questions with different answers, and the
+    /// frame is not optional here even though DAP allows it to be: without one
+    /// an adapter falls back to a global scope where almost nothing a person
+    /// would type is in scope at all.
+    ///
+    /// Answers in the same shape as a variable, so a watch that comes back a
+    /// struct opens with [`Live::expand`] like any other.
+    pub fn evaluate(&self, expression: &str, frame_id: i64) -> Result<Variable, String> {
+        let body = self.core.talker().request(
+            "evaluate",
+            json!({
+                "expression": expression,
+                "frameId": frame_id,
+                // "watch" tells the adapter this is a value being displayed
+                // rather than a command being run: side effects are avoided
+                // where the adapter can avoid them, and js-debug in particular
+                // formats the answer for reading rather than for a console.
+                "context": "watch",
+            }),
+        )?;
+        Ok(Variable {
+            name: expression.to_string(),
+            value: text(&body, "result"),
+            kind: text(&body, "type"),
+            children: body
+                .get("variablesReference")
+                .and_then(|v| v.as_i64())
+                .unwrap_or_default(),
+        })
+    }
+
     /// One variable's own fields — the struct opened, the slice's elements.
     ///
     /// **Only ever fetched when asked for.** A `variablesReference` is a handle
@@ -1222,6 +1262,124 @@ mod tests {
             Some("1185".to_string()),
             "tax should be set at this line. Saw: {vars:?}"
         );
+
+        live.stop();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A watch, against a real debugger.**
+    ///
+    /// The assertion is deliberately an expression that is **not a variable**:
+    /// `subtotal + tax` has no name in any scope, so a "watch" that merely
+    /// looked names up in the variable list would fail it while looking like it
+    /// worked for `subtotal`.
+    ///
+    /// It also pins the frame down. The same expression against the caller is a
+    /// different question, and an out-of-scope watch has to come back as a
+    /// message about that one expression rather than an error over everything.
+    #[test]
+    #[ignore = "needs Delve and a Go toolchain"]
+    fn a_watch_works_out_an_expression_that_is_not_a_variable() {
+        let found = crate::debug::adapters::discover();
+        let go = found.iter().find(|a| a.language == "go").expect("go");
+        if !go.available {
+            eprintln!("skipping: {}", go.problem);
+            return;
+        }
+
+        let dir =
+            std::env::temp_dir().join(format!("coperativeai-dap-watch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch");
+        std::fs::write(dir.join("go.mod"), "module scratch\n\ngo 1.21\n").expect("go.mod");
+        let source = dir.join("main.go");
+        std::fs::write(
+            &source,
+            "package main\n\
+             \n\
+             import \"fmt\"\n\
+             \n\
+             func priced(subtotal int, tax int) int {\n\
+             \titems := []string{\"desk\", \"lamp\"}\n\
+             \tfmt.Println(len(items))\n\
+             \treturn subtotal + tax\n\
+             }\n\
+             \n\
+             func main() {\n\
+             \tfmt.Println(priced(11810, 1185))\n\
+             }\n",
+        )
+        .expect("main.go");
+
+        let (tx, rx) = channel::<(String, Value)>();
+        let mut live = Live::start(&go.argv, Transport::Tcp, Some(&dir), move |name, body| {
+            let _ = tx.send((name.to_string(), body));
+        })
+        .expect("start Delve");
+        live.initialize("go").expect("initialize");
+
+        // Line 8 is `return subtotal + tax`, inside `priced`.
+        live.launch(
+            json!({
+                "request": "launch",
+                "mode": "debug",
+                "program": dir.display().to_string(),
+                "cwd": dir.display().to_string(),
+            }),
+            &[Breakpoint {
+                path: source.display().to_string(),
+                line: 8,
+                condition: String::new(),
+                log: String::new(),
+                hits: String::new(),
+            }],
+        )
+        .expect("launch");
+
+        let stopped = wait_for_stop(&rx, 120);
+        let thread_id = stopped.get("threadId").and_then(|t| t.as_i64()).expect("thread");
+        let frames = live.stack(thread_id).expect("stackTrace");
+        let inner = frames.first().expect("a frame").clone();
+
+        // Arithmetic over two locals: no scope holds this under any name.
+        let sum = live.evaluate("subtotal + tax", inner.id).expect("evaluate");
+        assert_eq!(
+            sum.value, "12995",
+            "the expression should be worked out, not looked up: {sum:?}"
+        );
+
+        // A call into the program's own standard library, which is further
+        // still from anything the variable list could show.
+        let counted = live.evaluate("len(items)", inner.id).expect("evaluate len");
+        assert_eq!(counted.value, "2", "len(items) should come back: {counted:?}");
+
+        // A composite answers with a handle, so a watch opens like any variable.
+        let listed = live.evaluate("items", inner.id).expect("evaluate items");
+        assert!(
+            listed.children > 0,
+            "a slice should carry a handle to its elements: {listed:?}"
+        );
+        let elements = live.expand(listed.children).expect("expand the watch");
+        assert!(
+            elements.iter().any(|e| e.value.contains("desk")),
+            "the elements should come back: {elements:?}"
+        );
+
+        // **Out of scope is a message, not a broken session.** `subtotal` is a
+        // parameter of `priced` and means nothing in its caller.
+        let caller = frames
+            .iter()
+            .find(|f| f.name.contains("main.main"))
+            .unwrap_or_else(|| panic!("main should be on the stack: {frames:?}"));
+        let elsewhere = live.evaluate("subtotal + tax", caller.id);
+        assert!(
+            elsewhere.is_err(),
+            "it is not in scope in the caller, and saying so is the point: {elsewhere:?}"
+        );
+
+        // And the session is still perfectly usable afterwards.
+        let again = live.evaluate("tax", inner.id).expect("still working");
+        assert_eq!(again.value, "1185");
 
         live.stop();
         let _ = std::fs::remove_dir_all(&dir);
