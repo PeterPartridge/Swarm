@@ -609,6 +609,136 @@ describe("DebugSession", () => {
     expect(within(panel).queryByText("12995")).not.toBeInTheDocument();
   });
 
+  /// **The correction, and it is the protocol's own.** Nothing is bound until
+  /// the program actually runs, so both handshakes answer `verified: false` —
+  /// js-debug says "breakpoint.provisionalBreakpoint" while doing exactly that.
+  /// DAP sends a `breakpoint` event when it really binds one, and until this
+  /// listened for it a TypeScript session reported its breakpoints as unset
+  /// while stopping on them perfectly well.
+  it("stops saying a breakpoint failed once the adapter binds it", async () => {
+    const user = userEvent.setup();
+    mocked.debugStart.mockResolvedValue({
+      session: "dbg-ts-1",
+      language: "typescript",
+      breakpoints: [
+        {
+          path: "C:/repos/orders/app.js",
+          requested: 3,
+          line: null,
+          verified: false,
+          message: "breakpoint.provisionalBreakpoint",
+          id: 1,
+        },
+      ],
+      conditions: true,
+      logPoints: true,
+      hitCounts: true,
+      restartFrame: true,
+      hovers: true,
+      setVariable: true,
+      setExpression: true,
+    });
+    render(<DebugSession solution={sol({ language: "TypeScript (vite)" })} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    // What the handshake said, which is not yet true.
+    expect(await screen.findByText(/1 could not be set/)).toBeInTheDocument();
+
+    act(() => {
+      emit?.({
+        session: "dbg-ts-1",
+        event: "breakpoint",
+        body: { reason: "changed", breakpoint: { id: 1, verified: true, line: 3 } },
+      });
+    });
+
+    expect(screen.queryByText(/could not be set/)).not.toBeInTheDocument();
+  });
+
+  /// A correction for a breakpoint this session does not have must not quietly
+  /// alter one that it does — ids come from the adapter and are not ours.
+  it("ignores a correction for a breakpoint it does not know", async () => {
+    const user = userEvent.setup();
+    mocked.debugStart.mockResolvedValue({
+      session: "dbg-ts-1",
+      language: "typescript",
+      breakpoints: [
+        {
+          path: "C:/repos/orders/app.js",
+          requested: 3,
+          line: null,
+          verified: false,
+          message: "breakpoint.provisionalBreakpoint",
+          id: 1,
+        },
+      ],
+      conditions: true,
+      logPoints: true,
+      hitCounts: true,
+      restartFrame: true,
+      hovers: true,
+      setVariable: true,
+      setExpression: true,
+    });
+    render(<DebugSession solution={sol({ language: "TypeScript (vite)" })} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    expect(await screen.findByText(/1 could not be set/)).toBeInTheDocument();
+
+    act(() => {
+      emit?.({
+        session: "dbg-ts-1",
+        event: "breakpoint",
+        body: { reason: "changed", breakpoint: { id: 99, verified: true, line: 3 } },
+      });
+    });
+
+    expect(screen.getByText(/1 could not be set/)).toBeInTheDocument();
+  });
+
+  /// The other thing this event is for: an adapter slides a breakpoint to the
+  /// next line that actually runs, and saying nothing would leave the gutter
+  /// disagreeing with where the program will stop.
+  it("says when a breakpoint moved to the next line that runs", async () => {
+    const user = userEvent.setup();
+    mocked.debugStart.mockResolvedValue({
+      session: "dbg-go-1",
+      language: "go",
+      breakpoints: [
+        {
+          path: "C:/repos/orders/main.go",
+          requested: 7,
+          line: 7,
+          verified: true,
+          message: "",
+          id: 1,
+        },
+      ],
+      conditions: true,
+      logPoints: true,
+      hitCounts: true,
+      restartFrame: true,
+      hovers: true,
+      setVariable: true,
+      setExpression: true,
+    });
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+
+    act(() => {
+      emit?.({
+        session: "dbg-go-1",
+        event: "breakpoint",
+        body: { reason: "changed", breakpoint: { id: 1, verified: true, line: 8 } },
+      });
+    });
+
+    expect(await screen.findByText(/1 moved to the next line that runs/)).toBeInTheDocument();
+  });
+
+
   /// **The case this exists for is deadlock.** The thread that stopped is
   /// rarely the one holding the lock, so a debugger that only ever showed the
   /// stopped thread could not show you the problem at all.
@@ -932,6 +1062,7 @@ describe("DebugSession", () => {
           line: null,
           verified: false,
           message: "this debugger cannot evaluate breakpoint conditions",
+          id: 7,
         },
       ],
       conditions: false,

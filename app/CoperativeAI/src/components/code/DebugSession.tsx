@@ -23,6 +23,7 @@ import {
   debugVariables,
   type DebugThread,
   type Frame,
+  type Placed,
   type DebugVariable,
   type Solution,
 } from "../../lib/backend";
@@ -257,7 +258,14 @@ export default function DebugSession({
   const [variables, setVariables] = useState<DebugVariable[]>([]);
   const [opened, setOpened] = useState<Record<string, Opened>>({});
   const [output, setOutput] = useState<Line[]>([]);
-  const [placed, setPlaced] = useState<string | null>(null);
+  /// Where each breakpoint landed, as last reported.
+  ///
+  /// **Kept as rows rather than a sentence**, because the sentence has to be
+  /// rewritten when a correction arrives: an adapter can take a breakpoint,
+  /// answer "not verified", and bind it a moment later. Keeping only the words
+  /// left the UI saying a breakpoint could not be set while the program was
+  /// stopping on it.
+  const [placed, setPlaced] = useState<Placed[]>([]);
   /// Whether this adapter evaluates breakpoint conditions. Null until a session
   /// has started, because it is the adapter’s own answer to `initialize`
   /// rather than something this app can know in advance.
@@ -472,6 +480,35 @@ export default function DebugSession({
         setThreads([]);
         setStoppedOn(null);
         resumedRef.current?.();
+      } else if (event === "breakpoint") {
+        // **The correction, and it is the protocol's own.** Nothing is bound
+        // until the program actually runs, so both handshakes answer
+        // `verified: false` — js-debug says "breakpoint.provisionalBreakpoint"
+        // while doing exactly that. DAP sends a `breakpoint` event when it
+        // really binds one, and until this listened for it a TypeScript session
+        // reported its breakpoints as unset while stopping on them perfectly
+        // well.
+        //
+        // Matched by the adapter's own id: line numbers are no use, because
+        // moving the breakpoint to the next runnable line is the other thing
+        // this event is for.
+        const one = body?.breakpoint as
+          | { id?: number; verified?: boolean; line?: number; message?: string }
+          | undefined;
+        if (one?.id != null) {
+          setPlaced((prev) =>
+            prev.map((b) =>
+              b.id === one.id
+                ? {
+                    ...b,
+                    verified: one.verified ?? b.verified,
+                    line: one.line ?? b.line,
+                    message: one.message ?? "",
+                  }
+                : b,
+            ),
+          );
+        }
       } else if (event === "output") {
         const text = String(body?.output ?? "");
         if (text.trim() !== "") {
@@ -523,28 +560,9 @@ export default function DebugSession({
       setCanSetVariable(started.setVariable);
       setCanSetExpression(started.setExpression);
 
-      // Where they actually landed, not where they were asked for: an adapter
-      // slides a breakpoint to the next executable line.
-      const moved = started.breakpoints.filter(
-        (b) => b.verified && b.line !== null && b.line !== b.requested,
-      );
-      // A refusal carries the adapter’s own words — "this debugger cannot
-      // evaluate breakpoint conditions" is the answer somebody needs, and a
-      // bare count of failures is not.
-      const refused = started.breakpoints.filter((b) => !b.verified);
-      const why = [...new Set(refused.map((b) => b.message).filter(Boolean))];
-      setPlaced(
-        [
-          moved.length > 0
-            ? `${moved.length} moved to the next line that runs`
-            : "",
-          refused.length > 0
-            ? `${refused.length} could not be set${why.length > 0 ? `: ${why.join("; ")}` : ""}`
-            : "",
-        ]
-          .filter(Boolean)
-          .join(" · ") || null,
-      );
+      // Kept as rows: this is the adapter's first answer, and a later
+      // `breakpoint` event can change any of them.
+      setPlaced(started.breakpoints);
     } catch (e) {
       setError(String(e));
       setSession(null);
@@ -698,6 +716,30 @@ export default function DebugSession({
     }
   }
 
+  /// What to say about where the breakpoints landed, worked out from the rows
+  /// rather than stored — so a correction changes the sentence for free.
+  ///
+  /// An adapter slides a breakpoint to the next line that actually runs, and a
+  /// UI still showing the requested line would be lying about where the program
+  /// will stop. A refusal carries the adapter's own words, because
+  /// "this debugger cannot evaluate breakpoint conditions" is the answer
+  /// somebody needs and a bare count of failures is not.
+  const placedSaid = (() => {
+    const moved = placed.filter((b) => b.verified && b.line !== null && b.line !== b.requested);
+    const refused = placed.filter((b) => !b.verified);
+    const why = [...new Set(refused.map((b) => b.message).filter(Boolean))];
+    return (
+      [
+        moved.length > 0 ? `${moved.length} moved to the next line that runs` : "",
+        refused.length > 0
+          ? `${refused.length} could not be set${why.length > 0 ? `: ${why.join("; ")}` : ""}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" · ") || null
+    );
+  })();
+
   const stopped = state === "stopped";
   const kept = watchesIn(watches, solution.id);
 
@@ -756,7 +798,7 @@ export default function DebugSession({
         </p>
       )}
       {error && <p role="alert">{error}</p>}
-      {placed && <p className="hint">{placed}</p>}
+      {placedSaid && <p className="hint">{placedSaid}</p>}
       {/* Said once, on starting: the condition boxes in the editor are always
           there, and this is the only moment the adapter’s own answer is known. */}
       {conditions === false && (

@@ -516,6 +516,7 @@ impl Live {
             self.configuration_done,
             self.core.honours(),
         )
+        .map(|_| ())
     }
 
     /// Sends every breakpoint, grouped by file, to whichever connection owns
@@ -896,14 +897,14 @@ fn configure_and_launch(
     breakpoints: &[Breakpoint],
     configuration_done: bool,
     honours: Honours,
-) -> Result<(), String> {
+) -> Result<Vec<Value>, String> {
     // Sent, not awaited: the response may not come until configuration is
     // finished, and waiting here would deadlock against that.
     let launched = channel.send("launch", arguments)?;
 
     // Breakpoints set before this are dropped by most adapters, silently.
     channel.wait_until_ready()?;
-    set_breakpoints(channel, breakpoints, honours)?;
+    let placed = set_breakpoints(channel, breakpoints, honours)?;
     if configuration_done {
         channel.request("configurationDone", json!({}))?;
     }
@@ -918,7 +919,7 @@ fn configure_and_launch(
             .unwrap_or("the adapter refused to launch the program")
             .to_string());
     }
-    Ok(())
+    Ok(placed)
 }
 
 /// One `setBreakpoints` per file, and the adapter's answer about each.
@@ -996,6 +997,12 @@ fn set_breakpoints(
                     "line": got.get("line").and_then(|l| l.as_i64()),
                     "verified": got.get("verified").and_then(|v| v.as_bool()).unwrap_or(false),
                     "message": got.get("message").and_then(|m| m.as_str()).unwrap_or(""),
+                    // **What ties this row to the correction that follows.** An
+                    // adapter that binds a breakpoint later says so in a
+                    // `breakpoint` event carrying this same id; without it the
+                    // two could only be matched by guessing at line numbers the
+                    // adapter is free to have moved.
+                    "id": got.get("id").and_then(|i| i.as_i64()),
                 }));
             }
         }
@@ -1084,6 +1091,16 @@ fn open_child(core: Arc<Core>, configuration: Value) {
         // The child is the same product as the root, so it honours exactly what
         // the root said it could.
         let honours = core.honours();
+        // **The child's answer is provisional too**, which is the thing worth
+        // knowing here. Captured from a real run, it reads `verified: false`
+        // with "breakpoint.provisionalBreakpoint" exactly as the root's does:
+        // nothing is bound until the program is actually running, so neither
+        // handshake can say where a breakpoint landed.
+        //
+        // The correction is DAP's own `breakpoint` event — from the same run,
+        // `{"breakpoint":{"line":3,"verified":true,…},"reason":"changed"}` — and
+        // it already reaches the UI by the ordinary event path. It is tied back
+        // to the right row by the `id` the adapter gave when it took it.
         if let Err(why) = configure_and_launch(
             &channel,
             configuration,
@@ -2439,8 +2456,16 @@ mod tests {
         )
         .expect("app.js");
 
+        // Everything the adapter said, kept for afterwards: `wait_for_stop`
+        // drains the channel, and the answer this test cares about arrives
+        // before the stop does.
+        let seen: Arc<Mutex<Vec<(String, Value)>>> = Arc::new(Mutex::new(Vec::new()));
+        let heard = Arc::clone(&seen);
         let (tx, rx) = channel::<(String, Value)>();
         let mut live = Live::start(&js.argv, Transport::Tcp, Some(&dir), move |name, body| {
+            if let Ok(mut held) = heard.lock() {
+                held.push((name.to_string(), body.clone()));
+            }
             let _ = tx.send((name.to_string(), body));
         })
         .expect("start js-debug");
@@ -2488,6 +2513,26 @@ mod tests {
             vars.iter().any(|v| v.name == "subtotal" && v.value == "11810"),
             "subtotal should be set at this line. Saw: {vars:?}"
         );
+
+        // **The correction the UI needs, and where it really comes from.**
+        // Both handshakes — the root's and the child's — answer
+        // `verified: false, "breakpoint.provisionalBreakpoint"`, because nothing
+        // is bound until the program runs. DAP's own `breakpoint` event is what
+        // says otherwise afterwards, and until the UI listened for it a
+        // TypeScript session reported its breakpoints as unset while stopping
+        // on them perfectly well — which is the stop asserted above.
+        let events = seen.lock().expect("events");
+        let corrected = events
+            .iter()
+            .filter(|(name, _)| name == "breakpoint")
+            .filter_map(|(_, body)| body.get("breakpoint").cloned())
+            .any(|b| b.get("verified").and_then(|v| v.as_bool()) == Some(true));
+        assert!(
+            corrected,
+            "a breakpoint event should report it really bound. Saw: {:?}",
+            events.iter().map(|(n, _)| n).collect::<Vec<_>>()
+        );
+        drop(events);
 
         live.stop();
         let _ = std::fs::remove_dir_all(&dir);

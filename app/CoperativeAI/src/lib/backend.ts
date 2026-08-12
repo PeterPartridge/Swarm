@@ -1713,19 +1713,32 @@ export interface DebugVariable {
   parent: number;
 }
 
+/** Where one breakpoint ended up, as the adapter reported it.
+ *
+ *  **A first answer, not a final one.** Nothing is bound until the program is
+ *  actually running, so an adapter can perfectly well take a breakpoint,
+ *  answer `verified: false`, and bind it a moment later — js-debug says
+ *  "breakpoint.provisionalBreakpoint" while doing exactly that. The correction
+ *  arrives as a DAP `breakpoint` event carrying this same `id`. */
+export interface Placed {
+  path: string;
+  requested: number;
+  line: number | null;
+  verified: boolean;
+  message: string;
+  /** The adapter's own handle for it, when it gave one. What ties a later
+   *  correction to this row without guessing at line numbers the adapter is
+   *  free to have moved. */
+  id: number | null;
+}
+
 export interface StartedDebug {
   session: string;
   language: string;
   /** Where each breakpoint actually landed. An adapter slides one to the next
    *  executable line, and showing the requested line would be a lie about where
    *  the program will stop. */
-  breakpoints: {
-    path: string;
-    requested: number;
-    line: number | null;
-    verified: boolean;
-    message: string;
-  }[];
+  breakpoints: Placed[];
   /** Whether this adapter will evaluate a breakpoint condition. Reported so the
    *  editor can say "this debugger cannot do that" rather than offering a box
    *  whose contents would be dropped on the floor. */
