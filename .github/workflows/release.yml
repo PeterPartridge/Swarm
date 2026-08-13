@@ -149,11 +149,23 @@ jobs:
           $out = 'dist-release'
           New-Item -ItemType Directory -Force -Path $out | Out-Null
 
+          # Verified against a real `tauri build` on this project:
+          #   bundle/msi/CoperativeAI_0.1.0_x64_en-US.msi   (17 MB)
+          #   bundle/nsis/CoperativeAI_0.1.0_x64-setup.exe  (13 MB)
+          #   coperativeai.exe                              (45 MB, portable)
+          #
+          # **The bare exe is the crate's name, not the product's** — lowercase
+          # `coperativeai.exe`, because Cargo names the binary and Tauri only
+          # names the bundle. Windows would have matched either spelling and
+          # hidden that; naming it correctly means a reader is not misled.
+          #
+          # The installers carry the version in their filename, so a release
+          # that was stamped wrong is visible in the asset list.
           $found = @()
           foreach ($p in @(
             "$root/bundle/msi/*.msi",
             "$root/bundle/nsis/*.exe",
-            "$root/CoperativeAI.exe"
+            "$root/coperativeai.exe"
           )) {
             $found += Get-ChildItem $p -ErrorAction SilentlyContinue
           }
