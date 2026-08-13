@@ -1,0 +1,25 @@
+# The Rust version this project builds with, on a laptop and on the runner
+# alike.
+#
+# **Why pin at all.** "Warning-free locally" and "warning-free on CI" had
+# quietly stopped meaning the same thing: this machine was on 1.89 from August
+# 2025 while the runner took whatever `stable` meant that morning — 1.97.1 by
+# then. Clippy gained lints in between, so `main` sat red for days over code
+# that passed every local check. A version that moves without anybody deciding
+# is the same problem `.nvmrc` and the pinned `node-version: 24` already solve
+# for the frontend, and this is the same answer.
+#
+# **Bumping it is a commit.** Somebody chooses a version, runs the gates, and
+# pushes the result — rather than a Tuesday's release quietly building on
+# something a Monday's did not.
+#
+# rustup reads this walking up from the working directory, so it covers cargo
+# run from the repository root with `--manifest-path` and cargo run from inside
+# `app/CoperativeAI/src-tauri` equally. The toolchain installs itself on first
+# use, which is why CI needs no separate install step.
+
+[toolchain]
+channel = "1.97.1"
+# clippy because CI fails on its warnings; rustfmt because a formatter that is
+# not there is a check nobody can run locally.
+components = ["clippy", "rustfmt"]

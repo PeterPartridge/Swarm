@@ -26,9 +26,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
+      # **No version here on purpose.** rust-toolchain.toml at the repository
+      # root says which Rust this builds with, and rustup honours it — so the
+      # laptop and the runner cannot drift, which is exactly what they did.
+      # This step exists to install it up front and print it, rather than have
+      # it appear silently inside whichever cargo command runs first.
+      - name: Rust (version from rust-toolchain.toml)
+        run: rustup show
 
       - uses: Swatinem/rust-cache@v2
         with:
