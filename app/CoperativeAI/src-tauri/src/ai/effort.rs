@@ -58,10 +58,11 @@ pub fn resolve(model: &str, wanted: &str) -> Option<&'static str> {
     // Where the request sits on the full scale, so the step down is to the
     // nearest supported level *below* it — not merely to the end of the list.
     let ceiling = ALL.iter().position(|l| *l == wanted)?;
+    // `rfind` rather than `filter(..).next_back()`: the same search from the
+    // far end, said once instead of twice.
     levels
         .iter()
-        .filter(|l| ALL.iter().position(|a| a == *l).unwrap_or(0) <= ceiling)
-        .next_back()
+        .rfind(|l| ALL.iter().position(|a| a == *l).unwrap_or(0) <= ceiling)
         .copied()
 }
 
