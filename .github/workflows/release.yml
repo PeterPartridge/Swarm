@@ -1,0 +1,184 @@
+name: Release
+
+# Builds the Windows desktop app and publishes it, with the version taken from
+# the tag rather than typed into three files by hand.
+#
+# **Why a tag rather than every push to main.** Releasing on every merge would
+# mean a version number that moves when nobody decided it should, and a release
+# list that is mostly noise. A tag is somebody saying "this one" — the same rule
+# the CI workflow already applies to the Node version, where a number in the
+# file means the bump was a change somebody made.
+#
+# **The version lives in three places** — package.json, tauri.conf.json and
+# Cargo.toml — and they have to agree or the installer, the About box and the
+# crate all claim something different. They are stamped from the tag at build
+# time rather than committed, so there is one source of truth and no way to tag
+# v0.3.0 and ship an installer that says 0.1.0.
+
+on:
+  push:
+    tags:
+      - "v*"
+  # So a build can be tried without cutting a release. Nothing is published on
+  # this path — see the `if` on the release step.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to stamp for a trial build, e.g. 0.3.0"
+        required: false
+        default: "0.0.0"
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  # Only what creating a release needs. The default token is read-only for
+  # contents in repositories configured that way, and a release cannot be
+  # written without this.
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # **The tag is the version.** `v0.3.0` becomes `0.3.0`; Cargo and Tauri
+      # both reject a leading `v`, and finding that out from a failed release
+      # build would be a poor way to learn it.
+      - name: Work out the version
+        id: version
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+            $version = $env:GITHUB_REF -replace '^refs/tags/v', ''
+          } else {
+            $version = '${{ inputs.version }}'
+          }
+          # Tauri and Cargo both want major.minor.patch. A tag that is not that
+          # shape fails here, loudly, rather than producing an installer that
+          # will not install.
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "Version '$version' is not major.minor.patch — tag as v1.2.3."
+          }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Building $version"
+
+      - name: Stamp the version into all three files
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Each file is read, checked to contain the field, and rewritten.
+          # A silent no-op here would ship an installer with the old number,
+          # which is the one failure this whole step exists to prevent.
+          $pkg = 'app/CoperativeAI/package.json'
+          $tau = 'app/CoperativeAI/src-tauri/tauri.conf.json'
+          $car = 'app/CoperativeAI/src-tauri/Cargo.toml'
+
+          # [regex]::Replace rather than the -replace operator throughout: only
+          # the .NET call takes a count, and "just the first one" is the whole
+          # point — a dependency's own version must never be the one rewritten.
+          foreach ($f in @($pkg, $tau)) {
+            $text = Get-Content $f -Raw
+            $next = [regex]::Replace($text, '("version"\s*:\s*)"[^"]*"', ('$1"' + $env:VERSION + '"'), 1)
+            if ($next -eq $text) { throw "No version field replaced in $f" }
+            Set-Content $f $next -NoNewline -Encoding utf8
+          }
+
+          $text = Get-Content $car -Raw
+          # Anchored to the start of a line so a dependency's own `version =`
+          # is never the one that gets rewritten.
+          $next = [regex]::Replace($text, '(?m)^version\s*=\s*"[^"]*"', ('version = "' + $env:VERSION + '"'), 1)
+          if ($next -eq $text) { throw "No version field replaced in $car" }
+          Set-Content $car $next -NoNewline -Encoding utf8
+
+          Write-Host "--- stamped ---"
+          Select-String -Path $pkg, $tau -Pattern '"version"' | Select-Object -First 2
+          Select-String -Path $car -Pattern '^version' | Select-Object -First 1
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/CoperativeAI/src-tauri
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/CoperativeAI/package-lock.json
+
+      - name: Install
+        working-directory: app/CoperativeAI
+        run: npm ci
+
+      # **The same gates as CI, before anything is published.** A release build
+      # that skipped them could ship code that main would have rejected — and
+      # the tag is usually cut from main without a second look.
+      - name: Clippy (warnings are failures)
+        run: cargo clippy --manifest-path app/CoperativeAI/src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: Rust tests
+        run: cargo test --manifest-path app/CoperativeAI/src-tauri/Cargo.toml
+
+      - name: Typecheck
+        working-directory: app/CoperativeAI
+        run: npx tsc --noEmit
+
+      - name: Frontend tests
+        working-directory: app/CoperativeAI
+        run: npm test
+
+      # Builds the frontend and bundles it into an installer. The bundle is
+      # configured for `.ico`, which is why this only runs on Windows — see the
+      # note at the top of ci.yml.
+      - name: Build the desktop app
+        working-directory: app/CoperativeAI
+        run: npx tauri build
+
+      # Named so the artifact says what it is without opening it. The paths are
+      # listed rather than globbed from a parent, so a bundler that starts
+      # emitting something unexpected does not have it published unnoticed.
+      - name: Collect what was built
+        id: collect
+        shell: pwsh
+        run: |
+          $root = 'app/CoperativeAI/src-tauri/target/release'
+          $out = 'dist-release'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+
+          $found = @()
+          foreach ($p in @(
+            "$root/bundle/msi/*.msi",
+            "$root/bundle/nsis/*.exe",
+            "$root/CoperativeAI.exe"
+          )) {
+            $found += Get-ChildItem $p -ErrorAction SilentlyContinue
+          }
+          if ($found.Count -eq 0) {
+            Write-Host "--- what is in $root ---"
+            Get-ChildItem $root -Recurse -Depth 2 -ErrorAction SilentlyContinue |
+              Select-Object -ExpandProperty FullName
+            throw "The build produced nothing to publish."
+          }
+          $found | ForEach-Object { Copy-Item $_.FullName $out }
+          Get-ChildItem $out | ForEach-Object { Write-Host "publishing $($_.Name)" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CoperativeAI-${{ steps.version.outputs.version }}-windows
+          path: dist-release/*
+
+      # **Only a tag publishes.** A manual run builds and leaves the result as
+      # an artifact, so the build can be tried without a release appearing.
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: CoperativeAI ${{ steps.version.outputs.version }}
+          tag_name: ${{ github.ref_name }}
+          files: dist-release/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
