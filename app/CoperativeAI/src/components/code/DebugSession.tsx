@@ -529,6 +529,13 @@ export default function DebugSession({
         // last stop would silently hide threads at the next one.
         setThreadFilter("");
         resumedRef.current?.();
+      } else if (event === "children") {
+        // **More than one program is running under this debugger.** js-debug
+        // opens a session per execution context — a worker, a spawned process —
+        // and the panel shows whichever one last stopped. Saying so beats a
+        // session that quietly runs several programs while showing one.
+        const said = body?.message;
+        if (typeof said === "string" && said !== "") setNote(said);
       } else if (event === "breakpoint") {
         // **The correction, and it is the protocol's own.** Nothing is bound
         // until the program actually runs, so both handshakes answer

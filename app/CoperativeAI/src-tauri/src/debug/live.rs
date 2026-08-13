@@ -281,9 +281,21 @@ impl Channel {
 /// Everything a reader thread needs, shared between them.
 struct Core {
     root: Arc<Channel>,
-    /// The child session, once the adapter has asked for one. Requests about
-    /// the program go here in preference to the root.
+    /// The child session requests about the program go to, in preference to
+    /// the root.
+    ///
+    /// **Which child, when there is more than one, follows the stop.** js-debug
+    /// opens one per execution context — a worker, a spawned process — and the
+    /// one worth talking to is the one that has just stopped, because that is
+    /// where somebody is looking.
     active: Mutex<Option<Arc<Channel>>>,
+    /// Every child still open.
+    ///
+    /// **Kept rather than replaced.** Each new child used to overwrite the last
+    /// as `active`, and the previous one was simply lost: still connected,
+    /// still running a piece of the program, and unreachable. Holding them
+    /// means a second worker starting does not strand the first.
+    children: Mutex<Vec<Arc<Channel>>>,
     /// The port the adapter is listening on, so a child can be opened on it.
     /// None for a stdio adapter, which cannot have children.
     port: Option<u16>,
@@ -387,6 +399,43 @@ impl Core {
             .and_then(|held| held.clone())
             .unwrap_or_else(|| Arc::clone(&self.root))
     }
+
+    /// Points requests at the child that just stopped.
+    ///
+    /// Attention follows the stop: with several children running, the one that
+    /// hit a breakpoint is the one whose stack and variables are asked for a
+    /// moment later.
+    fn attend(&self, channel: &Arc<Channel>) {
+        if let Ok(mut active) = self.active.lock() {
+            if !active.as_ref().is_some_and(|held| Arc::ptr_eq(held, channel)) {
+                *active = Some(Arc::clone(channel));
+            }
+        }
+    }
+
+    /// How many children are open, for saying so.
+    fn child_count(&self) -> usize {
+        self.children.lock().map(|held| held.len()).unwrap_or(0)
+    }
+
+    /// Drops a child that has ended, and hands `active` to whatever is left.
+    ///
+    /// **Falling back matters.** A worker finishing while it was the active
+    /// child would otherwise leave every later request going to a closed
+    /// connection — which reads as the whole session having died, when the main
+    /// program is perfectly alive.
+    fn forget(&self, channel: &Arc<Channel>) {
+        if let Ok(mut held) = self.children.lock() {
+            held.retain(|c| !Arc::ptr_eq(c, channel));
+        }
+        if let Ok(mut active) = self.active.lock() {
+            if active.as_ref().is_some_and(|held| Arc::ptr_eq(held, channel)) {
+                // The most recent survivor, or None — which `talker` reads as
+                // the root.
+                *active = self.children.lock().ok().and_then(|held| held.last().cloned());
+            }
+        }
+    }
 }
 
 /// A live adapter, its program, and everything in flight.
@@ -428,6 +477,7 @@ impl Live {
         let core = Arc::new(Core {
             root: Arc::clone(&root),
             active: Mutex::new(None),
+            children: Mutex::new(Vec::new()),
             port,
             breakpoints: Mutex::new(Vec::new()),
             // Assumed absent until `initialize` says otherwise: neither is ever
@@ -813,10 +863,17 @@ impl Live {
         // Sent without waiting, to every connection: not every adapter answers
         // either one — js-debug answers neither — and killing the adapter below
         // is what actually ends the program.
-        for channel in [Some(self.core.talker()), Some(Arc::clone(&self.core.root))]
-            .into_iter()
-            .flatten()
-        {
+        //
+        // **Every child, not just the active one.** With several open, telling
+        // only the one being watched to stop would leave the others running
+        // until the adapter process was killed — which happens below, but a
+        // program told to terminate gets to shut down properly and one that is
+        // killed does not.
+        let mut everyone = vec![Arc::clone(&self.core.root)];
+        if let Ok(held) = self.core.children.lock() {
+            everyone.extend(held.iter().cloned());
+        }
+        for channel in everyone {
             let _ = channel.send("terminate", json!({ "restart": false }));
             let _ = channel.send("disconnect", json!({ "restart": false }));
         }
@@ -1059,8 +1116,31 @@ fn open_child(core: Arc<Core>, configuration: Value) {
         // The child owns the program from here, so every later request goes to
         // it — set before the handshake, so a `stopped` that arrives during it
         // is answered against the right connection.
-        if let Ok(mut active) = core.active.lock() {
-            *active = Some(Arc::clone(&channel));
+        //
+        // The previous child is kept rather than dropped: it is still connected
+        // and still running its piece of the program. Losing it was how a
+        // second worker stranded the first.
+        if let Ok(mut held) = core.children.lock() {
+            held.push(Arc::clone(&channel));
+        }
+        core.attend(&channel);
+
+        // Said, because a session quietly running several programs while
+        // showing one of them is the kind of half-truth this app exists to
+        // avoid. From the second onwards only — one child is the ordinary case
+        // and needs no remark.
+        let open = core.child_count();
+        if open > 1 {
+            (core.on_event)(
+                "children",
+                json!({
+                    "open": open,
+                    "message": format!(
+                        "{open} programs are running under this debugger. The panel follows \
+                         whichever one stops."
+                    ),
+                }),
+            );
         }
 
         let adapter_id = configuration
@@ -1131,7 +1211,7 @@ fn read_loop(
             match wire::decode(&buffer) {
                 Decoded::Message { body, used } => {
                     buffer.drain(..used);
-                    dispatch(&body, &core, &channel);
+                    dispatch(&body, &core, &channel, is_root);
                 }
                 Decoded::Bad(why) => {
                     (core.on_event)("dap-broken", json!({ "message": why }));
@@ -1158,7 +1238,12 @@ fn read_loop(
     }
 }
 
-fn dispatch(body: &str, core: &Arc<Core>, channel: &Arc<Channel>) {
+/// One message from one connection.
+///
+/// `is_root` because a child ending and the root ending mean different things:
+/// a child finishing is one program of several completing, and the session
+/// carries on.
+fn dispatch(body: &str, core: &Arc<Core>, channel: &Arc<Channel>, is_root: bool) {
     let Ok(message) = serde_json::from_str::<Value>(body) else {
         return;
     };
@@ -1190,6 +1275,15 @@ fn dispatch(body: &str, core: &Arc<Core>, channel: &Arc<Channel>) {
                     *flag = true;
                     cond.notify_all();
                 }
+            }
+            match name.as_str() {
+                // Attention follows the stop — see `Core::attend`.
+                "stopped" => core.attend(channel),
+                // A child ending is one program finishing, not the session
+                // ending; the root closing is what ends things, and that is
+                // handled where the reader stops.
+                "terminated" | "exited" if !is_root => core.forget(channel),
+                _ => {}
             }
             (core.on_event)(&name, message.get("body").cloned().unwrap_or(Value::Null));
         }
@@ -1906,6 +2000,125 @@ mod tests {
             caller.line,
             top.line
         );
+
+        live.stop();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A second child session, against the real js-debug.**
+    ///
+    /// js-debug opens one session per execution context, so a worker thread is
+    /// a second `startDebugging` reverse request and a second connection. Each
+    /// new one used to overwrite the last: the first was still connected, still
+    /// running its piece of the program, and unreachable.
+    ///
+    /// The assertion is that **the breakpoint inside the worker is hit**. That
+    /// can only happen on the worker's own connection, so it fails if the
+    /// second child was dropped, and it fails if requests kept going to the
+    /// first.
+    #[test]
+    #[ignore = "needs js-debug extracted on this machine"]
+    fn a_worker_gets_its_own_session_and_the_first_is_not_lost() {
+        let found = crate::debug::adapters::discover();
+        let js = found
+            .iter()
+            .find(|a| a.language == "typescript")
+            .expect("typescript");
+        if !js.available {
+            eprintln!("skipping: {}", js.problem);
+            return;
+        }
+
+        let dir =
+            std::env::temp_dir().join(format!("coperativeai-dap-worker-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch");
+
+        // The worker is where the breakpoint goes. Node runs it in its own
+        // thread, and js-debug gives it its own debug session.
+        let worker = dir.join("worker.js");
+        std::fs::write(
+            &worker,
+            "const subtotal = 11810;\n\
+             const tax = 1185;\n\
+             const total = subtotal + tax;\n\
+             console.log(total);\n",
+        )
+        .expect("worker.js");
+
+        let main = dir.join("app.js");
+        std::fs::write(
+            &main,
+            "const { Worker } = require('node:worker_threads');\n\
+             const w = new Worker(require('node:path').join(__dirname, 'worker.js'));\n\
+             w.on('exit', () => console.log('worker done'));\n",
+        )
+        .expect("app.js");
+
+        let seen: Arc<Mutex<Vec<(String, Value)>>> = Arc::new(Mutex::new(Vec::new()));
+        let heard = Arc::clone(&seen);
+        let (tx, rx) = channel::<(String, Value)>();
+        let mut live = Live::start(&js.argv, Transport::Tcp, Some(&dir), move |name, body| {
+            if let Ok(mut held) = heard.lock() {
+                held.push((name.to_string(), body.clone()));
+            }
+            let _ = tx.send((name.to_string(), body));
+        })
+        .expect("start js-debug");
+        live.initialize("pwa-node").expect("initialize");
+
+        // Line 3 of the worker: `const total = subtotal + tax;`.
+        live.launch(
+            json!({
+                "type": "pwa-node",
+                "request": "launch",
+                "name": "coperativeai",
+                "program": main.display().to_string(),
+                "cwd": dir.display().to_string(),
+            }),
+            &[Breakpoint {
+                path: worker.display().to_string(),
+                line: 3,
+                condition: String::new(),
+                log: String::new(),
+                hits: String::new(),
+            }],
+        )
+        .expect("launch");
+
+        let stopped = wait_for_stop(&rx, 90);
+        let thread_id = stopped.get("threadId").and_then(|t| t.as_i64()).expect("thread");
+        let frames = live.stack(thread_id).expect("stackTrace");
+        let top = frames.first().expect("a frame");
+        assert!(
+            top.path.to_lowercase().ends_with("worker.js"),
+            "the stop should be inside the worker, on its own session: {frames:?}"
+        );
+        assert_eq!(top.line, 3, "stack: {frames:?}");
+
+        // Read on the worker's connection, which is the whole point: a request
+        // routed to the first child would answer about a different program.
+        let vars = live.variables(top.id).expect("variables");
+        assert!(
+            vars.iter().any(|v| v.name == "subtotal" && v.value == "11810"),
+            "the worker's own scope should be readable. Saw: {vars:?}"
+        );
+
+        // And the app said so, rather than quietly running two programs while
+        // showing one.
+        let events = seen.lock().expect("events");
+        let announced = events
+            .iter()
+            .filter(|(name, _)| name == "children")
+            .filter_map(|(_, body)| body.get("open").and_then(|o| o.as_i64()))
+            .max()
+            .unwrap_or(0);
+        assert!(
+            announced > 1,
+            "more than one child should have been reported. Saw: {:?}",
+            events.iter().map(|(n, _)| n).collect::<Vec<_>>()
+        );
+        drop(events);
 
         live.stop();
         let _ = std::fs::remove_dir_all(&dir);
