@@ -939,6 +939,130 @@ describe("DebugSession", () => {
     expect(screen.queryByLabelText("Breakpoints in Orders")).not.toBeInTheDocument();
   });
 
+  /// **The honest answer to "why did that not work?"** This app deliberately
+  /// does not check a condition or a hit count as it is typed — the grammar
+  /// belongs to the debugger, and inventing one here would be wrong for at
+  /// least one adapter. What it can do is show the debugger's own verdict
+  /// against the breakpoint it is about.
+  it("shows the debugger's verdict against the breakpoint it refused", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem(
+      "coperativeai.breakpoints",
+      JSON.stringify({
+        "5": {
+          "main.go": [{ line: 8, condition: "", log: "round", hits: "" }],
+          "repo.go": [{ line: 44, condition: "", log: "", hits: "" }],
+        },
+      }),
+    );
+    mocked.debugStart.mockResolvedValue({
+      session: "dbg-cs-1",
+      language: "csharp",
+      breakpoints: [
+        {
+          path: "C:/repos/orders/main.go",
+          requested: 8,
+          line: null,
+          verified: false,
+          message: "this debugger cannot print a message instead of stopping",
+          id: 1,
+        },
+        {
+          path: "C:/repos/orders/repo.go",
+          requested: 44,
+          line: 44,
+          verified: true,
+          message: "",
+          id: 2,
+        },
+      ],
+      conditions: true,
+      logPoints: false,
+      hitCounts: false,
+      restartFrame: false,
+      hovers: false,
+      setVariable: true,
+      setExpression: true,
+      note: "",
+    });
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+
+    const list = await screen.findByLabelText("Breakpoints in Orders");
+    const refused = within(list).getByText(/cannot print a message instead of stopping/);
+    // On the row it is about, not as a count somewhere else.
+    expect(refused.closest("li")).toHaveTextContent("main.go:8");
+    // The one that worked says nothing — a verdict on every row would be noise
+    // and would bury the one that matters.
+    expect(within(list).getByText("repo.go:44").closest("li")).not.toHaveTextContent(
+      "cannot",
+    );
+  });
+
+  /// An adapter slides a breakpoint to the next line that runs, and the gutter
+  /// would otherwise disagree with where the program actually stops.
+  it("says when a breakpoint will stop somewhere other than where it was set", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem(
+      "coperativeai.breakpoints",
+      JSON.stringify({ "5": { "main.go": [{ line: 7, condition: "", log: "", hits: "" }] } }),
+    );
+    mocked.debugStart.mockResolvedValue({
+      session: "dbg-go-1",
+      language: "go",
+      breakpoints: [
+        {
+          path: "C:/repos/orders/main.go",
+          requested: 7,
+          line: 9,
+          verified: true,
+          message: "",
+          id: 1,
+        },
+      ],
+      conditions: true,
+      logPoints: true,
+      hitCounts: false,
+      restartFrame: false,
+      hovers: true,
+      setVariable: true,
+      setExpression: false,
+      note: "",
+    });
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+
+    const list = await screen.findByLabelText("Breakpoints in Orders");
+    expect(await within(list).findByText("stops at 9")).toBeInTheDocument();
+  });
+
+  /// **Before a run there is nothing to report**, and a row that guessed would
+  /// be worse than one that waited.
+  ///
+  /// The list itself is shown regardless — seeing and clearing breakpoints
+  /// without starting a program is the ordinary case, and the whole reason it
+  /// exists is a mark left in a file nobody has open.
+  it("lists breakpoints before a run, but passes no verdict on them", async () => {
+    localStorage.setItem(
+      "coperativeai.breakpoints",
+      JSON.stringify({
+        "5": { "main.go": [{ line: 8, condition: "nonsense((", log: "", hits: "" }] },
+      }),
+    );
+    render(<DebugSession solution={sol()} />);
+
+    const list = await screen.findByLabelText("Breakpoints in Orders");
+    expect(within(list).getByText("main.go:8")).toBeInTheDocument();
+    // The condition is shown as written — this app does not judge it, because
+    // the grammar belongs to the debugger.
+    expect(within(list).getByText("if nonsense((")).toBeInTheDocument();
+    // And nothing claims it will or will not work, because nothing has tried.
+    expect(within(list).queryByText("not set")).not.toBeInTheDocument();
+    expect(within(list).queryByText(/stops at/)).not.toBeInTheDocument();
+  });
+
   /// **The case this exists for is deadlock.** The thread that stopped is
   /// rarely the one holding the lock, so a debugger that only ever showed the
   /// stopped thread could not show you the problem at all.

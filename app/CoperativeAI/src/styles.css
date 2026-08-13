@@ -7787,6 +7787,27 @@ button.ready-action.link:hover {
   color: var(--fg-dim);
 }
 
+/* What the debugger said about one breakpoint. Only ever shown once it has
+   said something — before a run there is nothing to report. */
+.mark-verdict {
+  flex: none;
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.6rem;
+}
+
+.mark-verdict.bad {
+  color: var(--bad);
+}
+
+/* Moved is not a failure — the adapter slid it to the next line that runs, and
+   the gutter would otherwise disagree with where the program stops. */
+.mark-verdict.moved {
+  color: var(--fg-dim);
+}
+
 .output-line {
   display: flex;
   gap: 0.4rem;

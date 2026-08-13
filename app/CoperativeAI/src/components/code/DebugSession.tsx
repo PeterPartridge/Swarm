@@ -811,6 +811,32 @@ export default function DebugSession({
 
   const everyMark = allMarksIn(marks, solution.id);
 
+  /// What the debugger did with the breakpoint at this file and line.
+  ///
+  /// **The honest answer to "why did that not work?"** This app deliberately
+  /// does not check a condition, a hit count or a message as it is typed — the
+  /// grammar belongs to the debugger, and inventing one here would be wrong for
+  /// at least one adapter (js-debug wants `7` where Delve wants `== 7`). What
+  /// it can do is show the debugger's own verdict once it has one, against the
+  /// breakpoint it is about.
+  ///
+  /// Matched on the **requested** line, not the placed one: the adapter is free
+  /// to move a breakpoint to the next line that runs, and that is exactly one
+  /// of the things worth reporting.
+  ///
+  /// Paths are compared by suffix because the store keeps them relative to the
+  /// working copy and the adapter answers with absolutes, and case-insensitively
+  /// because Windows hands back whatever spelling the compiler recorded.
+  function verdictFor(path: string, line: number): Placed | null {
+    const tail = path.replace(/\\/g, "/").toLowerCase();
+    return (
+      placed.find(
+        (b) =>
+          b.requested === line && b.path.replace(/\\/g, "/").toLowerCase().endsWith(tail),
+      ) ?? null
+    );
+  }
+
   /// Takes a breakpoint away from wherever it is, and tells a running session.
   ///
   /// **Pushed straight down when something is running.** A breakpoint removed
@@ -895,28 +921,48 @@ export default function DebugSession({
         <div className="session-marks" aria-label={`Breakpoints in ${solution.name}`}>
           <span className="palette-label">Breakpoints</span>
           <ul>
-            {everyMark.map(({ path, mark }) => (
-              <li key={`${path}:${mark.line}`}>
-                <span className="mark-where card-mono">
-                  {path}:{mark.line}
-                </span>
-                {mark.log !== "" && <em className="build-break-kind">logs</em>}
-                {mark.condition !== "" && (
-                  <span className="mark-extra card-mono">if {mark.condition}</span>
-                )}
-                {mark.hits !== "" && (
-                  <span className="mark-extra card-mono">hits {mark.hits}</span>
-                )}
-                <button
-                  type="button"
-                  className="watch-drop"
-                  aria-label={`Remove the breakpoint at ${path} line ${mark.line}`}
-                  onClick={() => dropMark(path, mark.line)}
-                >
-                  ×
-                </button>
-              </li>
-            ))}
+            {everyMark.map(({ path, mark }) => {
+              const verdict = verdictFor(path, mark.line);
+              return (
+                <li key={`${path}:${mark.line}`}>
+                  <span className="mark-where card-mono">
+                    {path}:{mark.line}
+                  </span>
+                  {mark.log !== "" && <em className="build-break-kind">logs</em>}
+                  {mark.condition !== "" && (
+                    <span className="mark-extra card-mono">if {mark.condition}</span>
+                  )}
+                  {mark.hits !== "" && (
+                    <span className="mark-extra card-mono">hits {mark.hits}</span>
+                  )}
+                  {/* **The debugger's own verdict**, and only once it has given
+                      one — before a run there is nothing to report, and a row
+                      that guessed would be worse than one that waited. A
+                      refusal carries the adapter's words, because "cannot
+                      evaluate breakpoint conditions" is the answer somebody
+                      needs and a red mark is not. */}
+                  {verdict && !verdict.verified && (
+                    <span className="mark-verdict bad" title={verdict.message}>
+                      {verdict.message || "not set"}
+                    </span>
+                  )}
+                  {verdict &&
+                    verdict.verified &&
+                    verdict.line !== null &&
+                    verdict.line !== mark.line && (
+                      <span className="mark-verdict moved">stops at {verdict.line}</span>
+                    )}
+                  <button
+                    type="button"
+                    className="watch-drop"
+                    aria-label={`Remove the breakpoint at ${path} line ${mark.line}`}
+                    onClick={() => dropMark(path, mark.line)}
+                  >
+                    ×
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
