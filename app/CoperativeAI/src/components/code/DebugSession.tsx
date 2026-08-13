@@ -260,6 +260,16 @@ export default function DebugSession({
   /// is what you are looking at and what a step will act on.
   const [threads, setThreads] = useState<DebugThread[]>([]);
   const [stoppedOn, setStoppedOn] = useState<number | null>(null);
+  /// What to narrow the thread list to.
+  ///
+  /// **Typed, not guessed.** A Go program stops with dozens of goroutines and
+  /// most are runtime internals — but "which of these are mine?" is not a
+  /// question this app can answer without inventing a rule, and a rule that
+  /// hid the wrong thread would be worse than the wall it replaced. Delve
+  /// happens to put the state in the name (`goroutine 17 [chan receive]`), so
+  /// searching the names the adapter gave is both useful and honest: it filters
+  /// on exactly what is on screen.
+  const [threadFilter, setThreadFilter] = useState("");
   /// The expressions being kept an eye on, and what each last came to.
   ///
   /// The list lives on this machine and outlasts the session — see lib/watches
@@ -515,6 +525,9 @@ export default function DebugSession({
         // ended is worse than none.
         setThreads([]);
         setStoppedOn(null);
+        // The filter goes with the list it narrows. A search left over from the
+        // last stop would silently hide threads at the next one.
+        setThreadFilter("");
         resumedRef.current?.();
       } else if (event === "breakpoint") {
         // **The correction, and it is the protocol's own.** Nothing is bound
@@ -567,6 +580,9 @@ export default function DebugSession({
         setWatched({});
         setThreads([]);
         setStoppedOn(null);
+        // The filter goes with the list it narrows. A search left over from the
+        // last stop would silently hide threads at the next one.
+        setThreadFilter("");
         resumedRef.current?.();
       } else if (event === "dap-broken") {
         setState("ended");
@@ -809,6 +825,18 @@ export default function DebugSession({
     );
   })();
 
+  /// The threads to draw, narrowed by whatever was typed.
+  ///
+  /// **The thread that stopped is always kept**, however the filter reads. It
+  /// is the one that explains why anything is stopped at all, and a search that
+  /// hid it would leave the panel looking like it had lost the program.
+  const shownThreads = threads.filter(
+    (t) =>
+      t.id === stoppedOn ||
+      threadFilter.trim() === "" ||
+      t.name.toLowerCase().includes(threadFilter.trim().toLowerCase()),
+  );
+
   const everyMark = allMarksIn(marks, solution.id);
 
   /// What the debugger did with the breakpoint at this file and line.
@@ -1035,9 +1063,26 @@ export default function DebugSession({
               nothing to pick between. */}
           {stopped && threads.length > 1 && (
             <div className="session-threads" role="group" aria-label="Threads">
-              <span className="palette-label">Threads</span>
+              <div className="thread-head">
+                <span className="palette-label">Threads</span>
+                {/* The count first, because the number is what makes somebody
+                    reach for the box in the first place. */}
+                <span className="thread-count">
+                  {shownThreads.length === threads.length
+                    ? `${threads.length}`
+                    : `${shownThreads.length} of ${threads.length}`}
+                </span>
+                <input
+                  type="text"
+                  className="thread-filter"
+                  aria-label="Filter threads"
+                  placeholder="filter by name"
+                  value={threadFilter}
+                  onChange={(e) => setThreadFilter(e.target.value)}
+                />
+              </div>
               <div className="thread-row">
-                {threads.map((t) => (
+                {shownThreads.map((t) => (
                   <button
                     key={t.id}
                     type="button"
@@ -1053,6 +1098,14 @@ export default function DebugSession({
                   </button>
                 ))}
               </div>
+              {/* Said, rather than left to be worked out from a list shorter
+                  than the count above it. */}
+              {threadFilter.trim() !== "" && shownThreads.length < threads.length && (
+                <p className="hint">
+                  {threads.length - shownThreads.length} hidden by the filter. The thread that
+                  stopped is always shown.
+                </p>
+              )}
             </div>
           )}
 

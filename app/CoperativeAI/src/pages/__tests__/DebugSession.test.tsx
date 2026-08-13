@@ -1063,6 +1063,108 @@ describe("DebugSession", () => {
     expect(within(list).queryByText(/stops at/)).not.toBeInTheDocument();
   });
 
+  /// **Dozens of goroutines wrap into a wall**, and most are runtime
+  /// internals. Which of them are "mine" is not a question this app can answer
+  /// without inventing a rule, so it filters on the names the adapter gave —
+  /// exactly what is on screen, and nothing guessed.
+  it("narrows the thread list to what was typed", async () => {
+    const user = userEvent.setup();
+    mocked.debugThreads.mockResolvedValue([
+      { id: 1, name: "main" },
+      { id: 17, name: "goroutine 17 [chan receive]" },
+      { id: 18, name: "goroutine 18 [select]" },
+      { id: 19, name: "goroutine 19 [chan receive]" },
+    ]);
+    mocked.debugStack.mockResolvedValue([
+      { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 21, column: 2, canRestart: true },
+    ]);
+    mocked.debugVariables.mockResolvedValue([]);
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+
+    const group = await screen.findByRole("group", { name: "Threads" });
+    // The count is what makes somebody reach for the box.
+    expect(within(group).getByText("4")).toBeInTheDocument();
+
+    await user.type(within(group).getByLabelText("Filter threads"), "chan receive");
+
+    expect(within(group).getByLabelText("Thread goroutine 17 [chan receive]")).toBeInTheDocument();
+    expect(within(group).getByLabelText("Thread goroutine 19 [chan receive]")).toBeInTheDocument();
+    expect(
+      within(group).queryByLabelText("Thread goroutine 18 [select]"),
+    ).not.toBeInTheDocument();
+    // What is hidden is said, not left to be worked out from a short list.
+    expect(within(group).getByText(/1 hidden by the filter/)).toBeInTheDocument();
+  });
+
+  /// **The thread that stopped is never filtered away.** It is the one that
+  /// explains why anything is stopped at all, and a search that hid it would
+  /// leave the panel looking like it had lost the program.
+  it("always shows the thread that stopped, whatever the filter says", async () => {
+    const user = userEvent.setup();
+    mocked.debugThreads.mockResolvedValue([
+      { id: 1, name: "main" },
+      { id: 17, name: "goroutine 17 [chan receive]" },
+    ]);
+    mocked.debugStack.mockResolvedValue([
+      { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 21, column: 2, canRestart: true },
+    ]);
+    mocked.debugVariables.mockResolvedValue([]);
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+
+    const group = await screen.findByRole("group", { name: "Threads" });
+    // A filter that matches nothing on the stopped thread's name.
+    await user.type(within(group).getByLabelText("Filter threads"), "chan receive");
+
+    expect(within(group).getByLabelText("Thread main")).toBeInTheDocument();
+    expect(within(group).getByLabelText("Thread main")).toHaveTextContent("stopped here");
+  });
+
+  /// A filter left over from the last stop would silently hide threads at the
+  /// next one.
+  it("forgets the filter when the program moves on", async () => {
+    const user = userEvent.setup();
+    mocked.debugThreads.mockResolvedValue([
+      { id: 1, name: "main" },
+      { id: 17, name: "waiter" },
+    ]);
+    mocked.debugStack.mockResolvedValue([
+      { id: 1000, name: "main.main", path: "C:/repos/orders/main.go", line: 21, column: 2, canRestart: true },
+    ]);
+    mocked.debugVariables.mockResolvedValue([]);
+    render(<DebugSession solution={sol()} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "breakpoint" } });
+    });
+    const group = await screen.findByRole("group", { name: "Threads" });
+    await user.type(within(group).getByLabelText("Filter threads"), "waiter");
+
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "continued", body: {} });
+    });
+    act(() => {
+      emit?.({ session: "dbg-go-1", event: "stopped", body: { threadId: 1, reason: "step" } });
+    });
+
+    const again = await screen.findByRole("group", { name: "Threads" });
+    expect(within(again).getByLabelText("Filter threads")).toHaveValue("");
+    expect(within(again).getByLabelText("Thread waiter")).toBeInTheDocument();
+  });
+
   /// **The case this exists for is deadlock.** The thread that stopped is
   /// rarely the one holding the lock, so a debugger that only ever showed the
   /// stopped thread could not show you the problem at all.
