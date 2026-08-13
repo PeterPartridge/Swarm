@@ -105,10 +105,7 @@ mod tests {
     use super::*;
 
     fn temp_parent(name: &str) -> String {
-        let dir = std::env::temp_dir().join(format!("coperativeai-scaffold-{name}"));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).expect("create temp dir");
-        dir.to_string_lossy().into_owned()
+        crate::testing::scratch_str("scaffold", name)
     }
 
     #[test]

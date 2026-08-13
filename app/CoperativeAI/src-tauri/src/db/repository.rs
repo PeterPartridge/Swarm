@@ -145,9 +145,7 @@ pub(crate) mod tests {
 
     /// A real directory to register in tests (path validation is enforced).
     pub(crate) fn temp_repo_dir(name: &str) -> String {
-        let dir = std::env::temp_dir().join(format!("coperativeai-test-{name}"));
-        std::fs::create_dir_all(&dir).expect("create temp dir");
-        dir.to_string_lossy().into_owned()
+        crate::testing::scratch_str("repository", name)
     }
 
     async fn test_db() -> Connection {
