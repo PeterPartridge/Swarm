@@ -149,32 +149,51 @@ jobs:
           $out = 'dist-release'
           New-Item -ItemType Directory -Force -Path $out | Out-Null
 
-          # Verified against a real `tauri build` on this project:
-          #   bundle/msi/CoperativeAI_0.1.0_x64_en-US.msi   (17 MB)
-          #   bundle/nsis/CoperativeAI_0.1.0_x64-setup.exe  (13 MB)
-          #   coperativeai.exe                              (45 MB, portable)
+          # Verified against a real `tauri build`, both locally and on a runner:
+          #   bundle/msi/CoperativeAI_<version>_x64_en-US.msi   ~17 MB
+          #   bundle/nsis/CoperativeAI_<version>_x64-setup.exe  ~13 MB
+          #   <the binary>.exe                                  ~45 MB, portable
           #
-          # **The bare exe is the crate's name, not the product's** — lowercase
-          # `coperativeai.exe`, because Cargo names the binary and Tauri only
-          # names the bundle. Windows would have matched either spelling and
-          # hidden that; naming it correctly means a reader is not misled.
+          # **The portable binary is globbed, not named.** Cargo names it after
+          # the crate and Tauri after the product, and the two differ here —
+          # naming either one got it silently missed on the first real run. Only
+          # the bundles live in subdirectories, so a top-level `*.exe` can only
+          # be the binary.
           #
           # The installers carry the version in their filename, so a release
-          # that was stamped wrong is visible in the asset list.
+          # stamped with the wrong number is visible in the asset list rather
+          # than only inside the installer.
+          $patterns = @(
+            @{ what = 'msi installer';   glob = "$root/bundle/msi/*.msi" },
+            @{ what = 'nsis installer';  glob = "$root/bundle/nsis/*.exe" },
+            @{ what = 'portable binary'; glob = "$root/*.exe" }
+          )
+
+          # **Every pattern reports.** The first version of this only complained
+          # when *nothing* matched, so two assets out of three looked like a
+          # clean run — which is how the portable binary went missing without
+          # anybody being told.
           $found = @()
-          foreach ($p in @(
-            "$root/bundle/msi/*.msi",
-            "$root/bundle/nsis/*.exe",
-            "$root/coperativeai.exe"
-          )) {
-            $found += Get-ChildItem $p -ErrorAction SilentlyContinue
+          $missing = @()
+          foreach ($p in $patterns) {
+            $hit = @(Get-ChildItem $p.glob -File -ErrorAction SilentlyContinue)
+            if ($hit.Count -eq 0) {
+              $missing += $p.what
+              Write-Host "MISSING  $($p.what)  ($($p.glob))"
+            } else {
+              $found += $hit
+              $hit | ForEach-Object { Write-Host "found    $($p.what)  $($_.Name)" }
+            }
           }
-          if ($found.Count -eq 0) {
-            Write-Host "--- what is in $root ---"
-            Get-ChildItem $root -Recurse -Depth 2 -ErrorAction SilentlyContinue |
-              Select-Object -ExpandProperty FullName
-            throw "The build produced nothing to publish."
+
+          if ($missing.Count -gt 0) {
+            Write-Host "--- what is actually in $root ---"
+            Get-ChildItem $root -Recurse -Depth 2 -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.Extension -in '.exe', '.msi' } |
+              ForEach-Object { Write-Host "  $($_.FullName)" }
+            throw "Did not find: $($missing -join ', '). Nothing is published from a partial build."
           }
+
           $found | ForEach-Object { Copy-Item $_.FullName $out }
           Get-ChildItem $out | ForEach-Object { Write-Host "publishing $($_.Name)" }
 
