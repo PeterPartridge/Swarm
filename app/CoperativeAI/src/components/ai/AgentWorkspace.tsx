@@ -30,7 +30,12 @@ import {
   type Frame,
   type Solution,
   type WorkItem,
+  type MySpace,
+  listMySpaces,
+  openMySpace,
+  closeMySpace,
 } from "../../lib/backend";
+import { track } from "../../lib/saving";
 
 /** The Build view: every agent down the left, the files in the middle, one
  *  agent's work in the workbench, and the decision to ship it down the right.
@@ -81,6 +86,12 @@ export default function AgentWorkspace({
   /// Which Solution the file tree is showing. Follows the selected agent's run;
   /// on your own workspace it is whichever Solution tab is picked.
   const [browsing, setBrowsing] = useState<number | null>(null);
+  /// Your own worktrees on the Solution being browsed.
+  ///
+  /// **Read from git rather than remembered.** A worktree removed by hand is
+  /// gone, and a lane still offering it would be offering a folder that is not
+  /// there — the same rule the debugger's thread list follows.
+  const [mySpaces, setMySpaces] = useState<MySpace[]>([]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   /// Which Solution the open file belongs to. Held apart from `browsing`
   /// because the Files pane can show the whole Product, so the file being
@@ -322,6 +333,59 @@ export default function AgentWorkspace({
   );
 
   const browsingSolution = solutions.find((s) => s.id === browsing) ?? null;
+
+  /// Reloads your spaces whenever the Solution changes.
+  ///
+  /// Failure is quiet: a Solution with no repository, or one whose folder has
+  /// gone, is a reason to have no spaces rather than a reason to put an error
+  /// over the whole Build view.
+  const refreshSpaces = useCallback(async (solutionId: number | null) => {
+    if (solutionId === null) {
+      setMySpaces([]);
+      return;
+    }
+    try {
+      setMySpaces(await listMySpaces(solutionId));
+    } catch {
+      setMySpaces([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshSpaces(browsing);
+  }, [browsing, refreshSpaces]);
+
+  /// Opens another worktree of your own.
+  ///
+  /// The name is asked for rather than generated: two spaces called "space 2"
+  /// and "space 3" are no easier to tell apart than two called nothing, and the
+  /// name becomes a branch somebody will read again later.
+  async function addSpace() {
+    if (browsing === null) return;
+    const name = window.prompt("What is this space for? It becomes a branch name.");
+    if (name === null || name.trim() === "") return;
+    try {
+      const opened = await track("Your space", () => openMySpace(browsing, name.trim()));
+      await refreshSpaces(browsing);
+      // Selected straight away: somebody who just made one meant to work in it.
+      setSelected(`space:${opened.path}`);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  /// Closes one. The checkout goes; the branch and its commits stay.
+  async function dropSpace(path: string) {
+    if (browsing === null) return;
+    try {
+      await track("Closing the space", () => closeMySpace(browsing, path));
+      await refreshSpaces(browsing);
+      // Back to the main copy if the one being watched is the one that went.
+      setSelected((was) => (was === `space:${path}` ? "code" : was));
+    } catch (e) {
+      setError(String(e));
+    }
+  }
   const openFileSolution = solutions.find((s) => s.id === fileFrom) ?? null;
   const selectedChange =
     review?.changes.find((c) => c.path === selectedFile) ?? null;
@@ -408,6 +472,12 @@ export default function AgentWorkspace({
           selected={selected}
           onSelect={setSelected}
           yourFolder={browsingSolution?.localPath ?? null}
+          mySpaces={mySpaces}
+          // Only where there is somewhere to make one: no Solution, or one with
+          // no working copy here, means no button rather than one that could
+          // only fail.
+          onOpenSpace={browsingSolution?.localPath ? addSpace : undefined}
+          onCloseSpace={browsingSolution?.localPath ? dropSpace : undefined}
           unassigned={unassigned}
           onOpenWork={onOpenWork}
         />

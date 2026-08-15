@@ -1,4 +1,4 @@
-import type { AiJob, Run, WorkItem } from "../../lib/backend";
+import type { AiJob, MySpace, Run, WorkItem } from "../../lib/backend";
 
 /** One row in the lane: an agent working on a work item, in a Solution once it
  *  has got as far as a run.
@@ -107,6 +107,9 @@ export default function AgentLane({
   selected,
   onSelect,
   yourFolder,
+  mySpaces = [],
+  onOpenSpace,
+  onCloseSpace,
   unassigned,
   onOpenWork,
 }: {
@@ -118,6 +121,21 @@ export default function AgentLane({
   /** The folder the plain editor has open, shown on the "your workspace" card.
    *  Null when nothing has been opened. */
   yourFolder: string | null;
+  /** Your own worktrees on the selected Solution.
+   *
+   *  **The same kind of thing an agent has.** The divider below already said
+   *  "agent worktrees" while the one card above it was a pointer at the main
+   *  working copy, so the lane claimed a symmetry it did not have. These are
+   *  real checkouts, which is what makes two of them worth having: the same
+   *  Solution open twice, and an experiment in one that cannot disturb the
+   *  other. */
+  mySpaces?: MySpace[];
+  /** Opens another. Absent where there is nothing to open one on — no
+   *  Solution selected, or no working copy — in which case no button is drawn
+   *  rather than one that could only fail. */
+  onOpenSpace?: () => void;
+  /** Closes one, removing the checkout and leaving the branch. */
+  onCloseSpace?: (path: string) => void;
   /** Work items with no agent on them yet, newest first. */
   unassigned: WorkItem[];
   /** Opens one of them in Work. Absent when there is nowhere to send it. */
@@ -168,6 +186,57 @@ export default function AgentLane({
             <span className="card-summary">Edit any Solution directly</span>
           </span>
         </button>
+
+        {/* Yours, between the main copy and the agents' — the lane reads top to
+            bottom as "where you can work", and a person's own checkouts belong
+            beside the one they already had rather than below the agents. */}
+        {mySpaces.map((space) => (
+          <div key={space.path} className="agent-card-row">
+            <button
+              type="button"
+              className={`agent-card yours ${selected === `space:${space.path}` ? "card-active" : ""}`}
+              aria-pressed={selected === `space:${space.path}`}
+              aria-label={`Your space ${space.name}`}
+              style={{ "--agent-hue": "#6cb6ff" } as React.CSSProperties}
+              onClick={() => onSelect(`space:${space.path}`)}
+            >
+              <span className="card-rail" aria-hidden="true" />
+              <span className="card-top">
+                <span className="card-avatar">You</span>
+                <span className="card-who">
+                  <strong>{space.name}</strong>
+                  {/* The branch rather than the path: it is what git knows it
+                      by, and what somebody would type to find it again. */}
+                  <span className="card-mono">{space.branch}</span>
+                </span>
+                <span className="card-status yours">yours</span>
+              </span>
+              <span className="card-line">
+                <span className="card-chip">worktree</span>
+                <span className="card-summary">Its own checkout</span>
+              </span>
+            </button>
+            {onCloseSpace && (
+              <button
+                type="button"
+                className="card-close"
+                aria-label={`Close the space ${space.name}`}
+                // Says what it does not do, because "close" is the word people
+                // fear on something holding work.
+                title="Removes the checkout. The branch and its commits stay."
+                onClick={() => onCloseSpace(space.path)}
+              >
+                ×
+              </button>
+            )}
+          </div>
+        ))}
+
+        {onOpenSpace && (
+          <button type="button" className="lane-add" onClick={onOpenSpace}>
+            + Another space of mine
+          </button>
+        )}
 
         <div className="lane-divider">
           <span>agent worktrees</span>

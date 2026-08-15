@@ -26,6 +26,9 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     listAiFeedback: vi.fn(),
     suggestDevCommand: vi.fn(),
     startRun: vi.fn(),
+    listMySpaces: vi.fn(),
+    openMySpace: vi.fn(),
+    closeMySpace: vi.fn(),
     // The Build view reads the tree, the changed files and the review itself.
     // Leaving any of them to fall through to the real `invoke` would render an
     // error state and still pass, which is the trap this file has hit before.
@@ -169,6 +172,15 @@ function panel(onOpenWork?: (id: number) => void) {
 
 describe("AgentWorkspace (the Build view)", () => {
   beforeEach(() => {
+    // No spaces unless a test says otherwise — the ordinary state, and the one
+    // where the lane looks as it always did.
+    mocked.listMySpaces.mockResolvedValue([]);
+    mocked.openMySpace.mockResolvedValue({
+      branch: "myspace/desk",
+      name: "desk",
+      path: "C:/repos/.coperativeai-worktrees/myspace-desk",
+    });
+    mocked.closeMySpace.mockResolvedValue(undefined);
     vi.clearAllMocks();
     mocked.listWorkItems.mockResolvedValue([item()]);
     mocked.listRuns.mockResolvedValue([]);
@@ -567,5 +579,87 @@ describe("AgentWorkspace (the Build view)", () => {
     expect(screen.getByRole("region", { name: "Questions" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Unit tests" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Git" })).toBeInTheDocument();
+  });
+
+  /// **The lane claimed this before it had it.** The divider said "agent
+  /// worktrees" while the one card above it pointed at the main working copy,
+  /// so the one place a person and an agent do the same work was the one place
+  /// only the agent had somewhere to do it.
+  it("lists your own worktrees beside the agents'", async () => {
+    mocked.listMySpaces.mockResolvedValue([
+      { branch: "myspace/desk", name: "desk", path: "C:/w/myspace-desk" },
+      { branch: "myspace/bench", name: "bench", path: "C:/w/myspace-bench" },
+    ]);
+    const user = userEvent.setup();
+    render(<AgentWorkspace productId={1} solutions={[solution]} opened={null} />);
+    const tabs = await screen.findByRole("tablist", { name: "Solutions" });
+    await user.click(within(tabs).getByRole("tab", { name: /^Shop API/ }));
+
+    const lane = await screen.findByRole("navigation", { name: "Agents" });
+    expect(await within(lane).findByLabelText("Your space desk")).toBeInTheDocument();
+    expect(within(lane).getByLabelText("Your space bench")).toBeInTheDocument();
+    // The branch is shown rather than the path: it is what git knows it by and
+    // what somebody would type to find it again.
+    expect(within(lane).getByText("myspace/desk")).toBeInTheDocument();
+  });
+
+  /// A name is asked for rather than generated: "space 2" and "space 3" are no
+  /// easier to tell apart than two called nothing, and it becomes a branch.
+  it("opens another space and selects it", async () => {
+    const user = userEvent.setup();
+    const ask = vi.spyOn(window, "prompt").mockReturnValue("desk");
+    render(<AgentWorkspace productId={1} solutions={[solution]} opened={null} />);
+
+    const tabs = await screen.findByRole("tablist", { name: "Solutions" });
+    await user.click(within(tabs).getByRole("tab", { name: /^Shop API/ }));
+
+    const lane = await screen.findByRole("navigation", { name: "Agents" });
+    await user.click(await within(lane).findByRole("button", { name: /Another space of mine/ }));
+
+    await waitFor(() => expect(mocked.openMySpace).toHaveBeenCalledWith(5, "desk"));
+    // Re-read from git rather than assumed: a worktree removed by hand is gone.
+    await waitFor(() => expect(mocked.listMySpaces).toHaveBeenCalledTimes(2));
+    ask.mockRestore();
+  });
+
+  /// Cancelling the prompt must leave the repository alone.
+  it("makes nothing when the name is cancelled", async () => {
+    const user = userEvent.setup();
+    const ask = vi.spyOn(window, "prompt").mockReturnValue(null);
+    render(<AgentWorkspace productId={1} solutions={[solution]} opened={null} />);
+
+    const tabs = await screen.findByRole("tablist", { name: "Solutions" });
+    await user.click(within(tabs).getByRole("tab", { name: /^Shop API/ }));
+
+    const lane = await screen.findByRole("navigation", { name: "Agents" });
+    await user.click(await within(lane).findByRole("button", { name: /Another space of mine/ }));
+
+    expect(mocked.openMySpace).not.toHaveBeenCalled();
+    ask.mockRestore();
+  });
+
+  /// **"Close" is the word people fear on something holding work**, so the
+  /// control says what it does not do: the checkout goes, the branch stays.
+  it("closes a space, and says the branch survives", async () => {
+    const user = userEvent.setup();
+    mocked.listMySpaces.mockResolvedValue([
+      { branch: "myspace/desk", name: "desk", path: "C:/w/myspace-desk" },
+    ]);
+    render(<AgentWorkspace productId={1} solutions={[solution]} opened={null} />);
+
+    const tabs = await screen.findByRole("tablist", { name: "Solutions" });
+    await user.click(within(tabs).getByRole("tab", { name: /^Shop API/ }));
+
+    const lane = await screen.findByRole("navigation", { name: "Agents" });
+    const close = await within(lane).findByLabelText("Close the space desk");
+    expect(close).toHaveAttribute(
+      "title",
+      "Removes the checkout. The branch and its commits stay.",
+    );
+
+    await user.click(close);
+    await waitFor(() =>
+      expect(mocked.closeMySpace).toHaveBeenCalledWith(5, "C:/w/myspace-desk"),
+    );
   });
 });

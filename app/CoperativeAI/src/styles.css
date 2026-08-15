@@ -8048,3 +8048,51 @@ button.ready-action.link:hover {
     border-top-color: var(--fg-dim);
   }
 }
+
+/* A space of yours in the lane, with its close beside it. The card is already
+   a button, so the close cannot live inside it. */
+.agent-card-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.2rem;
+}
+
+.agent-card-row .agent-card {
+  flex: 1;
+  min-width: 0;
+}
+
+.card-close {
+  flex: none;
+  padding: 0 0.35rem;
+  font-size: 0.85rem;
+  line-height: 1;
+  color: var(--fg-dim);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.card-close:hover {
+  color: var(--bad);
+  border-color: var(--line);
+}
+
+/* Quiet, because opening another space is an occasional thing and the lane is
+   mostly for reading. */
+.lane-add {
+  width: 100%;
+  padding: 0.3rem;
+  font-size: 0.68rem;
+  color: var(--fg-dim);
+  background: none;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.lane-add:hover {
+  color: var(--fg-bright);
+  border-color: var(--fg-dim);
+}
