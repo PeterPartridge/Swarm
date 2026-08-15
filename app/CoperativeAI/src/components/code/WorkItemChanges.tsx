@@ -3,6 +3,8 @@ import {
   addWorkItemChange,
   assignWorkItemChange,
   changeKindsForSolution,
+  createSolution,
+  listSolutions,
   deleteWorkItemChange,
   listWorkItemChanges,
   setChangeMockup,
@@ -13,6 +15,7 @@ import {
   type Solution,
   type WorkItemChange,
 } from "../../lib/backend";
+import { track } from "../../lib/saving";
 
 /** What a work item changes: screens, APIs and database tables.
  *
@@ -34,6 +37,7 @@ export default function WorkItemChanges({
   mode,
   solutions,
   mockups = [],
+  productId,
 }: {
   workItemId: number;
   mode: "product" | "developer";
@@ -43,9 +47,25 @@ export default function WorkItemChanges({
    *  one shows it. Pairing them here means the model is told "this picture is
    *  the Basket screen" rather than being handed a pile and a list. */
   mockups?: string[];
+  /** The Product these belong to, which is what a new Solution needs.
+   *
+   *  **Absent means no create form.** That is the Product-side view: a Solution
+   *  is a developer's decision about how the work gets built, and offering it
+   *  where nobody can act on it would mislead rather than help. */
+  productId?: number;
 }) {
   const [changes, setChanges] = useState<WorkItemChange[]>([]);
   const [error, setError] = useState<string | null>(null);
+  /// The Solutions this panel knows about.
+  ///
+  /// **Seeded from the prop and re-read after making one.** The list is owned
+  /// three components up, so a Solution created here would not reach the
+  /// dropdown that needed it until something else happened to refresh — which
+  /// is exactly what made an add button pointless.
+  const [known, setKnown] = useState<Solution[]>(solutions);
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newType, setNewType] = useState("api");
   const [kind, setKind] = useState<ChangeKind>("screen");
   const [action, setAction] = useState<ChangeAction>("add");
   const [name, setName] = useState("");
@@ -145,9 +165,35 @@ export default function WorkItemChanges({
     }
   }
 
+  /// Makes a Solution and puts it straight in the dropdown.
+  ///
+  /// **Re-read rather than appended.** The backend decides the id and may tidy
+  /// the name, so guessing the row would show something subtly different from
+  /// what was saved — and this dropdown is about to be used to assign work to
+  /// it.
+  async function addSolution() {
+    if (productId === undefined) return;
+    const wanted = newName.trim();
+    if (wanted === "") return;
+    try {
+      const id = await track("Solution", () =>
+        createSolution({ name: wanted, productId, solutionType: newType, answers: "{}" }),
+      );
+      const all = await listSolutions();
+      setKnown(all.filter((s) => s.productId === productId));
+      // Selected at once: somebody who made one here meant to assign this to it.
+      setTarget(id);
+      setAdding(false);
+      setNewName("");
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   const unassigned = changes.filter((c) => c.solutionId === null);
   const nameFor = (id: number) =>
-    solutions.find((s) => s.id === id)?.name ?? `Solution ${id}`;
+    known.find((s) => s.id === id)?.name ?? `Solution ${id}`;
 
   return (
     <section
@@ -163,6 +209,60 @@ export default function WorkItemChanges({
 
       {error && <p role="alert">{error}</p>}
 
+      {/* **The empty case is the common one**, and it used to be silent: a work
+          item arrives from Product with screens on it, the Solution dropdown
+          offers only "not assigned", and what to do about that was something
+          you had to already know. */}
+      {mode === "developer" && productId !== undefined && (
+        <div className="add-solution">
+          {known.length === 0 && (
+            <p className="hint">
+              This Product has no Solutions yet, so there is nothing to assign
+              these to.
+            </p>
+          )}
+          {adding ? (
+            <form
+              className="add-solution-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void addSolution();
+              }}
+            >
+              <input
+                type="text"
+                aria-label="New Solution name"
+                placeholder="Solution name"
+                value={newName}
+                autoFocus
+                onChange={(e) => setNewName(e.target.value)}
+              />
+              <select
+                aria-label="New Solution type"
+                value={newType}
+                onChange={(e) => setNewType(e.target.value)}
+              >
+                <option value="api">API</option>
+                <option value="website">Website</option>
+                <option value="service">Service</option>
+                <option value="library">Library</option>
+                <option value="other">Other</option>
+              </select>
+              <button type="submit" disabled={newName.trim() === ""}>
+                Create
+              </button>
+              <button type="button" onClick={() => setAdding(false)}>
+                Cancel
+              </button>
+            </form>
+          ) : (
+            <button type="button" onClick={() => setAdding(true)}>
+              Add a Solution
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="change-form">
         {mode === "developer" && (
           <label>
@@ -173,7 +273,7 @@ export default function WorkItemChanges({
               onChange={(e) => setTarget(e.target.value === "" ? "" : Number(e.target.value))}
             >
               <option value="">Not assigned yet</option>
-              {solutions.map((s) => (
+              {known.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name} ({s.solutionType})
                 </option>
@@ -324,7 +424,7 @@ export default function WorkItemChanges({
                 }
               >
                 <option value="">Not assigned</option>
-                {solutions.map((s) => (
+                {known.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
                   </option>

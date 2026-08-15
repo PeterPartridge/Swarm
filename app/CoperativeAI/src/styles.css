@@ -8096,3 +8096,26 @@ button.ready-action.link:hover {
   color: var(--fg-bright);
   border-color: var(--fg-dim);
 }
+
+
+/* Making a Solution from the build plan, where the dropdown that needs one is.
+   Quiet until asked for: most work items land on Solutions that already exist,
+   and a form open by default would be in the way of the common case. */
+.add-solution {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.4rem 0;
+}
+
+.add-solution-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.add-solution-form input {
+  flex: 1;
+  min-width: 10rem;
+}
