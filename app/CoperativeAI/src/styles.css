@@ -6729,10 +6729,21 @@ button.ready-action.link:hover {
 
 /* The textarea takes whatever the card has left, so every card in a row ends
    level however long its heading wrapped. */
+/* **Tall enough to read a paragraph, and draggable past that.** A template puts
+   a dozen lines into one of these, and a box showing four of them makes the
+   other eight feel hidden rather than merely scrolled.
+
+   Vertical resize only: dragging one wider would break the row it sits in, and
+   how many columns there are is what the breakpoints decide. */
 .rule-card textarea {
   flex: 1;
-  min-height: 8.5rem;
+  min-height: 14rem;
+  /* Past this it scrolls rather than growing on its own. A card that grew with
+     its content would shuffle every other card in the row as somebody typed. */
+  max-height: 60vh;
+  overflow-y: auto;
   resize: vertical;
+  line-height: 1.45;
 }
 
 /* The per-box template picker. Quiet, because it is a starting point and not
@@ -6746,6 +6757,10 @@ button.ready-action.link:hover {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+  /* Room to see a paragraph rather than a slot. These fields hold a dozen lines
+     of instruction once a template is in, and a short box makes that look like
+     a mistake rather than like content. */
+  min-height: 19rem;
   padding: 0.55rem 0.6rem;
   background: var(--sunken);
   border: 1px solid var(--line-soft);
