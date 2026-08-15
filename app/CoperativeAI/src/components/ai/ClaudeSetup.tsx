@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import TerminalPanel from "../code/TerminalPanel";
 import {
   addClaudeCodeProvider,
   claudeCodeStatus,
@@ -52,6 +53,17 @@ export default function ClaudeSetup({ productId }: { productId: number }) {
   const [route, setRoute] = useState<Route>("plan");
   const [providers, setProviders] = useState<AiProvider[]>([]);
   const [chain, setChain] = useState<number[]>([]);
+  /// The sign-in shell, once one has been started.
+  ///
+  /// **Shown here rather than on the Build board.** Signing in is about this
+  /// machine's account, not about any repository, and sending somebody to a
+  /// different page to finish what they started on this one is the kind of
+  /// seam that makes a button feel broken.
+  ///
+  /// It has to be a real terminal rather than a pane of output: the login
+  /// prints its URL and then waits at "Paste code here if prompted", so
+  /// somewhere to type is part of the job.
+  const [signInShell, setSignInShell] = useState<string | null>(null);
   const [cli, setCli] = useState<{
     installed: boolean;
     version: string;
@@ -216,10 +228,11 @@ export default function ClaudeSetup({ productId }: { productId: number }) {
     setError(null);
     setNotice(null);
     try {
-      await openClaudeSignIn(executable);
+      const opened = await openClaudeSignIn(executable);
+      setSignInShell(opened.id);
       setNotice(
-        "A terminal is open on the Build board with the sign-in running. Finish it there, " +
-          "then press Re-check.",
+        "Signing in below. A browser should open; if it does not, the terminal prints a link " +
+          "to visit. Press Re-check when it is done.",
       );
     } catch (e) {
       setError(String(e));
@@ -324,6 +337,24 @@ export default function ClaudeSetup({ productId }: { productId: number }) {
         </p>
       )}
 
+      {/* **The sign-in, where it was started.** Adopted rather than opened: the
+          shell already exists, with the login running in it, and its output so
+          far is replayed so the panel opens on what has happened rather than a
+          blank box. Kept alive across a re-render so a browser round trip does
+          not kill the flow half way. */}
+      {signInShell && (
+        <div className="setup-signin">
+          <TerminalPanel
+            adoptId={signInShell}
+            where="this machine"
+            keepAlive
+          />
+          <button type="button" onClick={() => setSignInShell(null)}>
+            Hide the sign-in terminal
+          </button>
+        </div>
+      )}
+
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
 
@@ -379,9 +410,9 @@ export default function ClaudeSetup({ productId }: { productId: number }) {
                   {/* Where it went, because a terminal opening somewhere else
                       is otherwise a button that appears to do nothing. */}
                   <span className="hint">
-                    Opens a terminal on the Build board and starts the sign-in
-                    there — it needs a browser and your confirmation, so it
-                    cannot happen quietly in the background.
+                    Opens a terminal here and starts the sign-in in it — it needs
+                    a browser and your confirmation, so it cannot happen quietly
+                    in the background.
                   </span>
                 </>
               )}

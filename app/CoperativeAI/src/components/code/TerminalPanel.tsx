@@ -24,6 +24,7 @@ import {
  *  somebody pastes. */
 export default function TerminalPanel({
   solution,
+  where,
   pendingCommand,
   onCommandSent,
   onOpenChange,
@@ -31,7 +32,16 @@ export default function TerminalPanel({
   keepAlive = false,
   adoptId = null,
 }: {
-  solution: Solution;
+  /** The repository this shell opens in.
+   *
+   *  **Absent for a terminal that belongs to the machine rather than to any
+   *  repository** — the Claude Code sign-in is one: it is about this computer's
+   *  account, not about a working copy. Such a panel always adopts an
+   *  already-running shell, because there is no folder to open a new one in. */
+  solution?: Solution | null;
+  /** What to call the place this shell is running, when there is no Solution to
+   *  name. */
+  where?: string;
   /** When set, unmounting leaves the shell running. Debug uses this so a dev
    *  server survives leaving Build; the Code tab does not, because a terminal
    *  nobody can see and nobody asked to keep is a leak. */
@@ -100,10 +110,15 @@ export default function TerminalPanel({
         setShell(held.shell);
         if (held.replay) terminal.write(held.replay);
         await resizeTerminal(held.id, terminal.cols, terminal.rows);
-      } else {
+      } else if (solution) {
         const opened = await openTerminal(solution.id, terminal.cols, terminal.rows);
         sessionId.current = opened.id;
         setShell(opened.shell);
+      } else {
+        // Nothing to open and nothing to adopt. Not reachable from the UI —
+        // the button is only offered where there is a Solution — but silently
+        // reporting "open" with no shell would be worse than saying so.
+        throw new Error("there is no working copy to open a terminal in");
       }
       setStatus("open");
 
@@ -117,7 +132,7 @@ export default function TerminalPanel({
       setError(String(e));
       setStatus("closed");
     }
-  }, [solution.id, status, adoptId]);
+  }, [solution?.id, solution, status, adoptId]);
 
   // A shell already running for this Solution is picked up without being asked
   // for: it is this panel's own process from before it unmounted, and making
@@ -205,21 +220,24 @@ export default function TerminalPanel({
         <strong>Terminal</strong>
         <span className="hint">
           {status === "open"
-            ? `${shell} in ${solution.name}`
+            ? `${shell} in ${solution?.name ?? where ?? "this machine"}`
             : status === "ended"
               ? "the shell has ended"
-              : `will open in ${solution.name}`}
+              : `will open in ${solution?.name ?? where ?? "this machine"}`}
         </span>
-        {status !== "open" ? (
+        {/* No Open button without a Solution: a machine-level panel adopts a
+            shell somebody else started, and there is no folder here to open a
+            new one in. */}
+        {solution && status !== "open" ? (
           <button onClick={start} disabled={status === "opening" || !solution.localPath}>
             {status === "opening" ? "Opening…" : status === "ended" ? "Reopen" : "Open terminal"}
           </button>
-        ) : (
+        ) : status === "open" ? (
           <button onClick={stop}>Close shell</button>
-        )}
+        ) : null}
       </div>
 
-      {!solution.localPath && (
+      {solution && !solution.localPath && (
         <p className="hint">
           This Solution has no folder on this machine yet — point it at a working
           copy to open a terminal in it.

@@ -393,9 +393,15 @@ describe("the paid-calls switch", () => {
     expect(screen.getByRole("button", { name: "Sign in" })).toBeEnabled();
   });
 
-  /// The button opens a terminal and says where it went — one that appeared
-  /// somewhere else with no explanation would read as a press that did nothing.
-  it("starts the sign-in in a terminal and says where", async () => {
+  /// **The sign-in happens here, not somewhere else.** It used to open a
+  /// terminal on the Build board and tell you to go and finish it there —
+  /// sending somebody to a different page to complete what they started on this
+  /// one is the kind of seam that makes a button feel broken.
+  ///
+  /// It has to be a real terminal rather than a pane of output: run without
+  /// one, `claude auth login --claudeai` prints its URL and then waits at
+  /// "Paste code here if prompted", so somewhere to type is part of the job.
+  it("starts the sign-in in a terminal on this page", async () => {
     const user = userEvent.setup();
     mocked.claudeCodeStatus.mockResolvedValue({
       installed: true,
@@ -411,7 +417,31 @@ describe("the paid-calls switch", () => {
     await user.click(await screen.findByRole("button", { name: "Sign in" }));
 
     expect(mocked.openClaudeSignIn).toHaveBeenCalled();
-    expect(await screen.findByText(/terminal is open on the Build board/)).toBeInTheDocument();
+    // A terminal on this page, adopting the shell that was just started.
+    expect(await screen.findByLabelText("Terminal")).toBeInTheDocument();
+    // And it says the browser is the next step, plus what to do if it does not
+    // open — the login prints a link precisely because it sometimes does not.
+    expect(screen.getByText(/browser should open/)).toBeInTheDocument();
+    expect(screen.getByText(/prints a link/)).toBeInTheDocument();
+    // Nothing sends anybody to another page any more.
+    expect(screen.queryByText(/Build board/)).not.toBeInTheDocument();
+  });
+
+  /// Nothing is shown until it has been asked for: a terminal sitting on the
+  /// setup page before anybody pressed Sign in would be furniture.
+  it("shows no terminal until the sign-in is started", async () => {
+    mocked.claudeCodeStatus.mockResolvedValue({
+      installed: true,
+      version: "2.1.227 (Claude Code)",
+      path: "C:/claude.exe",
+      problem: "",
+      signedIn: false,
+      authMethod: "none",
+    });
+    render(<ClaudeSetup productId={1} />);
+
+    expect(await screen.findByRole("button", { name: "Sign in" })).toBeEnabled();
+    expect(screen.queryByLabelText("Terminal")).not.toBeInTheDocument();
   });
 
   /// Nothing to sign in with yet — a button that could only fail is worse than
