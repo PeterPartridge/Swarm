@@ -10,6 +10,28 @@ import {
   type DeveloperRules,
 } from "../../lib/backend";
 
+/** The part of a template that belongs in one box, or empty.
+ *
+ *  Templates carry a block per field so a source can speak to architecture
+ *  without also speaking to security. Fields a template says nothing about
+ *  come back empty and are left alone. */
+function blockFor(template: RuleTemplate, field: DeveloperRuleField): string {
+  switch (field) {
+    case "codingStandards":
+      return template.codingStandards;
+    case "architecturePrinciples":
+      return template.architecturePrinciples;
+    case "maintainability":
+      return template.maintainability;
+    case "aiConstraints":
+      return template.aiConstraints;
+    // The three list fields are somebody's own choices about their own stack,
+    // and no outside source can supply them.
+    default:
+      return "";
+  }
+}
+
 const EMPTY: Omit<DeveloperRules, "productId"> = {
   codingStandards: "",
   architecturePrinciples: "",
@@ -55,7 +77,6 @@ export default function DeveloperRulesEditor({
   /// template should not lose it for looking. Choosing the same one twice adds
   /// it twice, which is visible and undoable — unlike a silent overwrite.
   const [templates, setTemplates] = useState<RuleTemplate[]>([]);
-  const [chosen, setChosen] = useState("");
 
   const refresh = useCallback(async () => {
     try {
@@ -88,21 +109,27 @@ export default function DeveloperRulesEditor({
   /// each block goes on the end of its field with a blank line between. Picking
   /// the same one twice adds it twice — visible, and undone by editing, which
   /// a silent overwrite would not be.
-  async function insertTemplate(id: string) {
+  /// Adds one template's wording to **one** field.
+  ///
+  /// **Per box rather than per form.** The first version inserted every block a
+  /// template had, so taking ASVS for coding standards also took whatever it
+  /// said about anything else. Somebody filling in a form wants the security
+  /// paragraph in the security box and nothing else moved.
+  ///
+  /// Still appended, never substituted: somebody who has written their own
+  /// paragraph and then looks at a template must not lose it for looking.
+  async function insertTemplate(id: string, field: DeveloperRuleField) {
     const template = templates.find((t) => t.id === id);
     if (!template) return;
-    const join = (was: string, add: string) =>
-      add.trim() === "" ? was : was.trim() === "" ? add : `${was.trimEnd()}\n\n${add}`;
+    const add = blockFor(template, field);
+    if (add.trim() === "") return;
 
+    const was = rules[field] ?? "";
     const next = {
       ...rules,
-      codingStandards: join(rules.codingStandards, template.codingStandards),
-      architecturePrinciples: join(rules.architecturePrinciples, template.architecturePrinciples),
-      maintainability: join(rules.maintainability, template.maintainability),
-      aiConstraints: join(rules.aiConstraints, template.aiConstraints),
+      [field]: was.trim() === "" ? add : `${was.trimEnd()}\n\n${add}`,
     };
     setRules(next);
-    setChosen("");
     try {
       await track("Developer rules", () => setDeveloperRules({ ...next, productId }));
       setNotice(`Added "${template.name}". Edit it to suit — it is a starting point.`);
@@ -140,43 +167,27 @@ export default function DeveloperRulesEditor({
           "the Twelve-Factor App" carry very different weight and somebody
           deciding whether to keep a line should be able to go and read the
           original. */}
+      {/* **Where the wording comes from, once.** Naming the sources beside
+          every dropdown would repeat them seven times; naming them nowhere
+          would leave somebody unable to check what they had just inserted. */}
       {!readOnly && templates.length > 0 && (
-        <div className="rule-templates">
-          <label htmlFor="rule-template">Start from</label>
-          <select
-            id="rule-template"
-            value={chosen}
-            onChange={(e) => {
-              setChosen(e.target.value);
-              if (e.target.value !== "") void insertTemplate(e.target.value);
-            }}
-          >
-            <option value="">Choose a template…</option>
-            {templates.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name} — {t.summary}
-              </option>
-            ))}
-          </select>
-          <p className="hint">
-            Adds to what is already written rather than replacing it. Sources:{" "}
-            {templates.map((t, i) => (
+        <p className="hint">
+          Each box can start from a template. Sources:{" "}
+          {templates
+            .filter((t) => t.url !== "")
+            .map((t, i) => (
               <span key={t.id}>
                 {i > 0 ? "; " : ""}
-                {t.url ? (
-                  <a href={t.url} target="_blank" rel="noreferrer">
-                    {t.source}
-                  </a>
-                ) : (
-                  t.source
-                )}
+                <a href={t.url} target="_blank" rel="noreferrer">
+                  {t.source}
+                </a>
                 {t.licence ? ` (${t.licence})` : ""}
               </span>
             ))}
-            .
-          </p>
-        </div>
+            . Inserting adds to what is already written rather than replacing it.
+        </p>
       )}
+
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
 
@@ -192,8 +203,33 @@ export default function DeveloperRulesEditor({
                   {enforced ? "Enforced" : "In the prompt"}
                 </span>
               </span>
+              {/* Only where this template has something for this box. A
+                  dropdown offering a choice that inserts nothing is a control
+                  that does not work. */}
+              {!readOnly && templates.some((t) => blockFor(t, field.id) !== "") && (
+                <select
+                  aria-label={`Start ${field.label} from a template`}
+                  value=""
+                  onChange={(e) => {
+                    if (e.target.value !== "") void insertTemplate(e.target.value, field.id);
+                  }}
+                >
+                  <option value="">Start from…</option>
+                  {templates
+                    .filter((t) => blockFor(t, field.id) !== "")
+                    .map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                </select>
+              )}
               <textarea
                 aria-label={field.label}
+                // Re-keyed so an insert shows: the box is uncontrolled so that
+                // typing is not fought, and without this it would keep the text
+                // it mounted with.
+                key={`${field.id}:${(rules[field.id] ?? "").length}`}
                 defaultValue={rules[field.id] ?? ""}
                 readOnly={readOnly}
                 placeholder={readOnly ? "Not set — write it in Admin." : ""}

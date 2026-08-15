@@ -51,7 +51,13 @@ pub struct RuleTemplate {
 
 /// Every template this app ships.
 pub fn all() -> Vec<RuleTemplate> {
-    vec![twelve_factor(), asvs(), ai_access()]
+    vec![
+        twelve_factor(),
+        asvs(),
+        code_review(),
+        testing(),
+        ai_access(),
+    ]
 }
 
 /// One by id, for applying a chosen template.
@@ -149,6 +155,79 @@ fail closed, and log enough to investigate without logging the secret itself."
     }
 }
 
+/// What a reviewer should be looking for, and what a change should look like.
+///
+/// **This one is this app's own**, and says so. There is no single canonical
+/// source for code review the way there is for security or for twelve-factor
+/// services, and attributing this to one would be inventing a pedigree. It is
+/// ordinary practice, written down so a model can follow it.
+fn code_review() -> RuleTemplate {
+    RuleTemplate {
+        id: "code-review".into(),
+        name: "Code review and change shape".into(),
+        summary: "What a change should look like before anybody is asked to read it.".into(),
+        source: "This app's own wording".into(),
+        url: String::new(),
+        licence: String::new(),
+        coding_standards: "\
+- Name things for what they are, not for what they hold: `elapsed` rather than
+`t`, `unpaidInvoices` rather than `list2`.
+- Say why in a comment, not what. The code already says what it does; what it
+cannot say is what was rejected and for what reason.
+- Handle the error where there is enough context to decide, and let it travel
+where there is not. Never swallow one to make a signature tidy.
+- Make illegal states unrepresentable where the language allows it — a type that
+cannot hold a bad value needs no check that it does not.
+- Keep functions to one job. A function that needs the word \"and\" to describe
+it is two functions."
+            .into(),
+        architecture_principles: String::new(),
+        maintainability: "\
+- A change should be readable in one sitting. Split anything that is not, and
+say in the message why it was split.
+- Change one thing per commit. A rename mixed into a behaviour change hides the
+behaviour change from every reviewer and every later bisect.
+- Delete rather than comment out. Version control already remembers.
+- Leave the surrounding code in the style it is in. A change that reformats what
+it touches buries itself in noise.
+- Update the documentation and the tests in the same change as the behaviour, or
+the next person reads something that was true once.
+- A dependency is a permanent commitment to somebody else's judgement. Prefer
+the standard library, and say what a new one buys."
+            .into(),
+        ai_constraints: String::new(),
+    }
+}
+
+/// What testing is for, and what a test has to be worth.
+fn testing() -> RuleTemplate {
+    RuleTemplate {
+        id: "testing".into(),
+        name: "Testing".into(),
+        summary: "What to test, and what a test has to prove to be worth keeping.".into(),
+        source: "This app's own wording".into(),
+        url: String::new(),
+        licence: String::new(),
+        coding_standards: String::new(),
+        architecture_principles: String::new(),
+        maintainability: "\
+- Test behaviour, not implementation. A test that breaks when a private
+function is renamed is a cost with no benefit.
+- Name a test after the claim it makes, so a failure reads as a sentence about
+what is wrong rather than as \"test_17 failed\".
+- Assert the thing that would actually be wrong. \"It did not throw\" is not a
+result; \"the total came to 16810\" is.
+- Prefer a real dependency to a mock where it can be run — a mock proves the
+mock. Where a real one cannot be run, say so in the test.
+- A flaky test is worse than no test: it trains everybody to ignore red. Fix it
+or delete it, and do not retry it into passing.
+- Write the failing test first where the behaviour is in doubt. A test written
+after the code tends to assert what the code happens to do."
+            .into(),
+        ai_constraints: String::new(),
+    }
+}
+
 /// Limits on what the AI may reach — **asked for, not enforced**.
 ///
 /// This one is deliberately blunt about its own status. The app can put these
@@ -230,6 +309,52 @@ mod tests {
         let twelve = find("twelve-factor").expect("twelve-factor");
         assert!(twelve.licence.is_empty(), "no licence may be invented: {:?}", twelve.licence);
         assert!(twelve.url.contains("12factor.net"));
+    }
+
+    /// **The per-box dropdowns rest on this.** A template that spoke to every
+    /// field would put its security paragraph into the architecture box, which
+    /// is the whole reason inserting moved from per-form to per-field: taking
+    /// ASVS for coding standards used to take whatever it said elsewhere too.
+    #[test]
+    fn a_template_speaks_only_to_the_fields_it_is_about() {
+        let twelve = find("twelve-factor").expect("twelve-factor");
+        assert!(!twelve.architecture_principles.is_empty());
+        assert!(twelve.coding_standards.is_empty(), "it is not about coding standards");
+
+        let asvs = find("owasp-asvs-5").expect("asvs");
+        assert!(!asvs.coding_standards.is_empty());
+        assert!(asvs.architecture_principles.is_empty(), "it is not about architecture");
+
+        // And the access limits belong nowhere but the constraints box.
+        let limits = find("ai-access-limits").expect("limits");
+        assert!(!limits.ai_constraints.is_empty());
+        assert!(limits.coding_standards.is_empty());
+        assert!(limits.architecture_principles.is_empty());
+        assert!(limits.maintainability.is_empty());
+    }
+
+    /// Every box a person can fill has at least one template offering it
+    /// something, or a dropdown appears somewhere with nothing behind it.
+    #[test]
+    fn each_prose_field_has_a_template_that_speaks_to_it() {
+        let every = all();
+        for (field, get) in [
+            ("codingStandards", 0usize),
+            ("architecturePrinciples", 1),
+            ("maintainability", 2),
+            ("aiConstraints", 3),
+        ] {
+            let any = every.iter().any(|t| {
+                let block = match get {
+                    0 => &t.coding_standards,
+                    1 => &t.architecture_principles,
+                    2 => &t.maintainability,
+                    _ => &t.ai_constraints,
+                };
+                !block.trim().is_empty()
+            });
+            assert!(any, "nothing offers anything for {field}");
+        }
     }
 
     /// A template must put something somewhere, or picking it does nothing.

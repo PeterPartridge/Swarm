@@ -6727,6 +6727,21 @@ button.ready-action.link:hover {
   gap: 0.5rem;
 }
 
+/* The textarea takes whatever the card has left, so every card in a row ends
+   level however long its heading wrapped. */
+.rule-card textarea {
+  flex: 1;
+  min-height: 8.5rem;
+  resize: vertical;
+}
+
+/* The per-box template picker. Quiet, because it is a starting point and not
+   the point of the box. */
+.rule-card select {
+  font-size: 0.68rem;
+  color: var(--fg-dim);
+}
+
 .rule-card {
   display: flex;
   flex-direction: column;
