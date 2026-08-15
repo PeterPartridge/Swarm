@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  ruleTemplates,
+  type RuleTemplate,
   getDeveloperRules,
   setDeveloperRules,
   DEVELOPER_RULE_FIELDS,
@@ -45,6 +47,14 @@ export default function DeveloperRulesEditor({
   const [rules, setRules] = useState({ ...EMPTY });
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /// The ready-made rule sets on offer, and which is picked.
+  ///
+  /// **Insert, never replace.** A template appends to whatever is already in a
+  /// field: somebody who has written their own paragraph and then looks at a
+  /// template should not lose it for looking. Choosing the same one twice adds
+  /// it twice, which is visible and undoable — unlike a silent overwrite.
+  const [templates, setTemplates] = useState<RuleTemplate[]>([]);
+  const [chosen, setChosen] = useState("");
 
   const refresh = useCallback(async () => {
     try {
@@ -59,6 +69,47 @@ export default function DeveloperRulesEditor({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Fetched once. Not having them is not a failure of the form — the fields
+  // still work — so a problem here is left quiet rather than raised over an
+  // editor somebody is using.
+  useEffect(() => {
+    if (readOnly) return;
+    void ruleTemplates()
+      .then(setTemplates)
+      .catch(() => setTemplates([]));
+  }, [readOnly]);
+
+  /// Adds a template's wording to whatever is already written.
+  ///
+  /// **Appended, never substituted.** Somebody who has written their own
+  /// paragraph and then looks at a template must not lose it for looking, so
+  /// each block goes on the end of its field with a blank line between. Picking
+  /// the same one twice adds it twice — visible, and undone by editing, which
+  /// a silent overwrite would not be.
+  async function insertTemplate(id: string) {
+    const template = templates.find((t) => t.id === id);
+    if (!template) return;
+    const join = (was: string, add: string) =>
+      add.trim() === "" ? was : was.trim() === "" ? add : `${was.trimEnd()}\n\n${add}`;
+
+    const next = {
+      ...rules,
+      codingStandards: join(rules.codingStandards, template.codingStandards),
+      architecturePrinciples: join(rules.architecturePrinciples, template.architecturePrinciples),
+      maintainability: join(rules.maintainability, template.maintainability),
+      aiConstraints: join(rules.aiConstraints, template.aiConstraints),
+    };
+    setRules(next);
+    setChosen("");
+    try {
+      await setDeveloperRules({ ...next, productId });
+      setNotice(`Added "${template.name}". Edit it to suit — it is a starting point.`);
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
 
   async function saveField(id: DeveloperRuleField, value: string) {
     const next = { ...rules, [id]: value };
@@ -79,8 +130,52 @@ export default function DeveloperRulesEditor({
         What the AI must follow when it proposes code, architecture or plans.
         Anything listed as <strong>disallowed</strong> is stated as a hard
         prohibition and the AI's answer is checked against it.
-        {readOnly && " These are set in the Admin area."}
+
       </p>
+
+      {/* **A starting point, not a decision.** An empty rules form is the
+          hardest kind to fill in, and a field that stays blank is a rule the AI
+          is never given. Each option names its source, because "our rules" and
+          "the Twelve-Factor App" carry very different weight and somebody
+          deciding whether to keep a line should be able to go and read the
+          original. */}
+      {!readOnly && templates.length > 0 && (
+        <div className="rule-templates">
+          <label htmlFor="rule-template">Start from</label>
+          <select
+            id="rule-template"
+            value={chosen}
+            onChange={(e) => {
+              setChosen(e.target.value);
+              if (e.target.value !== "") void insertTemplate(e.target.value);
+            }}
+          >
+            <option value="">Choose a template…</option>
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name} — {t.summary}
+              </option>
+            ))}
+          </select>
+          <p className="hint">
+            Adds to what is already written rather than replacing it. Sources:{" "}
+            {templates.map((t, i) => (
+              <span key={t.id}>
+                {i > 0 ? "; " : ""}
+                {t.url ? (
+                  <a href={t.url} target="_blank" rel="noreferrer">
+                    {t.source}
+                  </a>
+                ) : (
+                  t.source
+                )}
+                {t.licence ? ` (${t.licence})` : ""}
+              </span>
+            ))}
+            .
+          </p>
+        </div>
+      )}
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
 

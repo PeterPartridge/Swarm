@@ -16,9 +16,13 @@ import { DEVELOP_STRATEGY_FIELDS } from "../../lib/backend";
  *  how many rules are written, and that exactly one of them is checked — which
  *  is the same reassurance minus the invented part.
  *
- *  **Two places do not own the rules.** The technical strategy is edited here
- *  because it is the developers'; the Developer Rules are read-only because
- *  Admin owns them, and a second editor would drift. */
+ *  **One place owns the rules, and this is it.** They used to be edited in
+ *  Admin and shown read-only here, on the reasoning that Admin owned them. That
+ *  put the rules a screen away from the strategy they qualify and from the
+ *  enforcement panel that reports on them, so the people writing them were the
+ *  ones who had to go somewhere else. The Admin copy is gone rather than
+ *  duplicated: two editors for one set of rules drift, and the drift is
+ *  invisible until the AI obeys the wrong copy. */
 export default function RulesView({ productId }: { productId: number }) {
   return (
     <div className="rules-view">
@@ -26,8 +30,8 @@ export default function RulesView({ productId }: { productId: number }) {
         <div>
           <h2>Strategy and rules</h2>
           <p className="hint">
-            Every agent reads this before it plans. The technical strategy is
-            yours to edit; the Developer Rules are set in Admin.
+            Every agent reads this before it plans — both the technical strategy
+            and the Developer Rules are edited here.
           </p>
         </div>
       </header>
@@ -43,10 +47,8 @@ export default function RulesView({ productId }: { productId: number }) {
             fields={DEVELOP_STRATEGY_FIELDS}
           />
 
-          {/* Read-only here — these are set in Admin. Two editors for one set
-              of rules would drift, and the drift would be invisible until the
-              AI obeyed the wrong copy. */}
-          <DeveloperRulesEditor productId={productId} readOnly />
+          {/* Editable here, and only here. */}
+          <DeveloperRulesEditor productId={productId} />
         </div>
 
         <RuleEnforcement productId={productId} />

@@ -1170,6 +1170,29 @@ export const recommendForWorkItem = (
 ): Promise<Recommendations> =>
   invoke("recommend_for_work_item", { workItemId, purpose });
 
+/** One ready-made set of rules, and where it came from.
+ *
+ *  **Named sources, not house opinion.** "Our architecture rules" carries very
+ *  different weight from "the Twelve-Factor App", so each template says who
+ *  wrote the original and under what licence, and links to it. */
+export interface RuleTemplate {
+  id: string;
+  name: string;
+  summary: string;
+  source: string;
+  url: string;
+  /** The licence of the **source**, empty where it states none. */
+  licence: string;
+  codingStandards: string;
+  architecturePrinciples: string;
+  maintainability: string;
+  aiConstraints: string;
+}
+
+/** The templates this app ships. The same for every Product — what differs is
+ *  which one somebody chooses to insert. */
+export const ruleTemplates = (): Promise<RuleTemplate[]> => invoke("rule_templates");
+
 export const getDeveloperRules = (
   productId: number,
 ): Promise<DeveloperRules | null> => invoke("get_developer_rules", { productId });

@@ -196,9 +196,14 @@ describe("AdminArea", () => {
     expect(await screen.findByRole("region", { name: "Product AI policy" })).toBeInTheDocument();
     expect(screen.getByLabelText("Allow AI to read this Product")).not.toBeChecked();
 
-    // and the developer rules, editable here (read-only in Develop)
-    const disallowed = await screen.findByLabelText("Disallowed technologies (enforced)");
-    expect(disallowed).not.toHaveAttribute("readonly");
+    // **The Developer Rules are no longer here.** They moved to Develop →
+    // Rules, beside the strategy they qualify and the enforcement panel that
+    // reports on them, so one place owns them and two copies cannot drift.
+    // What stays is the policy deciding whether the AI may read this Product at
+    // all — a different question, and genuinely an Admin one.
+    expect(
+      screen.queryByLabelText("Disallowed technologies (enforced)"),
+    ).not.toBeInTheDocument();
   });
 
   it("saves the AI planning policy from Admin", async () => {

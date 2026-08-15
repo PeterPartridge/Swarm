@@ -5,7 +5,6 @@ import ClaudeSetup from "../components/ai/ClaudeSetup";
 import GithubCard from "../components/product/GithubCard";
 import ModelInstalls from "../components/ai/ModelInstalls";
 import SshCard from "../components/product/SshCard";
-import DeveloperRulesEditor from "../components/ai/DeveloperRulesEditor";
 import ProductAiPolicy from "../components/ai/ProductAiPolicy";
 import ThemeSetting from "../components/common/ThemeSetting";
 import {
@@ -178,8 +177,13 @@ export default function AdminArea() {
                 {/* Deny-by-default: what lets the AI read a Product and generate
                     its work, for Product, Development and Testing alike. Set by
                     Admin rather than by whoever is doing the planning. */}
+                {/* The Developer Rules used to sit here too. They are edited on
+                    Develop → Rules now, beside the strategy they qualify and
+                    the enforcement panel that reports on them — one place, so
+                    two copies cannot drift. What stays in Admin is the policy
+                    that decides whether the AI may read this Product at all,
+                    which is a different question and genuinely an Admin one. */}
                 <ProductAiPolicy productId={Number(policyProduct)} />
-                <DeveloperRulesEditor productId={Number(policyProduct)} />
               </>
             )
           )}

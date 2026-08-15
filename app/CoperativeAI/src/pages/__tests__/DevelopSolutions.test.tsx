@@ -457,12 +457,17 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
   /// under, but cannot edit them. Two editors for one set of rules would
   /// drift, and the drift would be invisible until the AI obeyed the wrong
   /// copy.
-  it("shows the developer rules read-only, pointing at Admin", async () => {
+  /// **This is where the rules are edited now.** They used to be set in Admin
+  /// and shown read-only here, which put them a screen away from the strategy
+  /// they qualify and from the enforcement panel that reports on them — so the
+  /// people writing them were the ones sent elsewhere.
+  it("edits the developer rules here, not in Admin", async () => {
     render(<DevelopSolutions />);
 
     const disallowed = await screen.findByLabelText("Disallowed technologies (enforced)");
-    expect(disallowed).toHaveAttribute("readonly");
-    expect(screen.getByText(/set in the Admin area/)).toBeInTheDocument();
+    expect(disallowed).not.toHaveAttribute("readonly");
+    // And nothing sends anybody to Admin for them any more.
+    expect(screen.queryByText(/set in the Admin area/)).not.toBeInTheDocument();
   });
 
 
