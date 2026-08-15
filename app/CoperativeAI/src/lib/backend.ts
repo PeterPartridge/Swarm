@@ -1901,6 +1901,40 @@ export const debugRestartFrame = (session: string, frameId: number): Promise<voi
 export const debugStop = (session: string): Promise<void> =>
   invoke("debug_stop", { session });
 
+/** One worktree of your own on a Solution.
+ *
+ *  **The same kind of thing an agent gets.** Each agent works in a real git
+ *  worktree; these are made by the same call, in the same folder beside the
+ *  repository. That is what makes two of them worth having — the same Solution
+ *  open twice at different commits, and an experiment in one that cannot
+ *  disturb the other. */
+export interface MySpace {
+  /** The branch, including the `myspace/` prefix — what identifies it to git. */
+  branch: string;
+  /** What to call it on screen, without the prefix. */
+  name: string;
+  /** Where it is checked out. */
+  path: string;
+}
+
+/** Opens a new worktree of your own, branched from where the Solution is now. */
+export const openMySpace = (solutionId: number, name: string): Promise<MySpace> =>
+  invoke("open_my_space", { solutionId, name });
+
+/** Every space of yours on this Solution.
+ *
+ *  Read from git rather than remembered, so a worktree somebody removed by hand
+ *  is gone from the list rather than offered as a folder that is not there. */
+export const listMySpaces = (solutionId: number): Promise<MySpace[]> =>
+  invoke("list_my_spaces", { solutionId });
+
+/** Closes one, removing the checkout and leaving the branch.
+ *
+ *  Removing a worktree throws away a folder; removing the branch would throw
+ *  away commits, and a button labelled "close" must not do the second. */
+export const closeMySpace = (solutionId: number, path: string): Promise<void> =>
+  invoke("close_my_space", { solutionId, path });
+
 /** Every shell still running. Ones that ended on their own are dropped on the
  *  way past, so this is what is live rather than what was ever started. */
 export const listTerminals = (): Promise<RunningTerminal[]> =>
