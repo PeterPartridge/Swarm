@@ -39,6 +39,16 @@ pub struct SolutionStrategyDto {
     pub unlisted_tech: Vec<String>,
 }
 
+/// The rule templates this app ships, for the Developer Rules form to offer.
+///
+/// **No database and no Product.** These are the same for everybody — what
+/// changes is which one somebody chooses to insert, and that lands in the
+/// Product’s own rules like anything else they typed.
+#[tauri::command]
+pub async fn rule_templates() -> Result<Vec<crate::db::rule_templates::RuleTemplate>, String> {
+    Ok(crate::db::rule_templates::all())
+}
+
 #[tauri::command]
 pub async fn get_developer_rules(
     db: State<'_, AppDb>,

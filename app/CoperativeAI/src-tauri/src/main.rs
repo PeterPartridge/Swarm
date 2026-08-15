@@ -187,6 +187,7 @@ fn main() {
             commands::deliverables::set_deliverable_dependency,
             commands::recommendations::recommend_for_work_item,
             commands::strategies::get_developer_rules,
+            commands::strategies::rule_templates,
             commands::strategies::set_developer_rules,
             commands::strategies::get_solution_strategy,
             commands::strategies::generate_solution_strategy,

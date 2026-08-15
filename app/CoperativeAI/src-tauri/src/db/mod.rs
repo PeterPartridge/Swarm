@@ -13,6 +13,7 @@ pub mod commit_policy;
 pub mod deliverable;
 pub mod design_asset;
 pub mod developer_rules;
+pub mod rule_templates;
 pub mod emitted_file;
 pub mod model_install;
 pub mod model_price;
