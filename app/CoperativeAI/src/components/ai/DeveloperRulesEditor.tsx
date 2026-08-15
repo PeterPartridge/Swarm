@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { track } from "../../lib/saving";
 import {
   ruleTemplates,
   type RuleTemplate,
@@ -103,7 +104,7 @@ export default function DeveloperRulesEditor({
     setRules(next);
     setChosen("");
     try {
-      await setDeveloperRules({ ...next, productId });
+      await track("Developer rules", () => setDeveloperRules({ ...next, productId }));
       setNotice(`Added "${template.name}". Edit it to suit — it is a starting point.`);
       setError(null);
     } catch (e) {
@@ -115,8 +116,8 @@ export default function DeveloperRulesEditor({
     const next = { ...rules, [id]: value };
     setRules(next);
     try {
-      await setDeveloperRules({ ...next, productId });
-      setNotice("Developer rules saved.");
+      await track("Developer rules", () => setDeveloperRules({ ...next, productId }));
+      // The bar says it saved, so the panel does not say it twice.
       setError(null);
     } catch (e) {
       setError(String(e));

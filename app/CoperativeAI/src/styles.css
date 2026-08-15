@@ -7936,3 +7936,85 @@ button.ready-action.link:hover {
   font-size: 0.72rem;
   color: var(--bad);
 }
+
+/* ---------------------------------------------------------------------------
+   The save bar: what is being written, along the bottom.
+
+   Fixed rather than in the flow, because it must not move the thing somebody
+   is editing when it appears. Nothing is drawn when there is nothing to say —
+   a permanent bar reading "Ready" is furniture.
+   --------------------------------------------------------------------------- */
+.save-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 0.75rem;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  max-width: min(46rem, calc(100vw - 2rem));
+  padding: 0.35rem 0.7rem;
+  font-size: 0.72rem;
+  color: var(--fg-bright);
+  background: var(--raised, var(--sunken));
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 25%);
+}
+
+.save-bar.failed {
+  border-color: var(--bad);
+  /* Square-ended, so a failure does not look like the same pill that just said
+     everything was fine. */
+  border-radius: 6px;
+}
+
+.save-bar.failed span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.save-tick {
+  color: var(--good, var(--fg-dim));
+}
+
+.save-cross {
+  color: var(--bad);
+}
+
+.save-bar button {
+  padding: 0 0.25rem;
+  font-size: 0.75rem;
+  line-height: 1;
+  color: var(--fg-dim);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+/* The swirl. Decoration only — the words beside it carry the meaning, which is
+   what is left when animation is turned off. */
+.save-spinner {
+  width: 0.7rem;
+  height: 0.7rem;
+  border: 2px solid color-mix(in srgb, var(--fg-dim) 40%, transparent);
+  border-top-color: var(--fg-bright);
+  border-radius: 50%;
+  animation: save-spin 0.7s linear infinite;
+}
+
+@keyframes save-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Somebody who has asked for less motion gets a mark that does not move; the
+   sentence beside it already says what is happening. */
+@media (prefers-reduced-motion: reduce) {
+  .save-spinner {
+    animation: none;
+    border-top-color: var(--fg-dim);
+  }
+}
