@@ -308,38 +308,6 @@ export default function AgentJobPanel({
 
       {error && <p role="alert">{error}</p>}
 
-      {/* Said where the missing sub-panels would be, rather than leaving their
-          absence to be worked out. */}
-      {run !== null && !prepared && (
-        <div className="agent-not-started">
-          <p className="hint">
-            Changes, tests, preview and a terminal appear once this run has its own
-            checkout. Starting makes one on <code>{run.branch || "its branch"}</code>.
-          </p>
-          {planApproved === false && (
-            <p className="hint">
-              The plan needs approving first — read it on the Plan tab and press
-              Approve there. Editing it afterwards asks again.
-            </p>
-          )}
-          <button
-            aria-label={`Start ${item.title} on ${run.solutionName}`}
-            // `null` means the lookup failed, and refusing on a failed lookup
-            // would be a worse guess than letting the backend answer.
-            disabled={busy || run.branch.trim() === "" || planApproved === false}
-            onClick={start}
-          >
-            {busy ? "Preparing…" : "Start this run"}
-          </button>
-        </div>
-      )}
-
-      {run === null && (
-        <p className="hint">
-          This agent is planning. Tick the affected Solutions on the plan below
-          and a run appears for each.
-        </p>
-      )}
 
       <div className="workbench-panel">
         {panel === "plan" && <WorkItemBuildPlan item={item} solutions={solutions} />}
@@ -528,6 +496,39 @@ export default function AgentJobPanel({
           )
         )}
       </div>
+
+      {/* Said where the missing sub-panels would be, rather than leaving their
+          absence to be worked out. */}
+      {run !== null && !prepared && (
+        <div className="agent-not-started">
+          <p className="hint">
+            Changes, tests, preview and a terminal appear once this run has its own
+            checkout. Starting makes one on <code>{run.branch || "its branch"}</code>.
+          </p>
+          {planApproved === false && (
+            <p className="hint">
+              The plan needs approving first — read it on the Plan tab and press
+              Approve there. Editing it afterwards asks again.
+            </p>
+          )}
+          <button
+            aria-label={`Start ${item.title} on ${run.solutionName}`}
+            // `null` means the lookup failed, and refusing on a failed lookup
+            // would be a worse guess than letting the backend answer.
+            disabled={busy || run.branch.trim() === "" || planApproved === false}
+            onClick={start}
+          >
+            {busy ? "Preparing…" : "Start this run"}
+          </button>
+        </div>
+      )}
+
+      {run === null && (
+        <p className="hint">
+          This agent is planning. Tick the affected Solutions on the plan above
+          and a run appears for each.
+        </p>
+      )}
     </section>
   );
 }
