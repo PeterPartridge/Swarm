@@ -554,7 +554,19 @@ pub async fn auth_status(configured_exe: &str) -> Result<AuthState, String> {
 /// module deciding *where* it runs.
 pub async fn sign_in_command(configured_exe: &str) -> Result<Vec<String>, String> {
     let (exe, _) = discover(configured_exe).await?;
-    Ok(vec![exe.display().to_string(), "auth".into(), "login".into()])
+    Ok(vec![
+        exe.display().to_string(),
+        "auth".into(),
+        "login".into(),
+        // **The account type is chosen here rather than left to a menu.**
+        // Without this the CLI asks which account to use and waits on arrow
+        // keys, which is a poor thing to meet in a panel that just said it was
+        // signing you in. `--claudeai` is the subscription, which is the whole
+        // reason this provider exists — see the module note: the plan pays for
+        // the CLI, and API credits are a separate purchase this path is
+        // deliberately not using.
+        "--claudeai".into(),
+    ])
 }
 
 /// Zero, always — see the module note. The subscription was charged, and by how
