@@ -459,7 +459,7 @@ fn for_git(path: &Path) -> String {
 /// A branch name as a folder name. `feature/9-add-checkout` is a perfectly good
 /// branch and a nested path — flattened, or the worktree lands two folders deep
 /// and `worktree remove` is given a path that does not match what was created.
-fn slug(branch: &str) -> String {
+pub fn slug(branch: &str) -> String {
     let mut out = String::new();
     let mut last_dash = true;
     for ch in branch.trim().chars() {
