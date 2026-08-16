@@ -23,6 +23,8 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     resolveAiFeedback: vi.fn(),
     pickImages: vi.fn(),
     setPlanApproval: vi.fn(),
+    createSolution: vi.fn(),
+    listSolutions: vi.fn(),
   };
 });
 
@@ -343,6 +345,29 @@ describe("WorkItemBuildPlan approval", () => {
     await user.click(screen.getByLabelText("Withdraw approval for Shop API"));
     await waitFor(() =>
       expect(mocked.setPlanApproval).toHaveBeenCalledWith(12, 3, false),
+    );
+  });
+
+  /// **The wiring an optional prop hid.** `productId` is optional on
+  /// WorkItemChanges, so leaving it off typechecked cleanly and shipped a
+  /// feature that did nothing: the panel showed a Solution dropdown and no way
+  /// to make one, which is the dead end it was built to remove. Asserting the
+  /// form rather than the prop is what makes that impossible to miss again.
+  it("offers to make a Solution, because the Product is passed down", async () => {
+    const user = userEvent.setup();
+    mocked.createSolution.mockResolvedValue(12);
+    mocked.listSolutions.mockResolvedValue([]);
+    render(<WorkItemBuildPlan item={item} solutions={[]} />);
+
+    await user.click(await screen.findByRole("button", { name: "Add a Solution" }));
+    await user.type(screen.getByLabelText("New Solution name"), "Orders API");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    // The Product comes from the work item, which is the wire that was missing.
+    await waitFor(() =>
+      expect(mocked.createSolution).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "Orders API", productId: 7 }),
+      ),
     );
   });
 });

@@ -441,8 +441,16 @@ export default function AgentJobPanel({
           </div>
         )}
 
+        {/* The Product goes down here too. Without it this panel shows the
+            Solution dropdown and no way to make one — the same dead end the
+            build plan had, in the other place the same component is used. */}
         {panel === "scope" && (
-          <WorkItemChanges workItemId={item.id} mode="developer" solutions={solutions} />
+          <WorkItemChanges
+            workItemId={item.id}
+            mode="developer"
+            solutions={solutions}
+            productId={item.productId}
+          />
         )}
 
         {panel === "questions" && (

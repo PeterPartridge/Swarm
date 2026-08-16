@@ -195,6 +195,10 @@ export default function WorkItemBuildPlan({
         workItemId={item.id}
         mode="developer"
         solutions={solutions}
+        // Without this the panel shows a Solution dropdown and no way to make
+        // one — and because the prop is optional, leaving it out typechecked
+        // cleanly and shipped as a feature that did nothing.
+        productId={item.productId}
         mockups={allMockups}
       />
 
