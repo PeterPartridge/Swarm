@@ -1,24 +1,29 @@
 name: Release
 
-# Builds the Windows desktop app and publishes it, with the version taken from
-# the tag rather than typed into three files by hand.
+# Builds the Windows desktop app and publishes it, with the version worked out
+# here rather than typed into three files by hand.
 #
-# **Why a tag rather than every push to main.** Releasing on every merge would
-# mean a version number that moves when nobody decided it should, and a release
-# list that is mostly noise. A tag is somebody saying "this one" — the same rule
-# the CI workflow already applies to the Node version, where a number in the
-# file means the bump was a change somebody made.
+# **Every commit to main releases.** This used to be tag-driven, on the argument
+# that a version which moves when nobody decided it should is noise. The call
+# since is that always having an installer for what is on main is worth more
+# than a tidy release list, so main is the trigger and the number is counted
+# here. The cost, so it is not a surprise later: a README-only commit gets a
+# release like any other, and the list grows at the rate the branch does.
+#
+# **A tag is still made**, from the version this works out — the release action
+# creates it against the commit being built. A release with no tag leaves
+# nothing in the repository pointing back at the code that produced it.
 #
 # **The version lives in three places** — package.json, tauri.conf.json and
 # Cargo.toml — and they have to agree or the installer, the About box and the
-# crate all claim something different. They are stamped from the tag at build
-# time rather than committed, so there is one source of truth and no way to tag
-# v0.3.0 and ship an installer that says 0.1.0.
+# crate all claim something different. They are stamped at build time rather
+# than committed, so there is one source of truth and no way to release v0.3.0
+# and ship an installer that says 0.1.0.
 
 on:
   push:
-    tags:
-      - "v*"
+    branches:
+      - main
   # So a build can be tried without cutting a release. Nothing is published on
   # this path — see the `if` on the release step.
   workflow_dispatch:
@@ -42,24 +47,42 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          # The version is counted from the existing tags, and the default
+          # shallow clone fetches none of them.
+          fetch-depth: 0
 
-      # **The tag is the version.** `v0.3.0` becomes `0.3.0`; Cargo and Tauri
-      # both reject a leading `v`, and finding that out from a failed release
-      # build would be a poor way to learn it.
+      # **The last release plus one.** Tags carry a leading `v` and the three
+      # files do not; Cargo and Tauri both reject `v0.3.0`, and finding that out
+      # from a failed release build would be a poor way to learn it.
       - name: Work out the version
         id: version
         shell: pwsh
         run: |
-          if ($env:GITHUB_REF -like 'refs/tags/v*') {
-            $version = $env:GITHUB_REF -replace '^refs/tags/v', ''
-          } else {
+          if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
             $version = '${{ inputs.version }}'
+          } else {
+            # Compared as version numbers rather than as text — sorted as text,
+            # v0.2.9 outranks v0.2.10 and the next release would go backwards.
+            $tags = @(
+              git tag --list 'v*' |
+                ForEach-Object { $_ -replace '^v', '' } |
+                Where-Object { $_ -match '^\d+\.\d+\.\d+$' } |
+                ForEach-Object { [version] $_ } |
+                Sort-Object
+            )
+            if ($tags.Count -eq 0) {
+              $version = '0.1.0'
+            } else {
+              $last = $tags[-1]
+              $version = '{0}.{1}.{2}' -f $last.Major, $last.Minor, ($last.Build + 1)
+            }
           }
-          # Tauri and Cargo both want major.minor.patch. A tag that is not that
-          # shape fails here, loudly, rather than producing an installer that
-          # will not install.
+          # Tauri and Cargo both want major.minor.patch. A version that is not
+          # that shape fails here, loudly, rather than producing an installer
+          # that will not install.
           if ($version -notmatch '^\d+\.\d+\.\d+$') {
-            throw "Version '$version' is not major.minor.patch — tag as v1.2.3."
+            throw "Version '$version' is not major.minor.patch."
           }
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           Write-Host "Building $version"
@@ -208,14 +231,20 @@ jobs:
           name: CoperativeAI-${{ steps.version.outputs.version }}-windows
           path: dist-release/*
 
-      # **Only a tag publishes.** A manual run builds and leaves the result as
-      # an artifact, so the build can be tried without a release appearing.
+      # **Only a push to main publishes.** A manual run builds and leaves the
+      # result as an artifact, so the pipeline can be tried without a release
+      # appearing — which is how the missing portable binary was caught.
+      #
+      # The tag does not exist yet; the action creates it against this commit.
+      # That is also what stops this from looping: a tag push does not match the
+      # branch trigger above, so publishing cannot start another run.
       - name: Publish the release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
           name: CoperativeAI ${{ steps.version.outputs.version }}
-          tag_name: ${{ github.ref_name }}
+          tag_name: v${{ steps.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
           files: dist-release/*
           generate_release_notes: true
           fail_on_unmatched_files: true
