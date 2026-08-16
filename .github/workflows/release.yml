@@ -226,7 +226,13 @@ jobs:
           $found | ForEach-Object { Copy-Item $_.FullName $out }
           Get-ChildItem $out | ForEach-Object { Write-Host "publishing $($_.Name)" }
 
-      - uses: actions/upload-artifact@v4
+      # **v7, not v4.** v4 runs on Node 20, which the runners have deprecated
+      # and are currently force-running on Node 24 — it works until the shim is
+      # withdrawn, and then it does not. v5, v6 and v7 are each runtime moves
+      # rather than interface changes; the only new input is `archive`, and the
+      # two used here are unchanged. v7 wants runner 2.327.1 or later, which
+      # windows-latest is.
+      - uses: actions/upload-artifact@v7
         with:
           name: CoperativeAI-${{ steps.version.outputs.version }}-windows
           path: dist-release/*
@@ -240,7 +246,9 @@ jobs:
       # branch trigger above, so publishing cannot start another run.
       - name: Publish the release
         if: github.event_name == 'push'
-        uses: softprops/action-gh-release@v2
+        # v3 is the same action on Node 24 — the release notes describe it as a
+        # runtime move and nothing else. Every input below is unchanged from v2.
+        uses: softprops/action-gh-release@v3
         with:
           name: CoperativeAI ${{ steps.version.outputs.version }}
           tag_name: v${{ steps.version.outputs.version }}

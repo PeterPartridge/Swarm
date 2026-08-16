@@ -11,9 +11,20 @@ name: CI
 # because rollup ships a platform-specific native binary. Testing a platform
 # nobody ships would have meant carrying fixes for it forever.
 
+# **Pull requests only, deliberately.** This used to run on pushes to main as
+# well, but release.yml now builds every commit that lands there and runs the
+# same gates first — clippy with -D warnings, cargo test, tsc, npm test, and
+# `npm run build` by way of `tauri build`, which is wired to it through
+# beforeBuildCommand. Every main push was therefore paying for two runs of the
+# identical checks. Nothing is now unguarded: what this workflow covered on
+# main, the release build covers before it will publish anything.
+#
+# The one thing that changed is *when* a main push finds out. This ran its Rust
+# and frontend jobs in parallel; the release build is a single serial job, so
+# failure on main surfaces later than it used to. On a pull request — where the
+# feedback actually matters, because the code has not landed yet — this
+# workflow is unchanged.
 on:
-  push:
-    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
 
