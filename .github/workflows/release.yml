@@ -42,6 +42,18 @@ permissions:
   # written without this.
   contents: write
 
+# **One release build at a time.** Two commits landing seconds apart each
+# counted the same highest tag, both decided they were 0.2.4, and both published
+# to it — the second silently overwrote the first's installers and both runs
+# reported success. Serialising the workflow means the second run reads the tags
+# after the first has pushed one, so it counts 0.2.5 rather than colliding.
+#
+# cancel-in-progress is false because the whole point is that the queued run
+# still happens; cancelling it would drop a commit's release entirely.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   windows:
     runs-on: windows-latest
@@ -83,6 +95,17 @@ jobs:
           # that will not install.
           if ($version -notmatch '^\d+\.\d+\.\d+$') {
             throw "Version '$version' is not major.minor.patch."
+          }
+          # Belt and braces behind the concurrency group. If this version is
+          # already tagged then something raced anyway, and publishing would
+          # overwrite installers that are already released — which is exactly
+          # what happened at 0.2.4, with both runs reporting success. Fail here
+          # instead, where it is visible.
+          if ($env:GITHUB_EVENT_NAME -eq 'push') {
+            $clash = git tag --list "v$version"
+            if ($clash) {
+              throw "v$version is already tagged. Refusing to overwrite a published release."
+            }
           }
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           Write-Host "Building $version"
