@@ -17,12 +17,113 @@
 //! does not have screens; a website does not own tables. `kinds_for` is the one
 //! place that judgement lives, so the UI and the AI prompt cannot disagree
 //! about it.
+//!
+//! **Three words are not enough, and the right three depend on the Solution.**
+//! "Screen, API, table" described a web app talking to a database and nothing
+//! else. A front end has services and view models; an API has incoming models,
+//! outgoing models and the data models behind them; a database has views and
+//! stored procedures. So the vocabulary is a table rather than a triple, every
+//! entry belongs to one of three families — **UI, logic, models** — and each
+//! Solution type carries its own subset.
+//!
+//! The three old ids are still in the table under their own names, so every row
+//! ever written stays valid and there is nothing to migrate.
 
 use crate::db::{now_millis, solution_management::last_insert_id, DbError, Result};
 use turso::Connection;
 
-/// What sort of thing is being added or changed.
-pub const KINDS: &[&str] = &["screen", "api", "table"];
+/// The three families every kind belongs to, in the order they are shown and
+/// written: what you see, what it does, what it holds.
+pub const GROUPS: &[(&str, &str)] = &[("ui", "UI"), ("logic", "Logic"), ("models", "Models")];
+
+/// One sort of thing that can be added or changed inside a Solution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Kind {
+    /// Stored in the row. Never change one of these — old rows carry it.
+    pub id: &'static str,
+    /// Singular, against one entry.
+    pub label: &'static str,
+    /// Plural, as the heading over a list of them in the brief.
+    pub heading: &'static str,
+    /// Which of `GROUPS` it sits under.
+    pub group: &'static str,
+    /// The shape of a name, shown as the placeholder. A worked example beats a
+    /// description: somebody typing "checkout" where "POST /checkout" was
+    /// meant produces a plan that reads as two different endpoints.
+    pub example: &'static str,
+}
+
+/// Every kind, ordered by family. The order here is the order the brief's
+/// headings come out in, so it reads UI first, then behaviour, then data.
+pub const KINDS: &[Kind] = &[
+    // ── UI: what somebody looks at ──────────────────────────────────────
+    Kind { id: "screen", label: "Screen", heading: "Screens", group: "ui", example: "Basket" },
+    Kind { id: "component", label: "Component", heading: "Components", group: "ui", example: "PriceTag" },
+    Kind { id: "route", label: "Route", heading: "Routes", group: "ui", example: "/basket" },
+    Kind { id: "style", label: "Style or theme", heading: "Styles and themes", group: "ui", example: "dark theme" },
+    // ── Logic: what it does ─────────────────────────────────────────────
+    Kind { id: "api", label: "Endpoint", heading: "Endpoints", group: "logic", example: "POST /checkout" },
+    Kind { id: "service", label: "Service", heading: "Services", group: "logic", example: "BasketService" },
+    Kind { id: "job", label: "Background job", heading: "Background jobs", group: "logic", example: "nightly reconcile" },
+    Kind { id: "integration", label: "Integration", heading: "Integrations", group: "logic", example: "Stripe" },
+    Kind { id: "procedure", label: "Stored procedure", heading: "Stored procedures", group: "logic", example: "sp_settle_orders" },
+    // ── Models: what it holds and passes around ─────────────────────────
+    Kind { id: "viewModel", label: "View model", heading: "View models", group: "models", example: "BasketView" },
+    Kind { id: "requestModel", label: "Incoming model", heading: "Incoming models", group: "models", example: "CheckoutRequest" },
+    Kind { id: "responseModel", label: "Outgoing model", heading: "Outgoing models", group: "models", example: "CheckoutResponse" },
+    Kind { id: "dataModel", label: "Data model", heading: "Data models", group: "models", example: "Order" },
+    Kind { id: "table", label: "Database table", heading: "Database tables", group: "models", example: "orders" },
+    Kind { id: "view", label: "Database view", heading: "Database views", group: "models", example: "v_open_orders" },
+    Kind { id: "migration", label: "Migration", heading: "Migrations", group: "models", example: "add orders.settled_at" },
+];
+
+/// A website is a front end: it has screens, the code behind them, and the
+/// shapes it sends to and receives from somebody else's API — but it owns no
+/// storage of its own.
+const WEBSITE: &[&str] = &[
+    "screen", "component", "route", "style", "service", "integration", "viewModel",
+    "requestModel", "responseModel",
+];
+
+/// A desktop or mobile app is a front end that does own storage, and usually
+/// does work while nobody is looking at it.
+const APPLICATION: &[&str] = &[
+    "screen", "component", "route", "style", "service", "job", "integration", "viewModel",
+    "dataModel", "table", "migration",
+];
+
+/// An API serves endpoints, does the work behind them, and almost always owns
+/// the storage underneath — incoming and outgoing shapes are separate from the
+/// data model on purpose, because conflating them is how a database column ends
+/// up in a public response.
+const API: &[&str] = &[
+    "api", "service", "job", "integration", "requestModel", "responseModel", "dataModel",
+    "table", "view", "migration",
+];
+
+/// A database Solution holds data and the logic that runs inside the engine.
+const DATABASE: &[&str] = &["table", "view", "procedure", "dataModel", "migration"];
+
+/// Everything, for a Solution type this does not recognise.
+const ALL: &[&str] = &[
+    "screen", "component", "route", "style", "api", "service", "job", "integration",
+    "procedure", "viewModel", "requestModel", "responseModel", "dataModel", "table", "view",
+    "migration",
+];
+
+/// Looks a kind up by its stored id.
+pub fn kind(id: &str) -> Option<&'static Kind> {
+    KINDS.iter().find(|k| k.id == id)
+}
+
+/// The readable plurals for a set of ids, for a message somebody has to act on.
+/// "it can have: screens, components, routes" is a sentence; the raw ids are a
+/// list of identifiers that happens to be printable.
+fn headings(ids: &[&str]) -> Vec<String> {
+    ids.iter()
+        .map(|id| kind(id).map(|k| k.heading.to_lowercase()).unwrap_or_else(|| (*id).to_string()))
+        .collect()
+}
 
 /// Whether it is new or an existing thing being altered. The distinction earns
 /// its place: "change the checkout screen" and "add a checkout screen" produce
@@ -98,19 +199,15 @@ pub async fn set_mockup(conn: &Connection, id: i64, mockup_path: Option<&str>) -
 /// Deliberately not a free-for-all: offering "add a database table" on a
 /// website Solution invites someone to record work against the repository that
 /// will never do it, and the mistake is only found when the branch is empty.
-///
-/// An `api` Solution gets tables because an API almost always owns its own
-/// storage, and an `application` gets both because a desktop or mobile app
-/// commonly has local storage as well as screens.
 pub fn kinds_for(solution_type: &str) -> &'static [&'static str] {
     match solution_type {
-        "website" => &["screen"],
-        "application" => &["screen", "table"],
-        "api" => &["api", "table"],
-        "database" => &["table"],
+        "website" => WEBSITE,
+        "application" => APPLICATION,
+        "api" => API,
+        "database" => DATABASE,
         // An unknown type gets everything rather than nothing: a Solution type
         // added later should not silently lose the ability to plan work.
-        _ => KINDS,
+        _ => ALL,
     }
 }
 
@@ -128,11 +225,13 @@ pub async fn add(
     detail: &str,
 ) -> Result<i64> {
     if name.trim().is_empty() {
-        return Err(DbError::Validation(format!("a {kind} needs a name")));
+        let what = self::kind(kind).map(|k| k.label).unwrap_or(kind);
+        return Err(DbError::Validation(format!("a {what} needs a name")));
     }
-    if !KINDS.contains(&kind) {
+    if self::kind(kind).is_none() {
         return Err(DbError::Validation(format!(
-            "kind must be one of {KINDS:?}, got '{kind}'"
+            "'{kind}' is not a kind of change — it must be one of: {}",
+            ALL.join(", ")
         )));
     }
     if !ACTIONS.contains(&action) {
@@ -159,9 +258,10 @@ pub async fn add(
         let allowed = kinds_for(&solution.solution_type);
         if !allowed.contains(&kind) {
             return Err(DbError::Validation(format!(
-                "a {} Solution does not carry {kind}s — it can have: {}",
+                "a {} Solution does not carry {} — it can have: {}",
                 solution.solution_type,
-                allowed.join(", ")
+                self::kind(kind).map(|k| k.heading).unwrap_or(kind).to_lowercase(),
+                headings(allowed).join(", ")
             )));
         }
     }
@@ -205,6 +305,64 @@ pub async fn add(
     last_insert_id(conn).await
 }
 
+/// One entry in a batch, and what became of it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AddOutcome {
+    pub kind: String,
+    pub name: String,
+    /// The new row, or None when nothing was written.
+    pub id: Option<i64>,
+    /// Why not, in the model's own words. None when it went in.
+    pub refused: Option<String>,
+}
+
+/// Adds several things at once, and says what happened to each.
+///
+/// **One refusal must not take the rest down with it.** Ticking eight screens
+/// where one is already on the item is the ordinary case, not an error — the
+/// other seven are what somebody meant, and failing the lot would leave them
+/// hunting for which one was the duplicate. So each is attempted on its own and
+/// every refusal comes back named, rather than being swallowed or thrown.
+pub async fn add_many(
+    conn: &Connection,
+    work_item_id: i64,
+    entries: &[(Option<i64>, String, String, String, String)],
+) -> Result<Vec<AddOutcome>> {
+    let mut out = Vec::with_capacity(entries.len());
+    for (solution_id, kind, action, name, detail) in entries {
+        match add(conn, work_item_id, *solution_id, kind, action, name, detail).await {
+            Ok(id) => out.push(AddOutcome {
+                kind: kind.clone(),
+                name: name.clone(),
+                id: Some(id),
+                refused: None,
+            }),
+            // A validation refusal is reported; anything else is a real
+            // failure of the database and stops the batch.
+            Err(DbError::Validation(why)) => out.push(AddOutcome {
+                kind: kind.clone(),
+                name: name.clone(),
+                id: None,
+                refused: Some(why),
+            }),
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(out)
+}
+
+/// Rewrites the detail on several rows at once — the shared "what needs to
+/// change" written once against everything just ticked.
+pub async fn set_detail_many(conn: &Connection, ids: &[i64], detail: &str) -> Result<()> {
+    for id in ids {
+        let Some(existing) = find_by_id(conn, *id).await? else {
+            continue;
+        };
+        update(conn, *id, &existing.action, &existing.name, detail).await?;
+    }
+    Ok(())
+}
+
 /// Points an existing entry at a Solution, or back at nobody.
 ///
 /// This is the developer's half of the flow: Product said what they wanted,
@@ -225,7 +383,11 @@ pub async fn assign(conn: &Connection, id: i64, solution_id: Option<i64>) -> Res
         if !allowed.contains(&existing.kind.as_str()) {
             return Err(DbError::Validation(format!(
                 "'{}' is a {}, and a {} Solution does not carry those",
-                existing.name, existing.kind, solution.solution_type
+                existing.name,
+                kind(&existing.kind)
+                    .map(|k| k.label.to_lowercase())
+                    .unwrap_or_else(|| existing.kind.clone()),
+                solution.solution_type
             )));
         }
     }
@@ -423,19 +585,25 @@ mod tests {
     async fn a_solution_only_carries_what_its_type_can_carry() {
         let (conn, item, web, api) = fixture().await;
 
-        // a website has screens, not tables or endpoints
+        // a website has screens and the code behind them, but owns no storage
         add(&conn, item, Some(web), "screen", "add", "Basket", "")
             .await
             .expect("screen on a website");
+        add(&conn, item, Some(web), "service", "add", "BasketService", "")
+            .await
+            .expect("a front end has services");
         let err = add(&conn, item, Some(web), "table", "add", "baskets", "")
             .await
             .expect_err("a website does not own tables");
         assert!(err.to_string().contains("does not carry"), "got: {err}");
 
-        // an API has endpoints and the storage behind them
+        // an API has endpoints, the shapes either side of them, and storage
         add(&conn, item, Some(api), "api", "add", "POST /checkout", "")
             .await
             .expect("endpoint on an api");
+        add(&conn, item, Some(api), "requestModel", "add", "CheckoutRequest", "")
+            .await
+            .expect("what comes in");
         add(&conn, item, Some(api), "table", "add", "orders", "")
             .await
             .expect("an API owns its tables");
@@ -443,6 +611,20 @@ mod tests {
             .await
             .expect_err("an api has no screens");
         assert!(err.to_string().contains("does not carry"), "got: {err}");
+    }
+
+    /// The message somebody has to act on is made of words, not identifiers:
+    /// "it can have: screens, components" beats a printed `&["screen", …]`.
+    #[tokio::test]
+    async fn a_refused_kind_is_explained_in_words() {
+        let (conn, item, web, _api) = fixture().await;
+        let err = add(&conn, item, Some(web), "table", "add", "baskets", "")
+            .await
+            .expect_err("refused");
+        let said = err.to_string();
+        assert!(said.contains("does not carry database tables"), "got: {said}");
+        assert!(said.contains("screens"), "it names what the type can have: {said}");
+        assert!(!said.contains("viewModel"), "ids do not leak into prose: {said}");
     }
 
     /// The same rule on assignment, or the check could be walked around by
@@ -460,15 +642,69 @@ mod tests {
         assert!(err.to_string().contains("does not carry"), "got: {err}");
     }
 
+    /// "UI, logic and models" is not cut and dry — what those words mean
+    /// depends on what is being built, so each type carries its own set.
     #[tokio::test]
     async fn kinds_follow_the_solution_type() {
-        assert_eq!(kinds_for("website"), &["screen"]);
-        assert_eq!(kinds_for("api"), &["api", "table"]);
-        assert_eq!(kinds_for("database"), &["table"]);
-        assert_eq!(kinds_for("application"), &["screen", "table"]);
+        // a front end: screens and the services behind them, no storage
+        assert!(kinds_for("website").contains(&"screen"));
+        assert!(kinds_for("website").contains(&"service"));
+        assert!(kinds_for("website").contains(&"viewModel"));
+        assert!(!kinds_for("website").contains(&"table"));
+
+        // an API: what comes in and what goes out are not the data model
+        for id in ["api", "requestModel", "responseModel", "dataModel", "table"] {
+            assert!(kinds_for("api").contains(&id), "an api should carry {id}");
+        }
+        assert!(!kinds_for("api").contains(&"screen"));
+
+        assert!(kinds_for("database").contains(&"procedure"));
+        assert!(!kinds_for("database").contains(&"api"));
+
+        // a desktop or mobile app is a front end that does own storage
+        assert!(kinds_for("application").contains(&"screen"));
+        assert!(kinds_for("application").contains(&"table"));
+
         // an unknown type gets everything rather than nothing, so a type added
         // later does not silently lose the ability to plan work
-        assert_eq!(kinds_for("quantum"), KINDS);
+        assert_eq!(kinds_for("quantum"), ALL);
+    }
+
+    /// `ALL` is written out by hand so it can be a `const`, which means it can
+    /// fall behind `KINDS`. This is the only thing stopping that.
+    #[tokio::test]
+    async fn every_kind_is_in_the_everything_list() {
+        let ids: Vec<&str> = KINDS.iter().map(|k| k.id).collect();
+        assert_eq!(ids, ALL, "ALL must list exactly KINDS, in the same order");
+    }
+
+    /// Every kind sits under one of the three families the form groups by, and
+    /// every per-type list names kinds that exist.
+    #[tokio::test]
+    async fn the_vocabulary_is_internally_consistent() {
+        for k in KINDS {
+            assert!(
+                GROUPS.iter().any(|(id, _)| *id == k.group),
+                "{} is in group '{}', which is not one of GROUPS",
+                k.id,
+                k.group
+            );
+            assert!(!k.example.is_empty(), "{} needs a worked example", k.id);
+        }
+        for solution_type in ["website", "application", "api", "database", "quantum"] {
+            for id in kinds_for(solution_type) {
+                assert!(kind(id).is_some(), "{solution_type} offers unknown kind {id}");
+            }
+        }
+    }
+
+    /// The three original ids are still in the table under their own names, so
+    /// every row ever written stays valid and there is nothing to migrate.
+    #[tokio::test]
+    async fn the_original_three_still_mean_what_they_meant() {
+        assert_eq!(kind("screen").expect("screen").heading, "Screens");
+        assert_eq!(kind("api").expect("api").heading, "Endpoints");
+        assert_eq!(kind("table").expect("table").heading, "Database tables");
     }
 
     /// Add and change are different work, and a plan that blurs them is
@@ -582,6 +818,63 @@ mod tests {
         let catalogue = catalogue_for_solution(&conn, api).await.expect("catalogue");
         assert_eq!(catalogue.len(), 1);
         assert_eq!(catalogue[0].1, "POST /checkout", "the first spelling wins");
+    }
+
+    /// Ticking eight screens where one is already on the item is the ordinary
+    /// case, not an error. Failing the lot would leave somebody hunting for
+    /// which one was the duplicate.
+    #[tokio::test]
+    async fn one_refusal_does_not_take_the_batch_down() {
+        let (conn, item, web, _api) = fixture().await;
+        add(&conn, item, Some(web), "screen", "add", "Basket", "")
+            .await
+            .expect("already there");
+
+        let outcomes = add_many(
+            &conn,
+            item,
+            &[
+                (Some(web), "screen".into(), "change".into(), "Basket".into(), "d".into()),
+                (Some(web), "screen".into(), "change".into(), "Checkout".into(), "d".into()),
+                (Some(web), "table".into(), "add".into(), "orders".into(), "d".into()),
+                (Some(web), "component".into(), "add".into(), "PriceTag".into(), "d".into()),
+            ],
+        )
+        .await
+        .expect("the batch itself does not fail");
+
+        assert_eq!(outcomes.len(), 4);
+        assert!(outcomes[0].refused.as_deref().unwrap().contains("already on this"));
+        assert!(outcomes[1].id.is_some(), "the good ones still land");
+        assert!(outcomes[2].refused.as_deref().unwrap().contains("does not carry"));
+        assert!(outcomes[3].id.is_some());
+    }
+
+    /// The point of ticking five things and writing the detail once.
+    #[tokio::test]
+    async fn one_detail_can_be_written_across_everything_ticked() {
+        let (conn, item, web, _api) = fixture().await;
+        let outcomes = add_many(
+            &conn,
+            item,
+            &[
+                (Some(web), "screen".into(), "change".into(), "Basket".into(), String::new()),
+                (Some(web), "screen".into(), "change".into(), "Checkout".into(), String::new()),
+            ],
+        )
+        .await
+        .expect("batch");
+        let ids: Vec<i64> = outcomes.iter().filter_map(|o| o.id).collect();
+
+        set_detail_many(&conn, &ids, "Totals move into a shared component")
+            .await
+            .expect("detail");
+
+        for id in ids {
+            let row = find_by_id(&conn, id).await.expect("find").expect("there");
+            assert_eq!(row.detail, "Totals move into a shared component");
+            assert_eq!(row.action, "change", "the action is not disturbed");
+        }
     }
 
     #[tokio::test]

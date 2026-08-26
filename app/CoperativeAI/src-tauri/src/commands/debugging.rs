@@ -208,21 +208,96 @@ pub struct StartedDebug {
     pub note: String,
 }
 
+/// The Solution's "start from", resolved against its working copy.
+///
+/// **Checked to exist, and refused loudly when it does not.** This field is set
+/// once and then forgotten, so the file it names outlives the memory of naming
+/// it — a rename or a moved folder would otherwise hand the adapter a path that
+/// is not there, and every adapter answers that differently and badly. Delve
+/// says the package is not there, debugpy exits at once with nothing on the
+/// console, and netcoredbg stops at no breakpoints at all. One clear refusal
+/// here beats three different confusions.
+///
+/// Relative paths are resolved against the working copy, because that is how
+/// somebody would write it — `src/main.py`, not the whole absolute path. An
+/// absolute one is taken as given.
+fn named_start(program: &str, start_from: Option<&str>) -> Result<Option<String>, String> {
+    let Some(named) = start_from.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    let asked = std::path::Path::new(named);
+    let resolved = if asked.is_absolute() {
+        asked.to_path_buf()
+    } else {
+        // Written with forward slashes by habit even on Windows; joining each
+        // segment makes `src/main.py` a path rather than one odd filename.
+        //
+        // **`..` is resolved rather than joined on.** A relative path is
+        // allowed to leave the repository — a sibling checkout is a real
+        // answer, and the UI says it will not travel — but joining the segments
+        // blindly produces `C:\repos\orders\..\..\shared\serve.py`, and that is
+        // what a refusal would then quote back at somebody. It exists or it
+        // does not either way; only the sentence differs.
+        let mut path = std::path::PathBuf::from(program);
+        for part in named.split(['/', '\\']) {
+            match part {
+                "" | "." => {}
+                ".." => {
+                    // Never above the root of the drive: popping an empty path
+                    // would silently turn `../..` into the current directory.
+                    if !path.pop() {
+                        return Err(format!(
+                            "this Solution says to start from '{named}', which climbs above {}. \
+                             There is nothing above it to point at.",
+                            program
+                        ));
+                    }
+                }
+                part => path = path.join(part),
+            }
+        }
+        path
+    };
+    if !resolved.exists() {
+        return Err(format!(
+            "this Solution says to start from '{named}', and there is nothing at {}. Point it at \
+             something that is there, or clear it to let the debugger work it out.",
+            resolved.display()
+        ));
+    }
+    Ok(Some(resolved.display().to_string()))
+}
+
 /// The launch arguments for one language.
 ///
-/// **Three of four.** The shapes differ more than "different arguments"
-/// suggests: Delve is given a folder and builds it; js-debug is given a `.js`
-/// and answers with a `startDebugging` reverse request, so the lifecycle
-/// differs too; netcoredbg is given a **built assembly**, which has to exist
-/// already. debugpy has no shape here yet, and saying so beats a session that
-/// starts and never stops.
-fn launch_arguments(language: &str, program: &str) -> Result<(serde_json::Value, String), String> {
+/// **All four now, and they differ more than "different arguments" suggests.**
+/// Delve is given a folder and builds it; js-debug is given a `.js` and answers
+/// with a `startDebugging` reverse request, so the lifecycle differs too;
+/// netcoredbg is given a **built assembly**, which has to exist already; and
+/// debugpy is given one `.py` file, which is the hard part — a folder of Python
+/// says nothing about which file is the program.
+///
+/// `interpreter` is the adapter's own executable, which for Python is the
+/// interpreter that was proved to have debugpy importable. The others do not
+/// need it.
+fn launch_arguments(
+    language: &str,
+    program: &str,
+    interpreter: &str,
+    start_from: Option<&str>,
+) -> Result<(serde_json::Value, String), String> {
     let plain = |v: serde_json::Value| Ok((v, String::new()));
+    // What the Solution says to start, resolved against the working copy and
+    // checked to exist. Absent when nobody has said, which is the ordinary case
+    // and leaves each language to work it out.
+    let named = named_start(program, start_from)?;
     match language {
+        // Delve takes a package: the folder is right for the common case, and
+        // a named one points at the `cmd/…` that actually has the `main`.
         "go" => plain(serde_json::json!({
             "request": "launch",
             "mode": "debug",
-            "program": program,
+            "program": named.clone().unwrap_or_else(|| program.to_string()),
             "cwd": program,
         })),
         // js-debug wants the file rather than the folder, and answers this with
@@ -232,7 +307,7 @@ fn launch_arguments(language: &str, program: &str) -> Result<(serde_json::Value,
             "type": "pwa-node",
             "request": "launch",
             "name": "CoperativeAI",
-            "program": program,
+            "program": named.clone().unwrap_or_else(|| program.to_string()),
             "cwd": std::path::Path::new(program)
                 .parent()
                 .map(|d| d.display().to_string())
@@ -243,10 +318,19 @@ fn launch_arguments(language: &str, program: &str) -> Result<(serde_json::Value,
         // plainly beats launching a debugger that stops at nothing.
         "csharp" => {
             let root = std::path::Path::new(program);
-            let Some((dll, configuration)) = crate::debug::dotnet::built_assembly(root) else {
+            // A named assembly is taken as given: somebody who points at one
+            // `.dll` in a solution of several has answered the question the
+            // search exists to guess at, and there is no configuration to infer
+            // from a path they chose.
+            let found = match &named {
+                Some(dll) => Some((std::path::PathBuf::from(dll), "the one you named".to_string())),
+                None => crate::debug::dotnet::built_assembly(root),
+            };
+            let Some((dll, configuration)) = found else {
                 return Err(format!(
                     "nothing has been built in {} yet. C# is debugged through its compiled \
-                     assembly, so run `dotnet build` there first.",
+                     assembly, so run `dotnet build` there first — or name the assembly to start \
+                     from on the Solution.",
                     root.display()
                 ));
             };
@@ -255,7 +339,12 @@ fn launch_arguments(language: &str, program: &str) -> Result<(serde_json::Value,
             // Release build may have a good reason. What must not happen is
             // finding out by watching the debugger stop on the wrong line and
             // deciding this app is broken.
-            let note = if configuration.eq_ignore_ascii_case("debug") {
+            let note = if named.is_some() {
+                // Nothing to warn about: nothing was guessed. Saying which
+                // assembly is running still earns its place, because "start
+                // from" is set once and then forgotten.
+                format!("Debugging {}, named on this Solution.", dll.display())
+            } else if configuration.eq_ignore_ascii_case("debug") {
                 String::new()
             } else {
                 format!(
@@ -278,9 +367,64 @@ fn launch_arguments(language: &str, program: &str) -> Result<(serde_json::Value,
                 note,
             ))
         }
+        // **The hard one, and not for protocol reasons.** Go is handed a folder
+        // and Delve builds it; C# is handed a built assembly, which either
+        // exists or does not. debugpy runs exactly one `.py`, and a folder of
+        // Python says nothing about which file that is — so the entry point is
+        // found by convention and refused rather than guessed at, because a
+        // debugger pointed at the wrong file starts, runs something, and stops
+        // at none of the breakpoints.
+        "python" => {
+            let root = std::path::Path::new(program);
+            let script = match &named {
+                Some(path) => std::path::PathBuf::from(path),
+                None => crate::debug::python::entry_script(root)?,
+            };
+            // Said when it was not the obvious one. A wrong guess presents as
+            // breakpoints that never hit, and naming the file turns that from a
+            // mystery into an easy correction — and a file somebody named is
+            // worth confirming for the same reason, since it is set once and
+            // then forgotten.
+            let note = if named.is_some() {
+                format!("Debugging {}, named on this Solution.", script.display())
+            } else if script == root.join("main.py") {
+                String::new()
+            } else {
+                format!(
+                    "Debugging {}, chosen because it is the first thing in this folder that looks \
+                     like the program. If that is the wrong file, name one to start from on this \
+                     Solution.",
+                    script.display()
+                )
+            };
+            Ok((
+                serde_json::json!({
+                    "type": "python",
+                    "request": "launch",
+                    "name": "CoperativeAI",
+                    "program": script.display().to_string(),
+                    "cwd": program,
+                    // **The interpreter that was proved to have debugpy.** Left
+                    // unset, debugpy runs the program with whatever it resolves
+                    // itself — which on Windows is routinely a different Python
+                    // from the one the search found, and the program then fails
+                    // on imports that are plainly installed.
+                    "python": interpreter,
+                    // Output comes back as DAP `output` events, which is what
+                    // the console pane reads. `integratedTerminal` would need
+                    // the client to spawn a terminal for the adapter, and this
+                    // app does not hand it one.
+                    "console": "internalConsole",
+                    "redirectOutput": true,
+                    // Stepping stays in the code somebody wrote, matching C#.
+                    "justMyCode": true,
+                }),
+                note,
+            ))
+        }
         other => Err(format!(
             "launching {other} is not wired up yet — the adapter is found and speaks DAP, but its \
-             launch shape is still to do. Go, TypeScript and C# work today."
+             launch shape is still to do. Go, Python, TypeScript and C# work today."
         )),
     }
 }
@@ -289,12 +433,28 @@ fn launch_arguments(language: &str, program: &str) -> Result<(serde_json::Value,
 #[tauri::command]
 pub async fn debug_start(
     app: AppHandle,
+    db: State<'_, super::AppDb>,
     sessions: State<'_, DebugSessions>,
     language: String,
     program: String,
+    // `solution_id` is the Solution being debugged, so its "start from" can be
+    // honoured. None where there is not one.
+    solution_id: Option<i64>,
     breakpoints: Vec<Breakpoint>,
 ) -> Result<StartedDebug, String> {
-    let (arguments, note) = launch_arguments(&language, &program)?;
+    let start_from = match solution_id {
+        Some(id) => {
+            let conn = db.0.lock().await;
+            crate::db::solution::find_by_id(&conn, id)
+                .await
+                .map_err(super::to_message)?
+                .and_then(|s| s.start_from)
+        }
+        None => None,
+    };
+    // The adapter first: Python's launch shape needs the interpreter that was
+    // proved to have debugpy, and there is no point resolving an entry script
+    // for a debugger that is not on this machine either way.
     let found = adapters::discover();
     let Some(adapter) = found.into_iter().find(|a| a.language == language) else {
         return Err(format!("no adapter is configured for {language}"));
@@ -302,6 +462,12 @@ pub async fn debug_start(
     if !adapter.available {
         return Err(adapter.problem);
     }
+    let (arguments, note) = launch_arguments(
+        &language,
+        &program,
+        adapter.argv.first().map_or("", |s| s.as_str()),
+        start_from.as_deref(),
+    )?;
 
     let id = format!("dbg-{}-{}", language, crate::db::now_millis());
     let emitter = app.clone();
@@ -573,4 +739,236 @@ pub async fn debug_stop(
     };
     live.stop();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **The shape debugpy actually needs.** It runs one file, so `program` is
+    /// a `.py` and not the folder — the mistake that would present as a
+    /// debugger stopping at none of the breakpoints.
+    #[test]
+    fn python_launches_one_file_with_the_interpreter_that_has_debugpy() {
+        let root = std::env::temp_dir().join(format!("coperativeai-launch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("temp");
+        std::fs::write(root.join("main.py"), "print('x')\n").expect("write");
+
+        let (arguments, note) = launch_arguments(
+            "python",
+            &root.display().to_string(),
+            "C:/Python312/python.exe",
+            None,
+        )
+        .expect("a shape");
+
+        assert_eq!(arguments["type"], "python");
+        assert_eq!(arguments["request"], "launch");
+        assert_eq!(
+            arguments["program"],
+            root.join("main.py").display().to_string(),
+            "the file, not the folder"
+        );
+        assert_eq!(arguments["cwd"], root.display().to_string());
+        // The interpreter proved to have debugpy, not whatever debugpy would
+        // resolve for itself — on Windows those are routinely different.
+        assert_eq!(arguments["python"], "C:/Python312/python.exe");
+        // Output has to arrive as DAP events, because that is what the console
+        // pane reads; an integrated terminal would need one to be handed over.
+        assert_eq!(arguments["console"], "internalConsole");
+        assert_eq!(arguments["redirectOutput"], true);
+        // main.py is the obvious answer, so nothing to say about it.
+        assert_eq!(note, "");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A file chosen by convention is named, because a wrong guess otherwise
+    /// presents as breakpoints that never hit.
+    #[test]
+    fn a_less_obvious_entry_point_is_named() {
+        let root = std::env::temp_dir().join(format!("coperativeai-launch2-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("temp");
+        std::fs::write(root.join("manage.py"), "print('x')\n").expect("write");
+
+        let (_, note) =
+            launch_arguments("python", &root.display().to_string(), "python", None).expect("a shape");
+        assert!(note.contains("manage.py"), "got: {note}");
+        // It points at the escape hatch rather than telling somebody to rename
+        // their file, which is what it used to say.
+        assert!(note.contains("name one to start from"), "got: {note}");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Refused rather than pointed at something arbitrary — the refusal carries
+    /// the list of what was looked for.
+    #[test]
+    fn a_folder_with_no_program_in_it_is_refused() {
+        let root = std::env::temp_dir().join(format!("coperativeai-launch3-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("temp");
+        std::fs::write(root.join("helpers.py"), "x = 1\n").expect("write");
+
+        let err = launch_arguments("python", &root.display().to_string(), "python", None)
+            .expect_err("nothing to start");
+        assert!(err.contains("main.py"), "got: {err}");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// **The escape hatch from the convention.** A project that starts from
+    /// `serve.py` was getting a refusal and being asked to rename its file;
+    /// naming it on the Solution is the answer, and it wins over every guess.
+    #[test]
+    fn a_named_start_beats_the_convention() {
+        let root = std::env::temp_dir().join(format!("coperativeai-start-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("temp");
+        // Both exist, and the convention would take main.py.
+        std::fs::write(root.join("main.py"), "print('x')\n").expect("write");
+        std::fs::write(root.join("serve.py"), "print('x')\n").expect("write");
+
+        let (arguments, note) = launch_arguments(
+            "python",
+            &root.display().to_string(),
+            "python",
+            Some("serve.py"),
+        )
+        .expect("a shape");
+
+        assert_eq!(arguments["program"], root.join("serve.py").display().to_string());
+        // Set once and then forgotten, so it is worth confirming.
+        assert!(note.contains("serve.py"), "got: {note}");
+        assert!(note.contains("named on this Solution"), "got: {note}");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Written the way somebody would write it — `src/main.py`, not the whole
+    /// absolute path — and resolved against the working copy.
+    #[test]
+    fn a_relative_start_is_resolved_against_the_working_copy() {
+        let root = std::env::temp_dir().join(format!("coperativeai-start2-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("api")).expect("temp");
+        std::fs::write(root.join("api").join("serve.py"), "print('x')\n").expect("write");
+
+        let (arguments, _) = launch_arguments(
+            "python",
+            &root.display().to_string(),
+            "python",
+            // Forward slashes, as somebody types them even on Windows.
+            Some("api/serve.py"),
+        )
+        .expect("a shape");
+
+        assert_eq!(
+            arguments["program"],
+            root.join("api").join("serve.py").display().to_string()
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A sibling checkout is a real answer, so `..` is resolved rather than
+    /// joined on — otherwise a refusal quotes back
+    /// `C:\repos\orders\..\..\shared\serve.py`, which is nobody's idea of a
+    /// helpful message.
+    #[test]
+    fn a_relative_start_may_climb_out_of_the_working_copy() {
+        let root = std::env::temp_dir().join(format!("coperativeai-climb-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let repo = root.join("orders");
+        std::fs::create_dir_all(&repo).expect("temp");
+        std::fs::create_dir_all(root.join("shared")).expect("temp");
+        std::fs::write(root.join("shared").join("serve.py"), "print('x')\n").expect("write");
+
+        let (arguments, _) = launch_arguments(
+            "python",
+            &repo.display().to_string(),
+            "python",
+            Some("../shared/serve.py"),
+        )
+        .expect("a sibling is a real answer");
+
+        // Resolved, not joined: no `..` left in what the adapter is handed.
+        let program = arguments["program"].as_str().expect("a program");
+        assert!(!program.contains(".."), "got: {program}");
+        assert_eq!(program, root.join("shared").join("serve.py").display().to_string());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Climbing above the root of the drive is not a place. Popping an empty
+    /// path would silently turn `../../..` into the current directory.
+    #[test]
+    fn a_start_that_climbs_off_the_top_is_refused() {
+        let err = launch_arguments("python", "C:", "python", Some("../../../x.py"))
+            .expect_err("nowhere to go");
+        assert!(err.contains("climbs above"), "got: {err}");
+    }
+
+    /// **Set once and then forgotten**, so the file it names outlives the
+    /// memory of naming it. A rename would otherwise hand the adapter a path
+    /// that is not there, and every adapter answers that differently and badly.
+    #[test]
+    fn a_start_pointing_at_nothing_is_refused_clearly() {
+        let root = std::env::temp_dir().join(format!("coperativeai-start3-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("temp");
+        std::fs::write(root.join("main.py"), "print('x')\n").expect("write");
+
+        let err = launch_arguments(
+            "python",
+            &root.display().to_string(),
+            "python",
+            Some("gone.py"),
+        )
+        .expect_err("nothing there");
+
+        assert!(err.contains("gone.py"), "got: {err}");
+        assert!(err.contains("clear it"), "it says how to get out of it: {err}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// It is not a Python field. Every language is handed the thing it starts,
+    /// and a field that quietly worked for one of four would be worse than none.
+    #[test]
+    fn every_language_honours_a_named_start() {
+        let root = std::env::temp_dir().join(format!("coperativeai-start4-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("cmd")).expect("temp");
+        std::fs::write(root.join("cmd").join("app.js"), "//\n").expect("write");
+
+        let here = root.display().to_string();
+        let named = root.join("cmd").join("app.js").display().to_string();
+
+        let (go, _) = launch_arguments("go", &here, "", Some("cmd/app.js")).expect("go");
+        assert_eq!(go["program"], named);
+        // …and the working copy is still the cwd, so relative reads behave.
+        assert_eq!(go["cwd"], here);
+
+        let (ts, _) = launch_arguments("typescript", &here, "", Some("cmd/app.js")).expect("ts");
+        assert_eq!(ts["program"], named);
+
+        let (cs, note) = launch_arguments("csharp", &here, "", Some("cmd/app.js")).expect("c#");
+        assert_eq!(cs["program"], named);
+        // Nothing was guessed, so there is no Release warning to give — but the
+        // assembly is still named, because this is set once and forgotten.
+        assert!(note.contains("named on this Solution"), "got: {note}");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The message that says what is not built yet has to stay true as shapes
+    /// are added, or it sends somebody looking for a feature that exists.
+    #[test]
+    fn an_unknown_language_names_the_ones_that_work() {
+        let err = launch_arguments("elixir", "C:/repo", "", None).expect_err("no shape");
+        for language in ["Go", "Python", "TypeScript", "C#"] {
+            assert!(err.contains(language), "{language} is missing from: {err}");
+        }
+    }
 }

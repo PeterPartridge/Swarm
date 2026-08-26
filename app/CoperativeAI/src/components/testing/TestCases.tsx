@@ -2,15 +2,21 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   createTestCase,
   deleteTestCase,
+  implementTestCase,
+  runTestCase,
+  type TestRunResult,
   listDeliverables,
   listTestCases,
   listWorkItems,
   updateTestCase,
   TYPE_LABELS,
+  type Blocked,
   type Deliverable,
   type TestCase,
   type WorkItem,
 } from "../../lib/backend";
+import BlockedNote from "../ai/BlockedNote";
+import RunOutcome from "./RunOutcome";
 
 /** The Test area's test cases: plain-English scenarios QA designs, each
  *  optionally associated with a Deliverable or a Work Item, and markable as
@@ -25,6 +31,19 @@ export default function TestCases({ productId }: { productId: number }) {
   const [scenario, setScenario] = useState("");
   // "" | "d:<id>" | "w:<id>" — one association picker over both kinds
   const [link, setLink] = useState("");
+  /** Which case is being implemented, so only its button shows the wait. */
+  const [implementing, setImplementing] = useState<number | null>(null);
+  /** Per-case outcome of the last implement press: where the test landed, or
+   *  the question the AI asked instead. Keyed by case id so two scenarios do
+   *  not overwrite each other's answer. */
+  const [outcomes, setOutcomes] = useState<
+    Record<number, { path?: string; blocked?: Blocked }>
+  >({});
+  /** Which case is being run, and the fresh result per case. A fresh result
+   *  replaces the stored one on screen because it carries the runner output
+   *  and the command, which are returned but never stored. */
+  const [runningTest, setRunningTest] = useState<number | null>(null);
+  const [runs, setRuns] = useState<Record<number, TestRunResult>>({});
 
   const refresh = useCallback(async () => {
     try {
@@ -73,6 +92,10 @@ export default function TestCases({ productId }: { productId: number }) {
       testPath: null,
       deliverableId,
       workItemId,
+      testNames: [],
+      lastRunAt: null,
+      lastRunOutcome: null,
+      lastRunSummary: null,
     };
     setCases((cur) => [...cur, temp]);
     setTitle("");
@@ -110,6 +133,47 @@ export default function TestCases({ productId }: { productId: number }) {
     } catch (err) {
       setError(String(err));
       await refresh();
+    }
+  }
+
+  /** Asks the AI to write the test. The backend owns every gate — this only
+   *  decides whether pressing is worth offering at all. */
+  async function onImplement(testCase: TestCase) {
+    setImplementing(testCase.id);
+    try {
+      const result = await implementTestCase(testCase.id);
+      setOutcomes((cur) => ({
+        ...cur,
+        [testCase.id]: result.blocked
+          ? { blocked: result.blocked }
+          : { path: result.testPath },
+      }));
+      setError(null);
+      // The state and path come back from the reload, not from assuming the
+      // write happened the way we hoped it did.
+      await refresh();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setImplementing(null);
+    }
+  }
+
+  /** Runs the test written for this scenario. A failure is a result, not an
+   *  error — so it lands in `runs`, never in `error`. */
+  async function onRun(testCase: TestCase) {
+    setRunningTest(testCase.id);
+    try {
+      const result = await runTestCase(testCase.id);
+      setRuns((cur) => ({ ...cur, [testCase.id]: result }));
+      setError(null);
+      // The stored outcome comes back with the reload; the fresh one above is
+      // what stays on screen, because it also has the output and the command.
+      await refresh();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setRunningTest(null);
     }
   }
 
@@ -242,10 +306,75 @@ export default function TestCases({ productId }: { productId: number }) {
                     />
                   </div>
                 )}
+                {c.state === "designed" && (
+                  <>
+                    {/* Disabled with a reason rather than hidden: a control
+                        that vanishes teaches nobody why. The AI policy belongs
+                        to a work item, so a case linked to a Deliverable — or
+                        to nothing — has none to ask. */}
+                    <button
+                      aria-label={`Implement ${c.title} with AI`}
+                      aria-describedby={
+                        c.workItemId === null ? `why-not-${c.id}` : undefined
+                      }
+                      disabled={c.workItemId === null || implementing !== null}
+                      onClick={() => onImplement(c)}
+                    >
+                      {implementing === c.id ? "Writing the test…" : "Implement with AI"}
+                    </button>
+                    {c.workItemId === null && (
+                      <span id={`why-not-${c.id}`} className="hint">
+                        Associate this with a work item first — the AI policy
+                        that allows generating tests belongs to the work item.
+                      </span>
+                    )}
+                  </>
+                )}
+                {c.state === "implemented" && (
+                  <button
+                    aria-label={`Run the test for ${c.title}`}
+                    disabled={runningTest !== null}
+                    onClick={() => onRun(c)}
+                  >
+                    {runningTest === c.id ? "Running…" : "Run"}
+                  </button>
+                )}
                 <button aria-label={`Delete test case ${c.title}`} onClick={() => onDelete(c)}>
                   Delete
                 </button>
               </div>
+
+              {/* The run just finished, or — until one is — the last recorded
+                  one. A fresh result wins because it carries the output. */}
+              {runs[c.id] ? (
+                <RunOutcome
+                  outcome={runs[c.id].outcome}
+                  summary={runs[c.id].summary}
+                  aboutThisTest={runs[c.id].aboutThisTest}
+                  commandLine={runs[c.id].commandLine}
+                  output={runs[c.id].output}
+                />
+              ) : (
+                c.lastRunOutcome && (
+                  <RunOutcome
+                    outcome={c.lastRunOutcome}
+                    summary={c.lastRunSummary ?? ""}
+                    when={c.lastRunAt}
+                  />
+                )
+              )}
+
+              {outcomes[c.id]?.path && (
+                <p className="test-written">
+                  Written to <code>{outcomes[c.id].path}</code>
+                </p>
+              )}
+              {outcomes[c.id]?.blocked && (
+                <BlockedNote
+                  blocked={outcomes[c.id].blocked!}
+                  what="writing a test that asserts nothing"
+                />
+              )}
             </li>
           ))}
         </ul>

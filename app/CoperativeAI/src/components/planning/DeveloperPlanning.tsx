@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import Notice, { type NoticeValue } from "../ai/Notice";
 import DiagramBuilder from "../diagram/DiagramBuilder";
 import DiagramView from "../diagram/DiagramView";
 import SolutionMap from "../diagram/SolutionMap";
@@ -44,7 +45,7 @@ export default function DeveloperPlanning({
   const [solutionId, setSolutionId] = useState("");
   const [brief, setBrief] = useState("");
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<NoticeValue | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -79,10 +80,10 @@ export default function DeveloperPlanning({
         brief,
       });
       if (result.blocked) {
-        setNotice(
-          `The AI stopped rather than inventing an architecture: ${result.blocked.reason} ` +
-            `${result.blocked.whatIsNeeded}`,
-        );
+        setNotice({
+          blocked: result.blocked,
+          what: "inventing an architecture",
+        });
       } else {
         setNotice(`${result.created.join(" — ")} (${result.provider} · ${result.reason}).`);
       }
@@ -99,7 +100,7 @@ export default function DeveloperPlanning({
     <section className="developer-planning" aria-label="Developer Planning">
       <h2>Developer Planning</h2>
       {error && <p role="alert">{error}</p>}
-      {notice && <p role="status">{notice}</p>}
+      <Notice value={notice} />
 
       {/* The combined map: existing Solutions as type-shaped boxes, dragged into
           place and joined by their dependencies, with a new Solution added from

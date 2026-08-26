@@ -1,28 +1,21 @@
 import SectionTabs from "../components/common/SectionTabs";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import DeveloperPlanning from "../components/planning/DeveloperPlanning";
 import FrameworkFiles from "../components/product/FrameworkFiles";
+import NewSolutionForm from "../components/product/NewSolutionForm";
 import RulesView from "../components/planning/RulesView";
 import SolutionBox from "../components/product/SolutionBox";
 import SolutionRepo from "../components/vcs/SolutionRepo";
 import WorkItemViews from "../components/planning/WorkItemViews";
 import AgentWorkspace from "../components/ai/AgentWorkspace";
 import {
-  createSolutionWithStarter,
   deleteSolution,
   githubStatus,
   listProducts,
   listSolutions,
-  listStarters,
-  startExistingSolution,
-  pickFolder,
-  SOLUTION_QUESTIONS,
-  SOLUTION_TYPES,
   type Product,
   type Solution,
-  type Starter,
-  type StarterRun,
 } from "../lib/backend";
 
 /** Which slice of the Develop area is showing.
@@ -91,23 +84,10 @@ export default function DevelopSolutions({
   const [githubConnected, setGithubConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [solutionName, setSolutionName] = useState("");
+  /// Which Product the create-a-Solution form is making one for. Its own
+  /// state, not the tabs' Product: somebody can be looking at one Product's
+  /// map while adding a Solution to another.
   const [solutionProduct, setSolutionProduct] = useState<number | "">("");
-  const [solutionType, setSolutionType] = useState<string>("application");
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [starters, setStarters] = useState<Starter[]>([]);
-  const [starterId, setStarterId] = useState("");
-  /// The command is editable before it runs, so the button press is the
-  /// confirmation — nothing is run that could not be read first.
-  const [starterCommand, setStarterCommand] = useState("");
-  /// The name for "something else" — recorded as the Solution's language, so a
-  /// year later it says "Elixir" rather than "custom".
-  const [customLanguage, setCustomLanguage] = useState("");
-  const [starterParent, setStarterParent] = useState("");
-  const [starterRun, setStarterRun] = useState<StarterRun | null>(null);
-  /// Kept so a failed starter can be retried against the Solution that was
-  /// created anyway — the decision is worth more than the folder.
-  const [lastCreatedId, setLastCreatedId] = useState<number | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -132,17 +112,6 @@ export default function DevelopSolutions({
     void refresh();
   }, [refresh]);
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        setStarters(await listStarters());
-      } catch {
-        // Starters are an offer, not a requirement: a Solution can still be
-        // created without one, so a failure here must not block the form.
-      }
-    })();
-  }, []);
-
   async function run(action: () => Promise<unknown>) {
     try {
       await action();
@@ -150,46 +119,6 @@ export default function DevelopSolutions({
     } catch (e) {
       setError(String(e));
     }
-  }
-
-  async function onCreateSolution(e: FormEvent) {
-    e.preventDefault();
-    if (!solutionName.trim() || solutionProduct === "") return;
-    setStarterRun(null);
-    // The picked language is the answer to the language question, so it is
-    // stored with the other answers rather than only as a starter id — the
-    // brief that reaches the AI reads "Rust (cargo)", not "rust".
-    const languageAnswer =
-      starterId === "custom"
-        ? customLanguage.trim()
-        : (starters.find((s) => s.id === starterId)?.label ?? "");
-    try {
-      const created = await createSolutionWithStarter({
-        name: solutionName,
-        productId: Number(solutionProduct),
-        solutionType,
-        answers: JSON.stringify({ ...answers, language: languageAnswer }),
-        starterId: starterId || null,
-        command: starterCommand || null,
-        parentDir: starterParent || null,
-        languageName: starterId === "custom" ? customLanguage.trim() : null,
-      });
-      // Kept whether it worked or not: when a generator fails, its own words
-      // are the only thing that says which toolchain is missing.
-      setStarterRun(created.started);
-      setLastCreatedId(created.solutionId);
-      setError(null);
-      setSolutionName("");
-      setAnswers({});
-      setSolutions(await listSolutions());
-    } catch (e) {
-      setError(String(e));
-    }
-  }
-
-  function onStarterChange(id: string) {
-    setStarterId(id);
-    setStarterCommand(starters.find((s) => s.id === id)?.command ?? "");
   }
 
   const productName = (id: number) =>
@@ -302,173 +231,18 @@ export default function DevelopSolutions({
       {activeProduct !== "" && <FrameworkFiles productId={Number(activeProduct)} />}
       <section className="develop-card" aria-label="Create a Solution">
         <h2>Create a Solution</h2>
-        {products.length === 0 ? (
+        {products.length === 0 || solutionProduct === "" ? (
           <p>Solutions link to a Product — create a Product first (Product tab).</p>
         ) : (
-          <>
-          <form onSubmit={onCreateSolution} aria-label="New Solution">
-            <input
-              aria-label="Solution name"
-              placeholder="Solution name"
-              value={solutionName}
-              onChange={(e) => setSolutionName(e.target.value)}
-            />
-            <select
-              aria-label="Product"
-              value={solutionProduct}
-              onChange={(e) => setSolutionProduct(Number(e.target.value))}
-            >
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="Solution type"
-              value={solutionType}
-              onChange={(e) => setSolutionType(e.target.value)}
-            >
-              {SOLUTION_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-            {SOLUTION_QUESTIONS.map((q) =>
-              // The language question *is* the starter picker. Asking it twice
-              // — once as prose and once as a dropdown — invites two different
-              // answers, and the one the generator uses would not be the one
-              // anybody read.
-              q.id === "language" ? (
-                <label key={q.id}>
-                  {q.label}
-                  <select
-                    aria-label="Starter language"
-                    value={starterId}
-                    onChange={(e) => onStarterChange(e.target.value)}
-                  >
-                    <option value="">Not sure yet / already have the code</option>
-                    {starters.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : (
-                <label key={q.id}>
-                  {q.label}
-                  <textarea
-                    value={answers[q.id] ?? ""}
-                    onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
-                  />
-                </label>
-              ),
-            )}
-            {starterId !== "" && (
-              <div className="starter-detail">
-                <p className="hint">
-                  Needs {starters.find((s) => s.id === starterId)?.needs}.
-                </p>
-                {/* "Something else" has no name and no command of its own, so
-                    both are asked for. Without the name the Solution would be
-                    recorded as having been started in "custom", which tells
-                    nobody anything a year later. */}
-                {starterId === "custom" && (
-                  <label>
-                    Language name
-                    <input
-                      aria-label="Language name"
-                      value={customLanguage}
-                      placeholder="Elixir, Kotlin, Zig…"
-                      onChange={(e) => setCustomLanguage(e.target.value)}
-                    />
-                  </label>
-                )}
-                <label>
-                  Command to run
-                  <input
-                    aria-label="Starter command"
-                    value={starterCommand}
-                    placeholder="the command that creates the project"
-                    onChange={(e) => setStarterCommand(e.target.value)}
-                  />
-                </label>
-                <p className="hint">
-                  This runs in a new folder named after the Solution. It is shown
-                  here so you can read it before pressing Create — and it is only
-                  ever run in an empty folder.
-                </p>
-                <label>
-                  Create it in
-                  <input
-                    aria-label="Folder to create the project in"
-                    value={starterParent}
-                    placeholder="where the new project folder goes"
-                    onChange={(e) => setStarterParent(e.target.value)}
-                  />
-                </label>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const chosen = await pickFolder();
-                    if (chosen) setStarterParent(chosen);
-                  }}
-                >
-                  Choose folder…
-                </button>
-              </div>
-            )}
-
-            <button type="submit">
-              {starterId === "" ? "Create Solution" : "Create Solution and start it"}
-            </button>
-          </form>
-
-          {/* The generator's own words, kept whether it worked or not. */}
-          {starterRun && (
-            <div
-              className={starterRun.succeeded ? "starter-run pass" : "starter-run fail"}
-              role="status"
-            >
-              <p>
-                {starterRun.succeeded
-                  ? `Started in ${starterRun.directory}.`
-                  : `The starter did not finish. The Solution was still created — the folder can be pointed at or retried.`}
-              </p>
-              <code>{starterRun.command}</code>
-              <pre>{starterRun.output}</pre>
-              {/* A failed starter used to be a dead end: the only ways out were
-                  pointing the Solution at a folder by hand or deleting and
-                  recreating it, which meant retyping the answers just to find
-                  out whether a toolchain had been installed since. */}
-              {!starterRun.succeeded && lastCreatedId !== null && (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      setStarterRun(
-                        await startExistingSolution({
-                          solutionId: lastCreatedId,
-                          starterId,
-                          command: starterCommand || null,
-                          parentDir: starterParent,
-                        }),
-                      );
-                      setError(null);
-                      setSolutions(await listSolutions());
-                    } catch (e) {
-                      setError(String(e));
-                    }
-                  }}
-                >
-                  Try the starter again
-                </button>
-              )}
-            </div>
-          )}
-          </>
+          // The same form the build plan opens from its Solution dropdown.
+          // Two copies were two answers to "which types are there".
+          <NewSolutionForm
+            productId={Number(solutionProduct)}
+            products={products}
+            onProductChange={setSolutionProduct}
+            askBrief
+            onCreated={() => void refresh()}
+          />
         )}
         <ul className="solution-list">
           {solutions.map((s) => (

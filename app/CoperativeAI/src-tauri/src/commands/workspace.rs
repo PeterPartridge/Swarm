@@ -2,7 +2,6 @@
 //! what has changed in it against the developer rules.
 
 use super::{to_message, AppDb};
-use crate::db::ai_usage::Exchange;
 use crate::db::{developer_rules, solution};
 use crate::agent::review;
 use crate::files::workspace;
@@ -200,11 +199,18 @@ pub async fn ask_coding_pal(
     match result {
         Ok((client::GeneratedPal::Answer(draft), usage)) => {
             let conn = db.0.lock().await;
-            ai_run::record(
-                &conn, product_id, None, &routed.provider, &routed.model,
-                PURPOSE, &usage, latency_ms, "ok",
-            
-                Exchange::new(&ai_run::asked(&prompt), &draft.explanation),
+            ai_run::record_ok(
+                &conn,
+                &ai_run::Call {
+                    product_id,
+                    work_item_id: None,
+                    routed: &routed,
+                    purpose: PURPOSE,
+                    prompt: &prompt,
+                },
+                latency_ms,
+                &usage,
+                &draft.explanation,
             )
             .await;
             // Checked two ways, both against what the proposal would introduce:
@@ -231,18 +237,19 @@ pub async fn ask_coding_pal(
         }
         Ok((client::GeneratedPal::Blocked { reason, what_is_needed }, usage)) => {
             let conn = db.0.lock().await;
-            ai_run::record(
-                &conn, product_id, None, &routed.provider, &routed.model,
-                PURPOSE, &usage, latency_ms, "declined",
-            
-                Exchange::new(
-            
-                    &ai_run::asked(&prompt),
-            
-                    &format!("Declined: {reason}
-{what_is_needed}"),
-            
-                ),
+            ai_run::record_declined(
+                &conn,
+                &ai_run::Call {
+                    product_id,
+                    work_item_id: None,
+                    routed: &routed,
+                    purpose: PURPOSE,
+                    prompt: &prompt,
+                },
+                latency_ms,
+                &usage,
+                &reason,
+                &what_is_needed,
             )
             .await;
             Ok(PalDto {
@@ -261,12 +268,17 @@ pub async fn ask_coding_pal(
         }
         Err(e) => {
             let conn = db.0.lock().await;
-            let outcome = if e.contains("refusal") { "refusal" } else { "error" };
-            ai_run::record(
-                &conn, product_id, None, &routed.provider, &routed.model,
-                PURPOSE, &Default::default(), latency_ms, outcome,
-            
-                Exchange::new(&ai_run::asked(&prompt), &e),
+            let e = ai_run::record_failure(
+                &conn,
+                &ai_run::Call {
+                    product_id,
+                    work_item_id: None,
+                    routed: &routed,
+                    purpose: PURPOSE,
+                    prompt: &prompt,
+                },
+                latency_ms,
+                e,
             )
             .await;
             Err(e)

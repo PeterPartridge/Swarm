@@ -2,7 +2,6 @@
 //! converts that writing into schemas a developer can build from.
 
 use super::{to_message, AppDb};
-use crate::db::ai_usage::Exchange;
 use crate::db::{solution, work_item, work_item_plan};
 use serde::Serialize;
 use tauri::State;
@@ -398,10 +397,18 @@ pub(crate) async fn run_change_plan(
     match result {
         Ok((client::GeneratedChangePlan::Plan(changes), usage)) => {
             let conn = db.0.lock().await;
-            ai_run::record(
-                &conn, product_id, Some(work_item_id), &routed.provider, &routed.model,
-                PURPOSE, &usage, latency_ms, "ok",
-                Exchange::new(&ai_run::asked(&prompt), &planned(&changes)),
+            ai_run::record_ok(
+                &conn,
+                &ai_run::Call {
+                    product_id,
+                    work_item_id: Some(work_item_id),
+                    routed: &routed,
+                    purpose: PURPOSE,
+                    prompt: &prompt,
+                },
+                latency_ms,
+                &usage,
+                &planned(&changes),
             )
             .await;
 
@@ -475,14 +482,19 @@ pub(crate) async fn run_change_plan(
         }
         Ok((client::GeneratedChangePlan::Blocked { reason, what_is_needed }, usage)) => {
             let conn = db.0.lock().await;
-            ai_run::record(
-                &conn, product_id, Some(work_item_id), &routed.provider, &routed.model,
-                PURPOSE, &usage, latency_ms, "declined",
-                Exchange::new(
-                    &ai_run::asked(&prompt),
-                    &format!("Declined: {reason}
-{what_is_needed}"),
-                ),
+            ai_run::record_declined(
+                &conn,
+                &ai_run::Call {
+                    product_id,
+                    work_item_id: Some(work_item_id),
+                    routed: &routed,
+                    purpose: PURPOSE,
+                    prompt: &prompt,
+                },
+                latency_ms,
+                &usage,
+                &reason,
+                &what_is_needed,
             )
             .await;
             // Recorded against the item, so the question joins the others the
@@ -506,11 +518,17 @@ pub(crate) async fn run_change_plan(
         }
         Err(e) => {
             let conn = db.0.lock().await;
-            let outcome = if e.contains("refusal") { "refusal" } else { "error" };
-            ai_run::record(
-                &conn, product_id, Some(work_item_id), &routed.provider, &routed.model,
-                PURPOSE, &Default::default(), latency_ms, outcome,
-                Exchange::new(&ai_run::asked(&prompt), &e),
+            let e = ai_run::record_failure(
+                &conn,
+                &ai_run::Call {
+                    product_id,
+                    work_item_id: Some(work_item_id),
+                    routed: &routed,
+                    purpose: PURPOSE,
+                    prompt: &prompt,
+                },
+                latency_ms,
+                e,
             )
             .await;
             Err(e)

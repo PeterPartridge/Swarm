@@ -8,8 +8,10 @@ import AiLogPanel from "./AiLogPanel";
 import BuildExplorer from "../code/BuildExplorer";
 import CodeEditor from "../code/CodeEditor";
 import BuildFileEditor from "../code/BuildFileEditor";
+import ConsoleDock from "../code/ConsoleDock";
 import DebugBoard from "../code/DebugBoard";
 import DebugToolbar from "../code/DebugToolbar";
+import RunBar, { type RunRequest } from "../code/RunBar";
 import GitExplorer from "../vcs/GitExplorer";
 import JobsPanel from "./JobsPanel";
 import QuestionsPanel from "./QuestionsPanel";
@@ -82,6 +84,10 @@ export default function AgentWorkspace({
   /// mounting the board on arrival would read every Solution's run command for
   /// somebody who never pressed the button.
   const [debugUsed, setDebugUsed] = useState(false);
+  /// What the Debug board has been asked to start, and when the Debug button
+  /// last asked the picker to start whatever it holds.
+  const [runRequest, setRunRequest] = useState<RunRequest | null>(null);
+  const [startNow, setStartNow] = useState(0);
 
   /// Which Solution the file tree is showing. Follows the selected agent's run;
   /// on your own workspace it is whichever Solution tab is picked.
@@ -280,12 +286,20 @@ export default function AgentWorkspace({
   const withAgents = new Set(agents.map((a) => a.item.id));
   const unassigned = items.filter((i) => !withAgents.has(i.id));
 
-  /** Opens the file a stop happened in, if it is one of ours.
+  /** Opens the file a stop happened in, if it is one of ours, and comes back
+   *  to it.
+   *
+   *  **A stop is the moment you want the code, not the board.** Pressing Debug
+   *  leaves you on the process board, and the breakpoint then hits somewhere
+   *  else entirely — the panel that mattered was rendered under the board you
+   *  were still looking at. Coming back to the file is the whole point of
+   *  having stopped there.
    *
    *  A frame in the Go runtime or in a dependency is a real frame at a real
    *  path that no Solution here can open — so the toolbar still appears and the
-   *  stack still lists it, but no file is opened and nothing is highlighted.
-   *  Guessing at a file would be worse than showing none. */
+   *  stack still lists it, but no file is opened, nothing is highlighted and
+   *  the view does not move. Jumping to a blank editor would be worse than
+   *  staying put. */
   const onDebugStopped = useCallback(
     (at: { session: string; threadId: number; frame: Frame; hovers: boolean }) => {
       const owner = solutions.find(
@@ -298,6 +312,10 @@ export default function AgentWorkspace({
         setFileFrom(owner.id);
         setSelectedFile(relative);
         setStop({ ...at, solutionId: owner.id, path: relative });
+        // The board keeps running behind this — it is hidden, not unmounted, so
+        // the shells and the session survive the trip.
+        setSelected("code");
+        setBrowsing(owner.id);
       } else {
         setStop({ ...at, solutionId: -1, path: "" });
       }
@@ -437,6 +455,15 @@ export default function AgentWorkspace({
           );
         })}
         <span className="solution-bar-spacer" />
+        {/* In the middle, in line with Debug: which Solutions to run, what to
+            run in each, and the two presses. */}
+        <RunBar
+          solutions={solutions}
+          browsing={browsing}
+          startNow={startNow}
+          onRun={setRunRequest}
+        />
+        <span className="solution-bar-spacer" />
         {/* Debug is a Product-wide thing, not an agent's — it runs the real
             Solutions in their own working copies — so it sits up here with the
             Solutions rather than inside one agent's workbench. */}
@@ -449,8 +476,18 @@ export default function AgentWorkspace({
           aria-label="Open the Debug board"
           aria-pressed={selected === "debug"}
           onClick={() => {
+            if (selected === "debug") {
+              setSelected("code");
+              return;
+            }
             setDebugUsed(true);
-            setSelected(selected === "debug" ? "code" : "debug");
+            setSelected("debug");
+            // **Debug starts the thing.** It used to open a board of Solutions
+            // that each then needed attaching and running — three presses to
+            // get to the state the word "Debug" already promised. What runs is
+            // whatever the picker says, which defaults to the Solution you are
+            // on and can be any number of them.
+            setStartNow(Date.now());
           }}
         >
           <span aria-hidden="true">▶</span> Debug
@@ -534,6 +571,24 @@ export default function AgentWorkspace({
             selected === "code" && <CodeEditor solutions={solutions} opened={opened} />
           )}
 
+          {/* **The console lives with the code**, because output belongs beside
+              the line that produced it — a console on another tab means
+              alt-tabbing between the thing that broke and the reason. Drag its
+              header to pull it onto the other monitor.
+
+              Only where there is a working copy to run in, and not while the
+              Debug board is up: that board has its own shells per Solution, and
+              two panels adopting the same PTY would fight over its size. */}
+          {selected !== "debug" && browsingSolution?.localPath && (
+            <ConsoleDock
+              // Keyed per Solution so switching tabs does not carry one
+              // Solution's shell under another one's name.
+              key={browsingSolution.id}
+              solution={browsingSolution}
+              active={selected !== "debug"}
+            />
+          )}
+
           {/* Mounted on first use and then hidden rather than unmounted, so a
               dev server survives a trip to a diff and back. Unmounting it was
               the honest first cut — a shell is a real child process — but it
@@ -545,6 +600,9 @@ export default function AgentWorkspace({
               <DebugBoard
                 solutions={solutions}
                 active={selected === "debug"}
+                // Pressing Debug, Run or Hot reload lands here as one request:
+                // attach a shell to each and type its command into it.
+                run={runRequest}
                 onStopped={onDebugStopped}
                 onResumed={() => setStop(null)}
               />

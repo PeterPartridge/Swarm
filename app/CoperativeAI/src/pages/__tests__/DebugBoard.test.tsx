@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DebugBoard, { uptime } from "../../components/code/DebugBoard";
@@ -24,6 +24,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     // The debuggers panel searches for adapters on mount.
     debugAdapters: vi.fn(),
     debugCheck: vi.fn(),
+    openDebuggerInstall: vi.fn(),
   };
 });
 
@@ -49,6 +50,7 @@ const sol = (id: number, name: string, over: Partial<Solution> = {}): Solution =
     testCommand: null,
     language: null,
     runCommand: null,
+    startFrom: null,
     ...over,
   }) as Solution;
 
@@ -143,12 +145,14 @@ describe("DebugBoard", () => {
         language: "go", label: "Go", adapter: "Delve", transport: "tcp",
         available: true, program: "C:/go/bin/dlv.exe dap", argv: [], version: "Delve 1.25.2",
         problem: "", install: "go install github.com/go-delve/delve/cmd/dlv@latest",
+        installCommand: "go install github.com/go-delve/delve/cmd/dlv@latest",
       },
       {
         language: "python", label: "Python", adapter: "debugpy", transport: "stdio",
         available: false, program: "", argv: [], version: "",
         problem: "the `python` on PATH is often the Microsoft Store stub, which cannot run.",
         install: "pip install debugpy",
+        installCommand: "pip install debugpy",
       },
     ]);
     render(<DebugBoard solutions={[sol(1, "Web")]} />);
@@ -163,6 +167,62 @@ describe("DebugBoard", () => {
     expect(within(panel).getByLabelText("Check the Python debugger")).toBeDisabled();
   });
 
+  /// **The command is run in a real shell, with its output.** Nothing is run
+  /// behind the panel — the same rule the sign-in and the starters follow — so
+  /// a failed install can be read, corrected and tried again in place.
+  it("installs a missing debugger in a terminal, and only sends the language", async () => {
+    const user = userEvent.setup();
+    mocked.debugAdapters.mockResolvedValue([
+      {
+        language: "python", label: "Python", adapter: "debugpy", transport: "stdio",
+        available: false, program: "", argv: [], version: "",
+        problem: "the `python` on PATH is often the Microsoft Store stub.",
+        install: "pip install debugpy",
+        installCommand: "pip install debugpy",
+      },
+    ]);
+    mocked.openDebuggerInstall.mockResolvedValue({ id: "term-0-1", cwd: "C:/Users/me" });
+    render(<DebugBoard solutions={[sol(1, "Web")]} />);
+
+    const panel = await screen.findByRole("region", { name: "Debuggers" });
+    await user.click(
+      await within(panel).findByLabelText("Install the Python debugger here"),
+    );
+
+    // Only the language. A terminal is arbitrary execution, so the command
+    // comes out of the backend's own adapter table rather than from here.
+    await waitFor(() =>
+      expect(mocked.openDebuggerInstall).toHaveBeenCalledWith("python"),
+    );
+    // And it does not claim to know when a shell command has finished.
+    expect(
+      within(panel).getByText(/cannot tell when a command in a shell is done/),
+    ).toBeInTheDocument();
+  });
+
+  /// **Two of the four adapters are a download and an unzip.** A button that
+  /// typed "Download js-debug-dap from github.com/…" at a shell would report
+  /// `command not found`, which reads as a broken app rather than a manual step.
+  it("offers no install button where there is no command to run", async () => {
+    mocked.debugAdapters.mockResolvedValue([
+      {
+        language: "typescript", label: "TypeScript", adapter: "js-debug", transport: "tcp",
+        available: false, program: "", argv: [], version: "",
+        problem: "js-debug is not on this machine.",
+        install: "Download js-debug-dap from github.com/microsoft/vscode-js-debug/releases",
+        installCommand: "",
+      },
+    ]);
+    render(<DebugBoard solutions={[sol(1, "Web")]} />);
+
+    const panel = await screen.findByRole("region", { name: "Debuggers" });
+    // The instruction is still there — it is just not a button.
+    expect(panel).toHaveTextContent("Download js-debug-dap");
+    expect(
+      within(panel).queryByLabelText("Install the TypeScript debugger here"),
+    ).not.toBeInTheDocument();
+  });
+
   /// Finding a binary that runs is not the same as finding one that speaks the
   /// protocol, and the breakpoint UI will rest on the second claim.
   it("proves an adapter speaks DAP rather than inferring it from a filename", async () => {
@@ -172,6 +232,7 @@ describe("DebugBoard", () => {
         language: "go", label: "Go", adapter: "Delve", transport: "tcp",
         available: true, program: "dlv dap", argv: ["dlv", "dap"], version: "Delve 1.25.2",
         problem: "", install: "go install …",
+        installCommand: "go install …",
       },
     ]);
     mocked.debugCheck.mockResolvedValue({

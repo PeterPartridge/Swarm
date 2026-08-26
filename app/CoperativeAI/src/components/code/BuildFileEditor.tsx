@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import BreakpointBehaviour from "./BreakpointBehaviour";
 import CodeWindow from "./CodeWindow";
 import { hueFor, markFor } from "../ai/AgentLane";
 import {
@@ -107,49 +108,25 @@ export default function BuildFileEditor({
                     not working. */}
                 {m.log !== "" && <em className="build-break-kind">logs</em>}
               </span>
-              <input
-                type="text"
-                aria-label={`Condition for line ${m.line}`}
-                placeholder={m.log === "" ? "stop every time" : "log every time"}
-                value={m.condition}
-                onChange={(e) =>
+              {/* One control per breakpoint, not three boxes whose placeholders
+                  were the only thing saying what they were for. Any combination
+                  can be on, because the adapters allow it. */}
+              <BreakpointBehaviour
+                mark={m}
+                line={m.line}
+                language={solution.language}
+                onChange={(field, value) =>
                   setMarks((prev) =>
-                    setCondition(prev, solution.id, path, m.line, e.target.value),
+                    field === "condition"
+                      ? setCondition(prev, solution.id, path, m.line, value)
+                      : field === "hits"
+                        ? setHits(prev, solution.id, path, m.line, value)
+                        : setLog(prev, solution.id, path, m.line, value),
                   )
-                }
-              />
-              <input
-                type="text"
-                className="build-break-hits"
-                aria-label={`Hit count for line ${m.line}`}
-                placeholder="every hit"
-                value={m.hits}
-                onChange={(e) =>
-                  setMarks((prev) => setHits(prev, solution.id, path, m.line, e.target.value))
-                }
-              />
-              <input
-                type="text"
-                aria-label={`Message for line ${m.line}`}
-                placeholder="print instead of stopping"
-                value={m.log}
-                onChange={(e) =>
-                  setMarks((prev) => setLog(prev, solution.id, path, m.line, e.target.value))
                 }
               />
             </div>
           ))}
-          {/* The expression is the debugged program's own language — Go for a
-              Go Solution — because the adapter evaluates it in the running
-              process, not here. Saying so beats somebody trying JavaScript. */}
-          <p className="hint">
-            Conditions are written in {solution.language ?? "the program's own language"} and
-            evaluated by the debugger, in the running program. A message makes the line{" "}
-            <strong>print and carry on</strong> instead of stopping — <code>{"{i}"}</code> inside it
-            is evaluated the same way, and the output appears in the debugger panel. A hit count
-            waits for that many visits first, in the debugger&rsquo;s own grammar
-            (<code>7</code> for js-debug, <code>== 7</code> for Delve).
-          </p>
         </div>
       )}
 

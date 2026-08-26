@@ -1,10 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
-import {
-  debugAdapters,
-  debugCheck,
-  type AdapterCheck,
-  type AdapterStatus,
-} from "../../lib/backend";
+import { useState } from "react";
+import TerminalPanel from "./TerminalPanel";
+import { useDebuggers } from "../../lib/debuggers";
+import { debugCheck, openDebuggerInstall, type AdapterCheck } from "../../lib/backend";
 
 /** What this machine can debug, and what it is missing.
  *
@@ -21,26 +18,41 @@ import {
  *  Where an adapter is missing this says so and gives the one command that
  *  installs it, rather than offering a gutter that cannot honour a click. */
 export default function DebugAdapters() {
-  const [adapters, setAdapters] = useState<AdapterStatus[]>([]);
+  /// The one shared read, so installing something and pressing Look again
+  /// updates this list and the run picker's verdicts together. This panel kept
+  /// its own copy until the picker started refusing presses on the strength of
+  /// the same facts — two lists, and the one on screen was not the one deciding.
+  const { adapters: found, settled, recheck } = useDebuggers();
   const [checks, setChecks] = useState<Record<string, AdapterCheck>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  /// The shell an install is running in, and which adapter it is for.
+  ///
+  /// **One at a time.** Two installs in two shells is not a thing anybody means
+  /// to do, and the second would scroll the first out of sight — which is the
+  /// half worth reading when one of them fails.
+  const [installing, setInstalling] = useState<{ language: string; id: string } | null>(
+    null,
+  );
+  const adapters = found ?? [];
+  const loading = !settled;
 
-  const load = useCallback(async () => {
+  /// Opens a shell in the home folder with the install command already typed
+  /// in. Nothing is run behind the panel: what ran is in the scrollback with
+  /// its output, so a failed install can be read, corrected and tried again in
+  /// place.
+  async function install(language: string) {
+    setBusy(language);
     try {
-      setAdapters(await debugAdapters());
+      const opened = await openDebuggerInstall(language);
+      setInstalling({ language, id: opened.id });
       setError(null);
     } catch (e) {
       setError(String(e));
     } finally {
-      setLoading(false);
+      setBusy(null);
     }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
+  }
 
   async function check(language: string) {
     setBusy(language);
@@ -72,6 +84,17 @@ export default function DebugAdapters() {
             {ready} of {adapters.length} installed
           </span>
         )}
+        {/* The install commands below are run in a terminal somewhere else, so
+            nothing here can be told one finished. Returning to the window
+            re-reads on its own; this is for the case where it did not. */}
+        <button
+          type="button"
+          aria-label="Look for the debuggers again"
+          disabled={loading}
+          onClick={recheck}
+        >
+          {loading ? "Looking…" : "Look again"}
+        </button>
       </header>
 
       {error && <p role="alert">{error}</p>}
@@ -108,7 +131,52 @@ export default function DebugAdapters() {
                 <>
                   <p className="hint">{a.problem}</p>
                   <p className="adapter-install card-mono">{a.install}</p>
+                  {/* **Only where there is a command to run.** Two of the four
+                      are a download and an unzip; a button that typed that
+                      sentence at a shell would report `command not found` and
+                      read as a broken app rather than a manual step. */}
+                  {a.installCommand !== "" && installing?.language !== a.language && (
+                    <button
+                      type="button"
+                      aria-label={`Install the ${a.label} debugger here`}
+                      disabled={busy === a.language}
+                      onClick={() => void install(a.language)}
+                    >
+                      {busy === a.language ? "Opening…" : "Install it here"}
+                    </button>
+                  )}
                 </>
+              )}
+
+              {/* The install, in a real shell, with its output. Nothing is run
+                  behind the panel — the same rule the sign-in and the starters
+                  follow — so a failure can be read and tried again in place. */}
+              {installing?.language === a.language && (
+                <div className="adapter-install-shell">
+                  <p className="hint">
+                    Running <code>{a.installCommand}</code> below. When it
+                    finishes, press{" "}
+                    <button type="button" className="link" onClick={recheck}>
+                      Look again
+                    </button>{" "}
+                    — this app cannot tell when a command in a shell is done, so
+                    it does not pretend to.
+                  </p>
+                  <TerminalPanel
+                    where="this machine"
+                    adoptId={installing.id}
+                    // The shell outlives this panel: an install part-way through
+                    // must not be killed by looking at something else.
+                    keepAlive
+                  />
+                  <button
+                    type="button"
+                    aria-label={`Hide the ${a.label} install terminal`}
+                    onClick={() => setInstalling(null)}
+                  >
+                    Hide
+                  </button>
+                </div>
               )}
 
               {result && (

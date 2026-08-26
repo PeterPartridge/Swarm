@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import Notice, { type NoticeValue } from "../ai/Notice";
 import {
   DESIGN_ASSET_LABELS,
   MARKETING_ASSET_KINDS,
@@ -33,7 +34,7 @@ export default function MarketingDesign({
   const [figmaRef, setFigmaRef] = useState("");
   const [figmaFile, setFigmaFile] = useState<FigmaFile | null>(null);
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<NoticeValue | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const title = area === "marketing" ? "Marketing" : "Design";
@@ -71,10 +72,7 @@ export default function MarketingDesign({
       if (result.blocked) {
         // Not a failure. A model that refuses to invent a direction for a
         // Product nobody has described is doing the right thing.
-        setNotice(
-          `The AI stopped rather than inventing a direction: ${result.blocked.reason} ` +
-            `${result.blocked.whatIsNeeded}`,
-        );
+        setNotice({ blocked: result.blocked, what: "inventing a direction" });
       } else {
         setNotice(
           `Created ${result.created.join(", ")} (${result.provider} · ${result.reason}).`,
@@ -142,7 +140,7 @@ export default function MarketingDesign({
     <section className="marketing-design" aria-label={`${title} for this Product`}>
       <h2>{title}</h2>
       {error && <p role="alert">{error}</p>}
-      {notice && <p role="status">{notice}</p>}
+      <Notice value={notice} />
 
       <div className="field">
         <span>

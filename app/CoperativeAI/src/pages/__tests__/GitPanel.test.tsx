@@ -35,6 +35,7 @@ const solution: Solution = {
   testCommand: null,
   language: null,
   runCommand: null,
+  startFrom: null,
 };
 
 const commit = (over: Partial<Commit> = {}): Commit => ({

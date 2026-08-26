@@ -29,8 +29,8 @@
 
 use crate::ai::client::{
     parse_change_plan, parse_design, parse_diagram, parse_generation, parse_pal,
-    parse_solution_strategy, Generated, GeneratedChangePlan, GeneratedDesign, GeneratedDiagram,
-    GeneratedPal, GeneratedStrategy, Prompt, Usage,
+    parse_solution_strategy, parse_test, Generated, GeneratedChangePlan, GeneratedDesign,
+    GeneratedDiagram, GeneratedPal, GeneratedStrategy, GeneratedTest, Prompt, Usage,
 };
 use crate::ai::ollama;
 use serde::Deserialize;
@@ -746,6 +746,15 @@ pub async fn generate_pal(
 ) -> Result<(GeneratedPal, Usage), String> {
     turn(exe, model,
         effort, prompt, ollama::pal_schema(), parse_pal).await
+}
+
+pub async fn generate_test(
+    exe: &str,
+    model: &str,
+    effort: &str,
+    prompt: &Prompt,
+) -> Result<(GeneratedTest, Usage), String> {
+    turn(exe, model, effort, prompt, ollama::test_schema(), parse_test).await
 }
 
 /// Change plans, minus the mockups.

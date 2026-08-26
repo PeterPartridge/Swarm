@@ -5,7 +5,6 @@
 //! rest of the platform — a new area does not get its own unmetered path.
 
 use super::{to_message, AppDb};
-use crate::db::ai_usage::Exchange;
 use crate::db::design_asset;
 use crate::design::figma;
 use serde::Serialize;
@@ -327,11 +326,18 @@ pub async fn generate_design_strategy(
     match result {
         Ok((client::GeneratedDesign::Design(draft), usage)) => {
             let conn = db.0.lock().await;
-            ai_run::record(
-                &conn, product_id, None, &routed.provider, &routed.model,
-                purpose, &usage, latency_ms, "ok",
-            
-                Exchange::new(&ai_run::asked(&prompt), &draft.strategy),
+            ai_run::record_ok(
+                &conn,
+                &ai_run::Call {
+                    product_id,
+                    work_item_id: None,
+                    routed: &routed,
+                    purpose,
+                    prompt: &prompt,
+                },
+                latency_ms,
+                &usage,
+                &draft.strategy,
             )
             .await;
 
@@ -410,18 +416,19 @@ pub async fn generate_design_strategy(
         // item to hang the question on, so it travels back to the caller.
         Ok((client::GeneratedDesign::Blocked { reason, what_is_needed }, usage)) => {
             let conn = db.0.lock().await;
-            ai_run::record(
-                &conn, product_id, None, &routed.provider, &routed.model,
-                purpose, &usage, latency_ms, "declined",
-            
-                Exchange::new(
-            
-                    &ai_run::asked(&prompt),
-            
-                    &format!("Declined: {reason}
-{what_is_needed}"),
-            
-                ),
+            ai_run::record_declined(
+                &conn,
+                &ai_run::Call {
+                    product_id,
+                    work_item_id: None,
+                    routed: &routed,
+                    purpose,
+                    prompt: &prompt,
+                },
+                latency_ms,
+                &usage,
+                &reason,
+                &what_is_needed,
             )
             .await;
             Ok(super::work_items::GenerationResult {
@@ -438,12 +445,17 @@ pub async fn generate_design_strategy(
         }
         Err(e) => {
             let conn = db.0.lock().await;
-            let outcome = if e.contains("refusal") { "refusal" } else { "error" };
-            ai_run::record(
-                &conn, product_id, None, &routed.provider, &routed.model,
-                purpose, &Default::default(), latency_ms, outcome,
-            
-                Exchange::new(&ai_run::asked(&prompt), &e),
+            let e = ai_run::record_failure(
+                &conn,
+                &ai_run::Call {
+                    product_id,
+                    work_item_id: None,
+                    routed: &routed,
+                    purpose,
+                    prompt: &prompt,
+                },
+                latency_ms,
+                e,
             )
             .await;
             Err(e)

@@ -33,11 +33,20 @@ pub struct Solution {
     /// How to start this Solution running, when detection gets it wrong. Null
     /// means "work it out".
     pub run_command: Option<String>,
+    /// What to hand the **debugger** as the thing to start, when working it out
+    /// gets it wrong. Relative to the working copy. Null means "work it out".
+    ///
+    /// **Not the run command.** That is a shell line — `npm run dev` — and this
+    /// is a path a debug adapter is pointed at. They differ per language and
+    /// they differ in kind: debugpy wants one `.py`, Delve a package folder,
+    /// netcoredbg a built `.dll`. Conflating them would mean typing a shell
+    /// command into a field that gets passed to a debugger as a filename.
+    pub start_from: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
-const SELECT: &str = "SELECT id, name, productId, solutionType, answers, origin, githubUrl, githubVisibility, localPath, testCommand, language, runCommand, createdAt, updatedAt FROM solutions";
+const SELECT: &str = "SELECT id, name, productId, solutionType, answers, origin, githubUrl, githubVisibility, localPath, testCommand, language, runCommand, startFrom, createdAt, updatedAt FROM solutions";
 
 pub async fn create_table(conn: &Connection) -> Result<()> {
     // Round-2 migration: add GitHub link columns. Pre-release → drop & recreate
@@ -61,6 +70,7 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             testCommand TEXT,
             language TEXT,
             runCommand TEXT,
+            startFrom TEXT,
             createdAt INTEGER NOT NULL,
             updatedAt INTEGER NOT NULL,
             UNIQUE(productId, name)
@@ -93,6 +103,30 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
         conn.execute("ALTER TABLE solutions ADD COLUMN runCommand TEXT", ())
             .await?;
     }
+    if has_table && !dropped && !columns.iter().any(|c| c == "startFrom") {
+        conn.execute("ALTER TABLE solutions ADD COLUMN startFrom TEXT", ())
+            .await?;
+    }
+    Ok(())
+}
+
+/// Records what to hand the debugger, replacing whatever it would work out.
+/// Blank clears it, the same escape hatch as the run and test commands.
+///
+/// **Stored as written, not resolved here.** Whether it points at something
+/// that exists is a question for the moment a session starts, in the folder the
+/// Solution has *then* — a path checked now and moved later would have been
+/// validated into a false sense of having been checked.
+pub async fn set_start_from(conn: &Connection, id: i64, path: Option<&str>) -> Result<()> {
+    if find_by_id(conn, id).await?.is_none() {
+        return Err(DbError::Validation(format!("no Solution with id {id}")));
+    }
+    let cleaned = path.map(str::trim).filter(|p| !p.is_empty());
+    conn.execute(
+        "UPDATE solutions SET startFrom = ?1, updatedAt = ?2 WHERE id = ?3",
+        (cleaned, now_millis(), id),
+    )
+    .await?;
     Ok(())
 }
 
@@ -292,8 +326,9 @@ fn row_to_solution(row: turso::Row) -> Result<Solution> {
         test_command: row.get(9)?,
         language: row.get(10)?,
         run_command: row.get(11)?,
-        created_at: row.get(12)?,
-        updated_at: row.get(13)?,
+        start_from: row.get(12)?,
+        created_at: row.get(13)?,
+        updated_at: row.get(14)?,
     })
 }
 
@@ -442,5 +477,72 @@ mod tests {
         assert_eq!(sol.run_command, None, "blank returns to detection");
 
         assert!(set_run_command(&conn, 999, Some("x")).await.is_err());
+    }
+
+    /// **The reason this moved off the Product.** Where a kind of thing lives is
+    /// a fact about one repository, and a Product grows more of them: a Rust
+    /// backend and a React front end cannot share one answer to "where do
+    /// screens live". Held per Product, the second Solution either overwrote the
+    /// first or lived with its answer.
+    #[tokio::test]
+    async fn two_solutions_in_one_product_lay_themselves_out_differently() {
+        let (conn, product_id) = db_with_product().await;
+        let web = create(&conn, "Web", product_id, "website", "{}").await.expect("web");
+        let api = create(&conn, "API", product_id, "api", "{}").await.expect("api");
+
+        set_kind_locations(&conn, web, r#"{"page":"src/pages"}"#).await.expect("web layout");
+        set_kind_locations(&conn, api, r#"{"endpoint":"src/routes"}"#).await.expect("api layout");
+
+        assert_eq!(location_of(&layout_of(&conn, web).await, "page"), "src/pages");
+        assert_eq!(location_of(&layout_of(&conn, api).await, "endpoint"), "src/routes");
+        // Neither knows about the other's kinds.
+        assert_eq!(location_of(&layout_of(&conn, web).await, "endpoint"), "");
+    }
+
+    async fn layout_of(conn: &Connection, id: i64) -> String {
+        find_by_id(conn, id).await.expect("find").expect("exists").kind_locations
+    }
+
+    #[tokio::test]
+    async fn a_layout_that_is_not_a_map_reads_as_nothing_said() {
+        let (conn, product_id) = db_with_product().await;
+        let id = create(&conn, "Web", product_id, "website", "{}").await.expect("create");
+
+        // Nothing set yet: the default, not an error.
+        assert_eq!(location_of(&layout_of(&conn, id).await, "page"), "");
+        // Whitespace around a folder is trimmed, so `src/pages ` and `src/pages`
+        // are the same answer.
+        set_kind_locations(&conn, id, r#"{"page":"  src/pages  "}"#).await.expect("set");
+        assert_eq!(location_of(&layout_of(&conn, id).await, "page"), "src/pages");
+        // Garbage in the column is not a crash — it is "nobody has said".
+        assert_eq!(location_of("not json", "page"), "");
+        assert!(set_kind_locations(&conn, 999, "{}").await.is_err());
+    }
+
+    /// Rules were written by a person against *some* repository in the Product.
+    /// Copying that answer onto each Solution is no more wrong than the one
+    /// shared answer already was, and it does not silently bin what they typed.
+    #[tokio::test]
+    async fn the_products_old_layout_is_copied_onto_its_solutions() {
+        let (conn, product_id) = db_with_product().await;
+        let web = create(&conn, "Web", product_id, "website", "{}").await.expect("web");
+        let api = create(&conn, "API", product_id, "api", "{}").await.expect("api");
+        crate::db::developer_rules::tests::seed_old_kind_locations(
+            &conn,
+            product_id,
+            r#"{"page":"src/pages"}"#,
+        )
+        .await;
+
+        adopt_product_layouts(&conn).await.expect("migrate");
+
+        assert_eq!(location_of(&layout_of(&conn, web).await, "page"), "src/pages");
+        assert_eq!(location_of(&layout_of(&conn, api).await, "page"), "src/pages");
+
+        // Running it twice does not overwrite an answer a developer has since
+        // given for this Solution — the migration seeds, it does not reassert.
+        set_kind_locations(&conn, web, r#"{"page":"src/screens"}"#).await.expect("edit");
+        adopt_product_layouts(&conn).await.expect("migrate again");
+        assert_eq!(location_of(&layout_of(&conn, web).await, "page"), "src/screens");
     }
 }

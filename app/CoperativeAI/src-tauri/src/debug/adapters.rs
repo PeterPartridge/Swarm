@@ -56,8 +56,19 @@ pub struct AdapterStatus {
     pub version: String,
     /// Why it is not available, in words somebody can act on. Empty when it is.
     pub problem: String,
-    /// What to run to get it. Always populated, so the UI never has to guess.
+    /// What to do to get it, for a person to read. Always populated, so the UI
+    /// never has to guess — but it is prose for two of these, because two of
+    /// them are a download and an unzip rather than a command.
     pub install: String,
+    /// The same thing as **one runnable command**, or empty where there is not
+    /// one.
+    ///
+    /// **Kept apart from `install` because half of these cannot be run.**
+    /// "Download js-debug-dap from … and extract it to ~/.js-debug" is a
+    /// sentence; typing it into a shell produces `command not found`, which
+    /// reads as a broken app rather than a manual step. An Install button is
+    /// offered only where this is populated.
+    pub install_command: String,
 }
 
 /// Looks for every adapter and reports what it found.
@@ -188,6 +199,7 @@ fn delve() -> AdapterStatus {
             "Delve is not installed, or is installed somewhere this could not run it.".into()
         },
         install: "go install github.com/go-delve/delve/cmd/dlv@latest".into(),
+        install_command: "go install github.com/go-delve/delve/cmd/dlv@latest".into(),
     }
 }
 
@@ -238,6 +250,9 @@ fn js_debug() -> AdapterStatus {
         // this used to say. The release tarball is the real distribution.
         install: "Download js-debug-dap from github.com/microsoft/vscode-js-debug/releases                   and extract it to ~/.js-debug (or install the VS Code JavaScript Debugger)"
             .into(),
+        // A download and an unzip, not a command — so no Install button. See
+        // `install_command`.
+        install_command: String::new(),
     }
 }
 
@@ -364,6 +379,7 @@ fn debugpy() -> AdapterStatus {
                 .into()
         },
         install: "pip install debugpy".into(),
+        install_command: "pip install debugpy".into(),
     }
 }
 
@@ -406,6 +422,7 @@ fn netcoredbg() -> AdapterStatus {
         },
         install: "Download netcoredbg-win64.zip from github.com/Samsung/netcoredbg/releases                   and extract it to ~/.netcoredbg"
             .into(),
+        install_command: String::new(),
     }
 }
 
@@ -454,6 +471,47 @@ mod tests {
             assert!(
                 !adapter.install.is_empty(),
                 "{} does not say how to install it",
+                adapter.language
+            );
+        }
+    }
+
+    /// **Half of these cannot be typed into a shell**, and the Install button
+    /// is offered on exactly the half that can. Getting this wrong produces a
+    /// button that runs "Download js-debug-dap from github.com/…" and reports
+    /// `command not found`, which reads as a broken app rather than a manual
+    /// step.
+    #[test]
+    fn only_the_adapters_installed_by_a_command_carry_one() {
+        let found = discover();
+        let command_for = |lang: &str| {
+            found
+                .iter()
+                .find(|a| a.language == lang)
+                .map(|a| a.install_command.clone())
+                .expect("adapter")
+        };
+
+        // One command each, and the same one the prose names.
+        assert_eq!(command_for("go"), "go install github.com/go-delve/delve/cmd/dlv@latest");
+        assert_eq!(command_for("python"), "pip install debugpy");
+
+        // A download and an unzip. No button, rather than one that fails.
+        assert!(command_for("typescript").is_empty());
+        assert!(command_for("csharp").is_empty());
+
+        for adapter in &found {
+            if adapter.install_command.is_empty() {
+                continue;
+            }
+            assert!(
+                adapter.install.contains(&adapter.install_command),
+                "{}'s runnable command is not the one its prose names",
+                adapter.language
+            );
+            assert!(
+                !adapter.install_command.contains('\n'),
+                "{}'s install command is more than one line",
                 adapter.language
             );
         }

@@ -30,6 +30,7 @@ const solution = (over: Partial<Solution> = {}): Solution => ({
   testCommand: null,
   language: null,
   runCommand: null,
+  startFrom: null,
   ...over,
 });
 

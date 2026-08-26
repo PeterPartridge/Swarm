@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import Notice, { type NoticeValue } from "../ai/Notice";
 import {
   createDeliverable,
   deleteDeliverable,
@@ -30,7 +31,7 @@ export default function ProductStrategy({ productId }: { productId: number }) {
   const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
   const [items, setItems] = useState<WorkItem[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [savedNote, setSavedNote] = useState<string | null>(null);
+  const [savedNote, setSavedNote] = useState<NoticeValue | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [generating, setGenerating] = useState<number | null>(null);
@@ -134,12 +135,10 @@ export default function ProductStrategy({ productId }: { productId: number }) {
     try {
       const result = await generateDeliverableWork(d.id);
       if (result.blocked) {
-        setSavedNote(
-          `The AI stopped rather than guessing at ${d.name}: ${result.blocked.reason} ` +
-            (result.blocked.whatIsNeeded
-              ? `It needs to know: ${result.blocked.whatIsNeeded}`
-              : ""),
-        );
+        setSavedNote({
+          blocked: result.blocked,
+          what: `guessing at ${d.name}`,
+        });
         return;
       }
       const added =
@@ -164,7 +163,7 @@ export default function ProductStrategy({ productId }: { productId: number }) {
     <section className="product-strategy" aria-label="Product Strategy">
       <h2>Strategy</h2>
       {error && <p role="alert">{error}</p>}
-      {savedNote && <p role="status">{savedNote}</p>}
+      <Notice value={savedNote} />
 
       {/* The Product brief. It sits in Strategy because deciding what a
           product is for, who buys it and what could go wrong is strategic

@@ -73,6 +73,7 @@ function solution(id: number, name: string, productId: number): Solution {
     testCommand: null,
     language: null,
     runCommand: null,
+    startFrom: null,
   };
 }
 

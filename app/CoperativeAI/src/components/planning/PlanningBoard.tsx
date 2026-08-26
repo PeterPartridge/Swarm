@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import Notice, { type NoticeValue } from "../ai/Notice";
 import AiQuestions from "../ai/AiQuestions";
 import WorkItemChanges from "../code/WorkItemChanges";
 import PolicyEditor from "../ai/PolicyEditor";
@@ -210,7 +211,7 @@ export default function PlanningBoard({ productId }: PlanningBoardProps) {
   const [links, setLinks] = useState<WorkItemLink[]>([]);
   const [linkFrom, setLinkFrom] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<NoticeValue | null>(null);
   const [title, setTitle] = useState("");
   const [itemType, setItemType] = useState<string>("");
   const [subItemParent, setSubItemParent] = useState<number | null>(null);
@@ -310,10 +311,13 @@ export default function PlanningBoard({ productId }: PlanningBoardProps) {
       if (result.blocked) {
         // Not a failure — the AI declining a vague item is the framework
         // working. The question is now on the card, waiting for an answer.
-        setNotice(
-          `The AI stopped rather than guessing at "${item.title}": ` +
-            `${result.blocked.reason} Answer its question on the card to try again.`,
-        );
+        setNotice({
+          blocked: result.blocked,
+          what: `guessing at "${item.title}"`,
+          // The question is stored against the item and shown on the card by
+          // `AiQuestions`, so repeating it here would say it twice.
+          answerOn: "the card",
+        });
         await refresh();
         return;
       }
@@ -374,7 +378,7 @@ export default function PlanningBoard({ productId }: PlanningBoardProps) {
   return (
     <div className="planning-board">
       {error && <p role="alert">{error}</p>}
-      {notice && <p role="status">{notice}</p>}
+      <Notice value={notice} />
 
       <form onSubmit={onCreate} aria-label="Create work item">
         <input

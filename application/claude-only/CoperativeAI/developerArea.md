@@ -34,6 +34,457 @@ Team members + roles now live in the Admin area (`pages/AdminArea.tsx`); the Dev
 
 **Technical debt:** the views are read-only (editing stays on the Planning board); the strategy field shape is app-defined JSON (validated only as JSON); no cross-product "all my work" view yet (scoped per selected Product).
 
+## Round 50 — the path that climbs out
+
+### My Feedback
+
+**`../../shared/serve.py` got neither treatment.** It is relative, so the absolute warning never fired; and it was already relative, so nothing resolved it. It still is not in the repository. That was the last hole in "whether a path travels is a fact about the path".
+
+**Which paths escape cannot be told from the leading dots.** `../../shared/x` leaves the working copy and `../orders/api/x` climbs out and straight back into it, and they look alike. So a relative path is resolved against the root and then measured, exactly as an absolute one is — and the second is stored as `api/serve.py`, the short form it actually means.
+
+**It has its own sentence.** "Kept as a full path — which will not be right on another machine" is wrong about a relative escape: this one *is* portable, to any machine where the repository sits beside whatever it names. `outside` went from a boolean to `null | "absolute" | "escapes"`, because one message covering both would be wrong about one of them.
+
+**`api/../serve.py` is stored as `serve.py`**, lexically. The real filesystem is the backend's business and a symlink could make a lexical answer wrong — but the question here is what to *store*, and the short form is right on every machine rather than only where that folder happens to exist.
+
+**On the backend, `..` is resolved rather than joined on.** A sibling checkout stays a legitimate answer; what changes is that a refusal no longer quotes back `C:\repos\orders\..\..\shared\serve.py`. And climbing above the root of the drive is refused outright, because `PathBuf::pop` on an empty path returns false and would otherwise have turned `../../..` into the current directory silently.
+
+### Implemented
+
+- `lib/debuggers.ts` — `StartFrom` with the three-way `outside`; `tidy` (lexical `.`/`..`) and `resolveAgainst` (where a relative path lands, keeping a POSIX leading slash that splitting would eat).
+- `DebugSession` — a sentence per reason.
+- `commands/debugging.rs::named_start` — segment-wise resolution with the climb-off-the-top refusal.
+- Two Rust tests (a sibling resolves with no `..` left in it; climbing off the top is refused) and four Vitest ones (dots resolved, escape named, out-and-back-in kept short, and the panel's two sentences).
+
+### Tests
+cargo 651/651 (23 ignored, live-only), Vitest 585/585, `tsc --noEmit`, `npm run build` and clippy `-D warnings` clean.
+
+### Your Feedback
+
+- **An escaping path is stored as written, not as the absolute it resolves to.** Turning `../shared/x` into `D:/work/shared/x` would trade a portable-with-a-sibling answer for a machine-specific one — the opposite of what the rest of this does.
+- **Lexical, not canonical.** `startFromFor` never touches the disk, so a symlinked folder could make it disagree with the filesystem. It is deciding what to store, and the backend's existence check at launch is what decides whether it works.
+- Recommendation: `outside` is now a small union. If a fourth reason ever appears, it belongs there rather than as a second boolean beside it.
+
+### Technical Debt
+
+- **The backend does not report escaping at all.** It resolves and checks existence; the warning is the UI's, worked out separately. Two places computing "is this inside" is the drift this round otherwise removed — the backend's copy just happens not to draw a conclusion from it yet.
+- **A Windows drive-relative path (`\api\serve.py`) is treated as absolute** by `isAbsolutePath` and so lands in the "absolute" branch, where `relativeTo` will not match it and it is warned as unportable. That is the right outcome by accident rather than by design.
+
+## Round 49 — the typed path gets the same treatment
+
+### My Feedback
+
+**Whether a path travels is a fact about the path, not a memory of how it arrived.** `outside` was set by the picker and by nothing else, so an absolute path typed into the box was stored whole with nothing said — and quietly meant a different file on the next machine. That is the same failure the picker was built to avoid, reachable by typing instead of clicking.
+
+`startFromFor(root, chosen)` is now the one place that decides, and both ways in go through it:
+
+- **Relative in, relative out**, with backslashes tidied so a typed `api\serve.py` matches what the picker produces.
+- **Absolute and inside the working copy → made relative.** That is the same answer written portably, and there is no reason to keep the machine-specific form once it can be dropped.
+- **Absolute and outside → kept whole, and said to be.** A `.dll` built elsewhere is legitimate; pretending it is portable is not.
+
+**The warning is derived, so it shows on arrival too.** A Solution that already holds an unportable path says so when the panel opens, rather than only after somebody edits the field.
+
+**The box re-keys on what was stored**, so typing a full path inside the working copy visibly becomes the short form. Leaving the typed text on screen while storing something else would be its own small lie.
+
+`isAbsolutePath` went next to `relativeTo` in `lib/breakpoints`, which is where this project's path handling already lives — one place that knows about drive letters, UNC shares and Windows' case-insensitivity.
+
+### Implemented
+
+- `lib/breakpoints.ts` — `isAbsolutePath`.
+- `lib/debuggers.ts` — `startFromFor`, used by `saveStartFrom`; `browseStartFrom` now just hands the picker's answer to it.
+- `DebugSession` — `startFrom` held as state seeded from the Solution, `outside` computed from it, the box keyed on it.
+- Three Vitest tests on the panel (typed absolute made relative, typed outside warns, stored outside warns on arrival) and four unit tests on `startFromFor`.
+
+### Tests
+cargo 649/649 (23 ignored, live-only), Vitest 581/581, `tsc --noEmit`, `npm run build` and clippy `-D warnings` clean.
+
+### Your Feedback
+
+- **A sibling folder whose name merely starts the same is outside**, and there is a test for it — `C:/repos/orders-old` against a root of `C:/repos/orders`. `relativeTo` already required the separator; this pins that it stays required.
+- **Silently rewriting what somebody typed is a real cost**, paid deliberately: the alternative is storing a path that works here and nowhere else. The box updating to show the stored form is what makes it honest rather than surprising.
+- Recommendation: `startFromFor` is pure and has its own tests. If a fifth thing ever needs to store a repository-relative path, it should call this rather than grow a third copy of the rule.
+
+### Technical Debt
+
+- **A relative path is not checked to be inside the working copy.** `../../elsewhere/serve.py` is stored as typed and warns about nothing — the launch-time check will refuse it if it does not exist, but it will not say it has escaped the repository.
+- **`isAbsolutePath` counts a bare leading slash as absolute**, which on Windows is drive-relative rather than truly absolute. For the question being asked — "is this relative to the working copy?" — that is the right answer, but the name is slightly stronger than the behaviour.
+
+## Round 48 — the picker, and the relative path it has to produce
+
+### My Feedback
+
+**Relative storage was the whole reason this was not built last round**, and it is the whole content of this one. An absolute path is *this machine's* answer to a question the Solution asks on every machine: two people with the repository in different folders would each overwrite the other, and neither would notice until a debugger refused to start on somebody else's laptop.
+
+So the picker opens at the Solution's own folder, and what comes back is resolved against it. The resolution is `lib/breakpoints::relativeTo`, which the debugger's stopped-file lookup already uses — Windows' case-insensitivity and its backslashes are already handled there, and a second implementation would have got one of them wrong.
+
+**A folder for Go, a file for the rest.** Delve is given a package, so a file picker that could not select `cmd/api` would be a picker for the one language it cannot pick for.
+
+**Outside the working copy there is no relative form.** That is kept whole and said to be — "which will not be right on another machine" — rather than stored as something that quietly resolves to a different file elsewhere. A `.dll` built outside the repository is a legitimate answer; pretending it is portable is not.
+
+**Cancelling changes nothing**, including not clearing what was already there.
+
+### Implemented
+
+- `DebugSession` — `browseStartFrom` over `@tauri-apps/plugin-dialog`, `directory: language === "go"`, `defaultPath` the working copy; the box re-keys on what was picked so browsing shows; `outside` drives the warning.
+- Four Vitest tests: the relative store, the folder-vs-file ask with its `defaultPath`, the outside-the-copy path with its warning, and cancelling.
+
+### Tests
+cargo 649/649 (23 ignored, live-only), Vitest 574/574, `tsc --noEmit`, `npm run build` and clippy `-D warnings` clean.
+
+### Your Feedback
+
+- **The dialog is the one thing here that cannot be driven**, so the tests stand it in and assert on what it was *asked* for as well as what was done with the answer. Asserting only the second would let the folder-vs-file rule rot silently.
+- **No extension filter on the file picker.** Filtering to `.py` for Python would be right until somebody debugs a file without that extension, and the placeholder already says what shape is wanted.
+- Recommendation: `relativeTo` is now load-bearing for two features. It has its own tests in the breakpoints suite; leave them there rather than duplicating them here.
+
+### Technical Debt
+
+- **The picker cannot select a path that does not exist yet** — an assembly that has not been built, for instance. The typed box still can, which is the escape hatch, but the button silently cannot help there.
+- **`outside` is only set by the picker.** A full path typed by hand gets no warning, because nothing re-examines the box on blur.
+
+## Round 47 — start from
+
+### My Feedback
+
+**A convention is right most of the time and impossible to argue with when it is not.** Working out what to launch is a convention per language — the first `main.py`, the built assembly, the package folder. `startFrom` is the argument, and it sits in the Solution's debug panel because that is where the refusal appears.
+
+**It is not a Python field.** All four languages are handed the thing they start: Delve the `cmd/…` package that has the `main`, netcoredbg the `.dll` you name rather than the one the build search guessed at, js-debug the entry, debugpy the file. A field that quietly worked for one of four would be worse than none. The placeholder changes per language, because one box means four things and "a path" would be true and useless.
+
+**Not the run command.** That is a shell line — `npm run dev` — and this is a path an adapter is pointed at. One field for both would mean typing a shell command somewhere it gets handed to a debugger as a filename.
+
+**Checked when a session starts, not when it is saved.** It is set once and then forgotten, so the file it names outlives the memory of naming it. A rename would otherwise hand the adapters three different confusions — Delve says the package is missing, debugpy exits at once with nothing on the console, netcoredbg stops at no breakpoints — where one clear refusal naming the path and saying how to clear it is worth all three.
+
+**It takes effect on the next start.** A launch argument is read once, at launch; a field that implied otherwise would be the breakpoint mistake again, a control that looks like it did something to a running program. Saving during a session says so.
+
+**Where the guess is still in charge, it says which file it took.** C# gains the same line Python got last round, because a chosen assembly is as easy to forget as a chosen script.
+
+### Implemented
+
+- `db/solution.rs` — `startFrom` column (ALTER TABLE; a person wrote it), `set_start_from`, stored trimmed with blank clearing it.
+- `commands/inspectors.rs::set_solution_start_from`; `commands/debugging.rs::named_start` resolves it against the working copy and refuses a path that is not there; every arm of `launch_arguments` honours it; `debug_start` takes the Solution and reads the field itself.
+- `DebugSession` — the field, a per-language placeholder, and the note when a session is already running; `debugStart` now carries the Solution id.
+- Four Rust tests (named beats convention, relative resolution, the refusal, all four languages) and four Vitest ones (saving, clearing, the Solution being handed over, the running-session note).
+
+### Tests
+cargo 649/649 (23 ignored, live-only), Vitest 570/570, `tsc --noEmit`, `npm run build` and clippy `-D warnings` clean.
+
+### Your Feedback
+
+- **The field is not validated on save**, deliberately. Checking then would only buy a false sense of having been checked — the folder can change afterwards, and the check that matters is the one at launch.
+- **Forward and back slashes are both accepted** in a relative path, because people type `src/main.py` on Windows too.
+- Recommendation: the placeholders name a shape per language (`cmd/api`, `bin/Debug/net8.0/Api.dll`). If a fifth language is added, that switch is one of the three places that has to grow — with `CAN_LAUNCH` and `launch_arguments`.
+
+### Technical Debt
+
+- **No file picker.** It is a typed path, and the Solution's folder is right there to browse. A picker would have to resolve back to a relative path to stay portable, which is why it is not in this round.
+- **Nothing warns when `startFrom` stops matching the language.** Rename a Solution's language from Python to Go and the `serve.py` it starts from is still there, refused only at launch.
+- **The C# override skips the Debug/Release check entirely.** That is right — nothing was guessed — but it also means naming a Release `.dll` gets no warning about optimised code, where the search would have given one.
+
+## Round 46 — the Python launch shape
+
+### My Feedback
+
+**The difficulty was never the protocol.** Delve is handed a folder and builds it. netcoredbg is handed a built assembly, which either exists or does not. debugpy runs **exactly one `.py`**, and a folder of Python says nothing about which file that is.
+
+So `debug::python::entry_script` looks for the conventional names in order — `main.py`, `manage.py`, `app.py`, `__main__.py`, `run.py`, `src/main.py`, `src/app.py` — then for a single package with a `__main__.py`, and **refuses when none of them is there**. A debugger pointed at the wrong file starts, runs something, and stops at none of the breakpoints; that reads as a broken debugger rather than a wrong file, which is the most expensive way this could have been got wrong. The refusal lists what was looked for, because "no entry point found" on its own leaves somebody guessing at this function's opinions.
+
+**Two packages with a `__main__.py` is a real choice, not a tie to break.** Picking the alphabetically first would be a coin toss presented as a decision, so both are named and a `main.py` is asked for. Virtual environments and `__pycache__` are skipped — they are full of other people's `__main__.py`.
+
+**The program runs under the interpreter that was proved to have debugpy.** Left unset, debugpy resolves one for itself, and on Windows that is routinely a different Python from the one the adapter search found — the program then fails on imports that are plainly installed. `debug_start` was reordered to find the adapter first so the launch shape can be given it, which also means a missing adapter is reported before an entry script is resolved for a debugger that is not there.
+
+**Output comes back over DAP** (`console: internalConsole`, `redirectOutput: true`), because that is what the console pane reads; `integratedTerminal` would need the client to hand the adapter a terminal, and this app does not.
+
+**A file chosen by anything other than `main.py` is named in the session.** A wrong guess otherwise presents as breakpoints that never hit; saying "Debugging src/app.py, chosen because…" turns that from a mystery into an easy correction.
+
+### Implemented
+
+- `debug/python.rs` — new: `CANDIDATES`, `entry_script`, the package scan, and seven tests covering ordering, nesting, the single-package case, a folder that is not a package, the ambiguous case, virtualenvs, and the actionable refusal.
+- `commands/debugging.rs` — the `"python"` arm of `launch_arguments`, which now also takes the adapter's interpreter; `debug_start` finds the adapter before building the shape; four tests on the shape itself.
+- `debug/live.rs` — an ignored live test that stops real Python on line 3 and reads `subtotal` out of scope, launched exactly as the command does.
+- `lib/debuggers.ts` — `CAN_LAUNCH` gains `python`; the "Go, TypeScript and C# work today" wording in three places now names all four.
+
+### Tests
+cargo 645/645 (23 ignored, live-only — one more than last round, the new debugpy test), Vitest 566/566, `tsc --noEmit`, `npm run build` and clippy `-D warnings` clean.
+
+### Your Feedback
+
+- **`justMyCode: true`**, matching the C# choice. Stepping stays in the code somebody wrote rather than descending into the standard library. If that turns out to be the wrong default for this team it is one line, but it should be a decision rather than drift.
+- **The entry-point list is opinionated and finite.** That is the point — it is a convention, not a search — but it means a project that starts from `serve.py` gets a refusal rather than a guess. The refusal says exactly that and asks for a `main.py`.
+- Recommendation: if refusals become common, the honest fix is a per-Solution "start from" field rather than a longer list of guesses. The list is where a guess would hide.
+
+### Technical Debt
+
+- **No way to say which file to debug** when the convention gets it wrong. The refusal asks for a `main.py`, which is a rename rather than a setting.
+- **The live test is ignored**, like the other twelve — it needs debugpy on the machine. The shape is pinned by unit tests; the protocol behaviour is pinned only when somebody runs the live one.
+- **`entry_script` does not read `pyproject.toml`.** A project whose entry point is declared under `[project.scripts]` is invisible to this, and parsing TOML for it would need a dependency this crate does not have.
+
+## Round 45 — installing it from here
+
+### My Feedback
+
+**Only half of these can be installed by a command.** Delve is `go install …` and debugpy is `pip install debugpy`; js-debug and netcoredbg are a download and an unzip. A button that typed "Download js-debug-dap from github.com/microsoft/vscode-js-debug/releases and extract it to ~/.js-debug" at a shell would report `command not found`, which reads as a broken app rather than a manual step. So `AdapterStatus` carries `install_command` apart from `install`: the prose instruction is always there, the runnable command only where one exists, and the button follows the second.
+
+**Only the language crosses the wire.** A terminal is arbitrary execution, so `open_debugger_install` takes a language, matches it against this app's own adapter table, and types that table's command — the same rule `open_claude_sign_in` already follows and for the same reason. Accepting the command as a string would have made "type this into a shell" an IPC call any page could make.
+
+**Typed into a real shell, not run behind the panel.** What ran is in the scrollback with its output, so a failed install can be read, corrected and tried again in place — the rule the sign-in and the starters both follow.
+
+**It does not claim to know when the command finished.** A PTY does not report that, and guessing from a returned prompt would be a guess. The panel says so and puts Look again beside the terminal.
+
+### Implemented
+
+- `debug/adapters.rs` — `install_command` on `AdapterStatus`, populated for Delve and debugpy, empty for js-debug and netcoredbg; a test pins exactly which two, that each runnable command is the one its prose names, and that it is one line.
+- `commands/terminals.rs::open_debugger_install` — looks the command up by language, refuses the download-and-unzip pair with the manual instruction, opens a home-folder shell (Solution zero) and types it.
+- `DebugAdapters` — "Install it here" per missing adapter that has a command, the shell inline beneath it, one install at a time.
+- Two tests in `DebugBoard.test.tsx`: the button sends only the language and disclaims knowing when it finished; no button where there is no command.
+
+### Tests
+cargo 634/634 (22 ignored, live-only), Vitest 565/565, `tsc --noEmit`, `npm run build` and clippy `-D warnings` clean.
+
+### Your Feedback
+
+- **One install at a time.** Two shells installing two adapters is not something anybody means to do, and the second would scroll the first out of sight — which is the half worth reading when one fails.
+- **The install shell is `keepAlive`.** An install part-way through must not be killed by looking at something else.
+- Recommendation: `install_command` is a single line by construction and there is a test holding it that way. If an adapter ever needs two steps, it belongs in `install` as prose with no button rather than as a `&&` chain nobody can read in a tooltip.
+
+### Technical Debt
+
+- **Nothing re-reads when the install shell is closed.** Closing it is a decent signal that the command is done and is not used — Look again and window focus are the two triggers.
+- **`pip install debugpy` installs into whichever Python the shell finds**, which on Windows may not be the one the adapter search would pick. The command is the one the adapter table has always advertised; making it match the discovered interpreter is a separate piece of work.
+- **Python still has no launch shape**, so installing debugpy from here makes the Debuggers panel go green without making Python debuggable. The panel says the first; nothing says the second in that moment.
+
+## Round 44 — the check can stop being true
+
+### My Feedback
+
+**A refusal that outlives the reason for it is worse than no check at all** — it is the app insisting on something that stopped being true. Round 43 could refuse a Debug press because Delve was missing; nothing could then notice Delve arriving.
+
+The install runs in a terminal outside this app, so nothing here can be told it finished. Three things notice anyway:
+
+- **Returning to the window re-reads the list**, gated on the last answer having had a gap in it. Executing every candidate adapter on each alt-tab would be a lot of work for nothing when the previous answer was complete.
+- **"Look again" sits beside every place the install command appears** — the run picker, the Solution's own panel, and the Debuggers list — for when focus was not enough.
+- **The read is shared.** Three panels asked for the same list and each probed separately, so an install picked up in one left the others still refusing. One read, one signal, everybody hears it.
+
+**Deduped rather than cached**, deliberately. Sharing the in-flight promise collapses the startup burst to a single probe; sharing the *result* would be a cache that has to be invalidated, and the thing it would go stale against is exactly what this round exists to notice.
+
+**A failed re-read keeps the working answer.** Clearing on error would turn a hiccup into a refusal — the same mistake as round 43's first cut, where a failed read collapsed into an empty list and disabled debugging everywhere.
+
+**The Debuggers panel gave up its private copy.** Two lists of the same facts, with the one on screen not being the one deciding, is the drift this app keeps removing. It reads the shared one now and its Check button is unchanged.
+
+### Implemented
+
+- `lib/debuggers.ts` — module-level listener set on the `workSignal` pattern; `readAdapters` dedupes the in-flight read; `recheckDebuggers()` drops it and fans out; `useDebuggers` subscribes, re-reads on `window.focus` when `anythingMissing`, and returns `recheck`.
+- `DebugAdapters` reads the shared list and gains a "Look again" in its header.
+- `RunBar` and `DebugSession` show "Look again" beside their install lines.
+- `pages/__tests__/debuggers.test.tsx` — eight tests: one probe for three consumers, recheck reaching a panel that did not ask, focus re-reading only after a gap, a failed re-read keeping the answer, and the three readiness verdicts.
+
+### Tests
+cargo 633/633, Vitest 563/563, `tsc --noEmit`, `npm run build` and clippy `-D warnings` clean.
+
+### Your Feedback
+
+- **The focus gate is on "was anything missing", not "was this adapter missing".** A Product where any one adapter is absent re-probes them all on focus. Simpler, and the wrong direction to be cheap in — the point is noticing.
+- **The app still does not run the install.** It could: there are PTYs, and `DevServerPanel` already types commands into a shell rather than running them behind it. That would make "after an install" literal — press it, watch it, re-read when the shell settles. Not built, because installing software is a bigger side effect than starting a dev server and it deserves to be asked for.
+- Recommendation: `available` means "the binary ran". If an adapter is ever installed but broken, this will keep saying ready. `debug_check` is the stronger claim and is still a button.
+
+### Technical Debt
+
+- **The focus listener is per mounted consumer**, so three panels mean three listeners all calling the same deduped read. Harmless — the dedupe collapses them — but it is three subscriptions doing one job.
+- **Nothing re-reads on a timer**, so a console left open on another monitor while an install runs will not notice until it is focused or asked.
+
+## Round 43 — the adapter is checked before the press
+
+### My Feedback
+
+**The answer was already known and nothing was asking it.** `debug_adapters` runs every candidate rather than looking for a filename — the distinction that matters on Windows, where the `python` on PATH is usually a Store stub that prints an advert and exits. That read is shared now, so:
+
+- **The run picker says, per Solution, what Debug will do to it** before anything is pressed: "debugs with Go (Delve)", "Go (Delve) not installed — runs in a shell", or "no debugger for its language — runs in a shell".
+- **The install command is on screen and selectable**, one line per adapter rather than per Solution. A tooltip is fine for reading and useless for pasting.
+- **The per-Solution Debug button is refused** where the adapter is missing, with the same command underneath — instead of offering a press that can only fail with a DAP error.
+- **A Debug press that falls back says which reason it was.** "No launch shape yet" is a thing to wait for; "not installed" is one command away, and running them together would hide the fixable one.
+
+Two edges worth stating, because both were wrong first:
+
+**A list that could not be read is not proof of absence.** The first cut collapsed a failed read into an empty list, which made every Solution look like a missing adapter and disabled debugging across the app — a real regression, caught by seventeen unrelated tests going red at once. `null` is "nobody knows" and `[]` is "nothing is installed"; on unknown, Debug still tries, because refusing on a question that never got answered is worse than the failure this check exists to avoid.
+
+**A Debug press has to wait for that read.** Allowing "unknown" through created a race: the first render says nobody knows, the press goes through, and the verdict arrives a moment later with nothing left to decide. `useDebuggers` reports `settled` separately from having an answer — a read that finished and failed is settled — and the board holds a debug request until then. Run and Hot reload are not held up; they do not care.
+
+### Implemented
+
+- `lib/debuggers.ts` — new: `debugLanguageOf`, `CAN_LAUNCH`, `canLaunchDebugger`, `Readiness`, `readinessOf`, `useDebuggers` (`{ adapters, settled }`). `DebugSession` re-exports the first two so it stays where a reader looks for them.
+- `RunBar` — per-row readiness with provenance and the install line.
+- `DebugSession` — the button is refused on a definite missing adapter, with the command in the panel.
+- `DebugBoard` — waits for `settled` on a debug press, splits the fallback into "unsupported" and "missing", and prints the install command for the second.
+- Tests: three more in `DebugBoardStart.test.tsx` (missing adapter, unreadable list, refused button) and two in `RunBar.test.tsx`.
+
+### Tests
+cargo 633/633, Vitest 555/555, `tsc --noEmit`, `npm run build` and clippy `-D warnings` clean.
+
+### Your Feedback
+
+- **`debug_adapters` executes every candidate**, so this is not a free read. It is done once per mounted component that needs it — the picker, the board, and each session panel — which on a Product with several Solutions is several executions of the same probe. A shared cache is the obvious next step if it is ever felt.
+- **`available` is "it ran", not "it speaks DAP".** `debug_check` proves the second and is still a button on the Debuggers panel. This gate rests on the weaker claim deliberately: the stronger one costs a handshake per language, and a binary that runs but cannot handshake is rare enough to be worth finding out by failing.
+- Recommendation: the install commands come from the adapter list, so they are as good as that list. Worth a glance at `debug::adapters` if any of them go stale.
+
+### Technical Debt
+
+- **Nothing re-reads the adapter list after an install.** Somebody who installs Delve on the strength of the message has to reopen the pane before the button comes back.
+- **The `unknown` path is untested against a slow read** — only against a failed one. The race it guards is real but the test for it is the settled-and-failed case.
+
+## Round 42 — Debug attaches the debugger
+
+### My Feedback
+
+**Debug is not "run, plus a debugger" — it is one or the other, per Solution.** A debug adapter *starts the program itself*: Delve launches the binary, js-debug launches node, netcoredbg launches the built assembly. Typing `go run .` into a shell as well would start a second copy, and two processes fighting over one port look exactly like a broken debugger.
+
+So a Debug press launches the adapter for every picked Solution whose language has one and types nothing at those, and **falls back to a plain shell run for the ones that do not — naming them**. Left unsaid, that fallback reads as a debugger that takes breakpoints and ignores them, which is the most expensive thing this board could get wrong.
+
+**Debug now reaches a Solution with no run command at all.** The previous version started whatever was *runnable*, which filtered on having a shell command — dropping exactly the Solutions Debug exists for. Run and Hot reload still filter that way, because they have nothing else to do.
+
+Run and Hot reload are otherwise unchanged and never attach a debugger.
+
+### Implemented
+
+- `DebugSession` exports `canLaunchDebugger` and takes `startNow`; `start` is reached through a ref, because it closes over most of the panel's state and depending on it would relaunch the debugger on the next keystroke anywhere.
+- `RunRequest.how` gains `"debug"`; `RunBar` sends every *picked* Solution rather than every runnable one.
+- `DebugBoard` splits a debug request into "under the adapter" and "in a shell", queues a command only for the second, and reports the fallback by name.
+- `pages/__tests__/DebugBoardStart.test.tsx` — three tests: no double start, the named fallback, and Run not attaching anything.
+
+### Tests
+cargo 633/633, Vitest 550/550, `tsc --noEmit`, `npm run build` and clippy `-D warnings` clean.
+
+### Your Feedback
+
+- **A second press while stopped on a breakpoint is ignored.** Starting another debugger underneath a stopped program would be two sessions on one Solution, and the panel only draws one.
+- Recommendation: there are still two controls called Debug — this one, and the per-Solution button inside the board. They now do the same thing for one Solution versus several, which is better than doing different things, but the names deserve a pass.
+
+### Technical Debt
+
+- **A Solution launched under a debugger still gets a shell attached** with nothing typed into it. That is deliberate — it is the only way to type a command at it — but it means a process board row showing "up" for a shell nobody started anything in.
+- **Nothing checks the adapter is installed before the press.** `debug_check` exists and the Debuggers panel uses it; a Debug press finds out by failing.
+
+## Round 41 — Debug starts it, and the console comes off
+
+### My Feedback
+
+**Debug now starts the thing it is named after.** It opened a board on which every Solution still needed attaching and then running — three presses to reach the state the word already promised. One press now runs what the picker holds.
+
+**What runs is a picker, not the Solution you happen to be on.** It defaults to the one being browsed, which is right nearly always and wrong exactly when it matters: the front end you are reading is not the API you need up to read it. It is a multi-select, and the selection stops following the tabs once somebody makes a choice of their own — a selection that quietly re-pointed itself would run the wrong thing and look like it had run the right one.
+
+**Each row carries its own command dropdown** — what detection found, what that Solution has been given, and "Something else…" which is remembered against the Solution. The override used to be a form on a different panel from the button that used it.
+
+**Run and Hot reload sit in the middle of the bar, in line with Debug.** Hot reload is disabled unless something picked actually has a watcher, and says why: a front end's Run already reloads itself, so a second button for it would do the same thing under a name promising something different.
+
+**The console moved in with the code.** Output belongs beside the line that produced it; a console on another tab means alt-tabbing between the thing that broke and the reason.
+
+**It drags out into a real second OS window.** 90 pixels of travel before it counts, because the header is also what you click to hide the dock and a window is not something to open by accident. There is a button as well — a drag is not reachable from a keyboard, and a console only mice can pull out is a console half the people here cannot use. **The shell survives the trip** by being adopted by id, with its recent output to catch up on. **The debugger's output does not** — it is a stream of events with no replay — so the pulled-out window says it starts from the next line rather than pretending it has the history.
+
+**A breakpoint hitting brings you back to the code.** The file was being rendered underneath the board you were still looking at, which is the one moment the board is not what you want.
+
+**The three breakpoint boxes became one control per breakpoint.** Closed it says "Stops every time", or "prints · conditional · after 7"; open it is a tick per behaviour, each revealing its own box. All three can be on at once because the adapters allow it — "print the total, but only after the seventh time round, and only when it is negative" is one breakpoint, and a single-choice dropdown could not say it. The expression stays free text: `model.value == -3` is not something anybody could have put in a list of values, and the grammar belongs to the adapter, not to this app.
+
+### Implemented
+
+- `components/code/RunBar.tsx` — the picker, the per-Solution command dropdown, Run and Hot reload; `startNow` lets the Debug button ask it to start what it holds rather than a second place re-deriving the same answer.
+- `components/code/ConsolePanes.tsx` — the shell plus the debugger's output, rendered identically docked and detached.
+- `components/code/ConsoleDock.tsx` — the grip, the drag threshold, and the state after pulling out.
+- `pages/StandaloneConsole.tsx` + a `console` branch in `main.tsx`; `commands/windows.rs::open_console_window` (Solution-scoped, separate from the Product-scoped `open_screen_window`).
+- `components/code/BreakpointBehaviour.tsx` with `summarise`; `BuildFileEditor` uses it in place of three inputs.
+- `DebugBoard` takes a `RunRequest` and attaches + queues the command; `AgentWorkspace` jumps to the stopped file and mounts the dock beside the editor.
+
+### Tests
+cargo 633/633 (22 ignored, live-only), Vitest 546/546, `tsc --noEmit`, `npm run build` and clippy `-D warnings` clean.
+
+### Your Feedback
+
+- **An unmeasurable drag is not a drag.** jsdom has no `PointerEvent` and its fallback drops `clientX`, which made the distance `NaN` — and `NaN < 90` is false, so every twitch opened a window. The guard is in the component, not the test, because a real pointer device that reports no coordinates would do the same thing.
+- **The dock is hidden while the Debug board is up.** That board has its own shell per Solution and two panels adopting one PTY would fight over its size. Worth revisiting once the board and the dock stop being two answers to "where is the terminal".
+- **Unticking a breakpoint behaviour clears its box.** A condition left behind in a hidden field would still be sent to the debugger, and the breakpoint would go on not stopping for a reason nothing on screen could explain.
+- Recommendation: the console pulls out per Solution and is keyed `console-<id>`, so dragging twice focuses the existing window. If you want two consoles on one Solution, that key is the thing to change.
+
+### Technical Debt
+
+- **The pulled-out console shows every session's debug output**, not one session's — it listens to the app-wide event and has no session of its own to filter by. With one debugger running that is right; with two it is a merged stream.
+- **Debug starting the app does not start the *debugger*.** It runs the command in a shell; breakpoints still need the per-Solution Debug button in the board. Those are two things called Debug, which is the ambiguity the button's aria-label was already apologising for.
+- **`RunBar` reads every Solution's command on mount**, so a Product with twenty Solutions makes twenty calls before anybody presses anything.
+- **No live end-to-end run**: the browser preview cannot exercise Tauri IPC, so the drag, the second window and the PTY adoption are proven by Vitest against a mocked backend, not by the packaged app. The window itself has no test — it is a Tauri window builder call.
+
+## Round 40 — one block per Solution, and where things live
+
+### My Feedback
+
+**Three places were asking about one Solution.** A ticklist of affected Solutions, the list of changes, and a block of branch/tests/notes further down — and the ticklist existed only to make the third one appear. There is one block per Solution now, holding everything about it: which families change, the things themselves, the sentence, the tests, the branch, the pictures, the approval and the generated schemas. **Picking a Solution attaches it**, because that is what "affected" means.
+
+**The pictures come out when the block is about something somebody looks at** — a screen, a component, a route, a style — and the picture-to-screen pairing happens right there. It used to be in a section nowhere near the row naming the screen, which is exactly how a model ends up with a pile of images and a list of names.
+
+**The New-or-existing dropdown is gone.** It asked a question the app can answer: a name the Solution already has is being changed, anything else is new. Asking meant a wrong answer was one mis-click away, and "add the Basket screen" against a Basket screen that exists is a plan that gets estimated wrong.
+
+**Where things live is a rule now.** A folder per kind in the Develop rules — screens in `src/pages`, services in `src/services`, and so on. Agents are told it, and the build plan reads the folder to suggest what is already there. **Each suggestion says where it came from**, because a name recorded by the team and a name read off the disk are different kinds of claim, and a guess presented as a fact is how a plan ends up naming a file rather than a feature. **Nothing is scanned for a kind nobody has placed**: guessing that screens are "probably in `src/pages`" would produce confident suggestions for a repository laid out some other way.
+
+### Implemented
+
+- `db/developer_rules.rs` — `kindLocations` column (ALTER TABLE, because rules are written by a person), `location_of`, and JSON validation at the boundary.
+- `commands/work_item_changes.rs::suggest_change_names` — recorded names first, then one level of the configured folder; `index`/`mod` files take their folder's name.
+- `components/ai/DeveloperRulesEditor.tsx` — a "Where things live" row per kind, driven by the same vocabulary the build plan ticks from.
+- `components/code/WorkItemChanges.tsx` — blocks derived from the plans; branch, cut-from, tests, pictures, approval and schemas moved in; suggestions with provenance; `actionFor` derives new-vs-change.
+- `components/planning/WorkItemBuildPlan.tsx` — the ticklist and the per-plan section deleted; `reloadAt` tells the panel to re-read after a generate.
+
+### Tests
+cargo 633/633, Vitest 534/534 at the time, `tsc --noEmit`, build and clippy clean.
+
+### Your Feedback
+
+- **One box now writes to three places** — the plan's `changesRequired`, the detail on each row this pass added, and a new dated set on the work item. It is seeded from what is already saved, so it is an edit rather than a blank that clobbers.
+- **The scan is one level deep on purpose.** A recursive walk of `src` returns thousands of files, and a suggestion list nobody can read is the same as no suggestions, only slower.
+- **`suggest_change_names` is per Solution and per kind, asked when a kind is ticked.** Scanning a folder for a kind nobody is looking at is work nobody asked for.
+- Recommendation: if `kindLocations` ends up filled in for every Product by hand, that is the app telling you it should offer per-language defaults — but they must be an offer somebody accepts, not a guess applied silently.
+
+### Technical Debt
+
+- **The suggestion scan does not respect `.gitignore`**, so a configured folder containing build output will suggest build output.
+- **A kind can only have one folder.** A repository with `src/pages` and `src/admin/pages` needs two, and there is nowhere to say so.
+- **Detaching a Solution leaves its change rows** pointing at it. That is deliberate — they are still work somebody recorded — but nothing surfaces them afterwards except the flat list at the bottom.
+
+## Round 39 — what a change is made of, and the write button that went
+
+### My Feedback
+
+**"UI, logic and models" is not three words.** Asked what those families contain, the answer was that it depends on what is being built: a front end has services and view models, an API has incoming models, outgoing models and the data models behind them, a database has views and stored procedures. The vocabulary went from three ids (`screen`, `api`, `table`) to sixteen, each belonging to one of those three families, with each Solution type carrying its own subset — a website gets services and view models but no storage; an API gets the shapes either side of an endpoint kept separate from the data model, because conflating them is how a database column ends up in a public response. **The old three ids are still in the table under their own names**, so every row ever written stays valid and there was nothing to migrate.
+
+**The change form is now the sentence that was described.** Pick a Solution, tick which families change, say whether they are new or existing, tick or name the things themselves, then write once what has to happen to them. Ticking five endpoints and writing one sentence is one pass, not five.
+
+**Making a Solution moved into the dropdown that needs one.** It is an answer to "which Solution?", so it sits in the list of answers rather than as a button beside it. It is the same form the Map tab uses — including the language picker, whose generator runs for real — because the cut-down copy that was there offered `service`, `library` and `other`, none of which the backend recognises, while missing `database`.
+
+**Every tick is the save; the write button is gone.** The `.md` and `.json` are rewritten after every mutation. They used to be written by pressing a button, which meant what was on disk was whatever the last person to remember had produced — an agent handed a brief three edits out of date builds the wrong thing confidently. When the pair cannot be written, because the Product has no folder yet, the panel says so; the record still saved, so it is a note rather than an error on the field just left.
+
+**Each round of details is kept, not replaced.** What is written in "what needs to change" is appended to the work item's development details as its own dated set, headed with the Solution and what it affected. The second pass does not make the first untrue.
+
+### Implemented
+
+- `db/work_item_change.rs` — `Kind { id, label, heading, group, example }`, `GROUPS`, `KINDS` (16), per-type lists, `kind()`, `headings()`, `add_many()` (per-entry outcomes), `set_detail_many()`.
+- `commands/work_item_changes.rs` — `change_kinds`, `add_work_item_changes`, `set_work_item_change_detail`; registered in `main.rs`.
+- `files/work_item_files.rs` and `ai/client.rs` both group by `KINDS` now instead of each holding their own copy of the three headings.
+- `components/product/NewSolutionForm.tsx` — new, shared by `DevelopSolutions.tsx` and the build plan's dropdown.
+- `components/code/WorkItemChanges.tsx` — rebuilt: Solution blocks, grouped family ticks, new/existing, catalogue multi-select or typed names, one details box per block, "Add another Solution".
+- `components/planning/WorkItemBuildPlan.tsx` — `writeFiles()` after every save, the write button removed, development details held locally and appended to.
+
+### Tests
+cargo 631/631 (22 ignored, live-only), Vitest 530/530, `tsc --noEmit` and `npm run build` clean, clippy `-D warnings` clean.
+
+### Your Feedback
+
+- **Splitting incoming/outgoing/data models is a rule, not a nicety.** An API Solution offers all three deliberately; if in practice everything gets filed as `dataModel`, that is the team telling you the split is not being used and it should be reconsidered rather than left as three names for one thing.
+- **The catalogue is still the union of what has been recorded**, so a brand-new Solution has nothing to tick and the form says so and points at "Add new ones". That is honest, but it means the first pass on a new Solution is always typing.
+- **The details box is disabled until something is ticked.** A box that accepts text it then drops is worse than one that will not take it.
+- **The per-block detail writes only to rows that block put in**, not to everything sharing a Solution and a kind. Somebody else's sentence about the Basket screen is not this one's to overwrite.
+- Recommendation: `kinds_for` now decides quite a lot from four Solution types. If a fifth type is wanted (a mobile app, a worker, a library), add it to `SOLUTION_TYPES` **and** to `kinds_for` — an unrecognised type silently gets all sixteen, which is permissive rather than wrong, but it is not a decision anybody made.
+
+### Technical Debt
+
+- **The kind colours in `styles.css` still only cover `screen`, `api` and `table`** — the other thirteen fall back to the neutral chip. Scannability is worse for them.
+- **The catalogue is re-read per Solution and cached for the panel's lifetime**, so a Solution changed in another window is stale until the panel remounts.
+- **Nothing dedupes across blocks**: two blocks pointed at the same Solution and kind will both offer the same tick, and the second add is refused by the backend rather than prevented by the form.
+- **`write_work_item_files` still requires the Product to have a folder**, so on a Product whose framework files have never been generated the pair is never written and the panel says "Not written" after every save. That is true, but it is a per-save reminder of a one-off setup step.
+- **No live end-to-end run**: the browser preview cannot exercise Tauri IPC, so the new form is proven by Vitest against a mocked backend and by the Rust suite, not by the packaged app.
+
 ## Round 38 — the breakpoints you cannot see
 
 ### My Feedback

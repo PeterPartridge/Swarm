@@ -4,7 +4,6 @@ use super::{to_message, AppDb};
 use crate::ai::backend;
 use crate::ai::client::{self, DeveloperRulesPrompt, GeneratedStrategy};
 use crate::commands::ai_run;
-use crate::db::ai_usage::Exchange;
 use crate::db::{ai_feedback, developer_rules, product, solution, solution_strategy, work_item};
 use serde::Serialize;
 use tauri::State;
@@ -20,6 +19,8 @@ pub struct DeveloperRulesDto {
     pub allowed_tech: String,
     pub disallowed_tech: String,
     pub ai_constraints: String,
+    /// JSON: kind id → folder inside a working copy.
+    pub kind_locations: String,
 }
 
 #[derive(Serialize)]
@@ -67,6 +68,7 @@ pub async fn get_developer_rules(
         allowed_tech: r.allowed_tech,
         disallowed_tech: r.disallowed_tech,
         ai_constraints: r.ai_constraints,
+        kind_locations: r.kind_locations,
     }))
 }
 
@@ -82,6 +84,7 @@ pub async fn set_developer_rules(
     allowed_tech: String,
     disallowed_tech: String,
     ai_constraints: String,
+    kind_locations: String,
 ) -> Result<(), String> {
     let conn = db.0.lock().await;
     developer_rules::set_rules(
@@ -94,6 +97,7 @@ pub async fn set_developer_rules(
         &allowed_tech,
         &disallowed_tech,
         &ai_constraints,
+        &kind_locations,
     )
     .await
     .map_err(to_message)
@@ -249,11 +253,18 @@ pub async fn generate_solution_strategy(
     match result {
         Ok((GeneratedStrategy::Strategy(draft), usage)) => {
             let conn = db.0.lock().await;
-            ai_run::record(
-                &conn, product_id, Some(work_item_id), &routed.provider, &routed.model,
-                PURPOSE, &usage, latency_ms, "ok",
-            
-                Exchange::new(&ai_run::asked(&prompt), &draft.strategy),
+            ai_run::record_ok(
+                &conn,
+                &ai_run::Call {
+                    product_id,
+                    work_item_id: Some(work_item_id),
+                    routed: &routed,
+                    purpose: PURPOSE,
+                    prompt: &prompt,
+                },
+                latency_ms,
+                &usage,
+                &draft.strategy,
             )
             .await;
             let options_json = serde_json::to_string(
@@ -328,18 +339,19 @@ pub async fn generate_solution_strategy(
         }
         Ok((GeneratedStrategy::Blocked { reason, what_is_needed }, usage)) => {
             let conn = db.0.lock().await;
-            ai_run::record(
-                &conn, product_id, Some(work_item_id), &routed.provider, &routed.model,
-                PURPOSE, &usage, latency_ms, "declined",
-            
-                Exchange::new(
-            
-                    &ai_run::asked(&prompt),
-            
-                    &format!("Declined: {reason}
-{what_is_needed}"),
-            
-                ),
+            ai_run::record_declined(
+                &conn,
+                &ai_run::Call {
+                    product_id,
+                    work_item_id: Some(work_item_id),
+                    routed: &routed,
+                    purpose: PURPOSE,
+                    prompt: &prompt,
+                },
+                latency_ms,
+                &usage,
+                &reason,
+                &what_is_needed,
             )
             .await;
             let feedback_id = ai_feedback::record(
@@ -361,14 +373,25 @@ pub async fn generate_solution_strategy(
         }
         Err(e) => {
             let conn = db.0.lock().await;
-            ai_run::record(
-                &conn, product_id, Some(work_item_id), &routed.provider, &routed.model,
-                PURPOSE, &Default::default(), latency_ms, "error",
-            
-                Exchange::new(&ai_run::asked(&prompt), &e),
+            // **This used to file every failure as `error`.** It was the one
+            // failure branch of the eight that never classified, so a model
+            // refusing a solution strategy was recorded as a broken call —
+            // indistinguishable in the log from a bad key or a dropped
+            // connection. Going through the shared recorder fixes that as a
+            // side effect of removing the copy.
+            Err(ai_run::record_failure(
+                &conn,
+                &ai_run::Call {
+                    product_id,
+                    work_item_id: Some(work_item_id),
+                    routed: &routed,
+                    purpose: PURPOSE,
+                    prompt: &prompt,
+                },
+                latency_ms,
+                e,
             )
-            .await;
-            Err(e)
+            .await)
         }
     }
 }

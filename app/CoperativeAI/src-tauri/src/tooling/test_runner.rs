@@ -162,6 +162,119 @@ fn has_extension(dir: &Path, ext: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Which suite owns a file, by its path relative to the Solution root.
+///
+/// The **deepest** matching directory wins: a Tauri Solution has cargo in
+/// `src-tauri` and vitest at `.`, and both "contain" a Rust file if you only
+/// check the root one. Whole path segments are compared, so `src-tauri2` is not
+/// inside `src-tauri` — the same rule `relativeTo` applies on the frontend.
+pub fn suite_for<'a>(suites: &'a [Suite], test_path: &str) -> Option<&'a Suite> {
+    suites
+        .iter()
+        .filter(|suite| within(&suite.directory, test_path))
+        .max_by_key(|suite| depth_of(&suite.directory))
+}
+
+/// Whether `path` sits inside `directory`, counting whole segments only.
+fn within(directory: &str, path: &str) -> bool {
+    if directory == "." || directory.is_empty() {
+        return true;
+    }
+    let prefix = directory.trim_end_matches('/');
+    path.strip_prefix(prefix)
+        .is_some_and(|rest| rest.starts_with('/'))
+}
+
+fn depth_of(directory: &str) -> usize {
+    if directory == "." || directory.is_empty() {
+        0
+    } else {
+        directory.trim_end_matches('/').split('/').count()
+    }
+}
+
+/// The same suite, narrowed to one scenario's tests — or `None` when this
+/// runner cannot be narrowed and the whole suite has to run.
+///
+/// **Two runners' worth of difference, and it matters.** vitest, jest and
+/// pytest all take a file path, so they narrow whenever there is a path. Cargo
+/// takes a *name* substring instead, so it narrows only when the generation
+/// recorded exactly one — libtest accepts a single filter, and two names cannot
+/// be expressed as one without matching things nobody asked for.
+///
+/// go, dotnet and npm are deliberately left alone. Each has a filter syntax
+/// this codebase has never run, and a wrong filter is the worst possible
+/// failure here: it silently matches nothing, the runner exits zero, and the
+/// scenario is reported as passing.
+pub fn narrowed(suite: &Suite, test_path: &str, names: &[String]) -> Option<Suite> {
+    let narrowed_with = |argument: String| {
+        Some(Suite {
+            command_line: format!("{} {argument}", suite.command_line),
+            found_by: "narrowed to this scenario".into(),
+            ..suite.clone()
+        })
+    };
+    match suite.kind.as_str() {
+        "vitest" | "jest" | "pytest" => narrowed_with(relative_to_suite(suite, test_path)),
+        "cargo" => match names {
+            [only] => narrowed_with(only.clone()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// A test's path as its own runner needs to see it: relative to the suite's
+/// directory, not to the Solution root.
+fn relative_to_suite(suite: &Suite, test_path: &str) -> String {
+    if suite.directory == "." || suite.directory.is_empty() {
+        return test_path.to_string();
+    }
+    let prefix = format!("{}/", suite.directory.trim_end_matches('/'));
+    test_path.strip_prefix(&prefix).unwrap_or(test_path).to_string()
+}
+
+/// This scenario's own verdict, picked out of a run that may cover far more.
+///
+/// **This is what makes a whole-suite run worth anything.** Without it, a
+/// scenario on a repository whose suite is already red would be reported as
+/// failing because of somebody else's test. With it, the answer is about the
+/// tests the scenario actually owns.
+///
+/// Matched by suffix rather than equality: cargo reports
+/// `commands::login::tests::a_wrong_password_is_rejected` where the generation
+/// recorded `a_wrong_password_is_rejected`. That is the same match
+/// `cargo test <filter>` performs, so narrowing and attribution agree.
+///
+/// `None` means no attribution could be made — no names recorded, or none of
+/// them ran — and the caller must fall back to the suite's own result and say
+/// that is what it is showing.
+pub fn outcome_for(names: &[String], run: &SuiteRun) -> Option<String> {
+    let mine: Vec<&TestOutcome> = run
+        .tests
+        .iter()
+        .filter(|t| names.iter().any(|name| mentions(&t.name, name)))
+        .collect();
+    if mine.is_empty() {
+        return None;
+    }
+    // One failure among a scenario's tests is a failed scenario; a skip is not
+    // a pass, but it is not a failure either, so it only wins over nothing.
+    if mine.iter().any(|t| t.state == "failed") {
+        return Some("failed".to_string());
+    }
+    if mine.iter().any(|t| t.state == "passed") {
+        return Some("passed".to_string());
+    }
+    Some("skipped".to_string())
+}
+
+/// Whether a reported test name is one the scenario recorded.
+fn mentions(reported: &str, recorded: &str) -> bool {
+    let recorded = recorded.trim();
+    !recorded.is_empty() && reported.contains(recorded)
+}
+
 /// A Solution's own command, replacing detection.
 pub fn custom_suite(command_line: &str) -> Suite {
     Suite {
@@ -436,6 +549,163 @@ fn parse_go_json(text: &str) -> Option<Parsed> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn suite_at(kind: &str, directory: &str, command_line: &str) -> Suite {
+        Suite {
+            kind: kind.into(),
+            directory: directory.into(),
+            command_line: command_line.into(),
+            found_by: "test".into(),
+        }
+    }
+
+    /// A Tauri Solution has two suites and a test belongs to exactly one of
+    /// them. Picking the first, or the root one, would run cargo over a
+    /// TypeScript file.
+    #[test]
+    fn the_deepest_suite_that_contains_the_file_owns_it() {
+        let suites = vec![
+            suite_at("vitest", ".", "npx vitest run --reporter=json"),
+            suite_at("cargo", "src-tauri", "cargo test"),
+        ];
+
+        assert_eq!(
+            suite_for(&suites, "src-tauri/src/commands/test_cases.rs").map(|s| s.kind.clone()),
+            Some("cargo".to_string())
+        );
+        assert_eq!(
+            suite_for(&suites, "src/pages/__tests__/login.test.tsx").map(|s| s.kind.clone()),
+            Some("vitest".to_string())
+        );
+        // A folder that merely starts the same is not a match — `src-tauri2`
+        // is not inside `src-tauri`.
+        assert_eq!(
+            suite_for(&suites, "src-tauri2/src/x.rs").map(|s| s.kind.clone()),
+            Some("vitest".to_string())
+        );
+        assert!(suite_for(&[], "src/x.test.ts").is_none());
+    }
+
+    /// The path a runner is given is relative to **its own** directory, not to
+    /// the Solution root. Handing pytest the root-relative path is the bug this
+    /// pins: it would look for `api/api/tests/test_login.py`.
+    #[test]
+    fn narrowing_by_path_is_relative_to_the_suites_own_directory() {
+        let root_level = suite_at("vitest", ".", "npx vitest run --reporter=json");
+        assert_eq!(
+            narrowed(&root_level, "src/pages/login.test.tsx", &[])
+                .map(|s| s.command_line),
+            Some("npx vitest run --reporter=json src/pages/login.test.tsx".to_string())
+        );
+
+        let nested = suite_at("pytest", "api", "python -m pytest -v");
+        assert_eq!(
+            narrowed(&nested, "api/tests/test_login.py", &[]).map(|s| s.command_line),
+            Some("python -m pytest -v tests/test_login.py".to_string())
+        );
+    }
+
+    /// Cargo takes a name filter, not a path — so it narrows only when the
+    /// generation recorded exactly one name. libtest accepts a single
+    /// substring, so two names cannot be expressed and the whole suite runs.
+    #[test]
+    fn cargo_narrows_by_a_single_name_and_not_by_path() {
+        let cargo = suite_at("cargo", "src-tauri", "cargo test");
+
+        assert_eq!(
+            narrowed(&cargo, "src-tauri/src/x.rs", &["a_wrong_password_is_rejected".to_string()])
+                .map(|s| s.command_line),
+            Some("cargo test a_wrong_password_is_rejected".to_string())
+        );
+        // No names recorded — a hand-written test, or a model that omitted them.
+        assert!(narrowed(&cargo, "src-tauri/src/x.rs", &[]).is_none());
+        // Two names: libtest cannot express both.
+        assert!(narrowed(
+            &cargo,
+            "src-tauri/src/x.rs",
+            &["one".to_string(), "two".to_string()]
+        )
+        .is_none());
+    }
+
+    /// The runners whose filter syntax is not verified here are left alone
+    /// rather than guessed at — a wrong filter silently runs nothing and
+    /// reports a pass.
+    #[test]
+    fn runners_with_no_verified_filter_are_not_narrowed() {
+        for kind in ["go", "dotnet", "npm", "custom"] {
+            let suite = suite_at(kind, ".", "run it");
+            assert!(
+                narrowed(&suite, "x", &["name".to_string()]).is_none(),
+                "{kind} must not be narrowed"
+            );
+        }
+    }
+
+    /// **What makes a whole-suite run trustworthy.** Cargo reports
+    /// `module::path::name`, and the generation records the bare name — so the
+    /// match is by suffix, the same way `cargo test <filter>` matches.
+    #[test]
+    fn a_scenarios_own_result_is_found_among_the_whole_suites() {
+        let run = SuiteRun {
+            suite: suite_at("cargo", ".", "cargo test"),
+            passed: 2,
+            failed: 1,
+            skipped: 0,
+            counted: true,
+            exit_ok: false,
+            tests: vec![
+                TestOutcome { name: "db::product::tests::name_is_required".into(), state: "passed".into() },
+                TestOutcome { name: "commands::login::tests::a_wrong_password_is_rejected".into(), state: "failed".into() },
+                TestOutcome { name: "db::x::tests::unrelated".into(), state: "passed".into() },
+            ],
+            output: String::new(),
+            duration_ms: 1,
+        };
+
+        assert_eq!(
+            outcome_for(&["a_wrong_password_is_rejected".to_string()], &run),
+            Some("failed".to_string())
+        );
+        assert_eq!(
+            outcome_for(&["name_is_required".to_string()], &run),
+            Some("passed".to_string())
+        );
+        // The suite failed overall, but not because of this scenario.
+        assert_eq!(
+            outcome_for(&["unrelated".to_string()], &run),
+            Some("passed".to_string())
+        );
+        // Nothing recorded, or nothing matching: no attribution to make.
+        assert_eq!(outcome_for(&[], &run), None);
+        assert_eq!(outcome_for(&["never_written".to_string()], &run), None);
+    }
+
+    /// One failing test among the scenario's own is a failing scenario.
+    #[test]
+    fn a_scenario_with_one_failing_test_of_two_has_failed() {
+        let run = SuiteRun {
+            suite: suite_at("vitest", ".", "npx vitest run"),
+            passed: 1,
+            failed: 1,
+            skipped: 0,
+            counted: true,
+            exit_ok: false,
+            tests: vec![
+                TestOutcome { name: "rejects a wrong password".into(), state: "failed".into() },
+                TestOutcome { name: "accepts the right one".into(), state: "passed".into() },
+            ],
+            output: String::new(),
+            duration_ms: 1,
+        };
+        assert_eq!(
+            outcome_for(
+                &["rejects a wrong password".to_string(), "accepts the right one".to_string()],
+                &run
+            ),
+            Some("failed".to_string())
+        );
+    }
 
     #[test]
     fn cargo_output_is_read_including_every_binarys_summary() {

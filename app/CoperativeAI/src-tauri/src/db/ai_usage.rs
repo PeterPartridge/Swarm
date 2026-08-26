@@ -28,6 +28,9 @@ pub const PURPOSES: &[&str] = &[
     "architectureDoc",
     "codingPal",
     "changePlan",
+    // QA's scenarios becoming real tests. Its own purpose so the Test area's
+    // spend is legible beside Product's and Develop's rather than buried.
+    "testImplementation",
 ];
 
 /// How the call ended.

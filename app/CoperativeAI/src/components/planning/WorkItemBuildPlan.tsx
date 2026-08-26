@@ -1,19 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
+import Notice, { type NoticeValue } from "../ai/Notice";
 import HandoverPanel from "../planning/HandoverPanel";
 import WorkItemChanges from "../code/WorkItemChanges";
 import { notifyWorkChanged } from "../../lib/workSignal";
 import {
   askProductQuestion,
-  attachSolutionToWorkItem,
-  detachWorkItemPlan,
   generateChangePlan,
   submitForPlanning,
   listAiFeedback,
   listWorkItemPlans,
-  pickImages,
   resolveAiFeedback,
-  saveWorkItemPlan,
-  setPlanApproval,
   updateWorkItem,
   writeWorkItemFiles,
   type AiFeedback,
@@ -22,18 +18,16 @@ import {
   type WorkItemPlan,
 } from "../../lib/backend";
 
-function parseMockups(json: string): string[] {
-  try {
-    const parsed: unknown = JSON.parse(json);
-    return Array.isArray(parsed) ? (parsed as string[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-/** How one work item is going to be built: which Solutions it touches, what
- *  each needs, what proves it, which branch it lands on — and the API and page
- *  schemas the AI derives from all of that.
+/** How one work item is going to be built: the Solutions it touches and what
+ *  each needs, the questions Product still owes an answer to, and the schemas
+ *  the AI derives from all of it.
+ *
+ *  **The per-Solution detail is not here any more.** It was in three places —
+ *  a ticklist of affected Solutions, the list of changes, and a block of
+ *  branch/tests/notes at the bottom — and all three were about the same
+ *  Solution. `WorkItemChanges` is that one place now. What is left here is what
+ *  is true of the whole work item: where it lands, how it is built, what is
+ *  still unanswered, and the generate step that reads the lot.
  *
  *  The questions are the point. Everything Product answers here becomes a
  *  clarification on the work item, so it reaches the generation prompt without
@@ -52,8 +46,23 @@ export default function WorkItemBuildPlan({
   const [newQuestion, setNewQuestion] = useState("");
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<NoticeValue | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /// Held locally because it grows: every "what needs to change" written below
+  /// is appended as its own set, and the item prop does not come back changed.
+  const [details, setDetails] = useState(item.developmentDetails);
+  /// When the schemas were last written, so the panel that draws them re-reads.
+  const [generatedAt, setGeneratedAt] = useState(0);
+  /// What became of the last automatic write. Named rather than assumed —
+  /// the pair cannot be written before the Product has a folder, and a panel
+  /// that says nothing would leave somebody believing a file exists.
+  const [files, setFiles] = useState<
+    { written: string[] } | { blocked: string } | null
+  >(null);
+
+  useEffect(() => {
+    setDetails(item.developmentDetails);
+  }, [item.id, item.developmentDetails]);
 
   const refresh = useCallback(async () => {
     try {
@@ -73,6 +82,25 @@ export default function WorkItemBuildPlan({
     void refresh();
   }, [refresh]);
 
+  /** Puts the work item's `.md` and `.json` back on disk.
+   *
+   *  **Every save, no button.** The pair used to be written by pressing one,
+   *  which meant the files on disk were whatever the last person to remember
+   *  had produced — an agent handed a brief three edits out of date is an
+   *  agent building the wrong thing. Writing on each save is the only version
+   *  of this that is true.
+   *
+   *  A failure here is reported and swallowed rather than raised: the record
+   *  did save, and turning "the Product has no folder yet" into a red error on
+   *  a textarea would say the wrong thing about what just happened. */
+  const writeFiles = useCallback(async () => {
+    try {
+      setFiles({ written: await writeWorkItemFiles(item.id) });
+    } catch (e) {
+      setFiles({ blocked: String(e) });
+    }
+  }, [item.id]);
+
   async function run(action: () => Promise<unknown>) {
     try {
       await action();
@@ -83,6 +111,7 @@ export default function WorkItemBuildPlan({
       // approval. The rail's Start button has to follow all of them, so the
       // signal goes out from the one place they all pass through.
       notifyWorkChanged();
+      await writeFiles();
     } catch (e) {
       setError(String(e));
     }
@@ -94,7 +123,7 @@ export default function WorkItemBuildPlan({
    *  repository the work lands in, and how it should be built, are decisions
    *  a developer makes. */
   async function saveItem(changes: Partial<WorkItem>) {
-    const next = { ...item, ...changes };
+    const next = { ...item, developmentDetails: details, ...changes };
     await run(() =>
       updateWorkItem({
         id: item.id,
@@ -114,29 +143,19 @@ export default function WorkItemBuildPlan({
     );
   }
 
-  async function onSave(plan: WorkItemPlan, changes: Partial<WorkItemPlan>) {
-    const next = { ...plan, ...changes };
-    await run(() =>
-      saveWorkItemPlan({
-        id: plan.id,
-        changesRequired: next.changesRequired,
-        unitTests: next.unitTests,
-        branchName: next.branchName,
-        cloneFrom: next.cloneFrom,
-        mockups: next.mockups,
-      }),
-    );
-  }
-
-  async function onAddMockups(plan: WorkItemPlan) {
-    try {
-      const picked = await pickImages();
-      if (picked.length === 0) return;
-      const merged = [...new Set([...parseMockups(plan.mockups), ...picked])];
-      await onSave(plan, { mockups: JSON.stringify(merged) });
-    } catch (e) {
-      setError(String(e));
-    }
+  /** Adds one round of changes to the development details as its own set.
+   *
+   *  **Appended, never replaced.** Each pass over the work item is a separate
+   *  thing somebody decided, and the second one does not make the first untrue
+   *  — an agent reading this wants the history, not the latest sentence. Dated
+   *  and headed with the Solution and what it affected, so a set can be read
+   *  on its own a month later. */
+  async function appendNote(note: string) {
+    const when = new Date().toISOString().slice(0, 10);
+    const entry = `### ${when} — ${note}`;
+    const next = details.trim() === "" ? entry : `${details.trimEnd()}\n\n${entry}`;
+    setDetails(next);
+    await saveItem({ developmentDetails: next });
   }
 
   async function onSubmit() {
@@ -158,16 +177,14 @@ export default function WorkItemBuildPlan({
       if (result.blocked) {
         // Not a failure: it asked instead of inventing the missing half, and
         // the question is now on the item with the others.
-        setNotice(
-          `Stopped rather than inventing the rest: ${result.blocked.reason} ` +
-            `${result.blocked.whatIsNeeded}`,
-        );
+        setNotice({ blocked: result.blocked, what: "inventing the rest" });
       } else {
         setNotice(
           `Schemas written for ${result.created.join(", ")} (${result.provider} · ${result.reason}).`,
         );
       }
       await refresh();
+      setGeneratedAt(Date.now());
     } catch (e) {
       setNotice(null);
       setError(String(e));
@@ -176,17 +193,13 @@ export default function WorkItemBuildPlan({
     }
   }
 
-  /// Every picture on this work item, across its Solutions — the candidates a
-  /// screen can point at. Deduped: the same shot is often attached to both the
-  /// API and the web app's plan.
-  const allMockups = [...new Set(plans.flatMap((p) => parseMockups(p.mockups)))];
   const openQuestions = questions.filter((q) => !q.resolved);
   const answered = questions.filter((q) => q.resolved);
 
   return (
     <section className="build-plan" aria-label={`Build plan for ${item.title}`}>
       {error && <p role="alert">{error}</p>}
-      {notice && <p role="status">{notice}</p>}
+      <Notice value={notice} />
 
       {/* Product's screens land here as unassigned rows; this is where they get
           pointed at a Solution, and where the APIs and tables behind them are
@@ -199,7 +212,20 @@ export default function WorkItemBuildPlan({
         // one — and because the prop is optional, leaving it out typechecked
         // cleanly and shipped as a feature that did nothing.
         productId={item.productId}
-        mockups={allMockups}
+        // Generating writes the schemas that are drawn inside those blocks,
+        // and the panel would otherwise go on showing the ones it last read.
+        reloadAt={generatedAt}
+        onSaved={() => {
+          void writeFiles();
+          // The panel owns the plans now, so this one has to hear about a
+          // Solution attached or approved there — the Start gate and the
+          // generate button both read them.
+          void refresh();
+        }}
+        // Each sentence written down there becomes a set here, dated and
+        // naming what it was about. The box below is the log of them, still
+        // editable — nothing is appended that cannot then be corrected.
+        onNote={(note) => void appendNote(note)}
       />
 
       {/* Which repository this lands in is a technical decision, so it is made
@@ -233,216 +259,31 @@ export default function WorkItemBuildPlan({
       {item.solutionId !== null && <HandoverPanel item={item} />}
 
       {/* Above the per-Solution notes because it applies across all of them:
-          the conventions and gotchas everyone knows and nobody wrote down. */}
+          the conventions and gotchas everyone knows and nobody wrote down —
+          and now the running record of what each round of changes was for. */}
       <div className="field">
         <span>Development details — how this should be built</span>
         <textarea
-          rows={3}
+          rows={6}
           aria-label="Development details"
-          defaultValue={item.developmentDetails}
+          value={details}
           placeholder="conventions, gotchas, anything an agent would not work out"
+          onChange={(e) => setDetails(e.target.value)}
           onBlur={(e) => saveItem({ developmentDetails: e.target.value })}
         />
       </div>
 
-      <div className="plan-files">
-        <button
-          aria-label={`Write the files for ${item.title}`}
-          onClick={() =>
-            void writeWorkItemFiles(item.id)
-              .then((written) =>
-                setNotice(`Written: ${written.join(", ")}`),
-              )
-              .catch((e) => setError(String(e)))
-          }
-        >
-          Write .md and .json for the AI
-        </button>
-        <p className="hint">
-          Both, from what is recorded here — the Markdown for reading the
-          intent, the JSON for a tool that wants a list of endpoints rather
-          than a paragraph to guess at.
-        </p>
-      </div>
+      {/* No write button. The pair is rewritten on every save above, so what
+          is on disk is what is on screen — and when it cannot be, that is said
+          rather than left to be assumed. */}
+      <p className="hint plan-files">
+        {files === null
+          ? "The .md and .json for the AI are rewritten on every save."
+          : "written" in files
+            ? `Written on the last save: ${files.written.join(", ")}`
+            : `Not written — ${files.blocked}`}
+      </p>
 
-      <section aria-label="Affected solutions">
-        <h4>Solutions affected</h4>
-        {/* Ticked rather than added one at a time from a dropdown: the
-            question is "which of these does this touch", and a checklist is
-            that question. Unticking detaches, so the same control answers it
-            in both directions. */}
-        <ul className="solution-ticks">
-          {solutions.map((s) => {
-            const plan = plans.find((p) => p.solutionId === s.id);
-            return (
-              <li key={s.id}>
-                <label>
-                  <input
-                    type="checkbox"
-                    aria-label={`${s.name} is affected`}
-                    checked={plan !== undefined}
-                    onChange={(e) =>
-                      run(() =>
-                        e.target.checked
-                          ? attachSolutionToWorkItem(item.id, s.id)
-                          : detachWorkItemPlan(plan!.id),
-                      )
-                    }
-                  />{" "}
-                  {s.name} <span className="hint">({s.solutionType})</span>
-                </label>
-              </li>
-            );
-          })}
-        </ul>
-        {solutions.length === 0 && (
-          <p className="hint">This Product has no Solutions to tick yet.</p>
-        )}
-        {plans.length === 0 && (
-          <p className="hint">
-            Nothing affected yet. Add the Solutions this work touches, then say
-            what each one needs.
-          </p>
-        )}
-      </section>
-
-      {plans.map((plan) => {
-        const mockups = parseMockups(plan.mockups);
-        return (
-          <section
-            key={plan.id}
-            className="plan-solution"
-            aria-label={`Plan for ${plan.solutionName}`}
-          >
-            <div className="plan-head">
-              <strong>{plan.solutionName}</strong>
-              {/* Approval sits on the plan rather than beside the Start button,
-                  because it is a statement about *this text* — you approve what
-                  you have just read. Editing any field below clears it again. */}
-              <span className={`plan-approval ${plan.approvedAt > 0 ? "approved" : "pending"}`}>
-                {plan.approvedAt > 0 ? "Approved" : "Not approved"}
-              </span>
-              <button
-                aria-label={
-                  plan.approvedAt > 0
-                    ? `Withdraw approval for ${plan.solutionName}`
-                    : `Approve the plan for ${plan.solutionName}`
-                }
-                onClick={() =>
-                  run(() =>
-                    setPlanApproval(
-                      plan.workItemId,
-                      plan.solutionId,
-                      plan.approvedAt === 0,
-                    ),
-                  )
-                }
-              >
-                {plan.approvedAt > 0 ? "Withdraw approval" : "Approve"}
-              </button>
-              <button
-                aria-label={`Remove ${plan.solutionName} from this work item`}
-                onClick={() => run(() => detachWorkItemPlan(plan.id))}
-              >
-                Remove
-              </button>
-            </div>
-
-            {plan.approvedAt === 0 && (
-              <p className="hint">
-                A run for this Solution will not start until the plan is
-                approved — it makes a checkout and hands an agent a brief, so it
-                waits on somebody having read what it says.
-              </p>
-            )}
-
-            <div className="field">
-              <span>What has to change here</span>
-              <textarea
-                rows={3}
-                aria-label={`Changes required in ${plan.solutionName}`}
-                defaultValue={plan.changesRequired}
-                onBlur={(e) => onSave(plan, { changesRequired: e.target.value })}
-              />
-            </div>
-
-            <div className="field">
-              <span>Unit tests — what must be proved</span>
-              <textarea
-                rows={2}
-                aria-label={`Unit tests for ${plan.solutionName}`}
-                defaultValue={plan.unitTests}
-                onBlur={(e) => onSave(plan, { unitTests: e.target.value })}
-              />
-            </div>
-
-            <div className="plan-branch">
-              <div className="field">
-                <span>Branch name</span>
-                <input
-                  aria-label={`Branch name for ${plan.solutionName}`}
-                  defaultValue={plan.branchName}
-                  onBlur={(e) => onSave(plan, { branchName: e.target.value })}
-                />
-              </div>
-              <div className="field">
-                <span>Cut from</span>
-                <input
-                  aria-label={`Clone from for ${plan.solutionName}`}
-                  defaultValue={plan.cloneFrom}
-                  onBlur={(e) => onSave(plan, { cloneFrom: e.target.value })}
-                />
-              </div>
-            </div>
-
-            <div className="plan-mockups">
-              <button
-                aria-label={`Add UI pictures for ${plan.solutionName}`}
-                onClick={() => onAddMockups(plan)}
-              >
-                Add UI pictures
-              </button>
-              {mockups.length > 0 && (
-                <ul aria-label={`UI pictures for ${plan.solutionName}`}>
-                  {mockups.map((path) => (
-                    <li key={path}>
-                      <span>{path.split(/[\\/]/).pop()}</span>
-                      <button
-                        aria-label={`Remove picture ${path}`}
-                        onClick={() =>
-                          onSave(plan, {
-                            mockups: JSON.stringify(mockups.filter((m) => m !== path)),
-                          })
-                        }
-                      >
-                        ×
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            {(plan.apiSchema || plan.pageSchema || plan.filesToChange) && (
-              // <section>, not <div>: an aria-label on a div is not a region.
-              <section className="plan-generated" aria-label={`Schemas for ${plan.solutionName}`}>
-                {[
-                  ["API schema", plan.apiSchema],
-                  ["Page schema", plan.pageSchema],
-                  ["Files expected to change", plan.filesToChange],
-                ]
-                  .filter(([, body]) => body !== "")
-                  .map(([heading, body]) => (
-                    <div key={heading}>
-                      <span className="plan-generated-head">{heading}</span>
-                      <pre>{body}</pre>
-                    </div>
-                  ))}
-              </section>
-            )}
-          </section>
-        );
-      })}
 
       <section aria-label="Questions for Product">
         <h4>Questions for Product</h4>

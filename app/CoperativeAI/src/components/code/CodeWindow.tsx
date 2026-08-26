@@ -6,6 +6,7 @@ import {
   type PalAction,
   type PalAnswer,
 } from "../../lib/backend";
+import BlockedNote from "../ai/BlockedNote";
 
 const PAL_ACTIONS = Object.keys(PAL_ACTION_LABELS) as PalAction[];
 
@@ -404,10 +405,7 @@ export default function CodeWindow({
         )}
 
         {palAnswer && palAnswer.blocked && (
-          <p role="status">
-            The pal stopped rather than guessing: {palAnswer.blocked.reason}{" "}
-            {palAnswer.blocked.whatIsNeeded}
-          </p>
+          <BlockedNote blocked={palAnswer.blocked} what="guessing" />
         )}
         {palAnswer && !palAnswer.blocked && (
           <div className="pal-answer">

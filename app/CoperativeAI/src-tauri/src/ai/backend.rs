@@ -7,7 +7,7 @@
 
 use crate::ai::client::{
     Generated, GeneratedChangePlan, GeneratedDesign, GeneratedDiagram, GeneratedPal,
-    GeneratedStrategy, Prompt, Usage,
+    GeneratedStrategy, GeneratedTest, Prompt, Usage,
 };
 use crate::ai::{claude_code, client, keys, ollama};
 use crate::db::ai_provider::AiProvider;
@@ -128,6 +128,26 @@ pub async fn generate_pal(
         "anthropic" => {
             let api_key = keys::read(&provider.key_alias)?;
             client::generate_pal(&provider.api_base_url, &api_key, model, effort, prompt).await
+        }
+        other => Err(unknown_kind(provider, other)),
+    }
+}
+
+/// Writes a test for a QA scenario, whichever provider the router chose.
+pub async fn generate_test(
+    provider: &AiProvider,
+    model: &str,
+    effort: &str,
+    prompt: &Prompt,
+) -> Result<(GeneratedTest, Usage), String> {
+    match provider.kind.as_str() {
+        "ollama" => {
+            ollama::generate_test(&provider.api_base_url, ollama_key(provider)?.as_deref(), model, prompt).await
+        }
+        "claudeCode" => claude_code::generate_test(&provider.api_base_url, model, effort, prompt).await,
+        "anthropic" => {
+            let api_key = keys::read(&provider.key_alias)?;
+            client::generate_test(&provider.api_base_url, &api_key, model, effort, prompt).await
         }
         other => Err(unknown_kind(provider, other)),
     }

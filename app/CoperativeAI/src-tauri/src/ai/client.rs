@@ -205,6 +205,43 @@ pub fn build_deliverable_prompt(input: &DeliverablePrompt<'_>) -> Prompt {
     Prompt { context, task }
 }
 
+/// The JSON every generation parser starts from.
+///
+/// Its own function so the wording of "that was not JSON" is one string rather
+/// than seven — a person who sees this message should be able to search for it
+/// and find one place.
+fn json_of(text: &str) -> Result<Value, String> {
+    serde_json::from_str(text).map_err(|e| format!("the AI response was not valid JSON: {e}"))
+}
+
+/// The refusal in a generation response, if the model gave one.
+///
+/// **Every generation kind shares this, so the rule lives here once.** Two
+/// parts of it are load-bearing and were previously restated in seven places:
+///
+/// - `blocked` wins over any work in the same response. A model that filled in
+///   both has hedged, and taking the refusal costs a question where taking the
+///   guess costs work built on a misunderstanding.
+/// - **A `blocked` with no reason is not a refusal.** An empty reason tells
+///   nobody anything, so the caller falls through and parses the work instead —
+///   which is what makes the schemas that forgot `required` survivable.
+fn blocked_in(value: &Value) -> Option<(String, String)> {
+    let blocked = value.get("blocked").filter(|b| !b.is_null())?;
+    let text_at = |key: &str| -> String {
+        blocked
+            .get(key)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string()
+    };
+    let reason = text_at("reason");
+    if reason.is_empty() {
+        return None;
+    }
+    Some((reason, text_at("whatIsNeeded")))
+}
+
 /// What a generation call produced: work, or a refusal with a reason.
 ///
 /// The refusal branch is the framework's answer to AI burning tokens on work it
@@ -225,27 +262,10 @@ pub enum Generated {
 /// taking the refusal is the safe reading — it costs a question, where taking
 /// the guesses costs work built on a misunderstanding.
 pub fn parse_generation(text: &str) -> Result<Generated, String> {
-    let value: Value = serde_json::from_str(text)
-        .map_err(|e| format!("the AI response was not valid JSON: {e}"))?;
+    let value = json_of(text)?;
 
-    if let Some(blocked) = value.get("blocked").filter(|b| !b.is_null()) {
-        let reason = blocked
-            .get("reason")
-            .and_then(|r| r.as_str())
-            .unwrap_or("")
-            .trim()
-            .to_string();
-        if !reason.is_empty() {
-            return Ok(Generated::Blocked {
-                reason,
-                what_is_needed: blocked
-                    .get("whatIsNeeded")
-                    .and_then(|w| w.as_str())
-                    .unwrap_or("")
-                    .trim()
-                    .to_string(),
-            });
-        }
+    if let Some((reason, what_is_needed)) = blocked_in(&value) {
+        return Ok(Generated::Blocked { reason, what_is_needed });
     }
 
     let stories = value
@@ -583,27 +603,10 @@ fn strategy_schema() -> Value {
 
 /// Parses a solution-strategy response (pure — unit tested).
 pub fn parse_solution_strategy(text: &str) -> Result<GeneratedStrategy, String> {
-    let value: Value = serde_json::from_str(text)
-        .map_err(|e| format!("the AI response was not valid JSON: {e}"))?;
+    let value = json_of(text)?;
 
-    if let Some(blocked) = value.get("blocked").filter(|b| !b.is_null()) {
-        let reason = blocked
-            .get("reason")
-            .and_then(|r| r.as_str())
-            .unwrap_or("")
-            .trim()
-            .to_string();
-        if !reason.is_empty() {
-            return Ok(GeneratedStrategy::Blocked {
-                reason,
-                what_is_needed: blocked
-                    .get("whatIsNeeded")
-                    .and_then(|w| w.as_str())
-                    .unwrap_or("")
-                    .trim()
-                    .to_string(),
-            });
-        }
+    if let Some((reason, what_is_needed)) = blocked_in(&value) {
+        return Ok(GeneratedStrategy::Blocked { reason, what_is_needed });
     }
 
     let strategy = value
@@ -800,27 +803,10 @@ fn design_schema() -> Value {
 /// is worth more than being strict: the alternative is a valid diagram rejected
 /// by `design_asset::save` for wearing a ```mermaid jacket.
 pub fn parse_design(text: &str) -> Result<GeneratedDesign, String> {
-    let value: Value = serde_json::from_str(text)
-        .map_err(|e| format!("the AI response was not valid JSON: {e}"))?;
+    let value = json_of(text)?;
 
-    if let Some(blocked) = value.get("blocked").filter(|b| !b.is_null()) {
-        let reason = blocked
-            .get("reason")
-            .and_then(|r| r.as_str())
-            .unwrap_or("")
-            .trim()
-            .to_string();
-        if !reason.is_empty() {
-            return Ok(GeneratedDesign::Blocked {
-                reason,
-                what_is_needed: blocked
-                    .get("whatIsNeeded")
-                    .and_then(|w| w.as_str())
-                    .unwrap_or("")
-                    .trim()
-                    .to_string(),
-            });
-        }
+    if let Some((reason, what_is_needed)) = blocked_in(&value) {
+        return Ok(GeneratedDesign::Blocked { reason, what_is_needed });
     }
 
     let strategy = value
@@ -1010,27 +996,10 @@ fn diagram_schema() -> Value {
 /// the caller's, not the model's: it was asked for one notation, and letting it
 /// answer in another would defeat the check that follows.
 pub fn parse_diagram(text: &str, format: &str) -> Result<GeneratedDiagram, String> {
-    let value: Value = serde_json::from_str(text)
-        .map_err(|e| format!("the AI response was not valid JSON: {e}"))?;
+    let value = json_of(text)?;
 
-    if let Some(blocked) = value.get("blocked").filter(|b| !b.is_null()) {
-        let reason = blocked
-            .get("reason")
-            .and_then(|r| r.as_str())
-            .unwrap_or("")
-            .trim()
-            .to_string();
-        if !reason.is_empty() {
-            return Ok(GeneratedDiagram::Blocked {
-                reason,
-                what_is_needed: blocked
-                    .get("whatIsNeeded")
-                    .and_then(|w| w.as_str())
-                    .unwrap_or("")
-                    .trim()
-                    .to_string(),
-            });
-        }
+    if let Some((reason, what_is_needed)) = blocked_in(&value) {
+        return Ok(GeneratedDiagram::Blocked { reason, what_is_needed });
     }
 
     let content = strip_fence(value.get("content").and_then(|c| c.as_str()).unwrap_or(""));
@@ -1174,27 +1143,10 @@ fn pal_schema() -> Value {
 
 /// Parses a pal response (pure — unit tested).
 pub fn parse_pal(text: &str) -> Result<GeneratedPal, String> {
-    let value: Value = serde_json::from_str(text)
-        .map_err(|e| format!("the AI response was not valid JSON: {e}"))?;
+    let value = json_of(text)?;
 
-    if let Some(blocked) = value.get("blocked").filter(|b| !b.is_null()) {
-        let reason = blocked
-            .get("reason")
-            .and_then(|r| r.as_str())
-            .unwrap_or("")
-            .trim()
-            .to_string();
-        if !reason.is_empty() {
-            return Ok(GeneratedPal::Blocked {
-                reason,
-                what_is_needed: blocked
-                    .get("whatIsNeeded")
-                    .and_then(|w| w.as_str())
-                    .unwrap_or("")
-                    .trim()
-                    .to_string(),
-            });
-        }
+    if let Some((reason, what_is_needed)) = blocked_in(&value) {
+        return Ok(GeneratedPal::Blocked { reason, what_is_needed });
     }
 
     let explanation = value
@@ -1269,7 +1221,9 @@ pub enum GeneratedChangePlan {
 /// happens in one place — a caller building this text itself would be a second
 /// wording of the same thing, and the two would drift.
 pub struct PlannedChange<'a> {
-    /// "screen" | "api" | "table"
+    /// A kind id from `db::work_item_change::KINDS` — "screen", "service",
+    /// "requestModel", "table". The prompt groups by that table rather than by
+    /// a list written here, so a kind added there reaches the model.
     pub kind: &'a str,
     /// "add" | "change"
     pub action: &'a str,
@@ -1371,17 +1325,13 @@ pub fn build_change_plan_prompt(
         // The structured list, grouped so each kind reads as one instruction.
         // "This is the complete list" is the load-bearing sentence: without it
         // a model treats the names as examples and adds a few of its own.
-        for (kind, heading) in [
-            ("screen", "Screens"),
-            ("api", "APIs"),
-            ("table", "Database tables"),
-        ] {
+        for k in crate::db::work_item_change::KINDS {
             let of_kind: Vec<&PlannedChange<'_>> =
-                plan.changes.iter().filter(|c| c.kind == kind).collect();
+                plan.changes.iter().filter(|c| c.kind == k.id).collect();
             if of_kind.is_empty() {
                 continue;
             }
-            task.push_str(&format!("{heading} — this is the complete list:\n"));
+            task.push_str(&format!("{} — this is the complete list:\n", k.heading));
             for change in of_kind {
                 let verb = if change.action == "add" { "new" } else { "change" };
                 task.push_str(&format!("- [{verb}] {}", change.name));
@@ -1462,27 +1412,10 @@ fn change_plan_schema() -> Value {
 
 /// Parses a change-plan response (pure — unit tested).
 pub fn parse_change_plan(text: &str) -> Result<GeneratedChangePlan, String> {
-    let value: Value = serde_json::from_str(text)
-        .map_err(|e| format!("the AI response was not valid JSON: {e}"))?;
+    let value = json_of(text)?;
 
-    if let Some(blocked) = value.get("blocked").filter(|b| !b.is_null()) {
-        let reason = blocked
-            .get("reason")
-            .and_then(|r| r.as_str())
-            .unwrap_or("")
-            .trim()
-            .to_string();
-        if !reason.is_empty() {
-            return Ok(GeneratedChangePlan::Blocked {
-                reason,
-                what_is_needed: blocked
-                    .get("whatIsNeeded")
-                    .and_then(|w| w.as_str())
-                    .unwrap_or("")
-                    .trim()
-                    .to_string(),
-            });
-        }
+    if let Some((reason, what_is_needed)) = blocked_in(&value) {
+        return Ok(GeneratedChangePlan::Blocked { reason, what_is_needed });
     }
 
     let solutions: Vec<SolutionChange> = value
@@ -1532,6 +1465,187 @@ pub async fn generate_change_plan(
     Ok((parse_change_plan(&json_text)?, usage))
 }
 
+/// One test file, as the model wrote it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TestDraft {
+    /// Where it goes, relative to the Solution's working copy. Checked by
+    /// `workspace::write_new_file` before anything is written — this is the
+    /// model's suggestion, not permission.
+    pub path: String,
+    pub contents: String,
+    /// The names of the tests inside the file, as their runner will report
+    /// them. Asked for so the scenario's own result can be found later:
+    /// `test_runner::narrowed` uses a single name to filter cargo, and
+    /// `outcome_for` uses them all to pick this scenario's verdict out of a
+    /// whole-suite run. Empty is tolerated — see `parse_test`.
+    pub names: Vec<String>,
+}
+
+/// What implementing a QA scenario produced: a test, or a refusal.
+#[derive(Debug, Clone, PartialEq)]
+pub enum GeneratedTest {
+    Test(TestDraft),
+    Blocked {
+        reason: String,
+        what_is_needed: String,
+    },
+}
+
+/// Everything the "implement this scenario" prompt is built from.
+pub struct TestPrompt<'a> {
+    pub work_item_title: &'a str,
+    pub work_item_description: &'a str,
+    /// The item's development details — the conventions and gotchas the team
+    /// wrote down for this piece of work.
+    pub build_notes: &'a str,
+    pub scenario_title: &'a str,
+    pub scenario: &'a str,
+    /// What the Solution was started as ("react-ts", "rust", …), when known.
+    pub language: Option<&'a str>,
+    /// The suites already in the repository. This is what stops the model
+    /// writing a Jest test into a project that runs Vitest, and it is
+    /// deliberately all the repository context sent — a file tree would cost
+    /// tokens on every press to say less than these three lines do.
+    pub suites: &'a [crate::tooling::test_runner::Suite],
+}
+
+/// Builds the prompt that turns a QA scenario into a real test. (pure — unit
+/// tested)
+pub fn build_test_prompt(input: &TestPrompt<'_>) -> Prompt {
+    let mut context = format!("Work item: {}\n", input.work_item_title);
+    if !input.work_item_description.trim().is_empty() {
+        context.push_str(&format!("What it is: {}\n", input.work_item_description));
+    }
+    if !input.build_notes.trim().is_empty() {
+        context.push_str(&format!("How it should be built: {}\n", input.build_notes));
+    }
+    if let Some(language) = input.language.filter(|l| !l.trim().is_empty()) {
+        context.push_str(&format!("The Solution was started as: {language}\n"));
+    }
+    if input.suites.is_empty() {
+        context.push_str(
+            "\nNo test suite was found in this repository. Write the test in the \
+             framework the code itself uses, and put it where that framework \
+             looks by default.\n",
+        );
+    } else {
+        context.push_str("\nTest suites already in this repository — match one of these, do not introduce another:\n");
+        for suite in input.suites {
+            context.push_str(&format!(
+                "- {} in {} (run with `{}`, found by {})\n",
+                suite.kind, suite.directory, suite.command_line, suite.found_by
+            ));
+        }
+    }
+
+    let task = format!(
+        "QA scenario: {}\n{}\n\nWrite ONE test that proves this scenario, and only this \
+         scenario. Return the path it should live at, relative to the repository root, \
+         following the naming and folder convention of the suite it belongs to. Return \
+         the file's whole contents, including its imports — it will be written as-is, \
+         with nothing added. In \"names\", list the name of every test the file defines, \
+         written exactly as its runner prints it in results — the bare function name for \
+         cargo or pytest, the `it`/`test` title for vitest or jest, and without any \
+         module path or file prefix. These are used to find this scenario's own result \
+         when the suite is run, so a name that does not match what the runner prints \
+         makes the result unattributable. Do not modify any other file, and do not write \
+         a test that passes without exercising the behaviour.{}",
+        input.scenario_title, input.scenario, TEST_ESCAPE_HATCH
+    );
+    Prompt { context, task }
+}
+
+/// The escape hatch, worded for a test rather than for planning work.
+///
+/// A scenario that does not say what a pass looks like cannot become a test
+/// that means anything — and a test that asserts nothing is worse than no test,
+/// because it goes green forever.
+const TEST_ESCAPE_HATCH: &str = "\n\nIf the scenario is too vague to test, or you cannot tell \
+     what a pass looks like, do NOT guess and do NOT write a test that always passes. \
+     Leave \"path\" and \"contents\" empty and fill in \"blocked\" instead: the reason, and in \
+     whatIsNeeded the single most useful question a person could answer to unblock it.";
+
+/// Parses the structured-output JSON (pure — unit tested).
+///
+/// `blocked` wins over a body, the same reading `parse_generation` takes: a
+/// hedged answer costs a question if you take the refusal, and a test file
+/// written into somebody's repository if you take the guess.
+pub fn parse_test(text: &str) -> Result<GeneratedTest, String> {
+    let value = json_of(text)?;
+
+    if let Some((reason, what_is_needed)) = blocked_in(&value) {
+        return Ok(GeneratedTest::Blocked { reason, what_is_needed });
+    }
+
+    let field = |name: &str| -> String {
+        value
+            .get(name)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string()
+    };
+    let path = field("path");
+    let contents = field("contents");
+    // Half an answer is not an answer: a path with no body would create an
+    // empty file and mark the scenario implemented against it.
+    if path.is_empty() || contents.is_empty() {
+        return Err(
+            "the AI response had no test in it — it must return both a path and the file's contents"
+                .to_string(),
+        );
+    }
+    // Names are wanted but not required: they buy narrowing and attribution
+    // when the test is run, and a model that omits them has still written a
+    // usable test. Blanks are dropped rather than kept — an empty name would
+    // match every reported test and attribute the whole suite to this one
+    // scenario.
+    let names = value
+        .get("names")
+        .and_then(|n| n.as_array())
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|n| n.as_str())
+                .map(str::trim)
+                .filter(|n| !n.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(GeneratedTest::Test(TestDraft { path, contents, names }))
+}
+
+/// Writes a test for one QA scenario.
+pub async fn generate_test(
+    api_base_url: &str,
+    api_key: &str,
+    model: &str,
+    effort: &str,
+    prompt: &Prompt,
+) -> Result<(GeneratedTest, Usage), String> {
+    let (json_text, usage) =
+        post_structured(api_base_url, api_key, model, effort, prompt, test_schema()).await?;
+    Ok((parse_test(&json_text)?, usage))
+}
+
+/// The written-test shape. Its own function here rather than borrowing the
+/// Ollama one, like every other Claude schema in this module: `blocked_schema`
+/// carries `required` and `additionalProperties: false`, which the hand-written
+/// Ollama copies have drifted away from.
+fn test_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "path": {"type": "string"},
+            "contents": {"type": "string"},
+            "names": {"type": "array", "items": {"type": "string"}},
+            "blocked": blocked_schema()
+        },
+        "required": ["path", "contents", "names"]
+    })
+}
+
 /// Minimal connectivity check: one tiny Messages call.
 pub async fn test_connection(api_base_url: &str, api_key: &str, model: &str) -> Result<(), String> {
     let url = format!("{}/v1/messages", api_base_url.trim_end_matches('/'));
@@ -1570,6 +1684,112 @@ fn http_client() -> Result<reqwest::Client, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_written_test_comes_back_as_a_path_a_body_and_its_names() {
+        let parsed = parse_test(
+            r#"{"path":"src/__tests__/login.test.ts","contents":"it('signs in', () => {})",
+                "names":["signs in"]}"#,
+        )
+        .expect("parse");
+        assert_eq!(
+            parsed,
+            GeneratedTest::Test(TestDraft {
+                path: "src/__tests__/login.test.ts".to_string(),
+                contents: "it('signs in', () => {})".to_string(),
+                names: vec!["signs in".to_string()],
+            })
+        );
+    }
+
+    /// **Names are wanted, not required.** They buy narrowing and attribution
+    /// later; a model that omits them has still written a usable test, and
+    /// throwing the file away over a missing convenience field would be a
+    /// worse trade than running the whole suite. Blank entries are dropped so
+    /// an empty string can never match every reported test name.
+    #[test]
+    fn a_test_with_no_usable_names_is_still_a_test() {
+        for missing in [
+            r#"{"path":"x.test.ts","contents":"it('x', () => {})"}"#,
+            r#"{"path":"x.test.ts","contents":"it('x', () => {})","names":[]}"#,
+            r#"{"path":"x.test.ts","contents":"it('x', () => {})","names":["  ",""]}"#,
+        ] {
+            match parse_test(missing).expect("parse") {
+                GeneratedTest::Test(draft) => assert!(
+                    draft.names.is_empty(),
+                    "blank names must be dropped, got: {:?}",
+                    draft.names
+                ),
+                other => panic!("expected a test, got {other:?}"),
+            }
+        }
+    }
+
+    /// The same reading as `parse_generation`: a model that filled in both has
+    /// hedged, and taking the refusal costs a question where taking the guess
+    /// costs a test file nobody asked for, written into somebody's repository.
+    #[test]
+    fn a_declined_scenario_wins_over_a_test_body() {
+        let parsed = parse_test(
+            r#"{"path":"x.test.ts","contents":"it('?', () => {})",
+                "blocked":{"reason":"the scenario does not say what a pass looks like",
+                           "whatIsNeeded":"what should the page show when the login fails?"}}"#,
+        )
+        .expect("parse");
+        match parsed {
+            GeneratedTest::Blocked { reason, what_is_needed } => {
+                assert!(reason.contains("does not say"), "got: {reason}");
+                assert!(what_is_needed.contains("login fails"), "got: {what_is_needed}");
+            }
+            other => panic!("the refusal must win, got: {other:?}"),
+        }
+    }
+
+    /// Half an answer is not an answer. A path with no body would create an
+    /// empty file and mark the scenario implemented — the exact lie this
+    /// round exists to avoid.
+    #[test]
+    fn half_a_test_is_an_error_rather_than_an_empty_file() {
+        for half in [
+            r#"{"path":"","contents":"it('x', () => {})"}"#,
+            r#"{"path":"src/x.test.ts","contents":"   "}"#,
+            r#"{"contents":"it('x', () => {})"}"#,
+            r#"{"path":"src/x.test.ts"}"#,
+        ] {
+            assert!(parse_test(half).is_err(), "must be an error: {half}");
+        }
+    }
+
+    /// The prompt has to carry the two things that decide whether the test can
+    /// even run: the scenario, and the suite the repository already uses.
+    /// Without the suite the model picks a framework the repo does not have.
+    #[test]
+    fn the_prompt_names_the_scenario_and_the_suite_the_repo_already_runs() {
+        let suites = vec![crate::tooling::test_runner::Suite {
+            kind: "vitest".to_string(),
+            directory: ".".to_string(),
+            command_line: "npx vitest run".to_string(),
+            found_by: "package.json".to_string(),
+        }];
+        let prompt = build_test_prompt(&TestPrompt {
+            work_item_title: "User login",
+            work_item_description: "A returning customer signs in with email and password.",
+            build_notes: "",
+            scenario_title: "Wrong password is rejected",
+            scenario: "Given a registered user, when they enter the wrong password, then the page says so and does not sign them in.",
+            language: Some("react-ts"),
+            suites: &suites,
+        });
+        let whole = format!("{}\n{}", prompt.context, prompt.task);
+        assert!(whole.contains("Wrong password is rejected"), "no scenario title");
+        assert!(whole.contains("wrong password"), "no scenario body");
+        assert!(whole.contains("npx vitest run"), "no suite command");
+        assert!(whole.contains("vitest"), "no suite kind");
+        assert!(whole.contains("User login"), "no work item");
+        // The escape hatch is what lets a thin scenario decline instead of
+        // producing a test that asserts nothing.
+        assert!(whole.contains("blocked"), "no escape hatch");
+    }
 
     /// **Sent, because the app was capped below what the model can do.** The
     /// settings offered three levels while every model here takes five, so
@@ -1831,8 +2051,9 @@ mod tests {
         // add and change are different work and must not read the same
         assert!(prompt.task.contains("[new] POST /checkout"));
         assert!(prompt.task.contains("[change] Basket"));
-        // grouped by kind, so each reads as one instruction
-        assert!(prompt.task.contains("APIs — this is the complete list"));
+        // grouped by kind, so each reads as one instruction — and the headings
+        // come from the one kind table, so a kind added there reaches the model
+        assert!(prompt.task.contains("Endpoints — this is the complete list"));
         assert!(prompt.task.contains("Database tables — this is the complete list"));
         // the sentence that stops a model treating the names as examples
         assert!(prompt.task.matches("this is the complete list").count() == 3);

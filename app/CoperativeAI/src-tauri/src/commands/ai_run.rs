@@ -200,6 +200,115 @@ pub(crate) async fn record(
     .await;
 }
 
+/// The parts of an AI call that are the same however it ends.
+///
+/// Grouped rather than passed positionally: `product_id` and `latency_ms` are
+/// both `i64`, so swapping them compiles silently and files the spend against
+/// a Product that never made the call. The same reasoning as
+/// `test_case::TestCaseUpdate` — a struct is the cheapest way to make a wrong
+/// call fail to build.
+pub(crate) struct Call<'a> {
+    pub product_id: i64,
+    pub work_item_id: Option<i64>,
+    pub routed: &'a Routed,
+    pub purpose: &'a str,
+    pub prompt: &'a crate::ai::client::Prompt,
+}
+
+/// Records a call that produced work.
+///
+/// `reply` is what the caller wants read back in the log — the *parsed* result,
+/// not the provider's raw JSON, because the raw text is mostly schema
+/// scaffolding and a person reading the log wants to know what was proposed.
+pub(crate) async fn record_ok(
+    conn: &Connection,
+    call: &Call<'_>,
+    latency_ms: i64,
+    usage: &Usage,
+    reply: &str,
+) {
+    record(
+        conn,
+        call.product_id,
+        call.work_item_id,
+        &call.routed.provider,
+        &call.routed.model,
+        call.purpose,
+        usage,
+        latency_ms,
+        "ok",
+        Exchange::new(&asked(call.prompt), reply),
+    )
+    .await;
+}
+
+/// Records a call the model declined.
+///
+/// **`declined` is not `blocked`, and the difference is money.** The model ran
+/// and was paid for; it chose to return a question instead of work. A run of
+/// declines that was filed as `blocked` would quietly understate the bill.
+pub(crate) async fn record_declined(
+    conn: &Connection,
+    call: &Call<'_>,
+    latency_ms: i64,
+    usage: &Usage,
+    reason: &str,
+    what_is_needed: &str,
+) {
+    record(
+        conn,
+        call.product_id,
+        call.work_item_id,
+        &call.routed.provider,
+        &call.routed.model,
+        call.purpose,
+        usage,
+        latency_ms,
+        "declined",
+        Exchange::new(
+            &asked(call.prompt),
+            &format!("Declined: {reason}\n{what_is_needed}"),
+        ),
+    )
+    .await;
+}
+
+/// Records a call that failed, and hands the message back for the caller to
+/// return.
+///
+/// **The classification is the reason this exists.** `refusal` and `error` are
+/// different facts — one is the model declining at the API level, the other is
+/// anything from a dropped connection to a bad key — and the rule for telling
+/// them apart was written out at seven call sites. Seven copies of a rule is
+/// seven places to fix when the rule changes, and the ledger is the last place
+/// that should quietly disagree with itself.
+pub(crate) async fn record_failure(
+    conn: &Connection,
+    call: &Call<'_>,
+    latency_ms: i64,
+    error: String,
+) -> String {
+    let outcome = if error.contains("refusal") {
+        "refusal"
+    } else {
+        "error"
+    };
+    record(
+        conn,
+        call.product_id,
+        call.work_item_id,
+        &call.routed.provider,
+        &call.routed.model,
+        call.purpose,
+        &Default::default(),
+        latency_ms,
+        outcome,
+        Exchange::new(&asked(call.prompt), &error),
+    )
+    .await;
+    error
+}
+
 /// The two halves of a prompt as one readable block, for the log.
 ///
 /// The provider sees them as separate messages — the context is cached and the

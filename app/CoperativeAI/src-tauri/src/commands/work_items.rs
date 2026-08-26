@@ -2,8 +2,6 @@
 //! `db::work_item` module (see its unit tests for the behaviour).
 
 use super::{to_message, AppDb};
-use crate::commands::ai_run::asked;
-use crate::db::ai_usage::Exchange;
 use crate::db::work_item::{self, WorkItem};
 use crate::db::{system_setting, work_item_policy};
 use serde::Serialize;
@@ -312,11 +310,18 @@ pub async fn generate_user_stories(
     let drafts = match result {
         Ok((client::Generated::Items(drafts), usage)) => {
             let conn = db.0.lock().await;
-            ai_run::record(
-                &conn, product_id, Some(feature_id), &routed.provider, &routed.model,
-                PURPOSE, &usage, latency_ms, "ok",
-            
-                Exchange::new(&asked(&prompt), &listed(&drafts)),
+            ai_run::record_ok(
+                &conn,
+                &ai_run::Call {
+                    product_id,
+                    work_item_id: Some(feature_id),
+                    routed: &routed,
+                    purpose: PURPOSE,
+                    prompt: &prompt,
+                },
+                latency_ms,
+                &usage,
+                &listed(&drafts),
             )
             .await;
             drafts
@@ -326,12 +331,19 @@ pub async fn generate_user_stories(
         // call is ledgered as spend because the model ran and was paid for.
         Ok((client::Generated::Blocked { reason, what_is_needed }, usage)) => {
             let conn = db.0.lock().await;
-            ai_run::record(
-                &conn, product_id, Some(feature_id), &routed.provider, &routed.model,
-                PURPOSE, &usage, latency_ms, "declined",
-            
-                Exchange::new(&asked(&prompt), &format!("Declined: {reason}
-{what_is_needed}")),
+            ai_run::record_declined(
+                &conn,
+                &ai_run::Call {
+                    product_id,
+                    work_item_id: Some(feature_id),
+                    routed: &routed,
+                    purpose: PURPOSE,
+                    prompt: &prompt,
+                },
+                latency_ms,
+                &usage,
+                &reason,
+                &what_is_needed,
             )
             .await;
             let feedback_id = crate::db::ai_feedback::record(
@@ -349,12 +361,17 @@ pub async fn generate_user_stories(
         }
         Err(e) => {
             let conn = db.0.lock().await;
-            let outcome = if e.contains("refusal") { "refusal" } else { "error" };
-            ai_run::record(
-                &conn, product_id, Some(feature_id), &routed.provider, &routed.model,
-                PURPOSE, &Default::default(), latency_ms, outcome,
-            
-                Exchange::new(&asked(&prompt), &e),
+            let e = ai_run::record_failure(
+                &conn,
+                &ai_run::Call {
+                    product_id,
+                    work_item_id: Some(feature_id),
+                    routed: &routed,
+                    purpose: PURPOSE,
+                    prompt: &prompt,
+                },
+                latency_ms,
+                e,
             )
             .await;
             return Err(e);
@@ -417,6 +434,18 @@ pub(crate) async fn resolve_story_generation(
         provider,
         effort_tier,
     })
+}
+
+/// A work item's title, for the messages the gate writes.
+///
+/// The gate takes the title rather than reading it, so it can be called with
+/// one already in hand; this is for the callers that have only an id.
+pub(crate) async fn title_of(conn: &turso::Connection, item_id: i64) -> Result<String, String> {
+    work_item::find_by_id(conn, item_id)
+        .await
+        .map_err(to_message)?
+        .map(|item| item.title)
+        .ok_or_else(|| "that work item no longer exists".to_string())
 }
 
 /// The deny-by-default policy gate for one work item, without the checks that
@@ -614,11 +643,18 @@ pub async fn generate_deliverable_work(
     let drafts = match result {
         Ok((client::Generated::Items(drafts), usage)) => {
             let conn = db.0.lock().await;
-            ai_run::record(
-                &conn, product_id, None, &routed.provider, &routed.model,
-                PURPOSE, &usage, latency_ms, "ok",
-            
-                Exchange::new(&asked(&prompt), &listed(&drafts)),
+            ai_run::record_ok(
+                &conn,
+                &ai_run::Call {
+                    product_id,
+                    work_item_id: None,
+                    routed: &routed,
+                    purpose: PURPOSE,
+                    prompt: &prompt,
+                },
+                latency_ms,
+                &usage,
+                &listed(&drafts),
             )
             .await;
             drafts
@@ -628,12 +664,19 @@ pub async fn generate_deliverable_work(
         // invented work item would be worse than not storing it.
         Ok((client::Generated::Blocked { reason, what_is_needed }, usage)) => {
             let conn = db.0.lock().await;
-            ai_run::record(
-                &conn, product_id, None, &routed.provider, &routed.model,
-                PURPOSE, &usage, latency_ms, "declined",
-            
-                Exchange::new(&asked(&prompt), &format!("Declined: {reason}
-{what_is_needed}")),
+            ai_run::record_declined(
+                &conn,
+                &ai_run::Call {
+                    product_id,
+                    work_item_id: None,
+                    routed: &routed,
+                    purpose: PURPOSE,
+                    prompt: &prompt,
+                },
+                latency_ms,
+                &usage,
+                &reason,
+                &what_is_needed,
             )
             .await;
             return Ok(GenerationResult {
@@ -646,12 +689,17 @@ pub async fn generate_deliverable_work(
         }
         Err(e) => {
             let conn = db.0.lock().await;
-            let outcome = if e.contains("refusal") { "refusal" } else { "error" };
-            ai_run::record(
-                &conn, product_id, None, &routed.provider, &routed.model,
-                PURPOSE, &Default::default(), latency_ms, outcome,
-            
-                Exchange::new(&asked(&prompt), &e),
+            let e = ai_run::record_failure(
+                &conn,
+                &ai_run::Call {
+                    product_id,
+                    work_item_id: None,
+                    routed: &routed,
+                    purpose: PURPOSE,
+                    prompt: &prompt,
+                },
+                latency_ms,
+                e,
             )
             .await;
             return Err(e);

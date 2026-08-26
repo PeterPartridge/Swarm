@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-dialog";
+import {
+  canLaunchDebugger as canLaunch,
+  debugLanguageOf as languageOf,
+  readinessOf,
+  startFromFor,
+  useDebuggers,
+} from "../../lib/debuggers";
 import {
   absoluteFor,
   allMarksIn,
@@ -27,6 +35,7 @@ import {
   debugStop,
   debugThreads,
   debugVariables,
+  setSolutionStartFrom,
   type DebugThread,
   type Frame,
   type Placed,
@@ -34,37 +43,38 @@ import {
   type Solution,
 } from "../../lib/backend";
 
-/** Which language this Solution would be debugged as.
+/** An example of what "start from" means for this language.
  *
- *  Guessed from what it was created as, which is the only signal recorded —
- *  and `Solution.language` is explicitly "a record of what it was begun as, not
- *  a claim about what it is now". So a wrong guess is possible, and the panel
- *  names the language it is offering rather than silently picking one.
- *
- *  Go, TypeScript and C# can launch today; Python is found and speaks DAP but
- *  has no launch shape yet, so a button that always failed would be worse than
- *  a sentence saying so. */
-export function debugLanguageOf(language: string | null): string | null {
-  const said = (language ?? "").toLowerCase();
-  if (said.includes("go")) return "go";
-  if (said.includes("python")) return "python";
-  if (said.includes("c#") || said.includes("dotnet") || said.includes(".net")) return "csharp";
-  if (said.includes("typescript") || said.includes("javascript") || said.includes("node")) {
-    return "typescript";
+ *  **The field is one box and means four things**, because the adapters differ:
+ *  debugpy runs one `.py`, Delve builds a package folder, netcoredbg is pointed
+ *  at a built `.dll`, js-debug at the entry `.js`. A single placeholder reading
+ *  "a path" would be true and useless. */
+function startPlaceholder(language: string | null): string {
+  switch (language) {
+    case "python":
+      return "src/serve.py — the file to run";
+    case "go":
+      return "cmd/api — the package with the main";
+    case "csharp":
+      return "bin/Debug/net8.0/Api.dll — the built assembly";
+    case "typescript":
+      return "dist/index.js — the entry the runtime starts";
+    default:
+      return "what the debugger should start";
   }
-  return null;
 }
 
-/** The languages whose launch shape is built.
+/** Which language this Solution is debugged as, and whether this app has a
+ *  launch shape for it.
  *
- *  Go through Delve, TypeScript and JavaScript through js-debug, C# through
- *  netcoredbg — each verified against the real adapter, stopping a real program
- *  on a real line. Python is found and speaks DAP but has no launch shape yet.
+ *  Both live in `lib/debuggers` now, because the run bar has to answer the same
+ *  question *before* the press and the board has to answer it during one. Two
+ *  copies of that judgement would drift, and the drift would show as a Solution
+ *  that claims to be debugging and is not.
  *
- *  C# is launched from its **built assembly**, so starting it before a build
- *  fails with "run `dotnet build` first" rather than starting a debugger that
- *  stops at nothing. */
-const CAN_LAUNCH = ["go", "typescript", "csharp"];
+ *  Re-exported so this module stays the place a reader looks for it — the panel
+ *  is still where the launching happens. */
+export { debugLanguageOf, canLaunchDebugger } from "../../lib/debuggers";
 /** A variable that has been opened: its fields, or why they could not be got. */
 interface Opened {
   fields?: DebugVariable[];
@@ -229,10 +239,18 @@ interface DebugEvent {
  *  believe it. */
 export default function DebugSession({
   solution,
+  startNow,
   onStopped,
   onResumed,
 }: {
   solution: Solution;
+  /** Bumped when the bar's Debug button asked for this Solution. A timestamp,
+   *  so asking twice still moves.
+   *
+   *  **Ignored while a session is already running.** Pressing Debug again with
+   *  a program stopped on a breakpoint should not silently start a second one
+   *  underneath it. */
+  startNow?: number;
   /** Where the program stopped, so the workspace can open that file and put a
    *  stepping toolbar above it — the controls have to stay reachable while you
    *  are looking at the line they act on. */
@@ -247,8 +265,33 @@ export default function DebugSession({
   /** It is moving again, or gone: the highlight and the toolbar go with it. */
   onResumed?: () => void;
 }) {
-  const language = debugLanguageOf(solution.language);
-  const canLaunch = language !== null && CAN_LAUNCH.includes(language);
+  const language = languageOf(solution.language);
+  const launchable = canLaunch(solution.language);
+  /// Whether the machine has the adapter this Solution would need. Null when
+  /// it has, when the question does not arise, or while the list is still
+  /// coming back — the button is only refused on a definite "no".
+  const { adapters, recheck } = useDebuggers();
+  const verdict = readinessOf(solution.language, adapters);
+  const missingAdapter = verdict.state === "missing" ? verdict : null;
+  /// What is stored as this Solution's "start from", after being tidied — the
+  /// box shows it, and the warning is worked out from it.
+  ///
+  /// **Held here rather than read off the prop** because both the picker and
+  /// the box change it, and the Solution does not come back down changed.
+  const [startFrom, setStartFrom] = useState(solution.startFrom ?? "");
+  useEffect(() => {
+    setStartFrom(solution.startFrom ?? "");
+  }, [solution.id, solution.startFrom]);
+  /// Whether that path is outside the working copy, and so cannot travel.
+  ///
+  /// **A fact about the value, not a memory of how it arrived.** It used to be
+  /// set only by the picker, so an absolute path typed by hand was stored whole
+  /// with nothing said — and quietly meant a different file on the next
+  /// machine.
+  const outside =
+    solution.localPath === null
+      ? null
+      : startFromFor(solution.localPath, startFrom).outside;
   const [session, setSession] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -609,6 +652,21 @@ export default function DebugSession({
     };
   }, []);
 
+  /// The bar's Debug press, arriving from the board.
+  ///
+  /// `start` is held in a ref rather than listed as a dependency: it closes
+  /// over most of this component's state, so depending on it would re-run this
+  /// effect — and launch a second debugger — on the next keystroke anywhere.
+  const startRef = useRef<() => Promise<void>>(async () => {});
+  useEffect(() => {
+    if (!startNow) return;
+    if (current.current !== null || busy) return;
+    void startRef.current();
+    // `busy` is deliberately not a dependency: this fires on the press, not on
+    // the panel settling down afterwards.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startNow]);
+
   async function start() {
     if (!solution.localPath) return;
     setBusy(true);
@@ -626,7 +684,15 @@ export default function DebugSession({
     setMarks(onDisk);
     try {
       const marks = absoluteFor(onDisk, solution.id, solution.localPath);
-      const started = await debugStart(language ?? "go", solution.localPath, marks);
+      const started = await debugStart(
+        language ?? "go",
+        solution.localPath,
+        marks,
+        // So the Solution's "start from" is honoured — the backend reads it
+        // rather than being handed a path from here, because what it points at
+        // is checked against the working copy as it is now.
+        solution.id,
+      );
       setSession(started.session);
       current.current = started.session;
       setState("running");
@@ -649,6 +715,57 @@ export default function DebugSession({
       setState("idle");
     } finally {
       setBusy(false);
+    }
+  }
+  startRef.current = start;
+
+  /// Records what the debugger should start, or clears it.
+  ///
+  /// **Not pushed into a running session.** A launch argument is read once, at
+  /// launch; changing it mid-session and having the panel imply otherwise would
+  /// be the breakpoint mistake again — a control that looks like it did
+  /// something. It takes effect on the next start, which is when it is read.
+  async function saveStartFrom(path: string) {
+    if (!solution.localPath) return;
+    // Both ways in go through the same tidy, so a path typed by hand is stored
+    // exactly as one that was picked would be — relative where it can be.
+    const { stored } = startFromFor(solution.localPath, path);
+    if (stored === startFrom) return;
+    setStartFrom(stored);
+    try {
+      await setSolutionStartFrom(solution.id, stored === "" ? null : stored);
+      setError(null);
+      setNote(
+        session === null
+          ? null
+          : "Saved. It is read when a program is launched, so this session is still the one that was already running.",
+      );
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  /// Opens the OS picker at the Solution's own folder and stores what comes
+  /// back, relative where it can be.
+  ///
+  /// **A folder for Go, a file for the rest.** Delve is given a package, and a
+  /// file picker that refused to select `cmd/api` would be a picker for the one
+  /// language it cannot pick for.
+  ///
+  /// Whatever comes back is tidied by `saveStartFrom`, the same as a path typed
+  /// into the box — one place decides whether it can be stored relative.
+  async function browseStartFrom() {
+    if (!solution.localPath) return;
+    try {
+      const chosen = await open({
+        directory: language === "go",
+        multiple: false,
+        defaultPath: solution.localPath,
+      });
+      if (typeof chosen !== "string") return;
+      await saveStartFrom(chosen);
+    } catch (e) {
+      setError(String(e));
     }
   }
 
@@ -910,7 +1027,17 @@ export default function DebugSession({
           <button
             type="button"
             aria-label={`Debug ${solution.name}`}
-            disabled={busy || !solution.localPath || !canLaunch}
+            // **Refused before the press, not by it.** An adapter that is not
+            // on this machine used to be found out by starting a session and
+            // reading a DAP failure — `debug_adapters` already ran every
+            // candidate, so the answer is known and the command to fix it can
+            // be shown instead.
+            disabled={busy || !solution.localPath || !launchable || missingAdapter !== null}
+            title={
+              missingAdapter
+                ? `${missingAdapter.label} is not installed. ${missingAdapter.install}`
+                : undefined
+            }
             onClick={start}
           >
             {busy ? "Starting…" : "Debug"}
@@ -937,12 +1064,84 @@ export default function DebugSession({
           at a folder on the Map tab.
         </p>
       )}
-      {solution.localPath && !canLaunch && (
+
+      {/* **The escape hatch, beside the thing it escapes.** Working out what to
+          start is a convention per language — the first `main.py`, the built
+          assembly, the package folder — and a convention is right most of the
+          time and impossible to argue with when it is not. This is the
+          argument. It sits here rather than on the Solution's card because
+          here is where the refusal appears. */}
+      {solution.localPath && launchable && (
+        <div className="session-start-from">
+          <label>
+            Start from
+            <input
+              type="text"
+              className="card-mono"
+              aria-label={`What the debugger starts for ${solution.name}`}
+              placeholder={startPlaceholder(language)}
+              // Re-keyed on what is stored, so browsing shows and so does a
+              // typed absolute path being made relative: the box is
+              // uncontrolled so typing is not fought, and without this it would
+              // keep the text it mounted with.
+              key={startFrom}
+              defaultValue={startFrom}
+              onBlur={(e) => void saveStartFrom(e.target.value)}
+            />
+          </label>
+          {/* A folder for Go, because Delve is given a package — a file picker
+              that could not select `cmd/api` would be a picker for the one
+              language it cannot pick for. */}
+          <button
+            type="button"
+            aria-label={`Choose what the debugger starts for ${solution.name}`}
+            onClick={() => void browseStartFrom()}
+          >
+            {language === "go" ? "Choose folder…" : "Choose file…"}
+          </button>
+          {/* Two ways out of the repository, and they read differently to
+              whoever has to fix them: a full path is this machine's answer, and
+              a path full of `..` depends on what sits beside the repository.
+              One sentence for both would be wrong about one of them. */}
+          <span className={outside ? "hint warn" : "hint"}>
+            {outside === "absolute"
+              ? "That is outside the working copy, so it is kept as a full path — which will not be right on another machine."
+              : outside === "escapes"
+                ? "That points outside the working copy, so it only works where this repository sits beside whatever it names."
+                : startFrom !== ""
+                  ? "Blank it to go back to working it out."
+                  : "Left blank, it is worked out. Relative to the working copy."}
+          </span>
+        </div>
+      )}
+      {solution.localPath && !launchable && (
         <p className="hint">
           {language === null
             ? "This Solution records no language, so there is nothing to pick a debugger by."
             : `Launching ${language} is not wired up yet — its adapter is found and speaks DAP, but its launch shape is still to do.`}{" "}
-          Go, TypeScript and C# work today.
+          Go, Python, TypeScript and C# work today.
+        </p>
+      )}
+      {/* **The other reason it cannot start, and the one that is fixable.**
+          This app knows how to launch the language; the machine has not got the
+          adapter. Saying which command installs it turns a dead button into a
+          next step. */}
+      {solution.localPath && missingAdapter && (
+        <p className="hint">
+          {missingAdapter.label} is not installed on this machine, so there is no
+          debugger to launch {solution.name} under.
+          {missingAdapter.problem !== "" && ` ${missingAdapter.problem}`}
+          {missingAdapter.install !== "" && (
+            <>
+              {" "}
+              Install it with <code>{missingAdapter.install}</code>.
+            </>
+          )}{" "}
+          {/* A refusal that outlives the reason for it is worse than no check:
+              it is the app insisting on something that stopped being true. */}
+          <button type="button" className="link" onClick={recheck}>
+            Look again
+          </button>
         </p>
       )}
       {error && <p role="alert">{error}</p>}

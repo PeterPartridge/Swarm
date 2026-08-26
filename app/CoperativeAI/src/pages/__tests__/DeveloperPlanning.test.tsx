@@ -40,6 +40,7 @@ function sol(id: number, name: string, productId = 7): Solution {
     testCommand: null,
     language: null,
     runCommand: null,
+    startFrom: null,
   };
 }
 

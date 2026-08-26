@@ -20,8 +20,20 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     debugSetVariable: vi.fn(),
     debugSetExpression: vi.fn(),
     debugSetBreakpoints: vi.fn(),
+    setSolutionStartFrom: vi.fn(),
   };
 });
+
+/// What the OS picker returns, and what it was asked for. Set per test — the
+/// dialog is the one thing here that cannot be driven, so it is stood in for.
+let picked: string | null = null;
+let opened: { directory?: boolean; defaultPath?: string } | null = null;
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  open: vi.fn((options: { directory?: boolean; defaultPath?: string }) => {
+    opened = options;
+    return Promise.resolve(picked);
+  }),
+}));
 
 /// The adapter speaks through Tauri events, so the tests drive it the same way:
 /// a captured listener, called with what Delve would really send.
@@ -51,6 +63,7 @@ const sol = (over: Partial<Solution> = {}): Solution =>
     testCommand: null,
     language: "Go (go mod)",
     runCommand: null,
+    startFrom: null,
     ...over,
   }) as Solution;
 
@@ -98,10 +111,275 @@ describe("DebugSession", () => {
   /// A launch shape that is not built must not be offered as a button that
   /// always fails — the panel names the language and says which do work.
   it("will not offer to debug a language whose launch is not built", () => {
-    render(<DebugSession solution={sol({ language: "Python (venv)" })} />);
+    render(<DebugSession solution={sol({ language: "Elixir" })} />);
 
     expect(screen.getByLabelText("Debug Orders")).toBeDisabled();
-    expect(screen.getByText(/Launching python is not wired up yet/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/records no language, so there is nothing to pick a debugger by/),
+    ).toBeInTheDocument();
+  });
+
+  /// Python launches now, through debugpy. The hard part was not the protocol:
+  /// debugpy runs exactly one `.py`, so the backend finds the entry point by
+  /// convention and refuses rather than guessing — a debugger pointed at the
+  /// wrong file stops at none of the breakpoints and reads as broken.
+  it("offers to debug a Python Solution", () => {
+    render(<DebugSession solution={sol({ language: "Python (venv)" })} />);
+
+    expect(screen.getByLabelText("Debug Orders")).toBeEnabled();
+    expect(screen.queryByText(/is not wired up yet/)).not.toBeInTheDocument();
+  });
+
+  /// **The argument against the convention.** Working out what to start is
+  /// right most of the time and impossible to argue with when it is not — this
+  /// is the argument, and it sits where the refusal appears.
+  it("takes a file to start from, and says it goes back to working it out", async () => {
+    const user = userEvent.setup();
+    mocked.setSolutionStartFrom.mockResolvedValue(undefined);
+    render(<DebugSession solution={sol({ language: "Python (venv)" })} />);
+
+    const box = screen.getByLabelText("What the debugger starts for Orders");
+    // The placeholder is per language, because one box means four things.
+    expect(box).toHaveAttribute("placeholder", expect.stringContaining(".py"));
+    expect(screen.getByText(/Left blank, it is worked out/)).toBeInTheDocument();
+
+    await user.type(box, "api/serve.py");
+    await user.tab();
+
+    await waitFor(() =>
+      expect(mocked.setSolutionStartFrom).toHaveBeenCalledWith(5, "api/serve.py"),
+    );
+  });
+
+  /// A path that turned out wrong must never be permanent — the same escape
+  /// hatch as the run and test commands.
+  it("clears the start-from when it is blanked", async () => {
+    const user = userEvent.setup();
+    mocked.setSolutionStartFrom.mockResolvedValue(undefined);
+    render(
+      <DebugSession
+        solution={sol({ language: "Python (venv)", startFrom: "api/serve.py" })}
+      />,
+    );
+
+    const box = screen.getByLabelText("What the debugger starts for Orders");
+    expect(box).toHaveValue("api/serve.py");
+    expect(screen.getByText(/Blank it to go back to working it out/)).toBeInTheDocument();
+
+    await user.clear(box);
+    await user.tab();
+
+    await waitFor(() => expect(mocked.setSolutionStartFrom).toHaveBeenCalledWith(5, null));
+  });
+
+  /// **Stored relative, because the Solution is asked the same question on
+  /// every machine.** An absolute path is this machine's answer to it, and two
+  /// people with the repository in different folders would each overwrite the
+  /// other.
+  it("stores a picked file relative to the working copy", async () => {
+    const user = userEvent.setup();
+    mocked.setSolutionStartFrom.mockResolvedValue(undefined);
+    picked = "C:\\repos\\orders\\api\\serve.py";
+    render(<DebugSession solution={sol({ language: "Python (venv)" })} />);
+
+    await user.click(
+      screen.getByLabelText("Choose what the debugger starts for Orders"),
+    );
+
+    await waitFor(() =>
+      expect(mocked.setSolutionStartFrom).toHaveBeenCalledWith(5, "api/serve.py"),
+    );
+    // And the box shows it, rather than keeping what it mounted with.
+    expect(screen.getByLabelText("What the debugger starts for Orders")).toHaveValue(
+      "api/serve.py",
+    );
+  });
+
+  /// A folder for Go, because Delve is given a package. A file picker that
+  /// could not select `cmd/api` would be a picker for the one language it
+  /// cannot pick for.
+  it("asks for a folder for Go and a file for the rest", async () => {
+    const user = userEvent.setup();
+    mocked.setSolutionStartFrom.mockResolvedValue(undefined);
+    picked = "C:\\repos\\orders\\cmd\\api";
+    render(<DebugSession solution={sol({ language: "Go (go mod)" })} />);
+
+    const button = screen.getByLabelText("Choose what the debugger starts for Orders");
+    expect(button).toHaveTextContent("Choose folder…");
+    await user.click(button);
+
+    expect(opened?.directory).toBe(true);
+    // Opened where the answer is, not wherever the last dialog was.
+    expect(opened?.defaultPath).toBe("C:/repos/orders");
+    await waitFor(() =>
+      expect(mocked.setSolutionStartFrom).toHaveBeenCalledWith(5, "cmd/api"),
+    );
+  });
+
+  /// Outside the working copy there is no relative form. It is kept whole and
+  /// said to be, rather than stored as something that quietly means a different
+  /// file on the next machine.
+  it("keeps a path outside the working copy whole, and says so", async () => {
+    const user = userEvent.setup();
+    mocked.setSolutionStartFrom.mockResolvedValue(undefined);
+    picked = "D:\\elsewhere\\serve.py";
+    render(<DebugSession solution={sol({ language: "Python (venv)" })} />);
+
+    await user.click(
+      screen.getByLabelText("Choose what the debugger starts for Orders"),
+    );
+
+    await waitFor(() =>
+      expect(mocked.setSolutionStartFrom).toHaveBeenCalledWith(5, "D:\\elsewhere\\serve.py"),
+    );
+    expect(
+      await screen.findByText(/outside the working copy/),
+    ).toBeInTheDocument();
+  });
+
+  /// **The half the picker used to skip.** An absolute path typed by hand was
+  /// stored whole with nothing said, and quietly meant a different file on the
+  /// next machine. Whether a path travels is a fact about the path, not a
+  /// memory of how it arrived.
+  it("makes a typed absolute path relative, the same as a picked one", async () => {
+    const user = userEvent.setup();
+    mocked.setSolutionStartFrom.mockResolvedValue(undefined);
+    render(<DebugSession solution={sol({ language: "Python (venv)" })} />);
+
+    const box = screen.getByLabelText("What the debugger starts for Orders");
+    await user.type(box, "C:\\repos\\orders\\api\\serve.py");
+    await user.tab();
+
+    await waitFor(() =>
+      expect(mocked.setSolutionStartFrom).toHaveBeenCalledWith(5, "api/serve.py"),
+    );
+    // …and the box shows what was actually stored, rather than what was typed.
+    expect(screen.getByLabelText("What the debugger starts for Orders")).toHaveValue(
+      "api/serve.py",
+    );
+  });
+
+  /// Typed or picked, the same warning — it used to appear only for one of them.
+  it("warns about a typed path outside the working copy", async () => {
+    const user = userEvent.setup();
+    mocked.setSolutionStartFrom.mockResolvedValue(undefined);
+    render(<DebugSession solution={sol({ language: "Python (venv)" })} />);
+
+    await user.type(
+      screen.getByLabelText("What the debugger starts for Orders"),
+      "D:\\elsewhere\\serve.py",
+    );
+    await user.tab();
+
+    expect(await screen.findByText(/outside the working copy/)).toBeInTheDocument();
+  });
+
+  /// **The shape that got neither treatment.** It is relative, so the absolute
+  /// warning never fired; and it was already relative, so nothing resolved it —
+  /// and it still is not in the repository. Its sentence is its own, because
+  /// "kept as a full path" would be wrong about it.
+  it("warns about a relative path that climbs out of the working copy", async () => {
+    const user = userEvent.setup();
+    mocked.setSolutionStartFrom.mockResolvedValue(undefined);
+    render(<DebugSession solution={sol({ language: "Python (venv)" })} />);
+
+    await user.type(
+      screen.getByLabelText("What the debugger starts for Orders"),
+      "../../shared/serve.py",
+    );
+    await user.tab();
+
+    expect(
+      await screen.findByText(/only works where this repository sits beside/),
+    ).toBeInTheDocument();
+    // Kept as written: a sibling checkout is a real answer, and the absolute
+    // form would be less true to what somebody meant.
+    expect(mocked.setSolutionStartFrom).toHaveBeenCalledWith(5, "../../shared/serve.py");
+  });
+
+  /// Climbing out and straight back in lands inside, and cannot be told from
+  /// the one above by looking at the leading dots.
+  it("keeps a path that climbs out and back in, as the short form", async () => {
+    const user = userEvent.setup();
+    mocked.setSolutionStartFrom.mockResolvedValue(undefined);
+    render(<DebugSession solution={sol({ language: "Python (venv)" })} />);
+
+    await user.type(
+      screen.getByLabelText("What the debugger starts for Orders"),
+      "../orders/api/serve.py",
+    );
+    await user.tab();
+
+    await waitFor(() =>
+      expect(mocked.setSolutionStartFrom).toHaveBeenCalledWith(5, "api/serve.py"),
+    );
+    expect(screen.queryByText(/outside the working copy/)).not.toBeInTheDocument();
+  });
+
+  /// A stored path that is already outside says so on arrival, not only after
+  /// somebody edits it.
+  it("warns on a stored path that cannot travel", () => {
+    render(
+      <DebugSession
+        solution={sol({ language: "Python (venv)", startFrom: "D:\\elsewhere\\serve.py" })}
+      />,
+    );
+    expect(screen.getByText(/outside the working copy/)).toBeInTheDocument();
+  });
+
+  /// Cancelling is an answer. It must not clear what was already there.
+  it("changes nothing when the picker is cancelled", async () => {
+    const user = userEvent.setup();
+    picked = null;
+    render(
+      <DebugSession
+        solution={sol({ language: "Python (venv)", startFrom: "api/serve.py" })}
+      />,
+    );
+
+    await user.click(
+      screen.getByLabelText("Choose what the debugger starts for Orders"),
+    );
+
+    expect(mocked.setSolutionStartFrom).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("What the debugger starts for Orders")).toHaveValue(
+      "api/serve.py",
+    );
+  });
+
+  /// It is the Solution that is read, not a path handed over from here — what
+  /// it points at is checked against the working copy as it is at launch.
+  it("hands the Solution to the backend rather than a resolved path", async () => {
+    const user = userEvent.setup();
+    render(<DebugSession solution={sol({ language: "Go (go mod)" })} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+
+    await waitFor(() =>
+      expect(mocked.debugStart).toHaveBeenCalledWith("go", "C:/repos/orders", [], 5),
+    );
+  });
+
+  /// A launch argument is read once, at launch. A field that implied otherwise
+  /// would be the breakpoint mistake again — a control that looks like it did
+  /// something to a running program.
+  it("does not pretend a change reaches a session already running", async () => {
+    const user = userEvent.setup();
+    mocked.setSolutionStartFrom.mockResolvedValue(undefined);
+    render(<DebugSession solution={sol({ language: "Go (go mod)" })} />);
+
+    await user.click(screen.getByLabelText("Debug Orders"));
+    await waitFor(() => expect(mocked.debugStart).toHaveBeenCalled());
+
+    await user.type(
+      screen.getByLabelText("What the debugger starts for Orders"),
+      "cmd/api",
+    );
+    await user.tab();
+
+    expect(
+      await screen.findByText(/read when a program is launched/),
+    ).toBeInTheDocument();
   });
 
   /// TypeScript launches now, through js-debug — verified against the real

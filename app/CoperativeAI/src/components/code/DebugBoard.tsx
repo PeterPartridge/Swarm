@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import DebugAdapters from "./DebugAdapters";
 import DebugSession from "./DebugSession";
+import { readinessOf, useDebuggers } from "../../lib/debuggers";
 import DevServerPanel from "./DevServerPanel";
 import TerminalPanel from "./TerminalPanel";
 import { guessDevPort } from "../../lib/devServer";
 import { hueFor, markFor } from "../ai/AgentLane";
+import type { RunRequest } from "./RunBar";
 import {
   listTerminals,
   suggestDevCommand,
@@ -67,10 +69,14 @@ function Uptime({ since }: { since: number }) {
 export default function DebugBoard({
   solutions,
   active = true,
+  run,
   onStopped,
   onResumed,
 }: {
   solutions: Solution[];
+  /** Solutions to attach a shell to and start, from the bar above. Carries a
+   *  timestamp so pressing Run twice runs it twice. */
+  run?: RunRequest | null;
   /** Passed straight through to each session — the workspace above needs the
    *  stop so it can open the file and keep the stepping controls in reach. */
   onStopped?: (at: {
@@ -94,6 +100,20 @@ export default function DebugBoard({
   /// Each Solution's run command, read once so the header can show the port this
   /// would probably listen on without waiting for anybody to attach.
   const [commands, setCommands] = useState<Record<number, string>>({});
+  /// The watcher command per Solution, for a Hot reload press.
+  const [watchers, setWatchers] = useState<Record<number, string>>({});
+  /// When each Solution was last asked to launch under its debugger.
+  const [debugStarts, setDebugStarts] = useState<Record<number, number>>({});
+  /// The Solutions a Debug press could only run in a shell, and why — named
+  /// rather than left to be worked out from breakpoints that never hit. The two
+  /// reasons are kept apart because only one of them is fixable by the person
+  /// reading it.
+  const [fellBack, setFellBack] = useState<{
+    unsupported: string[];
+    missing: { name: string; label: string; install: string }[];
+  }>({ unsupported: [], missing: [] });
+  /// What this machine can actually debug, read once by running each candidate.
+  const { adapters, settled } = useDebuggers();
   /// Hide the Solutions that cannot run at all, so the ones that can are not
   /// buried under them.
   const [showAll, setShowAll] = useState(true);
@@ -145,6 +165,7 @@ export default function DebugBoard({
     let dropped = false;
     void (async () => {
       const found: Record<number, string> = {};
+      const watching: Record<number, string> = {};
       await Promise.all(
         solutions
           .filter((s) => s.localPath)
@@ -152,17 +173,117 @@ export default function DebugBoard({
             try {
               const dev = await suggestDevCommand(s.id);
               if (dev.start) found[s.id] = dev.start;
+              if (dev.watch) watching[s.id] = dev.watch;
             } catch {
               // No guess for this one; the rest still get theirs.
             }
           }),
       );
-      if (!dropped) setCommands(found);
+      if (!dropped) {
+        setCommands(found);
+        setWatchers(watching);
+      }
     })();
     return () => {
       dropped = true;
     };
   }, [solutions]);
+
+  /** Starts what the bar asked for.
+   *
+   *  **Debug launches the program under its debugger; Run does not.** That
+   *  distinction is not cosmetic: a debug adapter *starts the program itself* —
+   *  Delve launches the binary, js-debug launches node, netcoredbg launches the
+   *  built assembly. Typing `npm run dev` into a shell as well would start a
+   *  second copy, and two processes fighting over one port looks exactly like a
+   *  broken debugger.
+   *
+   *  So a Debug press launches the adapter for every Solution whose language
+   *  has one, and **falls back to a shell run for the ones that do not** — with
+   *  those named, because a Solution that quietly got a plain run when you
+   *  pressed Debug would leave you wondering why the breakpoints never hit.
+   *
+   *  Run and Hot reload always take the shell. A command is typed in rather
+   *  than run behind the panel, so what started is in the scrollback like
+   *  anything else — and it is queued whether or not a shell is open yet, which
+   *  is what makes one press work on a Solution that was not attached a moment
+   *  ago. */
+  useEffect(() => {
+    if (!run || run.solutionIds.length === 0) return;
+    // A Debug press waits for the adapter list, because otherwise it races it:
+    // the first render says "nobody knows", the press goes through, and the
+    // verdict arrives a moment later with nothing left to decide. Run and Hot
+    // reload do not care and are not held up. The effect re-runs when the read
+    // settles, so the press is honoured rather than dropped.
+    if (run.how === "debug" && !settled) return;
+
+    const debugging = run.how === "debug";
+    /// **Checked before the press rather than discovered by it.** An adapter
+    /// that is not installed used to be found out by starting a session and
+    /// reading a DAP failure — the answer is one command, and this knows it
+    /// already because `debug_adapters` ran every candidate.
+    const verdicts = new Map(
+      run.solutionIds.map((id) => {
+        const s = solutions.find((one) => one.id === id);
+        return [id, readinessOf(s?.language ?? null, adapters)] as const;
+      }),
+    );
+    /// Attempted when the adapter is there **and when nobody knows**. Refusing
+    /// on "unknown" would mean a failed or slow read of the adapter list
+    /// silently downgraded a Debug press to a run — worse than the DAP failure
+    /// this check exists to avoid, because at least that one says something.
+    const underDebugger = debugging
+      ? run.solutionIds.filter((id) => {
+          const state = verdicts.get(id)?.state;
+          return state === "ready" || state === "unknown";
+        })
+      : [];
+    const inAShell = run.solutionIds.filter((id) => !underDebugger.includes(id));
+
+    // Attached either way: even a Solution launched under a debugger is worth
+    // having a shell beside, and it is the only way to type in one.
+    setAttached((prev) => [
+      ...prev,
+      ...run.solutionIds.filter((id) => !prev.includes(id)),
+    ]);
+
+    setPending((prev) => {
+      const next = { ...prev };
+      for (const id of inAShell) {
+        const command = run.how === "watch" ? watchers[id] : commands[id];
+        if (command) next[id] = command;
+      }
+      return next;
+    });
+
+    setDebugStarts((prev) => {
+      const next = { ...prev };
+      for (const id of underDebugger) next[id] = run.at;
+      return next;
+    });
+
+    // Said, not left to be discovered by breakpoints that never hit — and the
+    // two reasons kept apart, because "no launch shape yet" is a thing to wait
+    // for and "not installed" is one command away.
+    setFellBack(
+      debugging
+        ? {
+            unsupported: inAShell
+              .filter((id) => verdicts.get(id)?.state === "unsupported")
+              .map((id) => solutions.find((s) => s.id === id)?.name ?? "")
+              .filter((name) => name !== ""),
+            missing: inAShell.flatMap((id) => {
+              const verdict = verdicts.get(id);
+              if (verdict?.state !== "missing") return [];
+              const name = solutions.find((s) => s.id === id)?.name;
+              return name === undefined
+                ? []
+                : [{ name, label: verdict.label, install: verdict.install }];
+            }),
+          }
+        : { unsupported: [], missing: [] },
+    );
+  }, [run, commands, watchers, solutions, adapters, settled]);
 
   /** Ctrl-C, then the run command again.
    *
@@ -224,6 +345,38 @@ export default function DebugBoard({
 
       {solutions.length === 0 && (
         <p className="hint">This Product has no Solutions to run.</p>
+      )}
+
+      {/* **A Debug press that could only run something is not a debug.** Left
+          unsaid, it reads as a debugger that takes breakpoints and ignores
+          them — which is the single most expensive thing this board could get
+          wrong. Go, Python, TypeScript and C# launch today. */}
+      {fellBack.unsupported.length > 0 && (
+        <p className="session-written" role="status">
+          Started in a shell rather than under a debugger:{" "}
+          <strong>{fellBack.unsupported.join(", ")}</strong>. Their language has
+          no launch shape yet, so breakpoints will not stop them.
+        </p>
+      )}
+
+      {/* The other reason, kept apart because this one is one command away —
+          and the command is here rather than a hint that it exists. */}
+      {fellBack.missing.length > 0 && (
+        <div className="session-written" role="status">
+          {fellBack.missing.map((m) => (
+            <p key={m.name}>
+              <strong>{m.name}</strong> started in a shell: {m.label} is not
+              installed on this machine, so there was no debugger to launch it
+              under.
+              {m.install !== "" && (
+                <>
+                  {" "}
+                  Install it with <code>{m.install}</code>.
+                </>
+              )}
+            </p>
+          ))}
+        </div>
       )}
 
       {stranded > 0 && (
@@ -308,7 +461,12 @@ export default function DebugBoard({
                   something and stopping it mid-line are two questions about
                   the same Solution. */}
               {s.localPath && (
-                <DebugSession solution={s} onStopped={onStopped} onResumed={onResumed} />
+                <DebugSession
+                  solution={s}
+                  startNow={debugStarts[s.id]}
+                  onStopped={onStopped}
+                  onResumed={onResumed}
+                />
               )}
 
               {isAttached && s.localPath && (

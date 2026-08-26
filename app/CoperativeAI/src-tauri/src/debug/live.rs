@@ -2915,4 +2915,94 @@ mod tests {
         // Lines from 1, or every breakpoint is off by one.
         assert_eq!(args.get("linesStartAt1").and_then(|v| v.as_bool()), Some(true));
     }
+
+    /// **Python stops on a real line, against the real debugpy.**
+    ///
+    /// The launch shape's difficulty is not the protocol: debugpy runs exactly
+    /// one `.py`, so everything rests on having handed it the right file. This
+    /// launches the same way `commands::debugging` does — the script found by
+    /// convention, the interpreter that was proved to have debugpy, and output
+    /// over DAP rather than a terminal the client never hands over — and asserts
+    /// the program stops inside a function with its local in scope.
+    #[test]
+    #[ignore = "needs debugpy installed"]
+    fn python_stops_on_a_breakpoint_and_shows_its_locals() {
+        let found = crate::debug::adapters::discover();
+        let python = found
+            .iter()
+            .find(|a| a.language == "python")
+            .expect("python");
+        if !python.available {
+            eprintln!("skipping: {}", python.problem);
+            return;
+        }
+
+        let dir = std::env::temp_dir().join(format!("coperativeai-dap-py-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch");
+        // main.py, because that is the first thing `python::entry_script` looks
+        // for — this test launches what the app would launch.
+        let source = dir.join("main.py");
+        std::fs::write(
+            &source,
+            "def total(items):\n\
+             \x20   subtotal = sum(items)\n\
+             \x20   return subtotal\n\
+             \n\
+             print(total([1, 2, 3]))\n",
+        )
+        .expect("main.py");
+
+        let entry = crate::debug::python::entry_script(&dir).expect("an entry point");
+        assert_eq!(entry, source, "the convention picked the file this test wrote");
+
+        let (tx, rx) = channel::<(String, Value)>();
+        let mut live = Live::start(&python.argv, Transport::Stdio, Some(&dir), move |name, body| {
+            let _ = tx.send((name.to_string(), body));
+        })
+        .expect("start debugpy");
+        live.initialize("python").expect("initialize");
+
+        // Line 3 is `return subtotal`, by which point the local exists.
+        live.launch(
+            json!({
+                "type": "python",
+                "request": "launch",
+                "name": "coperativeai",
+                "program": entry.display().to_string(),
+                "cwd": dir.display().to_string(),
+                "python": python.argv.first().cloned().unwrap_or_default(),
+                "console": "internalConsole",
+                "redirectOutput": true,
+                "justMyCode": true,
+            }),
+            &[Breakpoint {
+                path: source.display().to_string(),
+                line: 3,
+                condition: String::new(),
+                log: String::new(),
+                hits: String::new(),
+            }],
+        )
+        .expect("launch");
+
+        let stopped = wait_for_stop(&rx, 90);
+        let thread_id = stopped.get("threadId").and_then(|t| t.as_i64()).expect("thread");
+        let frames = live.stack(thread_id).expect("stackTrace");
+        let top = frames.first().expect("a frame");
+        assert_eq!(top.line, 3, "stack: {frames:?}");
+        assert!(top.name.contains("total"), "stopped inside total: {frames:?}");
+
+        // The local the breakpoint was placed to see. Its absence would mean
+        // the program stopped somewhere that merely looks right.
+        let variables = live.variables(top.id).expect("variables");
+        let subtotal = variables
+            .iter()
+            .find(|v| v.name == "subtotal")
+            .unwrap_or_else(|| panic!("subtotal should be in scope: {variables:?}"));
+        assert_eq!(subtotal.value, "6", "sum([1,2,3]): {subtotal:?}");
+
+        live.stop();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

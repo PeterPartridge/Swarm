@@ -2,7 +2,6 @@
 //! depend on one another.
 
 use super::{to_message, AppDb};
-use crate::db::ai_usage::Exchange;
 use crate::db::{architecture_doc, repo_link};
 use serde::Serialize;
 use tauri::State;
@@ -258,13 +257,18 @@ pub async fn generate_architecture_doc(
     match result {
         Ok((client::GeneratedDiagram::Diagram(draft), usage)) => {
             let conn = db.0.lock().await;
-            ai_run::record(
-                &conn, product_id, None, &routed.provider, &routed.model,
-                PURPOSE, &usage, latency_ms, "ok",
-            
-                Exchange::new(&ai_run::asked(&prompt), &format!("{}
-
-{}", draft.name, draft.content)),
+            ai_run::record_ok(
+                &conn,
+                &ai_run::Call {
+                    product_id,
+                    work_item_id: None,
+                    routed: &routed,
+                    purpose: PURPOSE,
+                    prompt: &prompt,
+                },
+                latency_ms,
+                &usage,
+                &format!("{}\n\n{}", draft.name, draft.content),
             )
             .await;
             // The store validates the notation. A model that returned prose has
@@ -294,18 +298,19 @@ pub async fn generate_architecture_doc(
         }
         Ok((client::GeneratedDiagram::Blocked { reason, what_is_needed }, usage)) => {
             let conn = db.0.lock().await;
-            ai_run::record(
-                &conn, product_id, None, &routed.provider, &routed.model,
-                PURPOSE, &usage, latency_ms, "declined",
-            
-                Exchange::new(
-            
-                    &ai_run::asked(&prompt),
-            
-                    &format!("Declined: {reason}
-{what_is_needed}"),
-            
-                ),
+            ai_run::record_declined(
+                &conn,
+                &ai_run::Call {
+                    product_id,
+                    work_item_id: None,
+                    routed: &routed,
+                    purpose: PURPOSE,
+                    prompt: &prompt,
+                },
+                latency_ms,
+                &usage,
+                &reason,
+                &what_is_needed,
             )
             .await;
             Ok(super::work_items::GenerationResult {
@@ -322,12 +327,17 @@ pub async fn generate_architecture_doc(
         }
         Err(e) => {
             let conn = db.0.lock().await;
-            let outcome = if e.contains("refusal") { "refusal" } else { "error" };
-            ai_run::record(
-                &conn, product_id, None, &routed.provider, &routed.model,
-                PURPOSE, &Default::default(), latency_ms, outcome,
-            
-                Exchange::new(&ai_run::asked(&prompt), &e),
+            let e = ai_run::record_failure(
+                &conn,
+                &ai_run::Call {
+                    product_id,
+                    work_item_id: None,
+                    routed: &routed,
+                    purpose: PURPOSE,
+                    prompt: &prompt,
+                },
+                latency_ms,
+                e,
             )
             .await;
             Err(e)

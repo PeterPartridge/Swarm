@@ -366,3 +366,22 @@ pub async fn set_solution_run_command(
         .await
         .map_err(to_message)
 }
+
+/// Records what to hand the debugger for this Solution, replacing whatever it
+/// would work out. Null or blank clears it.
+///
+/// **Not the run command.** That is a shell line and this is a path a debug
+/// adapter is pointed at — debugpy wants one `.py`, Delve a package folder,
+/// netcoredbg a built `.dll`. One field for both would mean typing `npm run
+/// dev` somewhere that gets passed to a debugger as a filename.
+#[tauri::command]
+pub async fn set_solution_start_from(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+    path: Option<String>,
+) -> Result<(), String> {
+    let conn = db.0.lock().await;
+    solution::set_start_from(&conn, solution_id, path.as_deref())
+        .await
+        .map_err(to_message)
+}

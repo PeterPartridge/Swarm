@@ -45,6 +45,13 @@ export interface Solution {
   /** How to start this Solution running, when detection gets it wrong. Null
    *  means "work it out". */
   runCommand: string | null;
+  /** What to hand the **debugger** as the thing to start, relative to the
+   *  working copy. Null means "work it out".
+   *
+   *  **Not the run command.** That is a shell line — `npm run dev` — and this
+   *  is a path an adapter is pointed at: debugpy wants one `.py`, Delve a
+   *  package folder, netcoredbg a built `.dll`. */
+  startFrom: string | null;
 }
 
 export interface GithubStatus {
@@ -237,6 +244,13 @@ export interface TestCase {
   testPath: string | null;
   deliverableId: number | null;
   workItemId: number | null;
+  /** The names of the tests in `testPath`, as their runner prints them.
+   *  Recorded when the AI writes the test; empty for a hand-written one. */
+  testNames: string[];
+  lastRunAt: number | null;
+  /** "passed" | "failed" | "skipped" | "errored", or null if never run. */
+  lastRunOutcome: string | null;
+  lastRunSummary: string | null;
 }
 
 /** The active user's effective permissions (full access when no active user). */
@@ -925,6 +939,50 @@ export const updateTestCase = (args: {
 export const deleteTestCase = (id: number): Promise<void> =>
   invoke("delete_test_case", { id });
 
+/** What implementing a QA scenario produced. */
+export interface TestImplementationResult {
+  /** Where the test was written, relative to the Solution's working copy.
+   *  Empty when the AI declined. */
+  testPath: string;
+  provider: string;
+  model: string;
+  reason: string;
+  /** Set when the AI declined rather than writing a test that asserts
+   *  nothing — a question is then waiting against the work item. */
+  blocked: Blocked | null;
+}
+
+/** Asks the AI to implement one scenario as a real test file. Gated on the
+ *  associated **work item's** policy allowing test generation — a case with no
+ *  work item is refused by the backend, so the button is disabled for one. */
+export const implementTestCase = (
+  testCaseId: number,
+): Promise<TestImplementationResult> =>
+  invoke("implement_test_case", { testCaseId });
+
+/** What running a scenario's test produced. */
+export interface TestRunResult {
+  /** "passed" | "failed" | "skipped" | "errored". */
+  outcome: string;
+  summary: string;
+  /** **Whether this verdict is about this scenario's own tests.** False means
+   *  the whole suite ran and nothing could be attributed to this scenario, so
+   *  the outcome is the suite's — it may be red for unrelated reasons. */
+  aboutThisTest: boolean;
+  narrowed: boolean;
+  commandLine: string;
+  /** The runner's full output. Returned for reading, never stored. */
+  output: string;
+  durationMs: number;
+}
+
+/** Runs the test written for one scenario and records how it went.
+ *
+ *  Not an AI call — no provider, no policy, no spend. A failure is not an
+ *  error: before the work is built, red is the expected result. */
+export const runTestCase = (testCaseId: number): Promise<TestRunResult> =>
+  invoke("run_test_case", { testCaseId });
+
 /** What one person has available in a sprint, beside what they have been
  *  given. `assignedItems` is a count of work items, not estimated effort —
  *  work items carry no estimate, so this is a weak signal shown honestly
@@ -1047,6 +1105,14 @@ export interface DeveloperRules {
   allowedTech: string;
   disallowedTech: string;
   aiConstraints: string;
+  /** Where each kind of thing lives, as JSON: `{"screen":"src/pages", …}`,
+   *  keyed by a change-kind id and holding a path inside a working copy.
+   *
+   *  **A rule with a second job.** "Screens go in `src/pages`" is a convention
+   *  an agent cannot reliably read out of the code — and it is also what lets
+   *  the build plan suggest the screens that already exist instead of asking
+   *  somebody to remember their names. */
+  kindLocations: string;
 }
 
 export interface SolutionStrategy {
@@ -1071,8 +1137,45 @@ export interface ArchitectureOption {
   tradeoffs: string;
 }
 
-/** The editable rule fields — every key except the product it belongs to. */
-export type DeveloperRuleField = Exclude<keyof DeveloperRules, "productId">;
+/** The rule fields that are a box of prose.
+ *
+ *  `kindLocations` is excluded because it is not one: it is a path per kind,
+ *  edited as a row each, and a JSON blob in a textarea would be a rule people
+ *  break by typing. */
+export type DeveloperRuleField = Exclude<
+  keyof DeveloperRules,
+  "productId" | "kindLocations"
+>;
+
+/** Reads the locations blob into a map, tolerating anything that is not one. */
+export const kindLocations = (json: string): Record<string, string> => {
+  try {
+    const parsed: unknown = JSON.parse(json || "{}");
+    return parsed !== null && typeof parsed === "object"
+      ? (parsed as Record<string, string>)
+      : {};
+  } catch {
+    return {};
+  }
+};
+
+/** One thing that appears to exist already, and how the app came to think so. */
+export interface Suggestion {
+  name: string;
+  /** "recorded", or the folder it was found in. **The provenance is shown**:
+   *  a name read off the disk is a guess about what the team calls that screen,
+   *  and a guess presented as fact is how a plan names a file rather than a
+   *  feature. */
+  foundIn: string;
+}
+
+/** What already exists of one kind in a Solution — the team's own recorded
+ *  names first, then whatever is in the folder the Develop rules put that kind
+ *  in. Nothing is scanned when the rules say nothing about the kind. */
+export const suggestChangeNames = (
+  solutionId: number,
+  kind: ChangeKind,
+): Promise<Suggestion[]> => invoke("suggest_change_names", { solutionId, kind });
 
 export const DEVELOPER_RULE_FIELDS: { id: DeveloperRuleField; label: string }[] = [
   { id: "codingStandards", label: "Coding standards" },
@@ -1327,6 +1430,20 @@ export const openClaudeSignIn = (
 ): Promise<{ id: string; cwd: string }> =>
   invoke("open_claude_sign_in", { executable, cols, rows });
 
+/** Opens a shell in the home folder and types the command that installs one
+ *  debug adapter.
+ *
+ *  **Only the language is sent.** A terminal is arbitrary execution, so the
+ *  command is looked up in the backend's own adapter table rather than passed
+ *  from here — and it refuses the two adapters that are a download and an unzip
+ *  rather than typing a sentence at a shell. */
+export const openDebuggerInstall = (
+  language: string,
+  cols = 100,
+  rows = 20,
+): Promise<{ id: string; cwd: string }> =>
+  invoke("open_debugger_install", { language, cols, rows });
+
 /** Installs Claude Code globally with npm, returning what npm said.
  *
  *  A global install on this machine — the one part of setting Claude up that
@@ -1418,6 +1535,18 @@ export const openScreenWindow = (
   productName: string,
 ): Promise<void> =>
   invoke("open_screen_window", { screen, productId, productName });
+
+/** The console — a Solution's shell and the debugger's output — as its own OS
+ *  window, so it can go on the other monitor.
+ *
+ *  The shell survives the trip: the PTY lives in the backend and the new window
+ *  adopts it by id, with its recent output to catch up on. */
+export const openConsoleWindow = (
+  solutionId: number,
+  solutionName: string,
+  terminalId: string | null,
+): Promise<void> =>
+  invoke("open_console_window", { solutionId, solutionName, terminalId });
 
 // Repositories (Develop side; full management is its own roadmap item)
 export const listRepositories = (): Promise<Repository[]> =>
@@ -1577,6 +1706,19 @@ export const setSolutionRunCommand = (
   command: string | null,
 ): Promise<void> => invoke("set_solution_run_command", { solutionId, command });
 
+/** Names what the debugger should start for this Solution, replacing whatever
+ *  it would work out. Blank clears it — a path that turned out wrong is never
+ *  permanent, the same escape hatch as the run and test commands.
+ *
+ *  Relative to the working copy, because that is how somebody writes it. The
+ *  path is checked when a session starts rather than here: a file that exists
+ *  now can be renamed later, and validating on save would only buy a false
+ *  sense of having been checked. */
+export const setSolutionStartFrom = (
+  solutionId: number,
+  path: string | null,
+): Promise<void> => invoke("set_solution_start_from", { solutionId, path });
+
 export const TEST_KIND_LABELS: Record<string, string> = {
   cargo: "Rust (cargo)",
   vitest: "TypeScript (vitest)",
@@ -1653,8 +1795,14 @@ export interface AdapterStatus {
   version: string;
   /** Why it is unavailable, in words somebody can act on. */
   problem: string;
-  /** What to run to get it — always populated, available or not. */
+  /** What to do to get it — always populated, available or not. Prose for two
+   *  of the four, because two of them are a download and an unzip. */
   install: string;
+  /** The same thing as one runnable command, or empty where there is not one.
+   *  An Install button is offered only where this is populated — typing
+   *  "Download js-debug-dap from …" into a shell produces `command not found`,
+   *  which reads as a broken app rather than a manual step. */
+  installCommand: string;
 }
 
 /** What actually starting an adapter and talking to it proved. */
@@ -1801,15 +1949,19 @@ export interface StartedDebug {
 
 /** Starts a program under its debugger with breakpoints already set.
  *
- *  Go, TypeScript and C# work today; debugpy is found and speaks DAP but its
- *  launch shape is still to do, and this says so rather than starting
- *  something that never stops. */
+ *  Go, Python, TypeScript and C# all launch today, and the shapes differ more
+ *  than "different arguments" suggests: Delve is handed a folder and builds it,
+ *  netcoredbg a built assembly, and debugpy exactly one `.py`. So a Python
+ *  Solution with nothing in it that looks like the program is refused here
+ *  rather than started and left stopping at nothing. */
 export const debugStart = (
   language: string,
   program: string,
   breakpoints: Breakpoint[],
+  /** The Solution, so its "start from" is honoured. */
+  solutionId: number | null = null,
 ): Promise<StartedDebug> =>
-  invoke("debug_start", { language, program, breakpoints });
+  invoke("debug_start", { language, program, solutionId, breakpoints });
 /** Replaces a running session's breakpoints. */
 export const debugSetBreakpoints = (
   session: string,
@@ -1963,8 +2115,39 @@ export const fileProperties = (
 
 /* ── What a work item changes: screens, APIs, tables ───────────────────── */
 
-export type ChangeKind = "screen" | "api" | "table";
+/** A stored kind id — "screen", "service", "requestModel", "table"…
+ *
+ *  **Open, not a union.** "UI, logic and models" is not cut and dry: a front
+ *  end has services and view models, an API has incoming models, outgoing
+ *  models and the data models behind them, a database has views and stored
+ *  procedures. The vocabulary lives in Rust (`db::work_item_change::KINDS`) and
+ *  is fetched, because a union spelled out here would be a second copy of it
+ *  and the drift would only show as a rejected save. */
+export type ChangeKind = string;
 export type ChangeAction = "add" | "change";
+
+/** One kind, as the form needs it: what to store, what to call it, which of
+ *  the three families it sits under, and an example of a name's shape. */
+export interface ChangeKindInfo {
+  id: ChangeKind;
+  /** Singular, against one entry. */
+  label: string;
+  /** Plural, as the heading over a list of them. */
+  heading: string;
+  /** "ui" | "logic" | "models". */
+  group: string;
+  groupLabel: string;
+  /** A worked example — "POST /checkout", not "an endpoint". Somebody typing
+   *  "checkout" where the first was meant produces a plan that reads as two
+   *  different endpoints. */
+  example: string;
+}
+
+/** The whole vocabulary, in family order.
+ *
+ *  Whole rather than the allowed subset, because rows already recorded have to
+ *  be labelled too — including ones against a Solution nobody has selected. */
+export const changeKinds = (): Promise<ChangeKindInfo[]> => invoke("change_kinds");
 
 export interface WorkItemChange {
   id: number;
@@ -1979,11 +2162,12 @@ export interface WorkItemChange {
   mockupPath: string | null;
 }
 
-export const CHANGE_KIND_LABELS: Record<ChangeKind, string> = {
-  screen: "Screen",
-  api: "API",
-  table: "Database table",
-};
+/** The readable name for a stored kind, from a vocabulary already fetched.
+ *
+ *  Falls back to the id rather than to nothing: a row written by a version
+ *  that knew a kind this one does not should still show what it is. */
+export const kindLabel = (vocabulary: ChangeKindInfo[], id: ChangeKind): string =>
+  vocabulary.find((k) => k.id === id)?.label ?? id;
 
 export const listWorkItemChanges = (workItemId: number): Promise<WorkItemChange[]> =>
   invoke("list_work_item_changes", { workItemId });
@@ -1995,6 +2179,39 @@ export const addWorkItemChange = (args: {
   name: string;
   detail: string;
 }): Promise<number> => invoke("add_work_item_change", args);
+
+/** What one entry of a batch became. */
+export interface AddOutcome {
+  kind: ChangeKind;
+  name: string;
+  /** The new row, or null when nothing was written. */
+  id: number | null;
+  /** Why not, in the backend's words. Null when it went in. */
+  refused: string | null;
+}
+
+/** Records several things at once — the five screens somebody just ticked.
+ *
+ *  Every entry comes back named with what happened to it. A duplicate among
+ *  eight is the ordinary case and must not fail the other seven, but it must
+ *  not be swallowed either. */
+export const addWorkItemChanges = (
+  workItemId: number,
+  entries: {
+    solutionId: number | null;
+    kind: ChangeKind;
+    action: ChangeAction;
+    name: string;
+    detail: string;
+  }[],
+): Promise<AddOutcome[]> => invoke("add_work_item_changes", { workItemId, entries });
+
+/** Writes the one "what needs to change" across everything just ticked. */
+export const setWorkItemChangeDetail = (
+  ids: number[],
+  detail: string,
+): Promise<void> => invoke("set_work_item_change_detail", { ids, detail });
+
 /** Points Product's ask at the Solution that will build it, or back at nobody. */
 export const assignWorkItemChange = (
   id: number,

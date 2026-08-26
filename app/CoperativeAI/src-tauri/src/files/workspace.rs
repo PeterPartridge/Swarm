@@ -262,6 +262,22 @@ pub fn create_file(root: &str, relative: &str) -> Result<(), String> {
     std::fs::write(&target, "").map_err(|e| format!("could not create {relative}: {e}"))
 }
 
+/// Creates a file **with** its contents, in one step.
+///
+/// For generated files, where the path came from somewhere other than a person
+/// clicking in the explorer. It goes through `place_for_new` for exactly that
+/// reason: an AI-chosen path is an untrusted string, so the same refusals apply
+/// — absolute, upward-walking, under `.git`, into a folder that does not exist,
+/// or on top of a file that already does.
+///
+/// Not `create_file` then `write_file`: that pair resolves the path twice and,
+/// in between, leaves an empty file behind if the write fails — a scenario
+/// would then be marked implemented against nothing.
+pub fn write_new_file(root: &str, relative: &str, contents: &str) -> Result<(), String> {
+    let target = place_for_new(root, relative)?;
+    std::fs::write(&target, contents).map_err(|e| format!("could not write {relative}: {e}"))
+}
+
 /// Makes one folder, and only one.
 ///
 /// `create_dir` rather than `create_dir_all`: the parent has already been
@@ -443,6 +459,38 @@ mod tests {
         fs::write(dir.join("src/main.rs"), "fn main() {}").expect("write");
         fs::write(dir.join("node_modules/junk/x.js"), "junk").expect("write");
         dir
+    }
+
+    /// A path chosen by an AI is an untrusted string, and goes through the
+    /// same rule as one typed into the explorer — for the same reason. These
+    /// refusals are why a generated test is not written with
+    /// `emit::write_generated`, which joins a relative path onto a root and
+    /// would follow `..` straight out of the repository.
+    #[test]
+    fn a_generated_test_is_written_inside_the_working_copy_or_not_at_all() {
+        let dir = crate::testing::scratch("workspace", "write-new");
+        fs::create_dir_all(dir.join("src")).expect("create src");
+        fs::create_dir_all(dir.join(".git/hooks")).expect("create hooks");
+        let root = dir.to_string_lossy().to_string();
+
+        write_new_file(&root, "src/login.test.ts", "it('signs in', () => {})").expect("write");
+        assert_eq!(
+            fs::read_to_string(dir.join("src/login.test.ts")).expect("read back"),
+            "it('signs in', () => {})"
+        );
+
+        for refused in ["../outside.ts", "src/../../outside.ts", ".git/hooks/pre-commit"] {
+            assert!(
+                write_new_file(&root, refused, "x").is_err(),
+                "{refused} must be refused"
+            );
+        }
+
+        // Never silently overwrites: an existing test is somebody's work, and
+        // losing it to a second press would be the worst kind of quiet.
+        let err = write_new_file(&root, "src/login.test.ts", "different")
+            .expect_err("must refuse to overwrite");
+        assert!(err.contains("already exists"), "got: {err}");
     }
 
     #[test]

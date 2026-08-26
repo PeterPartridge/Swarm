@@ -97,6 +97,81 @@ Quick passes that need eyes rather than assertions:
 
 ---
 
+## 4. QA's scenario becoming a real test
+
+**Needs:** the same working provider as step 1, plus a Solution pointed at a real
+repository that already has a test suite in it.
+
+1. Develop → **Work** → open the work item the test is about. Its **AI policy**
+   must allow **generating tests** — reading and editing are not the same
+   permission, and the gate will say so if you only turn those on. Set its
+   **Solution**, too: that is the repository the test gets written into.
+2. Test → pick the Product → **Test Cases**. Add a scenario, and associate it
+   with that work item.
+3. Press **Implement with AI**.
+
+**Expected:** the button reads "Writing the test…", then the case flips to
+`implemented` and names the file it wrote. Open that file — it should be in the
+framework the repository already uses, in the folder that framework looks in,
+because the prompt is given the suites `test_runner::detect` found rather than a
+file tree.
+
+**Also check, in this order:**
+
+- A case associated with a **Deliverable**, or with nothing, has the button
+  **disabled** with the reason beside it. That is the strict rule: the policy
+  belongs to a work item, so a case without one has nobody to ask.
+- Turn **generating tests** off on the item's policy and press again on a fresh
+  scenario. It must refuse, naming that flag.
+- Write a deliberately **vague** scenario ("login should work"). The AI should
+  decline with a question rather than write a test that asserts nothing — the
+  question appears under the case and against the work item in the bell.
+- Press **Implement** on an already-implemented case. It must refuse before
+  making a call, rather than overwriting the test that is there.
+
+---
+
+## 5. Running what was written
+
+**Needs:** an implemented scenario from step 4, in a Solution whose tests
+actually run on this machine.
+
+Press **Run** on the case.
+
+**Expected:** it reads "Running…", then a verdict with a reading under it. The
+readings are the point, so check the words, not just the colour:
+
+- **failed** → *"Expected, if the work this tests has not been built yet."*
+  Before the work exists, red is the correct result and the app must not present
+  it as an error. There is no red cross anywhere in this panel by design.
+- **passed** → *"Either the work is already done, or the test does not exercise
+  it."* Both, always — nothing can tell those apart, and showing only the
+  flattering one would hide the vacuous test the escape hatch exists to prevent.
+
+**Check the command it ran**, shown under the verdict:
+
+- On a **vitest / jest / pytest** Solution it should end with the test's own
+  path — narrowed to one file.
+- On a **cargo** Solution it should be `cargo test <name>` when the AI recorded
+  exactly one test name, and a bare `cargo test` when it recorded several.
+  Either way the verdict should be about *this scenario*: put a deliberate
+  failure in an unrelated test elsewhere in the repo, run again, and this
+  scenario should still report its own result — that is the attribution working.
+- If it says **"the whole suite's result"**, the names could not be found in
+  what the runner printed. That is the honest fallback, not a bug, but it means
+  no narrowing happened.
+
+**Also check:** the verdict is still there after reopening the app (the last
+outcome is stored), and that the full runner output is behind the **Runner
+output** disclosure rather than filling the panel.
+
+> **What this still does not do:** prove red *then* green as a pair. Each run is
+> a snapshot, and only the last is kept — so the app cannot say "this failed
+> before the work and passes after it", which is what the TDD rule is actually
+> about. Recorded as debt in round 6.
+
+---
+
 ## The one that stays open
 
 ```bash

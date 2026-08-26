@@ -35,6 +35,7 @@ function solution(overrides: Partial<Solution> = {}): Solution {
     testCommand: null,
     language: null,
     runCommand: null,
+    startFrom: null,
     ...overrides,
   };
 }

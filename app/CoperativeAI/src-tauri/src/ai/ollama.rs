@@ -16,8 +16,8 @@
 
 use crate::ai::client::{
     parse_change_plan, parse_design, parse_diagram, parse_generation, parse_pal,
-    parse_solution_strategy, Generated, GeneratedChangePlan, GeneratedDesign, GeneratedDiagram,
-    GeneratedPal, GeneratedStrategy, Prompt, Usage,
+    parse_solution_strategy, parse_test, Generated, GeneratedChangePlan, GeneratedDesign,
+    GeneratedDiagram, GeneratedPal, GeneratedStrategy, GeneratedTest, Prompt, Usage,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -77,6 +77,31 @@ fn authorized(request: reqwest::RequestBuilder, key: Option<&str>) -> reqwest::R
     }
 }
 
+/// The escape hatch, in schema form — the branch a local model fills in when it
+/// declines rather than guesses.
+///
+/// **One copy, because seven had already drifted.** Five of the seven schemas
+/// here had lost `required`, so those five would have accepted a `blocked`
+/// object with no reason in it — which `client::blocked_in` then reads as "not
+/// a refusal" and falls through. No caller was broken by it, but the schemas
+/// disagreed with each other for no reason anybody chose.
+///
+/// Deliberately *not* identical to `client::blocked_schema`: that one also sets
+/// `additionalProperties: false`, which is the Anthropic house style here and
+/// has never been tried against a local model. Matching the two Ollama schemas
+/// that kept `required` is the change that closes the drift; tightening all
+/// seven further is a separate decision with a local model in front of it.
+fn blocked_schema() -> serde_json::Value {
+    json!({
+        "type": ["object", "null"],
+        "properties": {
+            "reason": {"type": "string"},
+            "whatIsNeeded": {"type": "string"}
+        },
+        "required": ["reason", "whatIsNeeded"]
+    })
+}
+
 /// The JSON schema Ollama is asked to conform to — the same shape the Claude
 /// path requests, so `parse_generation` handles both responses unchanged.
 pub fn story_schema() -> serde_json::Value {
@@ -96,14 +121,7 @@ pub fn story_schema() -> serde_json::Value {
             },
             // Same escape hatch as the Claude path, so a local model can also
             // decline rather than guess.
-            "blocked": {
-                "type": ["object", "null"],
-                "properties": {
-                    "reason": {"type": "string"},
-                    "whatIsNeeded": {"type": "string"}
-                },
-                "required": ["reason", "whatIsNeeded"]
-            }
+            "blocked": blocked_schema()
         },
         "required": ["stories"]
     })
@@ -263,13 +281,7 @@ pub(crate) fn design_schema() -> serde_json::Value {
                     "required": ["name", "kind", "content"]
                 }
             },
-            "blocked": {
-                "type": ["object", "null"],
-                "properties": {
-                    "reason": {"type": "string"},
-                    "whatIsNeeded": {"type": "string"}
-                }
-            }
+            "blocked": blocked_schema()
         },
         "required": ["strategy", "tokens", "flows", "components", "assets"]
     })
@@ -295,13 +307,7 @@ pub(crate) fn diagram_schema() -> serde_json::Value {
             "name": {"type": "string"},
             "content": {"type": "string"},
             "explanation": {"type": "string"},
-            "blocked": {
-                "type": ["object", "null"],
-                "properties": {
-                    "reason": {"type": "string"},
-                    "whatIsNeeded": {"type": "string"}
-                }
-            }
+            "blocked": blocked_schema()
         },
         "required": ["name", "content", "explanation"]
     })
@@ -326,15 +332,35 @@ pub(crate) fn pal_schema() -> serde_json::Value {
             "explanation": {"type": "string"},
             "replacement": {"type": "string"},
             "technologies": {"type": "array", "items": {"type": "string"}},
-            "blocked": {
-                "type": ["object", "null"],
-                "properties": {
-                    "reason": {"type": "string"},
-                    "whatIsNeeded": {"type": "string"}
-                }
-            }
+            "blocked": blocked_schema()
         },
         "required": ["explanation", "replacement", "technologies"]
+    })
+}
+
+pub async fn generate_test(
+    api_base_url: &str,
+    key: Option<&str>,
+    model: &str,
+    prompt: &Prompt,
+) -> Result<(GeneratedTest, Usage), String> {
+    let (content, usage) = chat(api_base_url, key, model, prompt, test_schema()).await?;
+    Ok((parse_test(&content)?, usage))
+}
+
+/// The written-test shape, mirroring the Claude schema so one parser serves
+/// both. `path` and `contents` are required and may come back empty — that is
+/// what a decline looks like, and `parse_test` is what reads it.
+pub(crate) fn test_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "path": {"type": "string"},
+            "contents": {"type": "string"},
+            "names": {"type": "array", "items": {"type": "string"}},
+            "blocked": blocked_schema()
+        },
+        "required": ["path", "contents", "names"]
     })
 }
 
@@ -373,13 +399,7 @@ pub(crate) fn change_plan_schema() -> serde_json::Value {
                     "required": ["solution", "apiSchema", "pageSchema", "filesToChange"]
                 }
             },
-            "blocked": {
-                "type": ["object", "null"],
-                "properties": {
-                    "reason": {"type": "string"},
-                    "whatIsNeeded": {"type": "string"}
-                }
-            }
+            "blocked": blocked_schema()
         },
         "required": ["solutions"]
     })
@@ -406,14 +426,7 @@ pub(crate) fn strategy_schema() -> serde_json::Value {
                     "required": ["name", "kind", "rationale", "tradeoffs"]
                 }
             },
-            "blocked": {
-                "type": ["object", "null"],
-                "properties": {
-                    "reason": {"type": "string"},
-                    "whatIsNeeded": {"type": "string"}
-                },
-                "required": ["reason", "whatIsNeeded"]
-            }
+            "blocked": blocked_schema()
         },
         "required": ["strategy", "techStack", "technologies", "options"]
     })

@@ -13,7 +13,14 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     // them fall through to the real invoke, which renders an error alert and
     // quietly breaks assertions about what else is on screen.
     listWorkItemChanges: vi.fn(),
+    changeKinds: vi.fn(),
     changeKindsForSolution: vi.fn(),
+    solutionCatalogue: vi.fn(),
+    createSolutionWithStarter: vi.fn(),
+    listStarters: vi.fn(),
+    // The pair is written on every save now, so every test in here touches it.
+    writeWorkItemFiles: vi.fn(),
+    updateWorkItem: vi.fn(),
     attachSolutionToWorkItem: vi.fn(),
     saveWorkItemPlan: vi.fn(),
     detachWorkItemPlan: vi.fn(),
@@ -68,6 +75,7 @@ function solution(id: number, name: string): Solution {
     testCommand: null,
     language: null,
     runCommand: null,
+    startFrom: null,
   };
 }
 
@@ -99,62 +107,13 @@ describe("WorkItemBuildPlan", () => {
     mocked.listWorkItemPlans.mockResolvedValue([]);
     mocked.listAiFeedback.mockResolvedValue([]);
     mocked.listWorkItemChanges.mockResolvedValue([]);
+    mocked.changeKinds.mockResolvedValue([]);
     mocked.changeKindsForSolution.mockResolvedValue(["screen"]);
+    mocked.solutionCatalogue.mockResolvedValue([]);
+    mocked.writeWorkItemFiles.mockResolvedValue([]);
+    mocked.updateWorkItem.mockResolvedValue(undefined);
   });
 
-  /// The question is "which of these does this touch", and a checklist is that
-  /// question. Unticking detaches, so one control answers it both ways.
-  it("ticks a Solution to affect it and unticks to stop", async () => {
-    const user = userEvent.setup();
-    mocked.attachSolutionToWorkItem.mockResolvedValue(1);
-    mocked.detachWorkItemPlan.mockResolvedValue(undefined);
-    render(<WorkItemBuildPlan item={item} solutions={solutions} />);
-
-    expect(await screen.findByText(/Nothing affected yet/)).toBeInTheDocument();
-    const tick = screen.getByLabelText("Shop Web is affected");
-    expect(tick).not.toBeChecked();
-
-    await user.click(tick);
-    await waitFor(() =>
-      expect(mocked.attachSolutionToWorkItem).toHaveBeenCalledWith(12, 4),
-    );
-
-    // an already-affected Solution shows ticked, and unticking removes it
-    mocked.listWorkItemPlans.mockResolvedValue([plan({ solutionId: 4 })]);
-    render(<WorkItemBuildPlan item={item} solutions={solutions} />);
-    const ticked = await screen.findAllByLabelText("Shop Web is affected");
-    expect(ticked[ticked.length - 1]).toBeChecked();
-
-    await user.click(ticked[ticked.length - 1]);
-    await waitFor(() => expect(mocked.detachWorkItemPlan).toHaveBeenCalled());
-  });
-
-  /// Each affected Solution gets its own changes, tests and branch — a work
-  /// item touching two repos needs two of each.
-  it("writes the changes, tests and branch for one Solution", async () => {
-    const user = userEvent.setup();
-    mocked.listWorkItemPlans.mockResolvedValue([
-      plan({ branchName: "feature/12-add-checkout", cloneFrom: "main" }),
-    ]);
-    mocked.saveWorkItemPlan.mockResolvedValue();
-    render(<WorkItemBuildPlan item={item} solutions={solutions} />);
-
-    const changes = await screen.findByLabelText("Changes required in Shop API");
-    await user.type(changes, "Add POST /checkout");
-    await user.tab();
-
-    await waitFor(() =>
-      expect(mocked.saveWorkItemPlan).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: 1,
-          changesRequired: "Add POST /checkout",
-          // the Develop Strategy's defaults came through on attach
-          branchName: "feature/12-add-checkout",
-          cloneFrom: "main",
-        }),
-      ),
-    );
-  });
 
   /// The answers are what make "we have asked enough to generate" true, so the
   /// panel says where they go.
@@ -263,7 +222,12 @@ describe("WorkItemBuildPlan", () => {
       await screen.findByLabelText("Generate the code changes for Add checkout"),
     );
 
-    expect(await screen.findByText(/Stopped rather than inventing the rest/)).toBeInTheDocument();
+    // One wording across every panel now, from `BlockedNote` — this used to
+    // read "Stopped rather than inventing the rest" here and something
+    // different in each of the other five.
+    expect(
+      await screen.findByText(/stopped rather than inventing the rest/),
+    ).toBeInTheDocument();
     expect(screen.getByText(/Which provider takes the payment\?/)).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
@@ -276,20 +240,20 @@ describe("WorkItemBuildPlan", () => {
     ).toBeDisabled();
   });
 
-  it("attaches UI pictures and names them", async () => {
-    const user = userEvent.setup();
+  /// **What is no longer here.** The ticklist of affected Solutions, the
+  /// per-Solution branch and tests, and the pictures all moved into the one
+  /// block that is about that Solution — three places asking about one thing
+  /// was the problem. They are covered in `WorkItemChanges.test.tsx`.
+  it("no longer keeps a second place to say the same things", async () => {
     mocked.listWorkItemPlans.mockResolvedValue([plan({})]);
-    mocked.pickImages.mockResolvedValue(["C:/shots/basket.png"]);
-    mocked.saveWorkItemPlan.mockResolvedValue();
     render(<WorkItemBuildPlan item={item} solutions={solutions} />);
 
-    await user.click(await screen.findByLabelText("Add UI pictures for Shop API"));
-
-    await waitFor(() =>
-      expect(mocked.saveWorkItemPlan).toHaveBeenCalledWith(
-        expect.objectContaining({ mockups: JSON.stringify(["C:/shots/basket.png"]) }),
-      ),
-    );
+    await screen.findByText(/Answers become clarifications/);
+    expect(screen.queryByText("Solutions affected")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Shop Web is affected")).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText("Changes required in Shop API"),
+    ).not.toBeInTheDocument();
   });
 });
 
@@ -298,7 +262,11 @@ describe("WorkItemBuildPlan approval", () => {
     vi.clearAllMocks();
     mocked.listAiFeedback.mockResolvedValue([]);
     mocked.listWorkItemChanges.mockResolvedValue([]);
+    mocked.changeKinds.mockResolvedValue([]);
     mocked.changeKindsForSolution.mockResolvedValue([]);
+    mocked.solutionCatalogue.mockResolvedValue([]);
+    mocked.writeWorkItemFiles.mockResolvedValue([]);
+    mocked.updateWorkItem.mockResolvedValue(undefined);
   });
 
   /// Approving is what lets a run start, so an unapproved plan has to say that
@@ -355,19 +323,80 @@ describe("WorkItemBuildPlan approval", () => {
   /// form rather than the prop is what makes that impossible to miss again.
   it("offers to make a Solution, because the Product is passed down", async () => {
     const user = userEvent.setup();
-    mocked.createSolution.mockResolvedValue(12);
+    mocked.createSolutionWithStarter.mockResolvedValue({
+      solutionId: 12,
+      started: null,
+    });
+    mocked.listStarters.mockResolvedValue([]);
     mocked.listSolutions.mockResolvedValue([]);
     render(<WorkItemBuildPlan item={item} solutions={[]} />);
 
-    await user.click(await screen.findByRole("button", { name: "Add a Solution" }));
-    await user.type(screen.getByLabelText("New Solution name"), "Orders API");
-    await user.click(screen.getByRole("button", { name: "Create" }));
+    // Making one is an answer to "which Solution?", so it is in that dropdown
+    // rather than a button beside it that read as unrelated.
+    await user.selectOptions(
+      await screen.findByLabelText("Add a Solution to this work item"),
+      "__new__",
+    );
+    await user.type(screen.getByLabelText("Solution name"), "Orders API");
+    await user.click(screen.getByRole("button", { name: "Create Solution" }));
 
     // The Product comes from the work item, which is the wire that was missing.
     await waitFor(() =>
-      expect(mocked.createSolution).toHaveBeenCalledWith(
+      expect(mocked.createSolutionWithStarter).toHaveBeenCalledWith(
         expect.objectContaining({ name: "Orders API", productId: 7 }),
       ),
     );
+  });
+
+  /// The pair used to be written by pressing a button, which meant the files
+  /// on disk were whatever the last person to remember had produced. An agent
+  /// handed a brief three edits out of date builds the wrong thing.
+  it("rewrites the .md and .json on every save, with no button to press", async () => {
+    const user = userEvent.setup();
+    mocked.listWorkItemPlans.mockResolvedValue([plan({})]);
+    mocked.saveWorkItemPlan.mockResolvedValue();
+    mocked.writeWorkItemFiles.mockResolvedValue([
+      ".CoperativeAI/work-items/12-add-checkout.md",
+      ".CoperativeAI/work-items/12-add-checkout.json",
+    ]);
+    render(<WorkItemBuildPlan item={item} solutions={solutions} />);
+
+    expect(
+      screen.queryByLabelText("Write the files for Add checkout"),
+    ).not.toBeInTheDocument();
+
+    await user.type(
+      await screen.findByLabelText("What needs to change in Shop API"),
+      "Add the endpoint",
+    );
+    await user.tab();
+
+    await waitFor(() => expect(mocked.writeWorkItemFiles).toHaveBeenCalledWith(12));
+    expect(
+      await screen.findByText(/Written on the last save: .*12-add-checkout\.json/),
+    ).toBeInTheDocument();
+  });
+
+  /// The pair cannot be written before the Product has a folder. Saying
+  /// nothing would leave somebody believing a file exists — and the record
+  /// itself did save, so this is not an error on the field they just left.
+  it("says so when the files could not be written, without failing the save", async () => {
+    const user = userEvent.setup();
+    mocked.listWorkItemPlans.mockResolvedValue([plan({})]);
+    mocked.saveWorkItemPlan.mockResolvedValue();
+    mocked.writeWorkItemFiles.mockRejectedValue(
+      "'Shop App' has no folder yet — generate its framework files first",
+    );
+    render(<WorkItemBuildPlan item={item} solutions={solutions} />);
+
+    await user.type(
+      await screen.findByLabelText("What needs to change in Shop API"),
+      "Add the endpoint",
+    );
+    await user.tab();
+
+    expect(await screen.findByText(/Not written — .*has no folder yet/)).toBeInTheDocument();
+    expect(mocked.saveWorkItemPlan).toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

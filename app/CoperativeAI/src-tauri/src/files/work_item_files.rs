@@ -18,10 +18,13 @@
 
 use serde::Serialize;
 
-/// One screen, endpoint or table the work touches.
+/// One thing the work touches — a screen, a service, an incoming model, a
+/// table. Which of those a Solution can have is `db::work_item_change::KINDS`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChangeEntry {
+    /// The stored id, so a tool reading the JSON gets a stable value rather
+    /// than a heading that could be reworded.
     pub kind: String,
     pub action: String,
     pub name: String,
@@ -126,19 +129,22 @@ pub fn to_markdown(doc: &WorkItemDoc) -> String {
         }
         out.push('\n');
 
-        for (kind, heading) in [
-            ("screen", "Screens"),
-            ("api", "APIs"),
-            ("table", "Database tables"),
-        ] {
+        // Driven from the one kind table rather than a list written out here.
+        // There were three of these lists — this one, the prompt's, and the
+        // form's — and a vocabulary that grows would have left the brief
+        // quietly dropping the kinds only two of them had heard of.
+        for k in crate::db::work_item_change::KINDS {
             let of_kind: Vec<&ChangeEntry> =
-                part.changes.iter().filter(|c| c.kind == kind).collect();
+                part.changes.iter().filter(|c| c.kind == k.id).collect();
             if of_kind.is_empty() {
                 continue;
             }
             // The same sentence the generation prompt uses, for the same
             // reason: without it a model reads the names as examples.
-            out.push_str(&format!("### {heading} — this is the complete list\n\n"));
+            out.push_str(&format!(
+                "### {} — this is the complete list\n\n",
+                k.heading
+            ));
             for change in of_kind {
                 let verb = if change.action == "add" { "new" } else { "change" };
                 out.push_str(&format!("- **[{verb}]** {}", change.name));
@@ -169,12 +175,20 @@ pub fn to_markdown(doc: &WorkItemDoc) -> String {
         // rather than left out of the file.
         out.push_str("## Not assigned to any Solution\n\nAsked for, but nobody has said where it is built:\n\n");
         for change in &doc.unassigned {
-            out.push_str(&format!("- {} ({})\n", change.name, change.kind));
+            out.push_str(&format!("- {} ({})\n", change.name, label_of(&change.kind)));
         }
         out.push('\n');
     }
 
     out
+}
+
+/// The readable name for a stored kind id — "Screen", not `screen`. An id
+/// nobody recognises is printed as itself rather than hidden.
+fn label_of(kind: &str) -> &str {
+    crate::db::work_item_change::kind(kind)
+        .map(|k| k.label)
+        .unwrap_or(kind)
 }
 
 fn blank_as<'a>(value: &'a str, fallback: &'a str) -> &'a str {
@@ -257,7 +271,7 @@ mod tests {
         assert!(md.contains("Shop API (api)"));
         assert!(md.contains("`feature/9-add-checkout`"));
         assert!(md.contains("**[new]** POST /checkout — takes the payment"));
-        assert!(md.contains("APIs — this is the complete list"));
+        assert!(md.contains("Endpoints — this is the complete list"));
         assert!(md.contains("Database tables — this is the complete list"));
         assert!(md.contains("{\"paths\":{}}"));
     }
@@ -267,7 +281,9 @@ mod tests {
     fn a_screen_nobody_assigned_is_named_rather_than_left_out() {
         let md = to_markdown(&doc());
         assert!(md.contains("Not assigned to any Solution"));
-        assert!(md.contains("Basket (screen)"));
+        // the readable name, not the stored id — the .md is the half a person
+        // reads, and "screen" is how this app files it
+        assert!(md.contains("Basket (Screen)"));
     }
 
     /// A brief that quietly supplies the missing half is how an agent builds

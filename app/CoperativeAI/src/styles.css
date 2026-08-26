@@ -3450,6 +3450,93 @@ code {
   color: var(--fg-muted);
 }
 
+/* Why the Implement button is disabled, beside the button rather than in a
+   tooltip — a reason nobody can hover to find is not a reason. */
+.test-case-controls .hint {
+  flex-basis: 100%;
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+}
+
+.test-written {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+}
+
+.test-written code {
+  color: var(--fg);
+}
+
+/* One test run's verdict. **No red cross and no green tick**: before the work
+   is built, a failing test is the correct result, and a cross would call the
+   framework working a failure. The left border tints, the words carry the
+   meaning. */
+.run-outcome {
+  margin-top: 0.4rem;
+  padding: 0.35rem 0.5rem;
+  border-left: 3px solid var(--fg-muted);
+  background: var(--surface-2);
+  border-radius: 0 0.375rem 0.375rem 0;
+  font-size: 0.78rem;
+}
+
+.run-outcome.run-failed {
+  border-left-color: var(--warn);
+}
+
+.run-outcome.run-passed {
+  border-left-color: var(--ok, var(--accent));
+}
+
+.run-outcome.run-errored {
+  border-left-color: var(--danger, var(--warn));
+}
+
+.run-verdict {
+  margin: 0;
+}
+
+.run-verdict strong {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.72rem;
+}
+
+.run-reading,
+.run-command {
+  margin: 0.2rem 0 0;
+  color: var(--fg-muted);
+}
+
+.run-outcome pre {
+  margin: 0.3rem 0 0;
+  max-height: 14rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 0.72rem;
+}
+
+/* The AI declining, wherever it happens — see `components/ai/BlockedNote`.
+   Same warn tint as `.ai-question.open`, because it is the same kind of thing:
+   work waiting on an answer, not a failure. */
+.ai-blocked {
+  margin-top: 0.4rem;
+  padding: 0.4rem 0.5rem;
+  background: var(--warn-tint);
+  border: 1px solid var(--warn);
+  border-radius: 0.375rem;
+  font-size: 0.78rem;
+}
+
+.ai-blocked p {
+  margin: 0 0 0.3rem;
+}
+
+.ai-blocked p:last-child {
+  margin-bottom: 0;
+}
+
 .folder-field {
   display: flex;
   flex-direction: column;
@@ -8098,24 +8185,399 @@ button.ready-action.link:hover {
 }
 
 
-/* Making a Solution from the build plan, where the dropdown that needs one is.
-   Quiet until asked for: most work items land on Solutions that already exist,
-   and a form open by default would be in the way of the common case. */
-.add-solution {
+/* Making a Solution wherever the dropdown that needs one is. Quiet until
+   asked for: most work items land on Solutions that already exist, and a form
+   open by default would be in the way of the common case. */
+.new-solution {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
   margin: 0.4rem 0;
 }
 
-.add-solution-form {
+.new-solution form {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 0.35rem;
-  align-items: center;
 }
 
-.add-solution-form input {
+.new-solution-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+
+/* One Solution being described: what changes in it, and the one sentence
+   saying what has to happen. Boxed, because the second one has to read as
+   another answer to the same question rather than a continuation. */
+.change-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.5rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: var(--raised);
+}
+
+.change-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.change-block-kicker {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+}
+
+/* The three families, side by side — the shape of the question is "which of
+   these parts does this touch", and a single column reads as a long list. */
+.change-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.3rem;
+  padding: 0.4rem 0.5rem;
+  margin: 0;
+}
+
+.change-kinds legend {
+  font-size: 0.7rem;
+  color: var(--fg-muted);
+  padding: 0 0.25rem;
+}
+
+.change-family {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 8rem;
+}
+
+.change-family-name {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+}
+
+.change-kind-tick {
+  font-size: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.change-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.change-picker-head {
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.change-catalogue {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.75rem;
+  font-size: 0.75rem;
+}
+
+/* What already exists, to click rather than retype. Each one says where it
+   came from, because a name recorded by the team and a name read off the disk
+   are different kinds of claim. */
+.change-suggestions {
+  list-style: none;
+  padding: 0;
+  margin: 0.15rem 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.suggestion {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.suggestion em {
+  font-style: normal;
+  font-size: 0.62rem;
+  color: var(--fg-muted);
+}
+
+.suggestion.on {
+  background: var(--ok-tint);
+  border-color: var(--ok);
+}
+
+.mockup-pair {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+}
+
+/* Where each kind of thing lives. Rows rather than a JSON box: a rule people
+   break by typing is not a rule. */
+.rule-locations {
+  margin-top: 0.75rem;
+}
+
+.rule-location-rows {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0.3rem 0.75rem;
+}
+
+.rule-location {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+}
+
+.rule-location input {
   flex: 1;
-  min-width: 10rem;
+  min-width: 6rem;
+}
+
+/* What the backend would not take. A duplicate among eight is ordinary, so
+   this is a note rather than an alarm — but it is never nothing. */
+.change-refused {
+  list-style: none;
+  padding: 0.3rem 0.4rem;
+  margin: 0;
+  border-radius: 0.25rem;
+  background: var(--warn-tint);
+  color: var(--warn);
+  font-size: 0.72rem;
+}
+
+.change-add-block {
+  align-self: flex-start;
+}
+
+/* What one breakpoint does — closed it is a sentence, open it is a tick per
+   behaviour with the box each one needs. Three always-on text inputs said
+   nothing about being one question. */
+.break-behaviour {
+  position: relative;
+  display: inline-block;
+}
+
+.break-summary {
+  font-size: 0.72rem;
+  padding: 0.1rem 0.4rem;
+}
+
+.break-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 0.2rem);
+  left: 0;
+  min-width: 20rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: var(--raised);
+  box-shadow: 0 0.4rem 1rem rgb(0 0 0 / 0.25);
+}
+
+.break-option {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.75rem;
+}
+
+/* Which Solutions to run and what to run in each, in the middle of the bar and
+   in line with Debug. */
+.run-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.run-picker {
+  font-size: 0.75rem;
+  min-width: 8rem;
+}
+
+.run-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 0.25rem);
+  left: 0;
+  min-width: 26rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: var(--raised);
+  box-shadow: 0 0.4rem 1rem rgb(0 0 0 / 0.25);
+}
+
+.run-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+}
+
+.run-row select,
+.run-command-edit input {
+  max-width: 15rem;
+}
+
+.run-command-edit {
+  display: flex;
+  gap: 0.25rem;
+}
+
+/* What Debug will actually do to this Solution, said before it is pressed.
+   Green where a debugger will attach, amber where it will quietly be a run —
+   because that difference is the thing somebody needs to notice. */
+.run-debugger {
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
+.run-debugger.ready {
+  color: var(--ok);
+}
+
+.run-debugger.missing {
+  color: var(--warn);
+}
+
+.run-debugger.unsupported,
+.run-debugger.unknown {
+  color: var(--fg-muted);
+}
+
+.run-install code {
+  user-select: all;
+}
+
+/* The install, in a real shell, with its output. Nothing is run behind the
+   panel, so a failure can be read and tried again in place. */
+/* The argument against the convention, beside the thing it argues with. */
+.session-start-from {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  margin: 0.25rem 0;
+}
+
+.session-start-from input {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.adapter-install-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.3rem;
+  padding: 0.3rem;
+  border-left: 3px solid var(--tab-develop, #2563eb);
+}
+
+/* The console, in the same space as the code. Output belongs beside the line
+   that produced it — a console on another tab means alt-tabbing between the
+   thing that broke and the reason. */
+.console-dock {
+  display: flex;
+  flex-direction: column;
+  margin-top: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  background: var(--raised);
+  overflow: hidden;
+}
+
+.console-dock.dragging {
+  outline: 2px dashed var(--accent);
+  opacity: 0.85;
+}
+
+.console-dock.away {
+  border-style: dashed;
+}
+
+/* The grip is the drag target, so it says so with the cursor before anything
+   is pressed. */
+.console-grip {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.4rem;
+  font-size: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.console-dock.dragging .console-grip {
+  cursor: grabbing;
+}
+
+.console-grip-mark {
+  color: var(--fg-muted);
+  letter-spacing: -0.1em;
+}
+
+.console-panes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.3rem;
+}
+
+.console-debug {
+  max-height: 12rem;
+  overflow: auto;
+  font-size: 0.75rem;
+}
+
+/* The pulled-out window has no app shell around it, so it owns the viewport. */
+.standalone-console {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 0.5rem;
+  gap: 0.4rem;
+}
+
+.standalone-console-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
 }

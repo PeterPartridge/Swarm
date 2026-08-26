@@ -205,6 +205,59 @@ pub async fn open_claude_sign_in(
     Ok(opened)
 }
 
+/// Opens a shell in the home folder and types the command that installs one
+/// debug adapter.
+///
+/// **The command is looked up here, not passed in.** A terminal is arbitrary
+/// execution, so the only thing the frontend sends is which language — and that
+/// is matched against this app's own adapter table. Accepting the command as a
+/// string would make "type this into a shell" an IPC call any page could make.
+///
+/// **Only where there is a command to run.** Two of the four adapters are a
+/// download and an unzip; typing that sentence into a shell produces
+/// `command not found`, which reads as a broken app rather than a manual step.
+/// Those are refused here rather than offered and then failing.
+///
+/// Typed into the shell rather than run behind it — the same rule the sign-in
+/// and the starters follow, so what ran is in the scrollback with its output,
+/// and a failed install can be read, corrected and tried again in place.
+#[tauri::command]
+pub async fn open_debugger_install(
+    app: AppHandle,
+    terminals: State<'_, Terminals>,
+    language: String,
+    cols: u16,
+    rows: u16,
+) -> Result<OpenedTerminal, String> {
+    let adapter = crate::debug::adapters::discover()
+        .into_iter()
+        .find(|a| a.language == language)
+        .ok_or_else(|| format!("no debug adapter is known for '{language}'"))?;
+
+    if adapter.install_command.trim().is_empty() {
+        return Err(format!(
+            "{} is not installed by a command — {}",
+            adapter.label, adapter.install
+        ));
+    }
+
+    let home = crate::ai::claude_code::home_dir()
+        .ok_or_else(|| "this machine reports no home folder to open a terminal in".to_string())?;
+
+    // Solution zero: an adapter belongs to the machine, not to a repository.
+    let opened = spawn_terminal(&app, &terminals, 0, &home.display().to_string(), cols, rows)?;
+    {
+        let mut sessions = terminals
+            .0
+            .lock()
+            .map_err(|_| "the terminal list is in a bad state".to_string())?;
+        if let Some(running) = sessions.get_mut(&opened.id) {
+            running.session.write(&format!("{}\r", adapter.install_command))?;
+        }
+    }
+    Ok(opened)
+}
+
 /// Opens a shell in a run's worktree.
 ///
 /// A run's agent must start in its own checkout, not the main one — that is the

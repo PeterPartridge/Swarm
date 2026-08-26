@@ -271,6 +271,18 @@ export function absoluteFor(
  *  Separators are normalised and Windows is compared case-insensitively, since
  *  a compiler may record `C:\repos\Orders` for a folder the app stored as
  *  `C:/repos/orders` and neither spelling is wrong. */
+/** Whether a path names a place on its own, rather than one relative to
+ *  somewhere else.
+ *
+ *  Covers the three shapes that reach this app: a Windows drive (`C:\…` or
+ *  `C:/…`), a POSIX root (`/usr/…`), and a UNC share (`\\server\…`). A bare
+ *  leading slash on Windows is drive-relative rather than truly absolute, and
+ *  is counted here anyway — for every purpose this has, "not relative to the
+ *  working copy" is the question being asked. */
+export function isAbsolutePath(path: string): boolean {
+  return /^([a-z]:[\\/]|[\\/])/i.test(path.trim());
+}
+
 export function relativeTo(root: string, absolute: string): string | null {
   const tidy = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "");
   const base = tidy(root);

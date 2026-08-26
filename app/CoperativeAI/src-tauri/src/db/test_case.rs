@@ -9,6 +9,15 @@ use turso::Connection;
 /// designed = written by QA; implemented = a real test exists at `test_path`.
 pub const STATES: &[&str] = &["designed", "implemented"];
 
+/// How the last run of a scenario's test ended.
+///
+/// **Deliberately separate from `STATES`.** Running does not change whether a
+/// test exists, and a red test is not an unimplemented one — before the work is
+/// built, red is the *expected* result. Folding the two together would make the
+/// app claim a scenario had regressed to "designed" because its test correctly
+/// failed.
+pub const RUN_OUTCOMES: &[&str] = &["passed", "failed", "skipped", "errored"];
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TestCase {
     pub id: i64,
@@ -19,11 +28,24 @@ pub struct TestCase {
     pub test_path: Option<String>,
     pub deliverable_id: Option<i64>,
     pub work_item_id: Option<i64>,
+    /// The names of the tests in `test_path`, as their runner prints them.
+    /// Recorded at generation so a scenario's own verdict can be found in a
+    /// run that covers the whole suite. Empty for a hand-written test, and for
+    /// anything implemented before this was asked for.
+    pub test_names: Vec<String>,
+    pub last_run_at: Option<i64>,
+    /// One of `RUN_OUTCOMES`, or `None` if it has never been run.
+    pub last_run_outcome: Option<String>,
+    /// A short human summary ("2 passed, 1 failed", or "by exit code only"
+    /// when no parser recognised the output). Never the full output — that is
+    /// returned to the caller and shown, but storing megabytes of runner noise
+    /// per case would bloat an embedded database for something read once.
+    pub last_run_summary: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
-const SELECT: &str = "SELECT id, productId, title, scenario, state, testPath, deliverableId, workItemId, createdAt, updatedAt FROM test_cases";
+const SELECT: &str = "SELECT id, productId, title, scenario, state, testPath, deliverableId, workItemId, createdAt, updatedAt, testNames, lastRunAt, lastRunOutcome, lastRunSummary FROM test_cases";
 
 pub async fn create_table(conn: &Connection) -> Result<()> {
     conn.execute(
@@ -37,9 +59,85 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             deliverableId INTEGER,
             workItemId INTEGER,
             createdAt INTEGER NOT NULL,
-            updatedAt INTEGER NOT NULL
+            updatedAt INTEGER NOT NULL,
+            testNames TEXT NOT NULL DEFAULT '[]',
+            lastRunAt INTEGER,
+            lastRunOutcome TEXT,
+            lastRunSummary TEXT
         )",
         (),
+    )
+    .await?;
+
+    // **Added, not recreated around.** Round 2 shipped this table, and the rows
+    // in it hold paths somebody typed by hand — the same rule `solutions`
+    // follows for every column added since its first version.
+    let mut columns = Vec::new();
+    let mut rows = conn.query("PRAGMA table_info(test_cases)", ()).await?;
+    while let Some(row) = rows.next().await? {
+        let name: String = row.get(1)?;
+        columns.push(name);
+    }
+    for (name, definition) in [
+        ("testNames", "TEXT NOT NULL DEFAULT '[]'"),
+        ("lastRunAt", "INTEGER"),
+        ("lastRunOutcome", "TEXT"),
+        ("lastRunSummary", "TEXT"),
+    ] {
+        if !columns.iter().any(|c| c == name) {
+            conn.execute(&format!("ALTER TABLE test_cases ADD COLUMN {name} {definition}"), ())
+                .await?;
+        }
+    }
+    Ok(())
+}
+
+/// Records that a scenario now has a real test, and what its tests are called.
+///
+/// Separate from `update_case` because it is a different act: `update_case` is
+/// somebody editing a scenario, this is the outcome of implementing one. Going
+/// through the general update would mean the caller restating the title and
+/// scenario it did not change, which is how they get overwritten.
+pub async fn set_implementation(
+    conn: &Connection,
+    id: i64,
+    test_path: &str,
+    names: &[String],
+) -> Result<()> {
+    if find_by_id(conn, id).await?.is_none() {
+        return Err(DbError::Validation(format!("no test case with id {id}")));
+    }
+    let names_json = serde_json::to_string(names).unwrap_or_else(|_| "[]".to_string());
+    conn.execute(
+        "UPDATE test_cases SET state = 'implemented', testPath = ?1, testNames = ?2,
+         updatedAt = ?3 WHERE id = ?4",
+        (test_path, names_json, now_millis(), id),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Records how the last run of this scenario's test went.
+///
+/// Does **not** touch `state`: see `RUN_OUTCOMES`.
+pub async fn record_run(
+    conn: &Connection,
+    id: i64,
+    outcome: &str,
+    summary: &str,
+) -> Result<()> {
+    if !RUN_OUTCOMES.contains(&outcome) {
+        return Err(DbError::Validation(format!(
+            "a run outcome must be one of {RUN_OUTCOMES:?}, got '{outcome}'"
+        )));
+    }
+    if find_by_id(conn, id).await?.is_none() {
+        return Err(DbError::Validation(format!("no test case with id {id}")));
+    }
+    conn.execute(
+        "UPDATE test_cases SET lastRunAt = ?1, lastRunOutcome = ?2, lastRunSummary = ?3,
+         updatedAt = ?4 WHERE id = ?5",
+        (now_millis(), outcome, summary, now_millis(), id),
     )
     .await?;
     Ok(())
@@ -186,6 +284,16 @@ fn row_to_test_case(row: turso::Row) -> Result<TestCase> {
         work_item_id: row.get(7)?,
         created_at: row.get(8)?,
         updated_at: row.get(9)?,
+        // Stored as JSON, like every other list in this schema. A row written
+        // before the column existed reads as `[]` from its default.
+        test_names: row
+            .get::<String>(10)
+            .ok()
+            .and_then(|json| serde_json::from_str(&json).ok())
+            .unwrap_or_default(),
+        last_run_at: row.get(11)?,
+        last_run_outcome: row.get(12)?,
+        last_run_summary: row.get(13)?,
     })
 }
 
@@ -318,6 +426,81 @@ mod tests {
         let w = find_by_id(&conn, by_item).await.expect("q").expect("still there");
         assert_eq!(d.deliverable_id, None);
         assert_eq!(w.work_item_id, None);
+    }
+
+    #[tokio::test]
+    async fn a_run_records_its_outcome_without_touching_the_state() {
+        let (conn, product_id) = db_with_product().await;
+        let case = create(&conn, product_id, "Login works", "", None, None)
+            .await
+            .expect("case");
+        set_implementation(&conn, case, "src/login.test.ts", &["signs in".to_string()])
+            .await
+            .expect("implemented");
+
+        record_run(&conn, case, "failed", "1 failed, 0 passed")
+            .await
+            .expect("record");
+
+        let stored = find_by_id(&conn, case).await.expect("q").expect("there");
+        assert_eq!(stored.last_run_outcome.as_deref(), Some("failed"));
+        assert_eq!(stored.last_run_summary.as_deref(), Some("1 failed, 0 passed"));
+        assert!(stored.last_run_at.is_some());
+        // Running is not implementing: a red test is still an implemented one,
+        // and is in fact the expected result before the work exists.
+        assert_eq!(stored.state, "implemented");
+        assert_eq!(stored.test_names, vec!["signs in".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn an_outcome_the_app_does_not_use_is_refused() {
+        let (conn, product_id) = db_with_product().await;
+        let case = create(&conn, product_id, "Login works", "", None, None)
+            .await
+            .expect("case");
+        assert!(record_run(&conn, case, "green", "").await.is_err());
+        assert!(record_run(&conn, 999, "passed", "").await.is_err());
+    }
+
+    /// The columns are added to an existing table rather than recreated around:
+    /// somebody typed the paths in the rows already there, and round 2 shipped
+    /// before any of this existed.
+    #[tokio::test]
+    async fn a_round_two_table_gains_the_run_columns_and_keeps_its_rows() {
+        let (conn, product_id) = db_with_product().await;
+        conn.execute("DROP TABLE test_cases", ()).await.expect("drop");
+        conn.execute(
+            "CREATE TABLE test_cases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                productId INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                scenario TEXT NOT NULL DEFAULT '',
+                state TEXT NOT NULL DEFAULT 'designed',
+                testPath TEXT,
+                deliverableId INTEGER,
+                workItemId INTEGER,
+                createdAt INTEGER NOT NULL,
+                updatedAt INTEGER NOT NULL
+            )",
+            (),
+        )
+        .await
+        .expect("round two table");
+        conn.execute(
+            "INSERT INTO test_cases (productId, title, scenario, state, testPath, createdAt, updatedAt)
+             VALUES (?1, 'Hand written', '', 'implemented', 'tests/by_hand.rs', 1, 1)",
+            (product_id,),
+        )
+        .await
+        .expect("old row");
+
+        create_table(&conn).await.expect("migrate");
+
+        let list = list_by_product(&conn, product_id).await.expect("list");
+        assert_eq!(list.len(), 1, "the hand-typed row must survive");
+        assert_eq!(list[0].test_path.as_deref(), Some("tests/by_hand.rs"));
+        assert!(list[0].test_names.is_empty(), "an old row has no names");
+        assert_eq!(list[0].last_run_outcome, None);
     }
 
     #[tokio::test]
