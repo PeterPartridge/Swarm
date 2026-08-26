@@ -318,11 +318,10 @@ pub async fn suggest_change_names(
         else {
             return Err("that Solution no longer exists".into());
         };
-        let location = crate::db::developer_rules::for_product(&conn, sol.product_id)
-            .await
-            .map_err(to_message)?
-            .map(|r| crate::db::developer_rules::location_of(&r.kind_locations, &kind))
-            .unwrap_or_default();
+        // The Solution's own layout, not the Product's. A Product with a Rust
+        // backend and a React front end has two answers to "where do screens
+        // live", and only one of them is right for this repository.
+        let location = crate::db::solution::location_of(&sol.kind_locations, &kind);
         (sol.local_path, location)
     };
 
@@ -346,6 +345,21 @@ pub async fn suggest_change_names(
         return Ok(out);
     };
     let folder = std::path::Path::new(&root).join(location.replace('\\', "/"));
+
+    // **A folder that was named and is not there is said out loud.** Architecture
+    // moves — a Solution is split, a folder is renamed for load — and until now
+    // a stale path and an unset one produced the same silence: no suggestions,
+    // no reason. Blank still says nothing, because nobody claimed anything.
+    if !folder.is_dir() {
+        out.push(Suggestion {
+            name: format!(
+                "{location} was named as where these live, and is not in the working copy any more"
+            ),
+            found_in: "missing".into(),
+        });
+        return Ok(out);
+    }
+
     for name in names_in(&folder) {
         if !out.iter().any(|s| s.name.eq_ignore_ascii_case(&name)) {
             out.push(Suggestion { name, found_in: location.clone() });

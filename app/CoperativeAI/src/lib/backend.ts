@@ -42,6 +42,15 @@ export interface Solution {
   /** The starter it was created from. A record of what it was begun as, not a
    *  claim about what it is now — repositories grow other languages. */
   language: string | null;
+  /** Where each kind of thing lives in **this** working copy, as JSON:
+   *  `{"screen":"src/pages"}`.
+   *
+   *  A convention an agent cannot reliably read out of the code, and what lets
+   *  the build plan suggest the screens that already exist. Set in Develop →
+   *  Solutions, beside the folder the paths are relative to. Empty means nobody
+   *  has said, and nothing is scanned for that kind — never a licence to guess
+   *  at a layout this repository may not follow. */
+  kindLocations: string;
   /** How to start this Solution running, when detection gets it wrong. Null
    *  means "work it out". */
   runCommand: string | null;
@@ -1105,14 +1114,6 @@ export interface DeveloperRules {
   allowedTech: string;
   disallowedTech: string;
   aiConstraints: string;
-  /** Where each kind of thing lives, as JSON: `{"screen":"src/pages", …}`,
-   *  keyed by a change-kind id and holding a path inside a working copy.
-   *
-   *  **A rule with a second job.** "Screens go in `src/pages`" is a convention
-   *  an agent cannot reliably read out of the code — and it is also what lets
-   *  the build plan suggest the screens that already exist instead of asking
-   *  somebody to remember their names. */
-  kindLocations: string;
 }
 
 export interface SolutionStrategy {
@@ -1137,17 +1138,16 @@ export interface ArchitectureOption {
   tradeoffs: string;
 }
 
-/** The rule fields that are a box of prose.
+/** The rule fields, all of which are a box of prose.
  *
- *  `kindLocations` is excluded because it is not one: it is a path per kind,
- *  edited as a row each, and a JSON blob in a textarea would be a rule people
- *  break by typing. */
-export type DeveloperRuleField = Exclude<
-  keyof DeveloperRules,
-  "productId" | "kindLocations"
->;
+ *  These are the team's rules — how people work — not one repository's. Where
+ *  things live used to be here and is now on the Solution: it is a fact about a
+ *  working copy, a Product grows more than one, and it was Develop's decision
+ *  sitting in a Product-shaped store. */
+export type DeveloperRuleField = Exclude<keyof DeveloperRules, "productId">;
 
-/** Reads the locations blob into a map, tolerating anything that is not one. */
+/** Reads a Solution's locations blob into a map, tolerating anything that is
+ *  not one. */
 export const kindLocations = (json: string): Record<string, string> => {
   try {
     const parsed: unknown = JSON.parse(json || "{}");
@@ -1678,6 +1678,16 @@ export const setSolutionTestCommand = (
   solutionId: number,
   command: string | null,
 ): Promise<void> => invoke("set_solution_test_command", { solutionId, command });
+
+/** Records where each kind of thing lives in this Solution's working copy.
+ *
+ *  Develop's decision, on the Solution — a layout is a fact about one
+ *  repository, and a Product grows more of them as it succeeds. */
+export const setSolutionKindLocations = (
+  solutionId: number,
+  kindLocations: string,
+): Promise<void> =>
+  invoke("set_solution_kind_locations", { solutionId, kindLocations });
 
 /** How to run a Solution while working on it: `start` spins it up (a front end
  *  reloads itself), and `watch` keeps a compiled backend refreshing on change —

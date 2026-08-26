@@ -50,6 +50,7 @@ const sol = (id: number, name: string, language: string | null): Solution => ({
   language,
   runCommand: null,
   startFrom: null,
+  kindLocations: "{}",
 });
 
 /// Go launches under Delve; Ruby has no launch shape in this app.

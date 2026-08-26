@@ -228,31 +228,12 @@ export default function WorkItemBuildPlan({
         onNote={(note) => void appendNote(note)}
       />
 
-      {/* Which repository this lands in is a technical decision, so it is made
-          here rather than on Product's board. It sat there until somebody
-          pointed out that Product was being asked to choose a repository. */}
-      {solutions.length > 0 && (
-        <label className="plan-solution-picker">
-          Lands in
-          <select
-            aria-label={`Solution of ${item.title}`}
-            value={item.solutionId ?? ""}
-            onChange={(e) =>
-              saveItem({
-                solutionId: e.target.value === "" ? null : Number(e.target.value),
-              })
-            }
-          >
-            {/* Plenty of work is not code, so no Solution is a real answer. */}
-            <option value="">No Solution</option>
-            {solutions.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
+      {/* **"Lands in" was a second answer to a question already asked above.**
+          Attaching a Solution in "What this changes" creates its plan; the
+          picker here set a different field and created none, so the two could
+          disagree — and the handover gate and AI-written tests read one while
+          the runs and the plan read the other. Attaching is now the only way to
+          say it, and it sets both. */}
 
       {/* Only work that has somewhere to land can be handed over — and handing
           work to a coding agent is a developer's call, not Product's. */}

@@ -76,6 +76,7 @@ function solution(id: number, name: string): Solution {
     language: null,
     runCommand: null,
     startFrom: null,
+    kindLocations: "{}",
   };
 }
 
@@ -117,6 +118,19 @@ describe("WorkItemBuildPlan", () => {
 
   /// The answers are what make "we have asked enough to generate" true, so the
   /// panel says where they go.
+  /// **One way to say which Solution, not two.** A "Lands in" picker sat here
+  /// setting the work item's `solutionId` while attaching a Solution in "What
+  /// this changes" created a plan and set nothing — so the two could disagree,
+  /// and the handover gate and AI-written tests read one answer while the runs
+  /// and the plan read the other. Attaching is now the only way in.
+  it("has no second picker for the Solution the work lands in", async () => {
+    render(<WorkItemBuildPlan item={item} solutions={solutions} />);
+    await screen.findByLabelText("Development details");
+
+    expect(screen.queryByLabelText(`Solution of ${item.title}`)).not.toBeInTheDocument();
+    expect(screen.queryByText("Lands in")).not.toBeInTheDocument();
+  });
+
   it("asks Product a question and answers it", async () => {
     const user = userEvent.setup();
     mocked.askProductQuestion.mockResolvedValue(5);

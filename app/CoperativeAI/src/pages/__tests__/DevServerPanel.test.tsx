@@ -31,6 +31,7 @@ const solution = (over: Partial<Solution> = {}): Solution => ({
   language: null,
   runCommand: null,
   startFrom: null,
+  kindLocations: "{}",
   ...over,
 });
 

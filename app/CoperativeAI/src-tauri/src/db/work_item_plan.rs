@@ -156,7 +156,31 @@ pub async fn attach(conn: &Connection, work_item_id: i64, solution_id: i64) -> R
         (work_item_id, solution_id, now, now),
     )
     .await?;
-    last_insert_id(conn).await
+    let id = last_insert_id(conn).await?;
+    // **Attaching is also where the work lands.** These were two fields that
+    // could disagree: a "Lands in" picker set `solutionId` and created no plan,
+    // attaching created a plan and left `solutionId` alone — and the handover
+    // gate and AI-written tests read one while runs and plans read the other.
+    // The first Solution attached claims it; a second does not steal it.
+    if item.solution_id.is_none() {
+        set_landing(conn, work_item_id, Some(solution_id)).await?;
+    }
+    Ok(id)
+}
+
+/// Points a work item at the Solution its work lands in, without disturbing
+/// anything else about it.
+///
+/// Its own statement rather than `work_item::update_item`, which replaces every
+/// field it is given and would need this caller to restate a title, a risk and
+/// six commercial fields it is not changing.
+async fn set_landing(conn: &Connection, work_item_id: i64, solution_id: Option<i64>) -> Result<()> {
+    conn.execute(
+        "UPDATE work_items SET solutionId = ?1, updatedAt = ?2 WHERE id = ?3",
+        (solution_id, now_millis(), work_item_id),
+    )
+    .await?;
+    Ok(())
 }
 
 /// The team's half: what changes, what to prove, and where the branch comes
@@ -232,8 +256,22 @@ pub async fn find_by_id(conn: &Connection, id: i64) -> Result<Option<WorkItemPla
 
 /// Detaches a Solution from a work item, losing what was written about it.
 pub async fn detach(conn: &Connection, id: i64) -> Result<()> {
+    // Read before the delete: afterwards there is no way to know which item
+    // this plan belonged to, or whether it was the one the work landed in.
+    let detached = find_by_id(conn, id).await?;
     conn.execute("DELETE FROM work_item_plans WHERE id = ?1", (id,))
         .await?;
+
+    // An item must never point at a plan that is gone. Whatever is still
+    // attached takes over; nothing left means nowhere to land, which is a real
+    // answer — plenty of work is not code.
+    let Some(gone) = detached else { return Ok(()) };
+    let item = crate::db::work_item::find_by_id(conn, gone.work_item_id).await?;
+    if item.and_then(|i| i.solution_id) == Some(gone.solution_id) {
+        let remaining = list_for_item(conn, gone.work_item_id).await?;
+        let next = remaining.first().map(|p| p.solution_id);
+        set_landing(conn, gone.work_item_id, next).await?;
+    }
     Ok(())
 }
 
@@ -406,5 +444,69 @@ mod tests {
             "an unknown placeholder is left visible rather than blanked"
         );
         assert_eq!(branch_from_pattern("  ", 1, "X", "feature"), "");
+    }
+
+    /// **Two fields answered "which Solution" and could disagree.** Attaching
+    /// one in the build plan created a plan and left `solutionId` alone, while
+    /// the "Lands in" picker set `solutionId` and created no plan — so the
+    /// handover gate and where an AI-written test lands read one answer while
+    /// the runs and the plan read another. Attaching is now the only way to say
+    /// it, and it keeps both in step.
+    #[tokio::test]
+    async fn attaching_a_solution_is_also_where_the_work_lands() {
+        let (conn, product_id) = crate::db::product::tests::db_with_product().await;
+        let item = crate::db::work_item::create(&conn, "Checkout", "feature", product_id, None, None)
+            .await
+            .expect("item");
+        let first = crate::db::solution::create(&conn, "API", product_id, "api", "{}")
+            .await
+            .expect("api");
+        let second = crate::db::solution::create(&conn, "Web", product_id, "website", "{}")
+            .await
+            .expect("web");
+        async fn landed(conn: &Connection, id: i64) -> Option<i64> {
+            crate::db::work_item::find_by_id(conn, id)
+                .await
+                .expect("q")
+                .expect("item")
+                .solution_id
+        }
+
+        assert_eq!(landed(&conn, item).await, None, "nothing attached, nowhere to land");
+
+        let plan = attach(&conn, item, first).await.expect("attach");
+        assert_eq!(landed(&conn, item).await, Some(first));
+
+        // A second Solution does not steal it: work that touches two repos
+        // still lands in the one it was first pointed at, and moving that is a
+        // deliberate act rather than a side effect of ticking another box.
+        attach(&conn, item, second).await.expect("attach second");
+        assert_eq!(landed(&conn, item).await, Some(first));
+
+        // Detaching the one it lands in hands it to whatever is left, rather
+        // than leaving the item pointing at a plan that is gone.
+        detach(&conn, plan).await.expect("detach");
+        assert_eq!(landed(&conn, item).await, Some(second));
+    }
+
+    #[tokio::test]
+    async fn detaching_the_last_solution_leaves_it_with_nowhere_to_land() {
+        let (conn, product_id) = crate::db::product::tests::db_with_product().await;
+        let item = crate::db::work_item::create(&conn, "Docs", "task", product_id, None, None)
+            .await
+            .expect("item");
+        let only = crate::db::solution::create(&conn, "API", product_id, "api", "{}")
+            .await
+            .expect("api");
+
+        let plan = attach(&conn, item, only).await.expect("attach");
+        detach(&conn, plan).await.expect("detach");
+
+        // Plenty of work is not code, so no Solution stays a real answer.
+        let item_row = crate::db::work_item::find_by_id(&conn, item)
+            .await
+            .expect("q")
+            .expect("item");
+        assert_eq!(item_row.solution_id, None);
     }
 }

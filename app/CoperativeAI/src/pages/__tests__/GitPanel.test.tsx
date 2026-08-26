@@ -36,6 +36,7 @@ const solution: Solution = {
   language: null,
   runCommand: null,
   startFrom: null,
+  kindLocations: "{}",
 };
 
 const commit = (over: Partial<Commit> = {}): Commit => ({

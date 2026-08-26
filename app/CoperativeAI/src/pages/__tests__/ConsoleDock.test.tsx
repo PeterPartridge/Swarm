@@ -33,6 +33,7 @@ const solution: Solution = {
   language: null,
   runCommand: null,
   startFrom: null,
+  kindLocations: "{}",
 };
 
 /** Drags the grip by `by` pixels and lets go.

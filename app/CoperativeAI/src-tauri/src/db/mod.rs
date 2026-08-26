@@ -155,6 +155,10 @@ pub async fn create_all_tables(conn: &Connection) -> Result<()> {
     design_asset::create_table(conn).await?;
     // after deliverable + work_item: a test case may point at either
     test_case::create_table(conn).await?;
+    // Last, and after both tables exist: carries a pre-2026-08-21 Product-wide
+    // folder layout onto that Product's Solutions, where it belongs. Seeds
+    // only — a Solution that has its own answer keeps it.
+    solution::adopt_product_layouts(conn).await?;
     Ok(())
 }
 

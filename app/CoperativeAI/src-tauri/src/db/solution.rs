@@ -42,11 +42,14 @@ pub struct Solution {
     /// netcoredbg a built `.dll`. Conflating them would mean typing a shell
     /// command into a field that gets passed to a debugger as a filename.
     pub start_from: Option<String>,
+    /// Where each kind of thing lives in this working copy, as JSON — see
+    /// `set_kind_locations`. `{}` means nobody has said.
+    pub kind_locations: String,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
-const SELECT: &str = "SELECT id, name, productId, solutionType, answers, origin, githubUrl, githubVisibility, localPath, testCommand, language, runCommand, startFrom, createdAt, updatedAt FROM solutions";
+const SELECT: &str = "SELECT id, name, productId, solutionType, answers, origin, githubUrl, githubVisibility, localPath, testCommand, language, runCommand, startFrom, createdAt, updatedAt, kindLocations FROM solutions";
 
 pub async fn create_table(conn: &Connection) -> Result<()> {
     // Round-2 migration: add GitHub link columns. Pre-release → drop & recreate
@@ -71,6 +74,7 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             language TEXT,
             runCommand TEXT,
             startFrom TEXT,
+            kindLocations TEXT NOT NULL DEFAULT '{}',
             createdAt INTEGER NOT NULL,
             updatedAt INTEGER NOT NULL,
             UNIQUE(productId, name)
@@ -106,6 +110,14 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
     if has_table && !dropped && !columns.iter().any(|c| c == "startFrom") {
         conn.execute("ALTER TABLE solutions ADD COLUMN startFrom TEXT", ())
             .await?;
+    }
+    // Where each kind of thing lives, moved off the Product on 2026-08-21.
+    if has_table && !dropped && !columns.iter().any(|c| c == "kindLocations") {
+        conn.execute(
+            "ALTER TABLE solutions ADD COLUMN kindLocations TEXT NOT NULL DEFAULT '{}'",
+            (),
+        )
+        .await?;
     }
     Ok(())
 }
@@ -179,6 +191,77 @@ pub async fn set_test_command(conn: &Connection, id: i64, command: Option<&str>)
 /// Points a Solution at the folder its code lives in. Verified to exist here,
 /// because a path that is wrong is discovered later as a confusing empty file
 /// tree rather than as the mistake it is.
+/// Where each kind of thing lives in this Solution's working copy, as JSON:
+/// `{"page": "src/pages"}`.
+///
+/// **A fact about one repository, which is why it lives here.** It was held per
+/// Product until 2026-08-21, where a Product with a Rust backend and a React
+/// front end could give only one answer to "where do screens live" — and where
+/// a Product person owned a decision that is Develop's. Both wrong for the same
+/// reason: the Product is not the thing that has a folder layout.
+///
+/// Paths are relative to `local_path`, which is why they sit beside it.
+pub async fn set_kind_locations(conn: &Connection, id: i64, kind_locations: &str) -> Result<()> {
+    if find_by_id(conn, id).await?.is_none() {
+        return Err(DbError::Validation(format!("no Solution with id {id}")));
+    }
+    // Stored as given; unreadable JSON reads as "nothing said" rather than
+    // failing a save somebody is in the middle of.
+    conn.execute(
+        "UPDATE solutions SET kindLocations = ?1, updatedAt = ?2 WHERE id = ?3",
+        (kind_locations, now_millis(), id),
+    )
+    .await?;
+    Ok(())
+}
+
+/// The folder one kind of thing lives in, or an empty string for "nobody has
+/// said" — which every caller must treat as *do not guess*, never as a licence
+/// to assume a convention this repository may not follow.
+pub fn location_of(kind_locations: &str, kind: &str) -> String {
+    serde_json::from_str::<std::collections::HashMap<String, String>>(kind_locations)
+        .ok()
+        .and_then(|map| map.get(kind).cloned())
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
+/// Copies a pre-2026-08-21 Product-wide layout onto that Product's Solutions.
+///
+/// **Seeds, never reasserts.** A Solution that already has its own answer keeps
+/// it, so running this twice — or after somebody has corrected a folder — does
+/// not put the old Product-wide guess back.
+///
+/// The old column is read only if it is still there: a database created after
+/// the move never had it, and that is not an error.
+pub async fn adopt_product_layouts(conn: &Connection) -> Result<()> {
+    let columns = crate::db::table_columns(conn, "developer_rules").await?;
+    if !columns.iter().any(|c| c == "kindLocations") {
+        return Ok(());
+    }
+    let mut rows = conn
+        .query(
+            "SELECT productId, kindLocations FROM developer_rules
+             WHERE kindLocations IS NOT NULL AND kindLocations != '' AND kindLocations != '{}'",
+            (),
+        )
+        .await?;
+    let mut old: Vec<(i64, String)> = Vec::new();
+    while let Some(row) = rows.next().await? {
+        old.push((row.get(0)?, row.get(1)?));
+    }
+    for (product_id, layout) in old {
+        for solution in list_by_product(conn, product_id).await? {
+            let untouched = solution.kind_locations.trim();
+            if untouched.is_empty() || untouched == "{}" {
+                set_kind_locations(conn, solution.id, &layout).await?;
+            }
+        }
+    }
+    Ok(())
+}
+
 pub async fn set_local_path(conn: &Connection, id: i64, local_path: Option<&str>) -> Result<()> {
     if find_by_id(conn, id).await?.is_none() {
         return Err(DbError::Validation(format!("no Solution with id {id}")));
@@ -327,6 +410,8 @@ fn row_to_solution(row: turso::Row) -> Result<Solution> {
         language: row.get(10)?,
         run_command: row.get(11)?,
         start_from: row.get(12)?,
+        // Reads as "nothing said" on a row written before the column existed.
+        kind_locations: row.get(15).unwrap_or_else(|_| "{}".to_string()),
         created_at: row.get(13)?,
         updated_at: row.get(14)?,
     })
@@ -527,12 +612,20 @@ mod tests {
         let (conn, product_id) = db_with_product().await;
         let web = create(&conn, "Web", product_id, "website", "{}").await.expect("web");
         let api = create(&conn, "API", product_id, "api", "{}").await.expect("api");
-        crate::db::developer_rules::tests::seed_old_kind_locations(
-            &conn,
-            product_id,
-            r#"{"page":"src/pages"}"#,
+        // An installation from before this moved: the rules row still carries
+        // the Product-wide map, in a column `create_table` no longer creates.
+        conn.execute(
+            "ALTER TABLE developer_rules ADD COLUMN kindLocations TEXT NOT NULL DEFAULT '{}'",
+            (),
         )
-        .await;
+        .await
+        .expect("old column");
+        conn.execute(
+            "INSERT INTO developer_rules (productId, kindLocations, updatedAt) VALUES (?1, ?2, 1)",
+            (product_id, r#"{"page":"src/pages"}"#),
+        )
+        .await
+        .expect("old rules row");
 
         adopt_product_layouts(&conn).await.expect("migrate");
 

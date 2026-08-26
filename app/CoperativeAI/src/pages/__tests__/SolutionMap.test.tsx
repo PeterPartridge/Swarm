@@ -40,6 +40,7 @@ function sol(id: number, name: string, solutionType = "api", productId = 7): Sol
     language: null,
     runCommand: null,
     startFrom: null,
+    kindLocations: "{}",
   };
 }
 

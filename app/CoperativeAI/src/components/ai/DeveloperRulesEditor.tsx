@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { track } from "../../lib/saving";
 import {
-  changeKinds,
-  kindLocations,
   ruleTemplates,
-  type ChangeKindInfo,
   type RuleTemplate,
   getDeveloperRules,
   setDeveloperRules,
@@ -43,7 +40,6 @@ const EMPTY: Omit<DeveloperRules, "productId"> = {
   allowedTech: "",
   disallowedTech: "",
   aiConstraints: "",
-  kindLocations: "{}",
 };
 
 /** How hard each rule actually bites.
@@ -81,10 +77,6 @@ export default function DeveloperRulesEditor({
   /// template should not lose it for looking. Choosing the same one twice adds
   /// it twice, which is visible and undoable — unlike a silent overwrite.
   const [templates, setTemplates] = useState<RuleTemplate[]>([]);
-  /// The vocabulary of things a Solution can hold, so the "where does it live"
-  /// rows are the same list the build plan ticks from rather than a second one
-  /// written here.
-  const [vocabulary, setVocabulary] = useState<ChangeKindInfo[]>([]);
 
   const refresh = useCallback(async () => {
     try {
@@ -147,39 +139,12 @@ export default function DeveloperRulesEditor({
     }
   }
 
-  useEffect(() => {
-    void changeKinds()
-      .then(setVocabulary)
-      // The prose rules still work without the vocabulary, so a failure here
-      // is not raised over an editor somebody is using.
-      .catch(() => setVocabulary([]));
-  }, []);
-
   async function saveField(id: DeveloperRuleField, value: string) {
     const next = { ...rules, [id]: value };
     setRules(next);
     try {
       await track("Developer rules", () => setDeveloperRules({ ...next, productId }));
       // The bar says it saved, so the panel does not say it twice.
-      setError(null);
-    } catch (e) {
-      setError(String(e));
-    }
-  }
-
-  /// Records where one kind of thing lives, or clears it.
-  ///
-  /// A blank is a real answer and stored as one — the difference between "they
-  /// go in `src/pages`" and "nobody has said" is exactly what decides whether
-  /// the build plan scans for existing screens or admits it does not know.
-  async function saveLocation(kind: string, folder: string) {
-    const map = kindLocations(rules.kindLocations);
-    if (folder.trim() === "") delete map[kind];
-    else map[kind] = folder.trim();
-    const next = { ...rules, kindLocations: JSON.stringify(map) };
-    setRules(next);
-    try {
-      await track("Developer rules", () => setDeveloperRules({ ...next, productId }));
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -275,40 +240,11 @@ export default function DeveloperRulesEditor({
         })}
       </div>
 
-      {/* **The rule with a second job.** "Screens go in `src/pages`" is a
-          convention an agent cannot reliably read out of the code — and it is
-          also what lets the build plan offer the screens that already exist
-          instead of asking somebody to remember their names. Nothing is scanned
-          for a kind nobody has placed: a guess that screens are "probably in
-          src/pages" would produce confident suggestions for a repository laid
-          out some other way. */}
-      {vocabulary.length > 0 && (
-        <section className="rule-locations" aria-label="Where things live">
-          <h3>Where things live</h3>
-          <p className="hint">
-            A folder inside a working copy, per kind of thing. Agents are told
-            it, and the build plan reads the folder to suggest what is already
-            there. Left blank means nobody has said, and nothing is scanned.
-          </p>
-          <div className="rule-location-rows">
-            {vocabulary.map((k) => (
-              <label key={k.id} className="rule-location">
-                <span>{k.heading}</span>
-                <input
-                  type="text"
-                  aria-label={`Where ${k.heading} live`}
-                  placeholder="not said"
-                  defaultValue={kindLocations(rules.kindLocations)[k.id] ?? ""}
-                  readOnly={readOnly}
-                  onBlur={
-                    readOnly ? undefined : (e) => void saveLocation(k.id, e.target.value)
-                  }
-                />
-              </label>
-            ))}
-          </div>
-        </section>
-      )}
+      {/* **"Where things live" is not here any more.** It moved to the
+          Solution (Develop → Solutions) on 2026-08-21. It was a fact about one
+          repository held against the Product, so a Product with a Rust backend
+          and a React front end could give only one answer — and a folder layout
+          is Develop's decision, not something the Product side sets. */}
 
       <p className="hint">
         Only <strong>disallowed technologies</strong> is checked: it goes into

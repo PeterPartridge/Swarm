@@ -95,6 +95,7 @@ fn main() {
             commands::solutions::create_solution,
             commands::solutions::create_solution_with_starter,
             commands::solutions::list_starters,
+            commands::solutions::set_solution_kind_locations,
             commands::work_item_changes::list_work_item_changes,
             commands::work_item_changes::add_work_item_change,
             commands::work_item_changes::add_work_item_changes,

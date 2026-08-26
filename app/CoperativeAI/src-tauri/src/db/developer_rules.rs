@@ -21,19 +21,10 @@ pub struct DeveloperRules {
     /// The one field with teeth — checked against the AI's output.
     pub disallowed_tech: String,
     pub ai_constraints: String,
-    /// Where each kind of thing lives, as JSON: `{"screen":"src/pages", …}`,
-    /// keyed by a `work_item_change::KINDS` id and holding a path relative to a
-    /// Solution's working copy.
-    ///
-    /// **A rule, not a note.** "Screens go in `src/pages`" is the convention an
-    /// agent cannot read out of the code reliably, and it is also what lets the
-    /// build plan suggest the screens that already exist rather than asking
-    /// somebody to remember their names.
-    pub kind_locations: String,
     pub updated_at: i64,
 }
 
-const SELECT: &str = "SELECT id, productId, codingStandards, architecturePrinciples, maintainability, preferredFrameworks, allowedTech, disallowedTech, aiConstraints, kindLocations, updatedAt FROM developer_rules";
+const SELECT: &str = "SELECT id, productId, codingStandards, architecturePrinciples, maintainability, preferredFrameworks, allowedTech, disallowedTech, aiConstraints, updatedAt FROM developer_rules";
 
 pub async fn create_table(conn: &Connection) -> Result<()> {
     conn.execute(
@@ -47,38 +38,17 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             allowedTech TEXT NOT NULL DEFAULT '',
             disallowedTech TEXT NOT NULL DEFAULT '',
             aiConstraints TEXT NOT NULL DEFAULT '',
-            kindLocations TEXT NOT NULL DEFAULT '{}',
             updatedAt INTEGER NOT NULL
         )",
         (),
     )
     .await?;
-    // Rules are written by a person, so the table is altered rather than
-    // rebuilt — dropping somebody's disallowed-tech list to add a column would
-    // be losing the only thing here with teeth.
-    let columns = crate::db::table_columns(conn, "developer_rules").await?;
-    if !columns.is_empty() && !columns.iter().any(|c| c == "kindLocations") {
-        conn.execute(
-            "ALTER TABLE developer_rules ADD COLUMN kindLocations TEXT NOT NULL DEFAULT '{}'",
-            (),
-        )
-        .await?;
-    }
+    // **No kindLocations here any more.** Where a kind of thing lives moved to
+    // the Solution on 2026-08-21 — it is a fact about one repository, and a
+    // Product grows more of them. An installation that still has the column
+    // keeps it; `solution::adopt_product_layouts` reads it once to seed the
+    // Solutions, and nothing writes it again.
     Ok(())
-}
-
-/// The folder one kind of thing lives in, as the rules were written.
-///
-/// Empty when nothing was said about it — which is a real answer, and the
-/// reason nothing is scanned for that kind rather than a guess being made
-/// about where it might be.
-pub fn location_of(kind_locations: &str, kind: &str) -> String {
-    serde_json::from_str::<std::collections::HashMap<String, String>>(kind_locations)
-        .ok()
-        .and_then(|map| map.get(kind).cloned())
-        .unwrap_or_default()
-        .trim()
-        .to_string()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -92,31 +62,19 @@ pub async fn set_rules(
     allowed_tech: &str,
     disallowed_tech: &str,
     ai_constraints: &str,
-    kind_locations: &str,
 ) -> Result<()> {
     if crate::db::product::find_by_id(conn, product_id).await?.is_none() {
         return Err(DbError::Validation(format!(
             "no Product with id {product_id}"
         )));
     }
-    // Stored as given but checked as JSON: the build plan reads it to work out
-    // where to look for existing screens, and a malformed blob would fail there
-    // instead of here, a screen away from whoever typed it.
-    if !kind_locations.trim().is_empty()
-        && serde_json::from_str::<std::collections::HashMap<String, String>>(kind_locations)
-            .is_err()
-    {
-        return Err(DbError::Validation(
-            "the per-kind locations must be a JSON object of kind → folder".into(),
-        ));
-    }
     conn.execute("DELETE FROM developer_rules WHERE productId = ?1", (product_id,))
         .await?;
     conn.execute(
         "INSERT INTO developer_rules (productId, codingStandards, architecturePrinciples,
             maintainability, preferredFrameworks, allowedTech, disallowedTech, aiConstraints,
-            kindLocations, updatedAt)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            updatedAt)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         (
             product_id,
             coding_standards,
@@ -126,7 +84,6 @@ pub async fn set_rules(
             allowed_tech,
             disallowed_tech,
             ai_constraints,
-            if kind_locations.trim().is_empty() { "{}" } else { kind_locations },
             now_millis(),
         ),
     )
@@ -149,8 +106,7 @@ pub async fn for_product(conn: &Connection, product_id: i64) -> Result<Option<De
             allowed_tech: row.get(6)?,
             disallowed_tech: row.get(7)?,
             ai_constraints: row.get(8)?,
-            kind_locations: row.get(9)?,
-            updated_at: row.get(10)?,
+            updated_at: row.get(9)?,
         })),
         None => Ok(None),
     }
@@ -241,56 +197,37 @@ mod tests {
     #[tokio::test]
     async fn rules_round_trip_and_replace_rather_than_duplicate() {
         let (conn, product_id) = db_with_product().await;
-        set_rules(&conn, product_id, "DRY", "hexagonal", "small changes", "React", "Rust, TS", "Java", "no new deps", "{}")
+        set_rules(&conn, product_id, "DRY", "hexagonal", "small changes", "React", "Rust, TS", "Java", "no new deps")
             .await
             .expect("set");
-        set_rules(&conn, product_id, "DRY + SOLID", "hexagonal", "small changes", "React", "Rust, TS", "Java, PHP", "no new deps", r#"{"screen":"src/pages"}"#)
+        set_rules(&conn, product_id, "DRY + SOLID", "hexagonal", "small changes", "React", "Rust, TS", "Java, PHP", "no new deps")
             .await
             .expect("replace");
 
         let rules = for_product(&conn, product_id).await.expect("get").expect("exists");
         assert_eq!(rules.coding_standards, "DRY + SOLID");
         assert_eq!(rules.disallowed_tech, "Java, PHP");
-        assert_eq!(location_of(&rules.kind_locations, "screen"), "src/pages");
     }
 
     #[tokio::test]
     async fn a_product_without_rules_has_none_and_an_unknown_product_is_rejected() {
         let (conn, product_id) = db_with_product().await;
         assert_eq!(for_product(&conn, product_id).await.expect("get"), None);
-        assert!(set_rules(&conn, 999, "", "", "", "", "", "", "", "").await.is_err());
+        assert!(set_rules(&conn, 999, "", "", "", "", "", "", "").await.is_err());
     }
 
-    /// The build plan reads this to work out where to look for existing
-    /// screens. A malformed blob would fail there — a screen away from whoever
-    /// typed it — so it is refused here instead.
-    #[tokio::test]
-    async fn the_per_kind_locations_have_to_be_a_json_object() {
-        let (conn, product_id) = db_with_product().await;
-        let err = set_rules(&conn, product_id, "", "", "", "", "", "", "", "src/pages")
-            .await
-            .expect_err("not JSON");
-        assert!(err.to_string().contains("JSON object"), "got: {err}");
-
-        // Nothing said is a real answer, and stored as an empty object rather
-        // than as a blank that later fails to parse.
-        set_rules(&conn, product_id, "", "", "", "", "", "", "", "")
-            .await
-            .expect("empty is fine");
-        let rules = for_product(&conn, product_id).await.expect("get").expect("exists");
-        assert_eq!(rules.kind_locations, "{}");
-        assert_eq!(location_of(&rules.kind_locations, "screen"), "");
-    }
-
-    /// Nothing said about a kind means nothing is scanned for it — a guess that
-    /// screens are "probably in src/pages" would produce confident suggestions
-    /// for a repository laid out some other way.
+    /// **These rules are the team's, not one repository's.** Where things live
+    /// used to be an eighth field here and is now on the Solution: it is a fact
+    /// about a working copy, a Product grows more than one, and it was a
+    /// Develop decision sitting in a Product-shaped store. Its tests moved with
+    /// it, to `db::solution`.
     #[test]
-    fn an_unmentioned_kind_has_no_location() {
-        let written = r#"{"screen":" src/pages ","service":"src/services"}"#;
-        assert_eq!(location_of(written, "screen"), "src/pages", "trimmed");
-        assert_eq!(location_of(written, "table"), "");
-        assert_eq!(location_of("not json at all", "screen"), "");
+    fn the_rules_that_stayed_are_the_ones_about_how_the_team_works() {
+        // A guard rather than a behaviour: if a per-repository field is ever
+        // added back here, this is the sentence that should stop it.
+        let team_wide = DeveloperRules::default();
+        assert_eq!(team_wide.coding_standards, "");
+        assert_eq!(team_wide.ai_constraints, "");
     }
 
     #[test]

@@ -19,8 +19,6 @@ pub struct DeveloperRulesDto {
     pub allowed_tech: String,
     pub disallowed_tech: String,
     pub ai_constraints: String,
-    /// JSON: kind id → folder inside a working copy.
-    pub kind_locations: String,
 }
 
 #[derive(Serialize)]
@@ -68,7 +66,6 @@ pub async fn get_developer_rules(
         allowed_tech: r.allowed_tech,
         disallowed_tech: r.disallowed_tech,
         ai_constraints: r.ai_constraints,
-        kind_locations: r.kind_locations,
     }))
 }
 
@@ -84,7 +81,6 @@ pub async fn set_developer_rules(
     allowed_tech: String,
     disallowed_tech: String,
     ai_constraints: String,
-    kind_locations: String,
 ) -> Result<(), String> {
     let conn = db.0.lock().await;
     developer_rules::set_rules(
@@ -97,7 +93,6 @@ pub async fn set_developer_rules(
         &allowed_tech,
         &disallowed_tech,
         &ai_constraints,
-        &kind_locations,
     )
     .await
     .map_err(to_message)

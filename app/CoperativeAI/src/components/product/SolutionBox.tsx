@@ -1,8 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
+  changeKinds,
+  changeKindsForSolution,
+  kindLocations,
   reviewSolutionChanges,
+  setSolutionKindLocations,
   setSolutionPath,
   settleChangeRun,
+  type ChangeKindInfo,
   type ChangeReview,
   type Solution,
 } from "../../lib/backend";
@@ -39,8 +44,39 @@ export default function SolutionBox({
   const [settled, setSettled] = useState<"kept" | "discarded" | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /// The kinds **this** Solution can hold — an API is not asked where its
+  /// screens live. The rules editor used the global list and asked everybody
+  /// about everything.
+  const [kinds, setKinds] = useState<ChangeKindInfo[]>([]);
 
   const linked = solution.localPath !== null && solution.localPath !== "";
+
+  useEffect(() => {
+    // Two calls because they answer different halves: which kinds *this*
+    // Solution can hold, and what each is called. The rest of the panel works
+    // without them, so a failure here stays quiet.
+    void Promise.all([changeKindsForSolution(solution.id), changeKinds()])
+      .then(([mine, all]) => setKinds(all.filter((k) => mine.includes(k.id))))
+      .catch(() => setKinds([]));
+  }, [solution.id]);
+
+  /// Records where one kind of thing lives in this working copy, or clears it.
+  ///
+  /// Blank is a real answer and stored as one: the difference between "they go
+  /// in `src/pages`" and "nobody has said" is what decides whether the build
+  /// plan scans for what is already there or admits it does not know.
+  async function onSetLocation(kind: string, folder: string) {
+    const map = kindLocations(solution.kindLocations);
+    if (folder.trim() === "") delete map[kind];
+    else map[kind] = folder.trim();
+    try {
+      await setSolutionKindLocations(solution.id, JSON.stringify(map));
+      setError(null);
+      onPathChanged();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
 
   async function onReview() {
     setBusy(true);
@@ -93,6 +129,38 @@ export default function SolutionBox({
           A linked GitHub repository is not a checkout — point this at the
           folder on your machine to open it.
         </p>
+      )}
+
+      {/* **Where things live, on the Solution.** It sat in the Product's
+          Developer Rules until 2026-08-21, which was wrong twice: a layout is a
+          fact about one repository and a Product grows more of them, and it is
+          Develop's decision rather than something the Product side sets. It is
+          beside the working copy because every path here is relative to it —
+          and it stays editable, because architecture moves as a product grows
+          rather than being settled the day a Solution is made. */}
+      {kinds.length > 0 && (
+        <section className="rule-locations" aria-label="Where things live">
+          <h4>Where things live</h4>
+          <p className="hint">
+            A folder inside this working copy, per kind of thing. Agents are
+            told it, and the build plan reads the folder to suggest what is
+            already there. Blank means nobody has said, and nothing is scanned.
+          </p>
+          <div className="rule-location-rows">
+            {kinds.map((k) => (
+              <label key={k.id} className="rule-location">
+                <span>{k.heading}</span>
+                <input
+                  type="text"
+                  aria-label={`Where ${k.heading} live in ${solution.name}`}
+                  placeholder="not said"
+                  defaultValue={kindLocations(solution.kindLocations)[k.id] ?? ""}
+                  onBlur={(e) => void onSetLocation(k.id, e.target.value)}
+                />
+              </label>
+            ))}
+          </div>
+        </section>
       )}
 
       {linked && onOpenInEditor && (

@@ -61,6 +61,7 @@ function solution(overrides: Partial<Solution> = {}): Solution {
     language: null,
     runCommand: null,
     startFrom: null,
+    kindLocations: "{}",
     ...overrides,
   };
 }

@@ -19,6 +19,10 @@ pub struct SolutionDto {
     pub local_path: Option<String>,
     pub test_command: Option<String>,
     pub language: Option<String>,
+    /// Where each kind of thing lives in this working copy, as JSON. Set by a
+    /// developer in Develop → Solutions; empty means nobody has said, and
+    /// nothing is scanned for that kind.
+    pub kind_locations: String,
 }
 
 impl From<Solution> for SolutionDto {
@@ -35,6 +39,7 @@ impl From<Solution> for SolutionDto {
             local_path: s.local_path,
             test_command: s.test_command,
             language: s.language,
+            kind_locations: s.kind_locations,
         }
     }
 }
@@ -212,4 +217,23 @@ pub async fn create_solution(
 pub async fn delete_solution(db: State<'_, AppDb>, id: i64) -> Result<(), String> {
     let conn = db.0.lock().await;
     solution::delete(&conn, id).await.map_err(to_message)
+}
+
+/// Records where each kind of thing lives in this Solution's working copy.
+///
+/// **Develop's decision, on the Solution.** It sat in the Product's Developer
+/// Rules until 2026-08-21, which was wrong twice: a folder layout is a fact
+/// about one repository and a Product grows more of them, and architecture is
+/// not something the Product side sets. Paths are relative to `localPath`,
+/// which is why the two are edited together.
+#[tauri::command]
+pub async fn set_solution_kind_locations(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+    kind_locations: String,
+) -> Result<(), String> {
+    let conn = db.0.lock().await;
+    solution::set_kind_locations(&conn, solution_id, &kind_locations)
+        .await
+        .map_err(to_message)
 }

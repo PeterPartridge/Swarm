@@ -1772,3 +1772,177 @@ Matching is **whole-word**, which took two attempts. The first version treated `
 **Tests:** Vitest 51/51, cargo 85/85; `npm run build` and a full `cargo build` clean.
 
 **Technical debt (Develop-area side):** the GitHub card sits below Create-a-Solution, so a first-time user creates a Solution before seeing the connection card — the Create-new button is disabled with a title explaining why, but the ordering is worth revisiting. Connection state is per-app, not per-Product.
+
+---
+
+## Round 51 — "Where things live" leaves the rules
+
+### My Feedback
+
+**Three statements, one conclusion.** "This should not exist. Developer set
+where things live when they create solutions." "All solutions when developed are
+never a set plan — as a product becomes more successful you may add more
+solutions or change the architecture to allow for heavier loads." "Product
+people do not set software architecture or solutions." Each rules out something
+different, and together they leave exactly one place for a folder layout: **on
+the Solution, editable whenever, in Develop.**
+
+**It was wrong twice over, not once.** Held in `developer_rules`, keyed by
+`productId`, it was a per-repository fact in a per-Product store — a Product
+with a Rust backend and a React front end could give one answer to "where do
+screens live", and this project is that Product. And it was an architecture
+decision owned by the Product entity, which is the boundary the third statement
+draws. The tabs already respected that boundary; the schema did not.
+
+**The consumer proves it.** `suggest_change_names(solution_id, kind)` took a
+*Solution*, then walked `solution → product_id → developer_rules → location_of`.
+It answered a per-Solution question out of a per-Product answer.
+
+**Architecture moving is what makes the stale case normal.** `names_in` returns
+an empty list when the folder cannot be read, so a renamed folder and an unset
+one produced identical silence — no suggestions, no reason. That is fine when
+layouts are settled and wrong when they are not, which is the second statement's
+whole point. A folder that was named and is no longer there now says so.
+
+### Implemented
+
+- `db/solution.rs` — `kindLocations` column (additive; `localPath` and the test
+  and run commands set the precedent), `set_kind_locations`, `location_of` moved
+  here from `developer_rules`, and `adopt_product_layouts`, which copies a
+  pre-move Product-wide map onto that Product's Solutions. It **seeds and never
+  reasserts**: a Solution with its own answer keeps it, so running it twice — or
+  after a correction — does not put the old guess back. Reads the old column
+  only if it is still there.
+- `db/developer_rules.rs` — the field, the column, the validation and
+  `location_of` gone. What is left is what the *team* does: coding standards,
+  architecture principles, maintainability, frameworks, allowed and disallowed
+  tech, AI constraints.
+- `commands/work_item_changes.rs` — reads the Solution's own layout, and pushes
+  a "`src/pages` was named as where these live, and is not in the working copy
+  any more" entry when the folder has gone.
+- `commands/solutions.rs` — `set_solution_kind_locations`, and `kindLocations`
+  on `SolutionDto`.
+- `components/product/SolutionBox.tsx` — the rows, in **Develop → Solutions**,
+  beside the working copy the paths are relative to. It asks only about the
+  kinds *this* Solution can hold (`changeKindsForSolution`), where the rules
+  editor used the global list and asked a database where its screens live.
+- `components/ai/DeveloperRulesEditor.tsx` — the section deleted, with a comment
+  saying where it went and why.
+
+### Tests
+
+cargo 675/675 (23 ignored), Vitest 607/607, `tsc --noEmit`, `npm run build` and
+clippy `-D warnings` clean. Five new Rust tests and two new Vitest ones:
+
+- **Two Solutions in one Product lay themselves out differently** — the bug that
+  prompted this, now impossible to reintroduce without failing.
+- A layout that is not a map reads as "nothing said" rather than crashing;
+  whitespace is trimmed; an unknown Solution is refused.
+- The Product's old layout is copied onto its Solutions, and a second run does
+  not overwrite an answer a developer has since given.
+- The rows offer only this Solution's kinds; clearing a folder stores "nobody
+  has said" rather than a blank that later fails to parse.
+
+### Your Feedback
+
+- **The same shape is still wrong for four more fields**, and I did not widen
+  the change to them: `preferredFrameworks`, `allowedTech`, `disallowedTech` and
+  `architecturePrinciples` are all per-repository facts in a per-Product store.
+  A Product with a Rust backend and a React front end has no single "preferred
+  frameworks". `disallowedTech` is the only rule here with teeth — it is checked
+  against AI output — so moving it deserves its own round and its own tests
+  rather than riding along with a folder field.
+- **What stayed is what should stay.** Coding standards, maintainability and AI
+  constraints are how the team works. They are not architecture, they do not
+  change when a Solution is added, and one answer is the right number.
+- Recommendation: the emitted solution spec still has no `scaffold.fileLayout`
+  block, even though the framework's own form asks for one and the app now holds
+  the answer. Rendering it there would close the loop — what a developer types
+  in Develop becomes the spec the framework builds from.
+
+### Technical Debt
+
+- **The `developer_rules.kindLocations` column is left in place on existing
+  installations**, unread after the migration copies it out. Dropping it needs
+  either `ALTER TABLE DROP COLUMN` support in turso or a table rebuild, and
+  rebuilding a table whose other columns hold hand-written rules to reclaim one
+  dead column is the worse trade.
+- **Four more per-repository fields are still Product-scoped** (above).
+- **The emitted spec has no `scaffold.fileLayout`** (above).
+- **Develop-side components are still filed under `components/product/`** —
+  `SolutionBox`, `NewSolutionForm`, `SolutionRepo`, `GithubCard`, `SshCard`.
+  Harmless to users; the folder names now say the opposite of the boundary.
+
+---
+
+## Round 52 — the build plan's two answers to one question
+
+### My Feedback
+
+**"Lands in" was not clutter, it was a contradiction.** Two fields answered
+"which Solution does this work touch", and nothing kept them in step:
+
+- `attach_solution_to_work_item` created a plan and left `work_items.solutionId`
+  alone.
+- The **Lands in** picker set `solutionId` and created no plan.
+
+So a work item could have a plan against the API while Lands in said the front
+end, or nothing. And the readers were split down the same crack: the **agent
+handover gate** and **where an AI-written test is placed** read `solutionId`,
+while the runs and the build plan read the attached plans. Whichever field you
+filled in, half the app disagreed with you.
+
+**Attaching is now the only way to say it.** The first Solution attached claims
+the landing; a second does not steal it, because work touching two repositories
+still lands in the one it was pointed at and moving that should be deliberate.
+Detaching hands it to whatever is still attached, and detaching the last one
+leaves it with nowhere to land — which stays a real answer, since plenty of work
+is not code.
+
+### Implemented
+
+- `db/work_item_plan.rs` — `attach` sets the landing when the item has none;
+  `detach` reads the plan **before** deleting it (afterwards there is no way to
+  know which item it belonged to) and hands the landing on, or clears it.
+  `set_landing` is its own statement rather than going through
+  `work_item::update_item`, which replaces every field it is given and would
+  make this caller restate a title, a risk and six commercial fields it is not
+  touching.
+- `components/planning/WorkItemBuildPlan.tsx` — the **Lands in** picker deleted.
+
+### Tests
+
+cargo 677/677 (23 ignored), Vitest 608/608, `tsc --noEmit`, `npm run build` and
+clippy `-D warnings` clean. Two new Rust tests and one Vitest:
+
+- Attaching sets the landing; a second attach does not steal it; detaching the
+  one it landed in hands it to what is left.
+- Detaching the last Solution leaves nowhere to land.
+- The build plan has no second picker — pinning the removal so it cannot drift
+  back as a "convenience".
+
+### Your Feedback
+
+- **The other two are scattered, not duplicated, and I have not moved them.**
+  *Development details* is one field with one editor; the per-Solution box in
+  "What this changes" appends dated entries into it, which is why it reads as a
+  log with prose at the top. *Questions for Product* is a separate mechanism —
+  it produces clarifications, which the change detail does not.
+- **What you are pointing at with "this should already be in What this
+  changes" is real, but it is a design change rather than a deletion**: a
+  question would be asked *against the change that is unclear*, so it arrives
+  with its context instead of floating at the bottom of the item. That means
+  anchoring `ai_feedback` to a change rather than only to a work item — its own
+  round, with its own migration.
+- Recommendation: if the goal is fewer boxes on one screen rather than a
+  different model, the cheap version is rendering the questions inside the
+  "What this changes" section as it stands. That is a reorder and I can do it in
+  minutes; the anchored version is the one worth planning.
+
+### Technical Debt
+
+- **Questions are not anchored to a change** (above), so a developer asking
+  about one screen among six writes the screen's name into the question by hand.
+- Two `PlanningBoard` tests assert the Lands-in picker is absent from Product's
+  board. They still pass, but now trivially — the control exists nowhere, so
+  they no longer prove the boundary they were written for.

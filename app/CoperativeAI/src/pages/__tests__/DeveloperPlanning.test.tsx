@@ -41,6 +41,7 @@ function sol(id: number, name: string, productId = 7): Solution {
     language: null,
     runCommand: null,
     startFrom: null,
+    kindLocations: "{}",
   };
 }
 

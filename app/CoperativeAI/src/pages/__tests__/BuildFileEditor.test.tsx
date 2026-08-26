@@ -44,6 +44,7 @@ const sol = (over: Partial<Solution> = {}): Solution =>
     language: "Go (go mod)",
     runCommand: null,
     startFrom: null,
+    kindLocations: "{}",
     ...over,
   }) as Solution;
 

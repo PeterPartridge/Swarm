@@ -60,6 +60,7 @@ const solution: Solution = {
   language: null,
   runCommand: null,
   startFrom: null,
+  kindLocations: "{}",
 };
 
 /** The area is tabbed now: Planning is the default; everything else lives

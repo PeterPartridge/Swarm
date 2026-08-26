@@ -14,6 +14,9 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     setSolutionPath: vi.fn(),
     settleChangeRun: vi.fn(),
     pickFolder: vi.fn(),
+    changeKinds: vi.fn(),
+    changeKindsForSolution: vi.fn(),
+    setSolutionKindLocations: vi.fn(),
   };
 });
 
@@ -36,6 +39,7 @@ function solution(overrides: Partial<Solution> = {}): Solution {
     language: null,
     runCommand: null,
     startFrom: null,
+    kindLocations: "{}",
     ...overrides,
   };
 }
@@ -60,6 +64,69 @@ function review(overrides: Partial<ChangeReview> = {}): ChangeReview {
 describe("SolutionBox", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocked.changeKindsForSolution.mockResolvedValue([]);
+    mocked.changeKinds.mockResolvedValue([]);
+  });
+
+  /// **Where things live moved here from the Product's Developer Rules.** It is
+  /// a fact about one repository — a Product with a Rust backend and a React
+  /// front end has two answers — and it is Develop's decision, not Product's.
+  it("asks where things live for the kinds this Solution can hold", async () => {
+    const user = userEvent.setup();
+    mocked.changeKindsForSolution.mockResolvedValue(["endpoint"]);
+    mocked.changeKinds.mockResolvedValue([
+      { id: "endpoint", label: "Endpoint", heading: "Endpoints", group: "logic", groupLabel: "Logic", example: "" },
+      { id: "screen", label: "Screen", heading: "Screens", group: "ui", groupLabel: "UI", example: "" },
+    ]);
+    mocked.setSolutionKindLocations.mockResolvedValue(undefined);
+    render(
+      <SolutionBox solution={solution()} onPathChanged={vi.fn()} onOpenInEditor={vi.fn()} />,
+    );
+
+    const box = await screen.findByLabelText("Where Endpoints live in Shop API");
+    // An API is never asked where its screens live.
+    expect(
+      screen.queryByLabelText("Where Screens live in Shop API"),
+    ).not.toBeInTheDocument();
+
+    await user.type(box, "src/routes");
+    await user.tab();
+
+    await waitFor(() =>
+      expect(mocked.setSolutionKindLocations).toHaveBeenCalledWith(
+        3,
+        JSON.stringify({ endpoint: "src/routes" }),
+      ),
+    );
+  });
+
+  /// Blank is a real answer: it is the difference between "they go in
+  /// src/routes" and "nobody has said", and the second is what stops the build
+  /// plan guessing at a layout this repository may not follow.
+  it("clearing a folder says nobody has said, rather than storing a blank", async () => {
+    const user = userEvent.setup();
+    mocked.changeKindsForSolution.mockResolvedValue(["endpoint"]);
+    mocked.changeKinds.mockResolvedValue([
+      { id: "endpoint", label: "Endpoint", heading: "Endpoints", group: "logic", groupLabel: "Logic", example: "" },
+    ]);
+    mocked.setSolutionKindLocations.mockResolvedValue(undefined);
+    render(
+      <SolutionBox
+        solution={solution({ kindLocations: '{"endpoint":"src/routes"}' })}
+        onPathChanged={vi.fn()}
+        onOpenInEditor={vi.fn()}
+      />,
+    );
+
+    const box = await screen.findByLabelText("Where Endpoints live in Shop API");
+    expect(box).toHaveValue("src/routes");
+
+    await user.clear(box);
+    await user.tab();
+
+    await waitFor(() =>
+      expect(mocked.setSolutionKindLocations).toHaveBeenCalledWith(3, "{}"),
+    );
   });
 
   /// A linked GitHub repository is not a checkout — the distinction has caught

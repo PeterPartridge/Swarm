@@ -74,6 +74,7 @@ function solution(id: number, name: string, productId: number): Solution {
     language: null,
     runCommand: null,
     startFrom: null,
+    kindLocations: "{}",
   };
 }
 
