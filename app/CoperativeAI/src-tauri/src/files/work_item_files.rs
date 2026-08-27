@@ -117,7 +117,7 @@ pub fn to_markdown(doc: &WorkItemDoc) -> String {
         ));
         if !part.branch_name.trim().is_empty() {
             out.push_str(&format!(
-                "Branch: `{}`, cut from `{}`\n",
+                "Branch: `{}`, branched from `{}`\n",
                 part.branch_name.trim(),
                 blank_as(&part.clone_from, "the default branch")
             ));
@@ -163,6 +163,27 @@ pub fn to_markdown(doc: &WorkItemDoc) -> String {
                 out.push_str(&format!("### {label}\n\n```\n{}\n```\n\n", content.trim()));
             }
         }
+    }
+
+    // **Naming a picture is not the same as being told to look at it.** The
+    // paths were already in the list above and an agent could read straight
+    // past them — wasting the one artefact Product produced that says what the
+    // screen should actually look like. Said once, in words, and only when
+    // there is something to open: an agent told to read mockups that do not
+    // exist goes looking for them.
+    let has_mockups = doc
+        .solutions
+        .iter()
+        .flat_map(|s| &s.changes)
+        .chain(doc.unassigned.iter())
+        .any(|c| c.mockup.is_some());
+    if has_mockups {
+        out.push_str(
+            "## Mockups\n\nOpen the mockups named above before writing any UI. \
+             They are the only record of what the screen should look like, and \
+             the wording, layout and states in them are the requirement — not a \
+             suggestion to improve on.\n\n",
+        );
     }
 
     if !doc.unassigned.is_empty() {
@@ -252,6 +273,37 @@ mod tests {
                 mockup: None,
             }],
         }
+    }
+
+    /// **Naming a picture is not the same as being told to look at it.** The
+    /// path was already in the brief and an agent could read straight past it,
+    /// which wastes the one thing Product produced that says what the screen
+    /// should look like. So the brief says to open it, in words, once — and
+    /// only when there is a picture to open.
+    #[test]
+    fn a_mockup_is_something_the_agent_is_told_to_open() {
+        // Its own document rather than the shared fixture: adding a screen
+        // there would give every other test a screen it did not ask for, and
+        // one of them exists to prove an empty kind gets no heading.
+        let mut with_picture = doc();
+        with_picture.solutions[0].changes.push(ChangeEntry {
+            kind: "screen".into(),
+            action: "add".into(),
+            name: "Payment page".into(),
+            detail: "card details and a Pay button".into(),
+            mockup: Some("design/pay.png".into()),
+        });
+
+        let md = to_markdown(&with_picture);
+        assert!(md.contains("design/pay.png"), "the path still travels");
+        assert!(
+            md.contains("Open the mockups named above before writing any UI"),
+            "and the agent is told to look at it: {md}"
+        );
+
+        // No pictures, no instruction — an agent told to open mockups that do
+        // not exist goes looking for them.
+        assert!(!to_markdown(&doc()).contains("Open the mockups"));
     }
 
     /// The Markdown is for reading: intent, then what each Solution must do.

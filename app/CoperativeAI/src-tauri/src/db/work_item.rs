@@ -178,6 +178,30 @@ pub async fn create(
     last_insert_id(conn).await
 }
 
+/// Writes what the work **is** — Product's sentence, the one an agent builds
+/// against.
+///
+/// Its own statement rather than a field on `WorkItemFields`: that struct is
+/// replaced wholesale by whoever calls `update_item`, so describing an item
+/// through it would mean the caller restating a sprint, a risk and six
+/// commercial fields it is not touching — and getting one of them wrong is how
+/// a description edit silently unassigns somebody.
+///
+/// Blank clears it back to "nothing said", which is a different and more
+/// honest state than an empty string that reads as described.
+pub async fn set_description(conn: &Connection, id: i64, description: &str) -> Result<()> {
+    if find_by_id(conn, id).await?.is_none() {
+        return Err(DbError::Validation(format!("no work item with id {id}")));
+    }
+    let cleaned = Some(description.trim()).filter(|d| !d.is_empty());
+    conn.execute(
+        "UPDATE work_items SET description = ?1, updatedAt = ?2 WHERE id = ?3",
+        (cleaned, now_millis(), id),
+    )
+    .await?;
+    Ok(())
+}
+
 pub async fn update_status(conn: &Connection, id: i64, status: &str) -> Result<()> {
     if !STATUSES.contains(&status) {
         return Err(DbError::Validation(format!(
@@ -504,6 +528,35 @@ pub(crate) mod tests {
         let cols = crate::db::table_columns(&conn, "work_items").await.expect("info");
         assert!(cols.contains(&"productId".to_string()) && cols.contains(&"expectedCost".to_string()));
         assert!(!cols.contains(&"repositoryId".to_string()));
+    }
+
+    /// **A description could be written once and never corrected.** It was set
+    /// at creation and appeared in no update path, so the one field an agent is
+    /// asked to build against was the one field nobody could fix a typo in.
+    /// Found when a readiness check started asking for it and there was nowhere
+    /// to go and write it.
+    #[tokio::test]
+    async fn a_description_can_be_written_after_the_item_exists() {
+        let (conn, product_id) = db_with_product().await;
+        let id = create(&conn, "Checkout", "feature", product_id, None, None)
+            .await
+            .expect("create");
+        assert_eq!(find_by_id(&conn, id).await.expect("q").unwrap().description, None);
+
+        set_description(&conn, id, "A customer pays for the basket.")
+            .await
+            .expect("describe");
+        assert_eq!(
+            find_by_id(&conn, id).await.expect("q").unwrap().description.as_deref(),
+            Some("A customer pays for the basket."),
+        );
+
+        // Cleared back to nothing said, rather than stored as an empty string
+        // that reads as "described, with nothing in it".
+        set_description(&conn, id, "   ").await.expect("clear");
+        assert_eq!(find_by_id(&conn, id).await.expect("q").unwrap().description, None);
+
+        assert!(set_description(&conn, 999, "x").await.is_err());
     }
 
     #[tokio::test]

@@ -2339,6 +2339,10 @@ export interface CommitPolicy {
   intervalMinutes: number;
 }
 
+export const listSolutionBranches = (
+  solutionId: number,
+): Promise<string[]> => invoke("list_solution_branches", { solutionId });
+
 export const branchHistory = (
   solutionId: number,
   limit?: number,

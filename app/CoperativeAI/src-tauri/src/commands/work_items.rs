@@ -89,6 +89,23 @@ pub async fn create_work_item(
     .map_err(to_message)
 }
 
+/// Records what the work is — Product's side of the item.
+///
+/// **Product owns this**, which is why it is its own command rather than a
+/// field on the developer-side update: what customers get is Product's to
+/// write, and how it is built is Develop's.
+#[tauri::command]
+pub async fn set_work_item_description(
+    db: State<'_, AppDb>,
+    id: i64,
+    description: String,
+) -> Result<(), String> {
+    let conn = db.0.lock().await;
+    work_item::set_description(&conn, id, &description)
+        .await
+        .map_err(to_message)
+}
+
 #[tauri::command]
 pub async fn update_work_item_status(
     db: State<'_, AppDb>,

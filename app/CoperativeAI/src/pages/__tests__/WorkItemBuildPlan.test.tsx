@@ -1,7 +1,9 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import WorkItemBuildPlan from "../../components/planning/WorkItemBuildPlan";
+import WorkItemBuildPlan, {
+  whatIsMissing,
+} from "../../components/planning/WorkItemBuildPlan";
 import type { Solution, WorkItem, WorkItemPlan } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {
@@ -125,7 +127,7 @@ describe("WorkItemBuildPlan", () => {
   /// and the plan read the other. Attaching is now the only way in.
   it("has no second picker for the Solution the work lands in", async () => {
     render(<WorkItemBuildPlan item={item} solutions={solutions} />);
-    await screen.findByLabelText("Submit Add checkout for planning");
+    await screen.findByLabelText("Plan Add checkout");
 
     expect(screen.queryByLabelText(`Solution of ${item.title}`)).not.toBeInTheDocument();
     expect(screen.queryByText("Lands in")).not.toBeInTheDocument();
@@ -194,8 +196,26 @@ describe("WorkItemBuildPlan", () => {
     const execute = screen.getByRole("button", { name: `Execute ${item.title}` });
     expect(plan).toBeDisabled();
     expect(execute).toBeDisabled();
-    expect(plan).toHaveAccessibleDescription(/attach a solution/i);
-    expect(execute).toHaveAccessibleDescription(/attach a solution/i);
+    expect(plan).toHaveAccessibleDescription(/no Solution is attached/i);
+    expect(execute).toHaveAccessibleDescription(/no Solution is attached/i);
+  });
+
+  /// **Every reason, not just the first.** Discovering the next blocker each
+  /// time you fix one is how a form makes somebody give up; listed together,
+  /// they are fixed in a single pass.
+  it("lists everything missing, not only the first thing", () => {
+    const bare = { ...item, description: null };
+    expect(whatIsMissing(bare, [])).toHaveLength(2);
+    expect(whatIsMissing(bare, []).join(" ")).toMatch(/described/i);
+    expect(whatIsMissing(bare, []).join(" ")).toMatch(/no Solution/i);
+
+    // A Solution attached, but nobody has said what changes in it.
+    expect(whatIsMissing(item, [plan({})])).toEqual([
+      expect.stringMatching(/nothing is written about what has to change/i),
+    ]);
+
+    // Described, attached, and written about: ready.
+    expect(whatIsMissing(item, [plan({ changesRequired: "Add POST /checkout" })])).toEqual([]);
   });
 
   /// Execute **is** the approval, pressed knowingly — not a bypass of it.
@@ -275,7 +295,7 @@ describe("WorkItemBuildPlan", () => {
     render(<WorkItemBuildPlan item={item} solutions={solutions} />);
 
     await user.click(
-      await screen.findByLabelText("Generate the code changes for Add checkout"),
+      await screen.findByLabelText("Execute Add checkout"),
     );
 
     await waitFor(() => expect(mocked.generateChangePlan).toHaveBeenCalledWith(12));
@@ -304,7 +324,7 @@ describe("WorkItemBuildPlan", () => {
     render(<WorkItemBuildPlan item={item} solutions={solutions} />);
 
     await user.click(
-      await screen.findByLabelText("Generate the code changes for Add checkout"),
+      await screen.findByLabelText("Execute Add checkout"),
     );
 
     // One wording across every panel now, from `BlockedNote` — this used to
@@ -321,7 +341,7 @@ describe("WorkItemBuildPlan", () => {
   it("cannot generate before a Solution is affected", async () => {
     render(<WorkItemBuildPlan item={item} solutions={solutions} />);
     expect(
-      await screen.findByLabelText("Generate the code changes for Add checkout"),
+      await screen.findByLabelText("Execute Add checkout"),
     ).toBeDisabled();
   });
 

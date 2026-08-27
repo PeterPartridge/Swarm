@@ -709,6 +709,56 @@ pub fn abort_merge(root: &str) -> Result<(), String> {
 }
 
 /// The checkouts this repository has, main one included.
+/// The branches this repository has, local and remote, for choosing one to
+/// branch from.
+///
+/// **Remotes included, deduplicated to their short name.** The branch somebody
+/// cuts from is usually `main` or a release branch that exists on the remote
+/// and may never have been checked out here — offering only local branches
+/// would leave the commonest answer missing from a list that claims to be the
+/// branches.
+///
+/// `HEAD` is dropped: `origin/HEAD` is a pointer at another entry in the same
+/// list, and offering it would let somebody pick a name that means "whatever
+/// the default is today".
+pub fn list_branches(root: &str) -> Result<Vec<String>, String> {
+    let root_path = canonical(root)?;
+    let text = git(
+        &root_path,
+        &["branch", "--all", "--format=%(refname:short)"],
+    )?;
+    Ok(parse_branch_list(&text))
+}
+
+/// Reads `git branch --all --format=%(refname:short)` (pure — unit tested).
+pub fn parse_branch_list(text: &str) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for line in text.lines() {
+        let name = line.trim();
+        if name.is_empty() || name.ends_with("HEAD") {
+            continue;
+        }
+        // `origin/main` and `main` are the same branch to whoever is choosing,
+        // so the remote's name is dropped — but **only** from entries that
+        // came from a remote. Splitting on the last `/` regardless would turn
+        // the local branch `feature/checkout` into `checkout`, which is a
+        // branch that does not exist.
+        let short = match name.strip_prefix("remotes/") {
+            Some(remote_ref) => remote_ref
+                .split_once('/')
+                .map(|(_remote, branch)| branch)
+                .unwrap_or(remote_ref),
+            None => name,
+        };
+        let short = short.to_string();
+        if !names.contains(&short) {
+            names.push(short);
+        }
+    }
+    names.sort();
+    names
+}
+
 pub fn list_worktrees(root: &str) -> Result<Vec<String>, String> {
     let root_path = canonical(root)?;
     let text = git(&root_path, &["worktree", "list", "--porcelain"])?;
@@ -749,6 +799,34 @@ fn git(root: &Path, args: &[&str]) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **The branch you cut from is usually one you have never checked out.**
+    /// A list of local branches only would leave `main` missing from a repo
+    /// somebody just cloned and worked on a feature branch in — which is the
+    /// normal case, and the one where the answer matters most.
+    #[test]
+    fn branches_include_the_remote_ones_under_their_short_name() {
+        let captured = "\
+main
+feature/checkout
+remotes/origin/HEAD
+remotes/origin/main
+remotes/origin/release-2
+";
+        assert_eq!(
+            parse_branch_list(captured),
+            vec!["feature/checkout", "main", "release-2"],
+        );
+    }
+
+    /// `origin/HEAD` points at another entry in the same list. Offering it
+    /// would let somebody choose a name meaning "whatever the default is
+    /// today", which is not a branch anybody decided to cut from.
+    #[test]
+    fn the_head_pointer_is_not_a_branch_to_choose() {
+        assert!(parse_branch_list("remotes/origin/HEAD\n").is_empty());
+        assert!(parse_branch_list("   \n\n").is_empty());
+    }
 
     /// A real `git status --porcelain=v2 --branch` capture: a branch two ahead
     /// of its upstream with one staged addition, one worktree edit and one

@@ -35,6 +35,23 @@ pub async fn branch_history(
     vcs::history(&root, limit.unwrap_or(120))
 }
 
+/// The branches a run could be cut from, for the picker on a work item's plan.
+///
+/// Returns nothing rather than failing when the Solution has no working copy or
+/// is not a git repository: the field it feeds falls back to being typed, and a
+/// red error over a dropdown that could not be filled would be about the wrong
+/// thing.
+#[tauri::command]
+pub async fn list_solution_branches(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+) -> Result<Vec<String>, String> {
+    let Ok(root) = root_for(&db, solution_id).await else {
+        return Ok(Vec::new());
+    };
+    Ok(vcs::list_branches(&root).unwrap_or_default())
+}
+
 /// Commits, with the message someone typed or the file list when they did not.
 #[tauri::command]
 pub async fn commit_solution(

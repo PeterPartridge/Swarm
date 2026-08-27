@@ -236,7 +236,7 @@ describe("WorkItemViews", () => {
       await screen.findByRole("region", { name: "Build plan for Checkout" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByLabelText("Submit Checkout for planning"),
+      screen.getByLabelText("Plan Checkout"),
     ).toBeInTheDocument();
   });
 

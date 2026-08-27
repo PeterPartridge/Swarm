@@ -12,6 +12,7 @@ import {
   listWorkItemPlans,
   deleteWorkItemChange,
   kindLabel,
+  listSolutionBranches,
   listWorkItemChanges,
   pickImages,
   saveWorkItemPlan,
@@ -151,6 +152,10 @@ export default function WorkItemChanges({
   /// tick, so the composite form would be four controls asking nothing.
   const [askName, setAskName] = useState("");
   const [askDetail, setAskDetail] = useState("");
+  /// The branches each attached Solution actually has, for the "Branch from"
+  /// list. Empty for a Solution with no working copy here — the field still
+  /// takes anything typed, so an empty list costs nothing.
+  const [branches, setBranches] = useState<Record<number, string[]>>({});
 
   const refresh = useCallback(async () => {
     try {
@@ -181,6 +186,22 @@ export default function WorkItemChanges({
       .then(setVocabulary)
       .catch((e) => setError(String(e)));
   }, []);
+
+  // The branches each attached Solution has. A Solution with no working copy
+  // here returns none, which is a valid answer — the field still takes typing,
+  // so a failure is left quiet rather than raised over a dropdown.
+  useEffect(() => {
+    for (const plan of plans) {
+      if (branches[plan.solutionId] !== undefined) continue;
+      void listSolutionBranches(plan.solutionId)
+        .then((found) =>
+          setBranches((current) => ({ ...current, [plan.solutionId]: found })),
+        )
+        .catch(() =>
+          setBranches((current) => ({ ...current, [plan.solutionId]: [] })),
+        );
+    }
+  }, [plans, branches]);
 
   /// Loads which kinds a Solution's type can carry.
   const learn = useCallback(async (solutionId: number) => {
@@ -740,11 +761,24 @@ export default function WorkItemChanges({
                 </div>
                 <div className="field">
                   <span>Branch from</span>
+                  {/* **A list you can still type into.** A `select` would be
+                      wrong twice: the repository may not be on this machine
+                      yet, so the list can legitimately be empty, and a branch
+                      can be created between this list being read and the run
+                      starting. A datalist offers what git actually has and
+                      accepts anything else. */}
                   <input
-                    aria-label={`Clone from for ${plan.solutionName}`}
+                    aria-label={`Branch from for ${plan.solutionName}`}
+                    list={`branches-${plan.solutionId}`}
+                    placeholder={branches[plan.solutionId]?.length ? "main" : "the default branch"}
                     defaultValue={plan.cloneFrom}
                     onBlur={(e) => void savePlan(plan, { cloneFrom: e.target.value })}
                   />
+                  <datalist id={`branches-${plan.solutionId}`}>
+                    {(branches[plan.solutionId] ?? []).map((b) => (
+                      <option key={b} value={b} />
+                    ))}
+                  </datalist>
                 </div>
               </div>
 
