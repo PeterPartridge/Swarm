@@ -3468,6 +3468,41 @@ code {
   color: var(--fg);
 }
 
+/* Where a queued planning job has got to. No spinner: the work happens in a
+   queue that may not have reached this item yet, and a spinner would claim it
+   is running when it is waiting. */
+.plan-status {
+  margin: 0.4rem 0;
+  padding: 0.35rem 0.55rem;
+  border-left: 3px solid var(--accent);
+  background: var(--surface-2);
+  border-radius: 0 0.375rem 0.375rem 0;
+  font-size: 0.8rem;
+}
+
+.plan-status.plan-stopped {
+  border-left-color: var(--warn);
+}
+
+/* Everything missing before a plan can be asked for, listed together so it is
+   fixed in one pass rather than one blocker at a time. */
+.plan-missing ul {
+  margin: 0.2rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.card-description {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.75rem;
+}
+
+.card-description textarea {
+  font-size: 0.8rem;
+  resize: vertical;
+}
+
 /* What Product asked for, read-only. Rendered as quoted prose rather than in
    boxes, so it reads as somebody else's words rather than as fields a
    developer forgot they could not edit. */
