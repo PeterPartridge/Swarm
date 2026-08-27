@@ -1038,6 +1038,11 @@ export const createWorkItem = (args: {
   parentItemId?: number | null;
   description?: string;
 }): Promise<number> => invoke("create_work_item", args);
+export const setWorkItemDescription = (
+  id: number,
+  description: string,
+): Promise<void> => invoke("set_work_item_description", { id, description });
+
 export const updateWorkItemStatus = (id: number, status: string): Promise<void> =>
   invoke("update_work_item_status", { id, status });
 export const updateWorkItem = (args: {

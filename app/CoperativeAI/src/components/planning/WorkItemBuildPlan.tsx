@@ -91,21 +91,37 @@ export default function WorkItemBuildPlan({
 
   const refresh = useCallback(async () => {
     try {
-      const [loadedPlans, loadedFeedback] = await Promise.all([
+      const [loadedPlans, loadedFeedback, loadedJobs] = await Promise.all([
         listWorkItemPlans(item.id),
         listAiFeedback(item.id),
+        listAiJobs(item.productId),
       ]);
       setPlans(loadedPlans);
       setQuestions(loadedFeedback);
+      // Only this item's, newest first — the queue is per Product.
+      setJobs(
+        loadedJobs
+          .filter((j) => j.workItemId === item.id)
+          .sort((a, b) => b.submittedAt - a.submittedAt),
+      );
       setError(null);
     } catch (e) {
       setError(String(e));
     }
-  }, [item.id]);
+  }, [item.id, item.productId]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // **This is what "I clicked Plan and nothing happened" needed.** Planning is
+  // queued and runs elsewhere, so without listening the panel showed the same
+  // thing before, during and after — and the plan appeared only if somebody
+  // happened to reopen the item. The backend already emits on every job move;
+  // this panel just had nobody listening.
+  useWorkChanged(() => {
+    void refresh();
+  });
 
   /** Puts the work item's `.md` and `.json` back on disk.
    *
@@ -201,12 +217,42 @@ export default function WorkItemBuildPlan({
 
   const openQuestions = questions.filter((q) => !q.resolved);
   const missing = whatIsMissing(item, plans);
+  /// The planning job in flight for this item, if any. Both buttons wait on it:
+  /// a second submission while one is running would plan the same item twice
+  /// and pay for it twice.
+  const planning = jobs.find((j) => j.state === "queued" || j.state === "running");
+  /// The last one that finished, so the panel can say how it went rather than
+  /// going quiet and leaving somebody to guess.
+  const lastJob = jobs.find((j) => j.state !== "queued" && j.state !== "running");
   const nothingToPlan = missing.length > 0;
 
   return (
     <section className="build-plan" aria-label={`Build plan for ${item.title}`}>
       {error && <p role="alert">{error}</p>}
       <Notice value={notice} />
+
+      {/* **What the queued job is doing, said here rather than only in the
+          queue.** Planning runs elsewhere and returns at once, so this panel
+          used to look identical before, during and after — which is what
+          "I clicked Plan and nothing happened" was. A `status` and not an
+          `alert`: a job that is running is not a problem, and a job that
+          declined is the framework working. */}
+      {planning && (
+        <p className="plan-status planning" role="status">
+          {planning.state === "queued"
+            ? "Queued for planning — it starts when the AI queue reaches it."
+            : "Planning now… the plan appears below when it lands."}
+        </p>
+      )}
+      {!planning && lastJob && lastJob.state !== "done" && (
+        <p className="plan-status plan-stopped" role="status">
+          {lastJob.state === "blocked"
+            ? `Planning stopped and asked a question: ${lastJob.message} — answer it under "From Product".`
+            : lastJob.state === "cancelled"
+              ? "The last planning run was cancelled."
+              : `Planning failed: ${lastJob.message}`}
+        </p>
+      )}
 
       {/* **Two sides, two tabs.** Product sets what customers get; Develop
           decides how it is built. Product's half is read-only here — a
@@ -311,15 +357,15 @@ export default function WorkItemBuildPlan({
           aria-label={`Plan ${item.title}`}
           aria-describedby={nothingToPlan ? "plan-blocked" : undefined}
           onClick={onSubmit}
-          disabled={busy || nothingToPlan}
+          disabled={busy || nothingToPlan || planning !== undefined}
         >
-          {busy ? "Working…" : "Plan"}
+          {planning ? "Planning…" : busy ? "Working…" : "Plan"}
         </button>
         <button
           aria-label={`Execute ${item.title}`}
           aria-describedby={nothingToPlan ? "plan-blocked" : undefined}
           onClick={onExecute}
-          disabled={busy || nothingToPlan}
+          disabled={busy || nothingToPlan || planning !== undefined}
         >
           {busy ? "Working…" : "Execute"}
         </button>

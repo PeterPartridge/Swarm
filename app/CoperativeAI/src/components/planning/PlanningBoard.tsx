@@ -18,6 +18,7 @@ import {
   linkWorkItems,
   unlinkWorkItems,
   updateWorkItem,
+  setWorkItemDescription,
   updateWorkItemStatus,
   ANY_LEVEL_TYPES,
   STATUSES,
@@ -408,6 +409,25 @@ export default function PlanningBoard({ productId }: PlanningBoardProps) {
                   {item.parentItemId !== null && (
                     <span className="card-parent">in {parentTitle(item)}</span>
                   )}
+
+                  {/* **What the work is, on Product's board, because Product
+                      owns it.** It could be written when an item was created
+                      and never afterwards — so the one field an agent builds
+                      against was the one field a typo was permanent in. It is
+                      also what the build plan refuses to plan without, and
+                      that refusal used to point at a box that did not exist. */}
+                  <label className="card-description">
+                    <span>What this is</span>
+                    <textarea
+                      rows={2}
+                      aria-label={`What ${item.title} is`}
+                      placeholder="What a customer gets, in a sentence or two"
+                      defaultValue={item.description ?? ""}
+                      onBlur={(e) =>
+                        run(() => setWorkItemDescription(item.id, e.target.value))
+                      }
+                    />
+                  </label>
                   <select
                     aria-label={`Status of ${item.title}`}
                     value={item.status}
