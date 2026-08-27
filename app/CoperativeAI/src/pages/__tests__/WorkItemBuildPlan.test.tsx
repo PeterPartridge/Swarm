@@ -28,6 +28,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     detachWorkItemPlan: vi.fn(),
     generateChangePlan: vi.fn(),
     listAiFeedback: vi.fn(),
+    listAiJobs: vi.fn(),
     askProductQuestion: vi.fn(),
     resolveAiFeedback: vi.fn(),
     pickImages: vi.fn(),
@@ -109,6 +110,7 @@ describe("WorkItemBuildPlan", () => {
     vi.clearAllMocks();
     mocked.listWorkItemPlans.mockResolvedValue([]);
     mocked.listAiFeedback.mockResolvedValue([]);
+    mocked.listAiJobs.mockResolvedValue([]);
     mocked.listWorkItemChanges.mockResolvedValue([]);
     mocked.changeKinds.mockResolvedValue([]);
     mocked.changeKindsForSolution.mockResolvedValue(["screen"]);
@@ -216,6 +218,50 @@ describe("WorkItemBuildPlan", () => {
 
     // Described, attached, and written about: ready.
     expect(whatIsMissing(item, [plan({ changesRequired: "Add POST /checkout" })])).toEqual([]);
+  });
+
+  /// **The panel used to look identical before, during and after planning.**
+  /// Planning is queued and runs elsewhere, so pressing Plan and seeing nothing
+  /// change was indistinguishable from pressing a dead button — which is what
+  /// it was reported as.
+  it("says when planning is queued, running, and how it ended", async () => {
+    const queued = {
+      id: 1,
+      workItemId: 12,
+      workItemTitle: "Add checkout",
+      purpose: "changePlan",
+      state: "queued" as const,
+      message: "",
+      submittedAt: 10,
+      startedAt: null,
+      finishedAt: null,
+    };
+    mocked.listWorkItemPlans.mockResolvedValue([plan({ changesRequired: "x" })]);
+
+    // Three fresh mounts rather than rerenders: in the app the panel re-reads
+    // because the backend emits `ai-job-changed`, and a rerender with the same
+    // props would not re-fetch — testing that would prove nothing about how the
+    // state actually arrives.
+    mocked.listAiJobs.mockResolvedValue([queued]);
+    const first = render(<WorkItemBuildPlan item={item} solutions={solutions} />);
+    expect(await screen.findByText(/Queued for planning/)).toBeInTheDocument();
+    // Not plannable twice: a second submission while one runs plans the same
+    // item again and pays for it again.
+    expect(screen.getByRole("button", { name: `Plan ${item.title}` })).toBeDisabled();
+    first.unmount();
+
+    mocked.listAiJobs.mockResolvedValue([{ ...queued, state: "running" as const }]);
+    const second = render(<WorkItemBuildPlan item={item} solutions={solutions} />);
+    expect(await screen.findByText(/Planning now/)).toBeInTheDocument();
+    second.unmount();
+
+    // A failure says why, where the person is, rather than only in the queue.
+    mocked.listAiJobs.mockResolvedValue([
+      { ...queued, state: "failed" as const, message: "no AI policy on this item" },
+    ]);
+    render(<WorkItemBuildPlan item={item} solutions={solutions} />);
+    expect(await screen.findByText(/Planning failed: no AI policy/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: `Plan ${item.title}` })).toBeEnabled();
   });
 
   /// Execute **is** the approval, pressed knowingly — not a bypass of it.
@@ -366,6 +412,7 @@ describe("WorkItemBuildPlan approval", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocked.listAiFeedback.mockResolvedValue([]);
+    mocked.listAiJobs.mockResolvedValue([]);
     mocked.listWorkItemChanges.mockResolvedValue([]);
     mocked.changeKinds.mockResolvedValue([]);
     mocked.changeKindsForSolution.mockResolvedValue([]);

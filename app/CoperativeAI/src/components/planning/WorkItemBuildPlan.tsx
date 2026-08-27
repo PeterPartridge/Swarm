@@ -3,18 +3,20 @@ import Notice, { type NoticeValue } from "../ai/Notice";
 import WorkItemChanges from "../code/WorkItemChanges";
 import FromProduct from "./FromProduct";
 import SectionTabs from "../common/SectionTabs";
-import { notifyWorkChanged } from "../../lib/workSignal";
+import { notifyWorkChanged, useWorkChanged } from "../../lib/workSignal";
 import {
   askProductQuestion,
   generateChangePlan,
   submitForPlanning,
   listAiFeedback,
+  listAiJobs,
   listWorkItemPlans,
   resolveAiFeedback,
   setPlanApproval,
   startRun,
   writeWorkItemFiles,
   type AiFeedback,
+  type AiJob,
   type Solution,
   type WorkItem,
   type WorkItemPlan,
@@ -74,6 +76,9 @@ export default function WorkItemBuildPlan({
 }) {
   const [plans, setPlans] = useState<WorkItemPlan[]>([]);
   const [questions, setQuestions] = useState<AiFeedback[]>([]);
+  /// This item's planning jobs, newest first — what the panel needs to say
+  /// whether one is in flight and how the last one went.
+  const [jobs, setJobs] = useState<AiJob[]>([]);
   /// Which side is showing. Develop first: this panel is opened from the
   /// Develop area, and what a developer came here to do is the default.
   const [view, setView] = useState("develop");
