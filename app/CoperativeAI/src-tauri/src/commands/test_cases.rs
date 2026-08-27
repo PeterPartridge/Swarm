@@ -324,10 +324,22 @@ pub async fn implement_test_case(
         // Detected outside the lock's critical work but inside this block for
         // simplicity: reading a few directory entries is not a network call.
         let suites = crate::tooling::test_runner::detect(std::path::Path::new(&context.root));
+        // **What has to change in this Solution**, not a work-item-wide notes
+        // field. The item's "development details" box was removed on
+        // 2026-08-21: the standing conventions live in the Developer Rules and
+        // the specifics live per Solution, which is also the only one of the
+        // two that is about *this* repository.
+        let build_notes = crate::db::work_item_plan::list_for_item(&conn, work_item_id)
+            .await
+            .map_err(to_message)?
+            .into_iter()
+            .find(|p| p.solution_id == context.solution.id)
+            .map(|p| p.changes_required)
+            .unwrap_or_default();
         let prompt = client::build_test_prompt(&client::TestPrompt {
             work_item_title: &context.work_item.title,
             work_item_description: context.work_item.description.as_deref().unwrap_or(""),
-            build_notes: &context.work_item.development_details,
+            build_notes: &build_notes,
             scenario_title: &context.case.title,
             scenario: &context.case.scenario,
             language: context.solution.language.as_deref(),

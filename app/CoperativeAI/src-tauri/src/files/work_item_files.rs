@@ -60,10 +60,6 @@ pub struct WorkItemDoc {
     pub description: String,
     pub risk: String,
     pub product: String,
-    /// Free text: how this should be built, over and above the per-Solution
-    /// notes — conventions, gotchas, the thing everyone knows and nobody wrote
-    /// down.
-    pub development_details: String,
     /// Questions Product has already answered, so an agent does not ask again.
     pub clarifications: Vec<String>,
     pub solutions: Vec<SolutionPart>,
@@ -95,12 +91,11 @@ pub fn to_markdown(doc: &WorkItemDoc) -> String {
         out.push_str(&format!("## What it is\n\n{}\n\n", doc.description.trim()));
     }
 
-    if !doc.development_details.trim().is_empty() {
-        out.push_str(&format!(
-            "## How to build it\n\n{}\n\n",
-            doc.development_details.trim()
-        ));
-    }
+    // **No "How to build it" section any more.** It came from a work-item-wide
+    // notes box removed on 2026-08-21: the standing conventions are in the
+    // Developer Rules the agent is handed with this, and what has to change is
+    // written per Solution below — which is the half that is actually about the
+    // repository the agent is standing in.
 
     if !doc.clarifications.is_empty() {
         out.push_str("## Already answered\n\nDo not ask these again:\n\n");
@@ -221,7 +216,6 @@ mod tests {
             description: "Take card payments".into(),
             risk: "Payment provider not chosen".into(),
             product: "Shop App".into(),
-            development_details: "Reuse the existing money type — integer pence.".into(),
             clarifications: vec!["Card payments only, no wallets.".into()],
             solutions: vec![SolutionPart {
                 name: "Shop API".into(),
@@ -266,7 +260,9 @@ mod tests {
         let md = to_markdown(&doc());
         assert!(md.starts_with("# Add checkout (feature)"));
         assert!(md.contains("Take card payments"));
-        assert!(md.contains("Reuse the existing money type"));
+        // No "How to build it": the item-wide notes box went on 2026-08-21, and
+        // what has to change is stated per Solution below.
+        assert!(!md.contains("How to build it"), "the removed section must not return");
         assert!(md.contains("Card payments only"), "answers travel");
         assert!(md.contains("Shop API (api)"));
         assert!(md.contains("`feature/9-add-checkout`"));
@@ -316,7 +312,7 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&json).expect("valid JSON");
 
         assert_eq!(parsed["title"], "Add checkout");
-        assert_eq!(parsed["developmentDetails"], "Reuse the existing money type — integer pence.");
+        assert!(parsed.get("developmentDetails").is_none(), "the removed field must not return");
         assert_eq!(parsed["solutions"][0]["name"], "Shop API");
         assert_eq!(parsed["solutions"][0]["branchName"], "feature/9-add-checkout");
         // a list to read, not a paragraph to guess at

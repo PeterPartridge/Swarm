@@ -40,6 +40,7 @@ const EMPTY: Omit<DeveloperRules, "productId"> = {
   allowedTech: "",
   disallowedTech: "",
   aiConstraints: "",
+  mcpServers: "",
 };
 
 /** How hard each rule actually bites.

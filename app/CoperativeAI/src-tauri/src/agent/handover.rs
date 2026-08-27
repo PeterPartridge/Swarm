@@ -122,7 +122,7 @@ pub fn brief(inputs: &HandoverInputs<'_>) -> String {
                     if plan.clone_from.trim().is_empty() {
                         String::new()
                     } else {
-                        format!(", cut from `{}`", plan.clone_from)
+                        format!(", branched from `{}`", plan.clone_from)
                     }
                 ));
             }
@@ -309,7 +309,7 @@ mod tests {
 
         assert!(brief.contains("### Shop API"));
         assert!(brief.contains("branch `feature/12-add-checkout`"));
-        assert!(brief.contains("cut from `main`"));
+        assert!(brief.contains("branched from `main`"));
         assert!(brief.contains("POST /checkout -> 201"));
         assert!(brief.contains("src/api/checkout.rs"));
         assert!(brief.contains("must be proved by tests"));

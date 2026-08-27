@@ -28,7 +28,6 @@ pub struct WorkItemDto {
     pub customer_cover_pct: Option<f64>,
     pub risk: String,
     pub solution_id: Option<i64>,
-    pub development_details: String,
 }
 
 impl From<WorkItem> for WorkItemDto {
@@ -52,7 +51,6 @@ impl From<WorkItem> for WorkItemDto {
             customer_cover_pct: w.customer_cover_pct,
             risk: w.risk,
             solution_id: w.solution_id,
-            development_details: w.development_details,
         }
     }
 }
@@ -119,7 +117,6 @@ pub async fn update_work_item(
     customer_cover_pct: Option<f64>,
     risk: Option<String>,
     solution_id: Option<i64>,
-    development_details: Option<String>,
 ) -> Result<(), String> {
     let conn = db.0.lock().await;
     work_item::update_item(
@@ -137,7 +134,6 @@ pub async fn update_work_item(
             customer_cover_pct,
             risk: risk.unwrap_or_default(),
             solution_id,
-            development_details: development_details.unwrap_or_default(),
         },
     )
     .await

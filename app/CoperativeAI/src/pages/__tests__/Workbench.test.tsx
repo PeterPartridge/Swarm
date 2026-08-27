@@ -59,7 +59,6 @@ const workItem: WorkItem = {
   customerCoverPct: null,
   risk: "",
   solutionId: null,
-  developmentDetails: "",
 };
 
 describe("AiPanel", () => {

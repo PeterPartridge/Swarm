@@ -60,7 +60,6 @@ const generatedItem: WorkItem = {
   customerCoverPct: null,
   risk: "",
   solutionId: null,
-  developmentDetails: "",
 };
 
 const openPolicy: ProductPolicy = {

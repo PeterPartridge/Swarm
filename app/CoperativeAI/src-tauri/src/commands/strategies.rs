@@ -19,6 +19,8 @@ pub struct DeveloperRulesDto {
     pub allowed_tech: String,
     pub disallowed_tech: String,
     pub ai_constraints: String,
+    /// The MCP servers an agent may use — a constraint, carried into the pack.
+    pub mcp_servers: String,
 }
 
 #[derive(Serialize)]
@@ -66,6 +68,7 @@ pub async fn get_developer_rules(
         allowed_tech: r.allowed_tech,
         disallowed_tech: r.disallowed_tech,
         ai_constraints: r.ai_constraints,
+        mcp_servers: r.mcp_servers,
     }))
 }
 
@@ -81,6 +84,7 @@ pub async fn set_developer_rules(
     allowed_tech: String,
     disallowed_tech: String,
     ai_constraints: String,
+    mcp_servers: String,
 ) -> Result<(), String> {
     let conn = db.0.lock().await;
     developer_rules::set_rules(
@@ -93,6 +97,7 @@ pub async fn set_developer_rules(
         &allowed_tech,
         &disallowed_tech,
         &ai_constraints,
+        &mcp_servers,
     )
     .await
     .map_err(to_message)

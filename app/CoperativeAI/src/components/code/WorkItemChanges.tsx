@@ -739,7 +739,7 @@ export default function WorkItemChanges({
                   />
                 </div>
                 <div className="field">
-                  <span>Cut from</span>
+                  <span>Branch from</span>
                   <input
                     aria-label={`Clone from for ${plan.solutionName}`}
                     defaultValue={plan.cloneFrom}

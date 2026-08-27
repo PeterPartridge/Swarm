@@ -308,10 +308,6 @@ export interface WorkItem {
   /** The Solution this work touches, and so the repository it lands in.
    *  Null for the plenty of work that is not code. */
   solutionId: number | null;
-  /** How this should be built, over and above the per-Solution notes — the
-   *  conventions and gotchas everyone knows and nobody wrote down. Travels
-   *  into the emitted .md and .json an agent works from. */
-  developmentDetails: string;
 }
 
 /** A dependency between two work items. When their Solutions differ this is a
@@ -1057,7 +1053,6 @@ export const updateWorkItem = (args: {
   customerCoverPct: number | null;
   risk: string;
   solutionId: number | null;
-  developmentDetails: string;
 }): Promise<void> => invoke("update_work_item", args);
 export const deleteWorkItem = (id: number): Promise<void> =>
   invoke("delete_work_item", { id });
@@ -1114,6 +1109,13 @@ export interface DeveloperRules {
   allowedTech: string;
   disallowedTech: string;
   aiConstraints: string;
+  /** The MCP servers an agent may use.
+   *
+   *  A constraint, not a setting: an agent that can reach any server it likes
+   *  can read and write things nobody agreed to, so the list travels with the
+   *  rules it is given. Blank is stated to the agent as "none named" rather
+   *  than left silent — silence reads as permission. */
+  mcpServers: string;
 }
 
 export interface SolutionStrategy {

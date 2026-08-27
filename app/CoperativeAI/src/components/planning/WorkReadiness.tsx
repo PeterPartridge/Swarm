@@ -54,11 +54,12 @@ export function readinessOf(
       met: mine.length > 0,
       missing: "No Solution is attached, so the work has no repository to land in.",
     },
-    {
-      label: "how to build it",
-      met: item.developmentDetails.trim() !== "",
-      missing: "No build notes — the conventions an agent cannot infer from the code.",
-    },
+    // **No "how to build it" check.** It measured a work-item-wide notes box
+    // removed on 2026-08-21, so keeping it would mark every item permanently
+    // unready for a field that cannot be filled in. What replaced it — the
+    // per-Solution "what has to change" — is not loaded for every row here,
+    // only for the one being looked at, so it is checked in the briefing panel
+    // rather than counted in this list.
     {
       label: "nothing blocking",
       met: openQuestions === 0,
@@ -440,9 +441,16 @@ export default function WorkReadiness({
                     : `${unresolved.length} open`}
                 </span>
               </div>
-              {chosen.item.developmentDetails.trim() !== "" && (
-                <p className="briefing-text">{chosen.item.developmentDetails}</p>
-              )}
+              {/* What has to change, per Solution — the item-wide notes box it
+                  used to read went on 2026-08-21. */}
+              {plans
+                .filter((p) => p.changesRequired.trim() !== "")
+                .map((p) => (
+                  <p className="briefing-text" key={p.id}>
+                    <strong>{p.solutionName}: </strong>
+                    {p.changesRequired}
+                  </p>
+                ))}
               {unresolved.length > 0 && (
                 <ul className="briefing-lines">
                   {unresolved.map((f) => (
@@ -452,12 +460,13 @@ export default function WorkReadiness({
                   ))}
                 </ul>
               )}
-              {chosen.item.developmentDetails.trim() === "" && unresolved.length === 0 && (
-                <p className="hint">
-                  No build notes written — the conventions and gotchas an agent
-                  cannot read out of the code.
-                </p>
-              )}
+              {plans.every((p) => p.changesRequired.trim() === "") &&
+                unresolved.length === 0 && (
+                  <p className="hint">
+                    Nothing written about what has to change — an agent would be
+                    working from the description alone.
+                  </p>
+                )}
             </div>
 
             <div className="briefing-block">

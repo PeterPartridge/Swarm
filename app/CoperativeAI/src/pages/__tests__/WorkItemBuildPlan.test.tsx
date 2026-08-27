@@ -30,6 +30,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     resolveAiFeedback: vi.fn(),
     pickImages: vi.fn(),
     setPlanApproval: vi.fn(),
+    startRun: vi.fn(),
     createSolution: vi.fn(),
     listSolutions: vi.fn(),
   };
@@ -58,7 +59,6 @@ const item: WorkItem = {
   customerCoverPct: null,
   risk: "",
   solutionId: null,
-  developmentDetails: "",
 };
 
 function solution(id: number, name: string): Solution {
@@ -125,7 +125,7 @@ describe("WorkItemBuildPlan", () => {
   /// and the plan read the other. Attaching is now the only way in.
   it("has no second picker for the Solution the work lands in", async () => {
     render(<WorkItemBuildPlan item={item} solutions={solutions} />);
-    await screen.findByLabelText("Development details");
+    await screen.findByLabelText("Submit Add checkout for planning");
 
     expect(screen.queryByLabelText(`Solution of ${item.title}`)).not.toBeInTheDocument();
     expect(screen.queryByText("Lands in")).not.toBeInTheDocument();
@@ -148,15 +148,17 @@ describe("WorkItemBuildPlan", () => {
     ]);
     render(<WorkItemBuildPlan item={item} solutions={solutions} />);
 
-    expect(
-      await screen.findByText(/Answers become clarifications on this work item/),
-    ).toBeInTheDocument();
+    // The questions live on Product's side of the panel now — the tab shows
+    // how many are still waiting, so a developer can see it without switching.
+    await user.click(
+      await screen.findByRole("button", { name: /From Product \(1 unanswered\)/ }),
+    );
 
     await user.type(
-      screen.getByLabelText("Question for Product"),
+      await screen.findByLabelText("Ask Product about Add checkout"),
       "What happens when payment fails?",
     );
-    await user.click(screen.getByLabelText("Ask Product"));
+    await user.click(screen.getByRole("button", { name: "Ask Product" }));
     await waitFor(() =>
       expect(mocked.askProductQuestion).toHaveBeenCalledWith(
         12,
@@ -164,13 +166,14 @@ describe("WorkItemBuildPlan", () => {
       ),
     );
 
-    const waiting = await screen.findByRole("list", { name: "Waiting on an answer" });
+    // It reads as a conversation now, not a list of outstanding items.
+    const chat = await screen.findByRole("log", { name: "Questions for Product" });
     await user.type(
-      within(waiting).getByLabelText("Answer: What happens when payment fails?"),
+      within(chat).getByLabelText("Answer: What happens when payment fails?"),
       "Show the error and keep the basket",
     );
     await user.click(
-      within(waiting).getByLabelText("Save answer to: What happens when payment fails?"),
+      within(chat).getByLabelText("Save answer to: What happens when payment fails?"),
     );
     await waitFor(() =>
       expect(mocked.resolveAiFeedback).toHaveBeenCalledWith(
@@ -178,6 +181,74 @@ describe("WorkItemBuildPlan", () => {
         "Show the error and keep the basket",
       ),
     );
+  });
+
+  /// **A disabled button that says nothing looks exactly like a broken one.**
+  /// Both of these need a Solution attached, and pressing them before that
+  /// happened produced no plan, no error, and no reason — which is what "I
+  /// clicked it and nothing happened" actually was.
+  it("says why it cannot plan or execute yet", async () => {
+    render(<WorkItemBuildPlan item={item} solutions={solutions} />);
+
+    const plan = await screen.findByRole("button", { name: `Plan ${item.title}` });
+    const execute = screen.getByRole("button", { name: `Execute ${item.title}` });
+    expect(plan).toBeDisabled();
+    expect(execute).toBeDisabled();
+    expect(plan).toHaveAccessibleDescription(/attach a solution/i);
+    expect(execute).toHaveAccessibleDescription(/attach a solution/i);
+  });
+
+  /// Execute **is** the approval, pressed knowingly — not a bypass of it.
+  /// `start_run` refuses an unapproved plan, and generating one clears the
+  /// approval, so anything that ran straight after generating would be refused
+  /// unless a person said go. This press is that person saying go.
+  it("plans, approves and starts in one press", async () => {
+    const user = userEvent.setup();
+    mocked.listWorkItemPlans.mockResolvedValue([plan({ changesRequired: "Add POST /checkout" })]);
+    mocked.generateChangePlan.mockResolvedValue({
+      created: ["Shop API"],
+      provider: "Claude",
+      model: "m",
+      reason: "within budget",
+      blocked: null,
+    });
+    mocked.setPlanApproval.mockResolvedValue(undefined);
+    mocked.startRun.mockResolvedValue({
+      runId: 1,
+      worktreePath: "/tmp/wt",
+      briefPath: "b.md",
+      branch: "feature/12",
+      command: "claude \"Read b.md and implement it.\"",
+      runStart: "",
+    });
+    render(<WorkItemBuildPlan item={item} solutions={solutions} />);
+
+    await user.click(await screen.findByRole("button", { name: `Execute ${item.title}` }));
+
+    await waitFor(() => expect(mocked.generateChangePlan).toHaveBeenCalledWith(12));
+    await waitFor(() => expect(mocked.setPlanApproval).toHaveBeenCalledWith(12, 3, true));
+    await waitFor(() => expect(mocked.startRun).toHaveBeenCalledWith(12, 3));
+  });
+
+  /// A decline is the framework working, and it must stop the run rather than
+  /// starting an agent on a plan the AI just said it could not write.
+  it("does not start anything when the AI declines to plan", async () => {
+    const user = userEvent.setup();
+    mocked.listWorkItemPlans.mockResolvedValue([plan({ changesRequired: "something" })]);
+    mocked.generateChangePlan.mockResolvedValue({
+      created: [],
+      provider: "Claude",
+      model: "m",
+      reason: "within budget",
+      blocked: { reason: "no payment provider named", whatIsNeeded: "which one?", feedbackId: 3 },
+    });
+    render(<WorkItemBuildPlan item={item} solutions={solutions} />);
+
+    await user.click(await screen.findByRole("button", { name: `Execute ${item.title}` }));
+
+    await waitFor(() => expect(mocked.generateChangePlan).toHaveBeenCalled());
+    expect(mocked.setPlanApproval).not.toHaveBeenCalled();
+    expect(mocked.startRun).not.toHaveBeenCalled();
   });
 
   it("generates the schemas and shows them per Solution", async () => {
@@ -262,7 +333,7 @@ describe("WorkItemBuildPlan", () => {
     mocked.listWorkItemPlans.mockResolvedValue([plan({})]);
     render(<WorkItemBuildPlan item={item} solutions={solutions} />);
 
-    await screen.findByText(/Answers become clarifications/);
+    await screen.findByRole("button", { name: "What this changes" });
     expect(screen.queryByText("Solutions affected")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Shop Web is affected")).not.toBeInTheDocument();
     expect(

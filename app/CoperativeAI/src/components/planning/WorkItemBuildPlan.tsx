@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import Notice, { type NoticeValue } from "../ai/Notice";
-import HandoverPanel from "../planning/HandoverPanel";
 import WorkItemChanges from "../code/WorkItemChanges";
+import FromProduct from "./FromProduct";
+import SectionTabs from "../common/SectionTabs";
 import { notifyWorkChanged } from "../../lib/workSignal";
 import {
   askProductQuestion,
@@ -10,13 +11,43 @@ import {
   listAiFeedback,
   listWorkItemPlans,
   resolveAiFeedback,
-  updateWorkItem,
+  setPlanApproval,
+  startRun,
   writeWorkItemFiles,
   type AiFeedback,
   type Solution,
   type WorkItem,
   type WorkItemPlan,
 } from "../../lib/backend";
+
+/** Everything an AI would need that nobody has written yet, in the order it
+ *  should be fixed. Empty means both buttons can be pressed.
+ *
+ *  **A disabled button that says nothing looks exactly like a broken one** —
+ *  which is what these were: they greyed out with no Solution attached and gave
+ *  no reason, so pressing produced no plan, no error and no explanation. Every
+ *  reason is listed rather than only the first, so somebody fixes them in one
+ *  pass instead of discovering the next one each time.
+ *
+ *  Pure, so the rules are testable without rendering anything. */
+export function whatIsMissing(item: WorkItem, plans: WorkItemPlan[]): string[] {
+  const missing: string[] = [];
+  if ((item.description ?? "").trim() === "") {
+    missing.push(
+      "Nobody has described what this is — Product writes that on the item.",
+    );
+  }
+  if (plans.length === 0) {
+    missing.push(
+      'No Solution is attached — add one under "What this changes", or there is no repository for a plan to be about.',
+    );
+  } else if (plans.every((p) => p.changesRequired.trim() === "")) {
+    missing.push(
+      "Nothing is written about what has to change, so an AI would be planning from the title alone.",
+    );
+  }
+  return missing;
+}
 
 /** How one work item is going to be built: the Solutions it touches and what
  *  each needs, the questions Product still owes an answer to, and the schemas
@@ -43,14 +74,12 @@ export default function WorkItemBuildPlan({
 }) {
   const [plans, setPlans] = useState<WorkItemPlan[]>([]);
   const [questions, setQuestions] = useState<AiFeedback[]>([]);
-  const [newQuestion, setNewQuestion] = useState("");
-  const [answers, setAnswers] = useState<Record<number, string>>({});
+  /// Which side is showing. Develop first: this panel is opened from the
+  /// Develop area, and what a developer came here to do is the default.
+  const [view, setView] = useState("develop");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<NoticeValue | null>(null);
   const [error, setError] = useState<string | null>(null);
-  /// Held locally because it grows: every "what needs to change" written below
-  /// is appended as its own set, and the item prop does not come back changed.
-  const [details, setDetails] = useState(item.developmentDetails);
   /// When the schemas were last written, so the panel that draws them re-reads.
   const [generatedAt, setGeneratedAt] = useState(0);
   /// What became of the last automatic write. Named rather than assumed —
@@ -59,10 +88,6 @@ export default function WorkItemBuildPlan({
   const [files, setFiles] = useState<
     { written: string[] } | { blocked: string } | null
   >(null);
-
-  useEffect(() => {
-    setDetails(item.developmentDetails);
-  }, [item.id, item.developmentDetails]);
 
   const refresh = useCallback(async () => {
     try {
@@ -117,46 +142,12 @@ export default function WorkItemBuildPlan({
     }
   }
 
-  /** Saves a change to the work item itself, keeping its other fields.
-   *
-   *  The technical ones live here rather than on Product's board: which
-   *  repository the work lands in, and how it should be built, are decisions
-   *  a developer makes. */
-  async function saveItem(changes: Partial<WorkItem>) {
-    const next = { ...item, developmentDetails: details, ...changes };
-    await run(() =>
-      updateWorkItem({
-        id: item.id,
-        assigneeId: next.assigneeId,
-        sprintId: next.sprintId,
-        startDate: next.startDate,
-        endDate: next.endDate,
-        deliverableId: next.deliverableId,
-        expectedCost: next.expectedCost,
-        estimatedProfit: next.estimatedProfit,
-        chargeable: next.chargeable,
-        customerCoverPct: next.customerCoverPct,
-        risk: next.risk,
-        solutionId: next.solutionId,
-        developmentDetails: next.developmentDetails,
-      }),
-    );
-  }
-
-  /** Adds one round of changes to the development details as its own set.
-   *
-   *  **Appended, never replaced.** Each pass over the work item is a separate
-   *  thing somebody decided, and the second one does not make the first untrue
-   *  — an agent reading this wants the history, not the latest sentence. Dated
-   *  and headed with the Solution and what it affected, so a set can be read
-   *  on its own a month later. */
-  async function appendNote(note: string) {
-    const when = new Date().toISOString().slice(0, 10);
-    const entry = `### ${when} — ${note}`;
-    const next = details.trim() === "" ? entry : `${details.trimEnd()}\n\n${entry}`;
-    setDetails(next);
-    await saveItem({ developmentDetails: next });
-  }
+  /* **Nothing here writes to the work item any more.** The two fields this
+     panel owned have both gone: "Lands in" (round 52 — attaching a Solution
+     says it, and said it twice) and "Development details" (removed 2026-08-21
+     — the Developer Rules hold the standing conventions and "What this
+     changes" holds the specifics). What is left reads the item and writes to
+     its plans. */
 
   async function onSubmit() {
     try {
@@ -169,22 +160,37 @@ export default function WorkItemBuildPlan({
     }
   }
 
-  async function onGenerate() {
+  /** Plans it now, approves what came back, and starts an agent on it.
+   *
+   *  **The approval is this press.** `start_run` refuses an unapproved plan and
+   *  generating clears the approval, so a chain that ran straight through would
+   *  be refused unless somebody said go — pressing Execute is saying go. What it
+   *  must never do is carry on past a decline: an AI that said it could not
+   *  write the plan is not an AI whose plan should be handed to an agent. */
+  async function onExecute() {
     setBusy(true);
-    setNotice("Turning what you have written into schemas…");
+    setNotice("Planning, then starting an agent…");
     try {
       const result = await generateChangePlan(item.id);
       if (result.blocked) {
-        // Not a failure: it asked instead of inventing the missing half, and
-        // the question is now on the item with the others.
         setNotice({ blocked: result.blocked, what: "inventing the rest" });
-      } else {
-        setNotice(
-          `Schemas written for ${result.created.join(", ")} (${result.provider} · ${result.reason}).`,
-        );
+        await refresh();
+        setGeneratedAt(Date.now());
+        return;
       }
+      const fresh = await listWorkItemPlans(item.id);
+      const started: string[] = [];
+      for (const p of fresh) {
+        await setPlanApproval(item.id, p.solutionId, true);
+        await startRun(item.id, p.solutionId);
+        started.push(p.solutionName);
+      }
+      setNotice(
+        `Planned, approved and started on ${started.join(", ")}. The agent is working in its own checkout — follow it on the Runs panel.`,
+      );
       await refresh();
       setGeneratedAt(Date.now());
+      notifyWorkChanged();
     } catch (e) {
       setNotice(null);
       setError(String(e));
@@ -194,16 +200,49 @@ export default function WorkItemBuildPlan({
   }
 
   const openQuestions = questions.filter((q) => !q.resolved);
-  const answered = questions.filter((q) => q.resolved);
+  const missing = whatIsMissing(item, plans);
+  const nothingToPlan = missing.length > 0;
 
   return (
     <section className="build-plan" aria-label={`Build plan for ${item.title}`}>
       {error && <p role="alert">{error}</p>}
       <Notice value={notice} />
 
+      {/* **Two sides, two tabs.** Product sets what customers get; Develop
+          decides how it is built. Product's half is read-only here — a
+          requirement reworded by the person implementing it stops being a
+          requirement — and the questions are the way across the line. */}
+      <SectionTabs
+        label="Build plan view"
+        as="buttons"
+        options={[
+          { id: "develop", label: "What this changes" },
+          {
+            id: "product",
+            label: openQuestions.length > 0
+              ? `From Product (${openQuestions.length} unanswered)`
+              : "From Product",
+          },
+        ]}
+        active={view}
+        onSelect={setView}
+      />
+
+      {view === "product" && (
+        <FromProduct
+          item={item}
+          questions={questions}
+          onAsk={(question) => run(() => askProductQuestion(item.id, question))}
+          onAnswer={(id, answer) => run(() => resolveAiFeedback(id, answer))}
+        />
+      )}
+
       {/* Product's screens land here as unassigned rows; this is where they get
           pointed at a Solution, and where the APIs and tables behind them are
-          added. */}
+          added. Kept mounted rather than unmounted when the other tab is
+          showing: it holds unsaved edits in its own boxes, and switching tabs
+          must not throw away something half-typed. */}
+      <div hidden={view !== "develop"}>
       <WorkItemChanges
         workItemId={item.id}
         mode="developer"
@@ -222,11 +261,8 @@ export default function WorkItemBuildPlan({
           // generate button both read them.
           void refresh();
         }}
-        // Each sentence written down there becomes a set here, dated and
-        // naming what it was about. The box below is the log of them, still
-        // editable — nothing is appended that cannot then be corrected.
-        onNote={(note) => void appendNote(note)}
       />
+      </div>
 
       {/* **"Lands in" was a second answer to a question already asked above.**
           Attaching a Solution in "What this changes" creates its plan; the
@@ -235,120 +271,79 @@ export default function WorkItemBuildPlan({
           the runs and the plan read the other. Attaching is now the only way to
           say it, and it sets both. */}
 
-      {/* Only work that has somewhere to land can be handed over — and handing
-          work to a coding agent is a developer's call, not Product's. */}
-      {item.solutionId !== null && <HandoverPanel item={item} />}
+      {/* **No manual handover here.** There were two routes to an agent side
+          by side: this panel wrote a brief and offered a command to paste, and
+          the Runs panel's Start writes the brief, makes a worktree, opens a
+          terminal and types the command itself. Two routes that look like
+          alternatives is a choice nobody made — Start is the one, and it
+          prepares its own run, so nothing was lost by dropping this. The Code
+          tab keeps its own hand-over, which is a different thing: it sends the
+          command to a shell already open beside the editor. */}
 
-      {/* Above the per-Solution notes because it applies across all of them:
-          the conventions and gotchas everyone knows and nobody wrote down —
-          and now the running record of what each round of changes was for. */}
-      <div className="field">
-        <span>Development details — how this should be built</span>
-        <textarea
-          rows={6}
-          aria-label="Development details"
-          value={details}
-          placeholder="conventions, gotchas, anything an agent would not work out"
-          onChange={(e) => setDetails(e.target.value)}
-          onBlur={(e) => saveItem({ developmentDetails: e.target.value })}
-        />
-      </div>
+      {/* **No "Development details" box.** The standing conventions are the
+          Developer Rules, and the specifics are "What this changes" per
+          Solution — which is also the only one of the two that is about the
+          repository an agent is standing in. One box holding both was a third
+          place to write the same thing, and it doubled as an append-only log
+          nobody could tidy. */}
 
-      {/* No write button. The pair is rewritten on every save above, so what
-          is on disk is what is on screen — and when it cannot be, that is said
-          rather than left to be assumed. */}
+      {/* **One sentence about what is on disk**, not two next to each other
+          describing different files. No write button either: the pair is
+          rewritten on every save above, so what is on disk is what is on
+          screen — and when it cannot be, that is said rather than assumed. */}
       <p className="hint plan-files">
         {files === null
-          ? "The .md and .json for the AI are rewritten on every save."
+          ? "This work item's .md and .json are rewritten on every save. The agent's brief is written by Start, on the Runs panel."
           : "written" in files
-            ? `Written on the last save: ${files.written.join(", ")}`
+            ? `Written on the last save: ${files.written.join(", ")}. The agent's brief is written by Start, on the Runs panel.`
             : `Not written — ${files.blocked}`}
       </p>
 
 
-      <section aria-label="Questions for Product">
-        <h4>Questions for Product</h4>
-        <p className="hint">
-          Answers become clarifications on this work item, so they reach the AI
-          without anyone re-typing them.
-        </p>
-        <div className="ask-product">
-          <input
-            aria-label="Question for Product"
-            placeholder="What should happen when payment fails?"
-            value={newQuestion}
-            onChange={(e) => setNewQuestion(e.target.value)}
-          />
-          <button
-            aria-label="Ask Product"
-            disabled={newQuestion.trim() === ""}
-            onClick={() =>
-              run(async () => {
-                await askProductQuestion(item.id, newQuestion);
-                setNewQuestion("");
-              })
-            }
-          >
-            Ask
-          </button>
-        </div>
-
-        {openQuestions.length > 0 && (
-          <ul className="open-questions" aria-label="Waiting on an answer">
-            {openQuestions.map((q) => (
-              <li key={q.id}>
-                <span>{q.message}</span>
-                <input
-                  aria-label={`Answer: ${q.message}`}
-                  placeholder="Answer…"
-                  value={answers[q.id] ?? ""}
-                  onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })}
-                />
-                <button
-                  aria-label={`Save answer to: ${q.message}`}
-                  disabled={(answers[q.id] ?? "").trim() === ""}
-                  onClick={() => run(() => resolveAiFeedback(q.id, answers[q.id] ?? ""))}
-                >
-                  Answer
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-        {answered.length > 0 && (
-          <ul className="answered-questions" aria-label="Answered">
-            {answered.map((q) => (
-              <li key={q.id}>
-                <strong>{q.message}</strong> — {q.resolvedNote}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
 
       <div className="plan-generate">
-        {/* Submit is the one the queue was built for: it returns at once, so
-            the next work item can be written up and submitted while this one
-            plans. Generate-now stays for a single item you want to watch. */}
+        {/* **Two presses, and the second one is the approval.** `start_run`
+            refuses a plan nobody has approved, and generating a plan clears
+            the approval — so anything that ran straight after generating would
+            be refused unless a person said go. Execute is a person saying go,
+            knowingly, rather than the app approving on their behalf. */}
         <button
-          aria-label={`Submit ${item.title} for planning`}
+          aria-label={`Plan ${item.title}`}
+          aria-describedby={nothingToPlan ? "plan-blocked" : undefined}
           onClick={onSubmit}
-          disabled={busy || plans.length === 0}
+          disabled={busy || nothingToPlan}
         >
-          Submit for planning
+          {busy ? "Working…" : "Plan"}
         </button>
         <button
-          aria-label={`Generate the code changes for ${item.title}`}
-          onClick={onGenerate}
-          disabled={busy || plans.length === 0}
+          aria-label={`Execute ${item.title}`}
+          aria-describedby={nothingToPlan ? "plan-blocked" : undefined}
+          onClick={onExecute}
+          disabled={busy || nothingToPlan}
         >
-          {busy ? "Working…" : "Generate now"}
+          {busy ? "Working…" : "Execute"}
         </button>
-        <span className="hint">
-          Writes an API and page schema per Solution from everything above.
-          Submit and carry on — the AI queue is in the Work tab — or generate
-          now and watch. The brief handed to a coding agent carries the schemas.
-        </span>
+
+        {/* **The reason, not just the disabled state.** These greyed out
+            silently when no Solution was attached, which is indistinguishable
+            from a broken button — and was. */}
+        {nothingToPlan ? (
+          <div className="hint plan-missing" id="plan-blocked">
+            <p>Not ready to plan yet:</p>
+            <ul>
+              {missing.map((reason) => (
+                <li key={reason}>{reason}</li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <span className="hint">
+            <strong>Plan</strong> queues it and returns at once, so you can write
+            up the next item while this one plans — watch it in the AI queue on
+            the Work tab. <strong>Execute</strong> plans it now, approves it, and
+            starts an agent on it in its own checkout.
+          </span>
+        )}
       </div>
     </section>
   );

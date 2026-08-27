@@ -47,7 +47,7 @@ function item(o: Partial<WorkItem>): WorkItem {
     id: 1, title: "Checkout", itemType: "feature", status: "planned", description: null,
     productId: 7, parentItemId: null, assigneeId: null, sprintId: null, startDate: null,
     endDate: null, deliverableId: null, expectedCost: null, estimatedProfit: null,
-    chargeable: false, customerCoverPct: null, risk: "", solutionId: null, developmentDetails: "", ...o,
+    chargeable: false, customerCoverPct: null, risk: "", solutionId: null, ...o,
   };
 }
 
@@ -69,19 +69,18 @@ const run = (over: Partial<Run> = {}): Run =>
 describe("readinessOf", () => {
   const bare = item({ id: 1 });
 
-  it("counts an item with nothing filled in as one of five", () => {
+  it("counts an item with nothing filled in as one of four", () => {
     const checks = readinessOf(bare, [], 0);
-    expect(checks).toHaveLength(5);
+    expect(checks).toHaveLength(4);
     // Only "nothing blocking" passes: an item nobody has asked a question about
     // is not blocked, which is true and slightly counter-intuitive.
     expect(checks.filter((c) => c.met).map((c) => c.label)).toEqual(["nothing blocking"]);
   });
 
-  it("needs a description, build notes, a Solution and an approved plan", () => {
+  it("needs a description, a Solution and an approved plan", () => {
     const full = item({
       id: 1,
       description: "Take a card payment.",
-      developmentDetails: "Money in integer cents.",
     });
     expect(readinessOf(full, [run()], 0).every((c) => c.met)).toBe(true);
   });
@@ -89,7 +88,7 @@ describe("readinessOf", () => {
   /// Approval is per (work item, Solution): one unapproved plan means the item
   /// cannot be handed over, whatever the others say.
   it("fails approval when any one of an item's runs is unapproved", () => {
-    const full = item({ id: 1, description: "x", developmentDetails: "y" });
+    const full = item({ id: 1, description: "x" });
     const checks = readinessOf(full, [run(), run({ id: 4, solutionId: 6, planApproved: false })], 0);
     expect(checks.find((c) => c.label === "plan approved")?.met).toBe(false);
   });
@@ -132,17 +131,17 @@ describe("WorkItemViews", () => {
 
   /// Ready leads because it is the only view that answers the question somebody
   /// standing in Work is asking: is this scoped well enough to hand over?
-  it("opens on Ready, scoring each item out of five", async () => {
+  it("opens on Ready, scoring each item out of four", async () => {
     render(<WorkItemViews productId={7} />);
     const ready = await screen.findByRole("region", { name: "Ready to hand over" });
     expect(
-      within(ready).getByLabelText("Checkout — 1 of 5 ready"),
+      within(ready).getByLabelText("Checkout — 1 of 4 ready"),
     ).toBeInTheDocument();
-    expect(within(ready).getByLabelText("Search — 1 of 5 ready")).toBeInTheDocument();
+    expect(within(ready).getByLabelText("Search — 1 of 4 ready")).toBeInTheDocument();
   });
 
   /// **The honesty rule, in Work.** Every dot is a fact read back from the item;
-  /// the score is a count of five of them. The design this came from showed a
+  /// the score is a count of four of them. The design this came from showed a
   /// "ready %" beside "the agent lands it first try", which would be a claim
   /// about the future that nothing here can support.
   it("scores only facts it read, and shows no percentage", async () => {
@@ -151,7 +150,6 @@ describe("WorkItemViews", () => {
         id: 1,
         title: "Checkout",
         description: "Take a card payment.",
-        developmentDetails: "Money in integer cents.",
       }),
     ]);
     mocked.listRuns.mockResolvedValue([
@@ -163,7 +161,7 @@ describe("WorkItemViews", () => {
     ]);
     render(<WorkItemViews productId={7} />);
 
-    const row = await screen.findByLabelText("Checkout — 5 of 5 ready");
+    const row = await screen.findByLabelText("Checkout — 4 of 4 ready");
     expect(row).toHaveTextContent("Ready to hand over");
     expect(row.textContent).not.toMatch(/\d+%/);
   });
@@ -172,14 +170,14 @@ describe("WorkItemViews", () => {
   /// same fact the Build view's lane badge reports, read from the same place.
   it("counts an open question against readiness", async () => {
     mocked.listWorkItems.mockResolvedValue([
-      item({ id: 1, title: "Checkout", description: "x", developmentDetails: "y" }),
+      item({ id: 1, title: "Checkout", description: "x" }),
     ]);
     mocked.listOpenQuestions.mockResolvedValue([
       { id: 1, workItemId: 1, workItemTitle: "Checkout", kind: "clarification", message: "?", whatIsNeeded: "!" },
     ]);
     render(<WorkItemViews productId={7} />);
 
-    const row = await screen.findByLabelText("Checkout — 2 of 5 ready");
+    const row = await screen.findByLabelText("Checkout — 1 of 4 ready");
     expect(row).toHaveTextContent("3 to fix");
   });
 
@@ -191,7 +189,7 @@ describe("WorkItemViews", () => {
 
     // The row is a list item holding two controls now, so the briefing opener
     // is its own button rather than the whole row.
-    await screen.findByLabelText("Checkout — 1 of 5 ready");
+    await screen.findByLabelText("Checkout — 1 of 4 ready");
     await user.click(screen.getByLabelText("Show the briefing for Checkout"));
     const briefing = await screen.findByRole("complementary", { name: "Agent briefing" });
     expect(briefing).toHaveTextContent(/The description is empty/);
@@ -237,7 +235,9 @@ describe("WorkItemViews", () => {
     expect(
       await screen.findByRole("region", { name: "Build plan for Checkout" }),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("Development details")).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Submit Checkout for planning"),
+    ).toBeInTheDocument();
   });
 
   it("switches to List view and shows a row per item", async () => {

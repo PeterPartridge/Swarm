@@ -21,10 +21,18 @@ pub struct DeveloperRules {
     /// The one field with teeth — checked against the AI's output.
     pub disallowed_tech: String,
     pub ai_constraints: String,
+    /// The MCP servers an agent working on this Product may use, as the team
+    /// wrote them.
+    ///
+    /// **A constraint, not a setting.** An agent that can reach any server it
+    /// likes can read and write things nobody agreed to, so the list travels
+    /// with the rules an agent is given rather than living in a config file
+    /// the rules document never mentions.
+    pub mcp_servers: String,
     pub updated_at: i64,
 }
 
-const SELECT: &str = "SELECT id, productId, codingStandards, architecturePrinciples, maintainability, preferredFrameworks, allowedTech, disallowedTech, aiConstraints, updatedAt FROM developer_rules";
+const SELECT: &str = "SELECT id, productId, codingStandards, architecturePrinciples, maintainability, preferredFrameworks, allowedTech, disallowedTech, aiConstraints, mcpServers, updatedAt FROM developer_rules";
 
 pub async fn create_table(conn: &Connection) -> Result<()> {
     conn.execute(
@@ -38,6 +46,7 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             allowedTech TEXT NOT NULL DEFAULT '',
             disallowedTech TEXT NOT NULL DEFAULT '',
             aiConstraints TEXT NOT NULL DEFAULT '',
+            mcpServers TEXT NOT NULL DEFAULT '',
             updatedAt INTEGER NOT NULL
         )",
         (),
@@ -48,6 +57,18 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
     // Product grows more of them. An installation that still has the column
     // keeps it; `solution::adopt_product_layouts` reads it once to seed the
     // Solutions, and nothing writes it again.
+    //
+    // Rules are written by a person, so the table is altered rather than
+    // rebuilt — dropping somebody's disallowed-tech list to add a column would
+    // be losing the only thing here with teeth.
+    let columns = crate::db::table_columns(conn, "developer_rules").await?;
+    if !columns.is_empty() && !columns.iter().any(|c| c == "mcpServers") {
+        conn.execute(
+            "ALTER TABLE developer_rules ADD COLUMN mcpServers TEXT NOT NULL DEFAULT ''",
+            (),
+        )
+        .await?;
+    }
     Ok(())
 }
 
@@ -62,6 +83,7 @@ pub async fn set_rules(
     allowed_tech: &str,
     disallowed_tech: &str,
     ai_constraints: &str,
+    mcp_servers: &str,
 ) -> Result<()> {
     if crate::db::product::find_by_id(conn, product_id).await?.is_none() {
         return Err(DbError::Validation(format!(
@@ -73,8 +95,8 @@ pub async fn set_rules(
     conn.execute(
         "INSERT INTO developer_rules (productId, codingStandards, architecturePrinciples,
             maintainability, preferredFrameworks, allowedTech, disallowedTech, aiConstraints,
-            updatedAt)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            mcpServers, updatedAt)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         (
             product_id,
             coding_standards,
@@ -84,6 +106,7 @@ pub async fn set_rules(
             allowed_tech,
             disallowed_tech,
             ai_constraints,
+            mcp_servers,
             now_millis(),
         ),
     )
@@ -106,7 +129,9 @@ pub async fn for_product(conn: &Connection, product_id: i64) -> Result<Option<De
             allowed_tech: row.get(6)?,
             disallowed_tech: row.get(7)?,
             ai_constraints: row.get(8)?,
-            updated_at: row.get(9)?,
+            // Reads as nothing said on a row written before the column existed.
+            mcp_servers: row.get(9).unwrap_or_default(),
+            updated_at: row.get(10)?,
         })),
         None => Ok(None),
     }
@@ -197,10 +222,10 @@ mod tests {
     #[tokio::test]
     async fn rules_round_trip_and_replace_rather_than_duplicate() {
         let (conn, product_id) = db_with_product().await;
-        set_rules(&conn, product_id, "DRY", "hexagonal", "small changes", "React", "Rust, TS", "Java", "no new deps")
+        set_rules(&conn, product_id, "DRY", "hexagonal", "small changes", "React", "Rust, TS", "Java", "no new deps", "")
             .await
             .expect("set");
-        set_rules(&conn, product_id, "DRY + SOLID", "hexagonal", "small changes", "React", "Rust, TS", "Java, PHP", "no new deps")
+        set_rules(&conn, product_id, "DRY + SOLID", "hexagonal", "small changes", "React", "Rust, TS", "Java, PHP", "no new deps", "filesystem")
             .await
             .expect("replace");
 
@@ -213,7 +238,7 @@ mod tests {
     async fn a_product_without_rules_has_none_and_an_unknown_product_is_rejected() {
         let (conn, product_id) = db_with_product().await;
         assert_eq!(for_product(&conn, product_id).await.expect("get"), None);
-        assert!(set_rules(&conn, 999, "", "", "", "", "", "", "").await.is_err());
+        assert!(set_rules(&conn, 999, "", "", "", "", "", "", "", "").await.is_err());
     }
 
     /// **These rules are the team's, not one repository's.** Where things live

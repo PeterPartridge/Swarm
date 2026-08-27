@@ -77,8 +77,28 @@ pub fn developer_rules_doc(rules: &DeveloperRules) -> String {
             rules.disallowed_tech
         ));
     }
+    // Counted **before** the MCP line, which is always written: otherwise the
+    // "nobody has set any rules" sentence could never fire, and a Product with
+    // no rules at all would read as though it had one.
     if s.lines().count() <= 4 {
         s.push_str("\n_No developer rules have been set for this Product yet._\n");
+    }
+
+    // **Stated either way.** An agent that reads nothing about MCP servers can
+    // take silence as permission and reach for whatever happens to be
+    // configured on the machine. Saying "none named" closes that, and costs one
+    // line — the same reasoning as naming disallowed technologies rather than
+    // hoping the model infers them.
+    if rules.mcp_servers.trim().is_empty() {
+        s.push_str(
+            "\n- **MCP servers:** none have been named for this Product. \
+             Do not use one unless a person names it.\n",
+        );
+    } else {
+        s.push_str(&format!(
+            "\n- **MCP servers you may use, and only these:** {}\n",
+            rules.mcp_servers.trim()
+        ));
     }
     s
 }
@@ -200,6 +220,32 @@ mod tests {
             product_strategy: "{}",
             rules,
         }
+    }
+
+    /// **The tools an agent may reach for are a rule, not a preference.** An
+    /// agent that can call any MCP server it likes is one that can read or
+    /// write things nobody agreed to, so the named list travels with the rest
+    /// of the constraints rather than being configured somewhere the rules
+    /// document never mentions.
+    #[test]
+    fn the_mcp_servers_an_agent_may_use_are_stated_with_the_other_rules() {
+        let mut r = rules();
+        r.mcp_servers = "filesystem (read-only), github".into();
+        let doc = developer_rules_doc(&r);
+        assert!(doc.contains("filesystem (read-only), github"), "got: {doc}");
+        assert!(doc.contains("MCP servers"), "not labelled: {doc}");
+
+        // Nothing said is not "anything goes" — it is said as nothing said, so
+        // an agent cannot read silence as permission.
+        let quiet = developer_rules_doc(&rules());
+        assert!(
+            quiet.contains("MCP servers") && quiet.contains("none have been named"),
+            "silence must be stated: {quiet}"
+        );
+        assert!(
+            quiet.contains("Do not use one unless a person names it"),
+            "and stated as a prohibition, not an observation: {quiet}"
+        );
     }
 
     #[test]

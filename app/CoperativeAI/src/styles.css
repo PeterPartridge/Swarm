@@ -3468,6 +3468,70 @@ code {
   color: var(--fg);
 }
 
+/* What Product asked for, read-only. Rendered as quoted prose rather than in
+   boxes, so it reads as somebody else's words rather than as fields a
+   developer forgot they could not edit. */
+.from-product .product-said {
+  margin: 0.2rem 0 0;
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--border);
+  white-space: pre-wrap;
+}
+
+.from-product .product-wanted {
+  margin: 0.2rem 0 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+}
+
+/* The conversation with Product. Asked and answered are offset from each other
+   so a glance says which is which without reading. */
+.product-chat {
+  margin: 0.6rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.chat-exchange {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.chat-asked,
+.chat-answered {
+  margin: 0;
+  padding: 0.35rem 0.55rem;
+  border-radius: 0.5rem;
+  font-size: 0.82rem;
+  max-width: 42rem;
+}
+
+.chat-asked {
+  align-self: flex-start;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.chat-answered {
+  align-self: flex-end;
+  background: var(--accent-tint, var(--surface-2));
+  border: 1px solid var(--accent);
+}
+
+.chat-reply {
+  display: flex;
+  gap: 0.35rem;
+  align-self: flex-end;
+  max-width: 42rem;
+  width: 100%;
+}
+
+.chat-reply input {
+  flex: 1;
+}
+
 /* One test run's verdict. **No red cross and no green tick**: before the work
    is built, a failing test is the correct result, and a cross would call the
    framework working a failure. The left border tints, the words carry the

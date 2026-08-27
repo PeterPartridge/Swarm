@@ -1946,3 +1946,343 @@ clippy `-D warnings` clean. Two new Rust tests and one Vitest:
 - Two `PlanningBoard` tests assert the Lands-in picker is absent from Product's
   board. They still pass, but now trivially — the control exists nowhere, so
   they no longer prove the boundary they were written for.
+
+---
+
+## Round 53 — the MCP servers an agent may use
+
+### My Feedback
+
+**This is the deferred item from 2026-08-15 coming back** — "MCP servers per
+agent as rule enforcement" — and asking for it as a *developer rule* is the
+answer to how it should work. It is a constraint on the AI, so it belongs with
+the other constraints an agent is handed, not in a config file the rules
+document never mentions.
+
+**Silence is stated, not left blank.** An agent that reads nothing about MCP
+servers can take that as permission and reach for whatever happens to be
+configured on the machine. So the rules document always carries a line: either
+the named list, or "none have been named for this Product. Do not use one unless
+a person names it." That is the same reasoning as naming disallowed
+technologies rather than hoping the model infers them.
+
+**It is a Product-level rule, and that is consistent** with the boundary drawn
+in round 51: which servers a team has approved is how the team works, like the
+coding standards and the AI constraints. It is not a per-repository fact the way
+a folder layout is.
+
+### Implemented
+
+- `db/developer_rules.rs` — `mcpServers`, added by `ALTER TABLE` (rules are
+  hand-written; the table is altered, never rebuilt).
+- `files/pack.rs` — the line in `developer_rules_doc`, written either way. The
+  "no rules set yet" sentence is now counted **before** it, or a Product with no
+  rules at all would have read as though it had one.
+- `commands/strategies.rs`, `lib/backend.ts` — carried through the DTO and the
+  rule-field list, so it is one more box in the existing editor rather than a
+  new panel.
+
+### Tests
+
+cargo 678/678 (23 ignored), Vitest 608/608, `tsc --noEmit`, `npm run build` and
+clippy `-D warnings` clean. One new Rust test: the named list reaches the rules
+document, and silence is stated as a prohibition rather than left out.
+
+One existing assertion changed: the test I wrote first expected "No MCP
+servers"; the implementation reads "**MCP servers:** none have been named". The
+intent — silence must be stated — is unchanged, and the test now also pins that
+it is phrased as a prohibition.
+
+### Your Feedback
+
+- **Nothing enforces it.** Like six of the other seven rules, this is stated to
+  the model and believed. `disallowedTech` is the only one read back against the
+  answer. An agent that ignores the list is not caught, so this is a rule in the
+  same sense the others are — worth knowing before relying on it.
+- It is a free-text list, not a picker. The app does not know which MCP servers
+  exist on the machine, and offering a list it cannot verify would be a worse
+  lie than a box somebody types into.
+
+### Technical Debt
+
+- **The MCP list is not enforced or validated** (above) — no check that a named
+  server exists, and no check that an agent used only what was named.
+
+---
+
+## Round 54 — Development details, removed
+
+### My Feedback
+
+**"Covered by the rules and what needs to change"** is the whole argument, and it
+holds: the standing conventions are the Developer Rules, and the specifics are
+per Solution — which is also the only one of the two that is about the
+repository an agent is actually standing in. One box holding both was a third
+place to write the same thing, and it doubled as an append-only log nobody
+could tidy.
+
+**It reached further than the box.** Removing it meant finding every reader:
+
+- The agent brief's **"## How to build it"** section — gone. The rules travel
+  with the brief and the per-Solution "changes required" is written below it.
+- The **QA test-generation prompt's** `build_notes` — now the `changesRequired`
+  of the plan for that scenario's Solution, which is the more precise answer
+  anyway.
+- The **readiness check "how to build it"** — removed rather than repointed.
+  Keeping it would have marked every work item permanently unready against a
+  field that can no longer be filled in. Readiness is four checks now, not five.
+- The **briefing panel** — shows each Solution's "what has to change" instead,
+  which it already had loaded.
+
+### Implemented
+
+- `db/work_item.rs`, `commands/work_items.rs`, `commands/work_item_plans.rs`,
+  `files/work_item_files.rs` — the field, the column from the SELECT and the
+  UPDATE, the DTO, and the brief's section.
+- `commands/test_cases.rs` — `build_notes` now comes from the plan.
+- `components/planning/{WorkItemBuildPlan,WorkReadiness}.tsx`,
+  `lib/backend.ts` — the box, the dated-append path (`appendNote` and the
+  `onNote` prop), the now-dead `saveItem`, and the type.
+
+**`saveItem` went with it**, which is worth noting: with "Lands in" gone in
+round 52 and this gone now, the build-plan panel writes nothing to the work item
+at all. It reads the item and writes to its plans.
+
+### Tests
+
+cargo 678/678 (23 ignored), Vitest 608/608, `tsc --noEmit`, `npm run build` and
+clippy `-D warnings` clean. Two Rust assertions inverted — the brief must **not**
+contain "How to build it", and the JSON must **not** carry `developmentDetails`
+— so the removal is pinned rather than merely done. Readiness counts updated
+from five checks to four.
+
+### Your Feedback
+
+- **Nothing was migrated, on your instruction.** Anything typed into that box on
+  an existing database is no longer read by anything. The column is still on the
+  table, so it is recoverable by hand if something important was in it, but the
+  app will not show it again.
+- **The readiness score changed meaning slightly.** "4 of 4 ready" is now
+  achievable without anyone writing how the work should be built — the check
+  that used to demand it is gone, and its replacement is per Solution, which the
+  list does not load. The briefing panel still says when nothing has been
+  written; the score no longer counts it.
+
+### Technical Debt
+
+- **`work_items.developmentDetails` is a dead column** on existing databases,
+  read by nothing. Same trade as `developer_rules.kindLocations`: rebuilding a
+  table that holds a team's actual plan to reclaim one column is the worse move.
+- **Readiness no longer counts whether anyone said what has to change** (above).
+  Repointing it at the plans would mean loading plans for every row in the list,
+  which is a query per item — worth doing deliberately, not as a side effect.
+
+---
+
+## Round 55 — the handover prepares itself
+
+### My Feedback
+
+**"Get rid of a manual step. This should save what you're doing and as we save
+we prepare."** The codebase already agreed with the principle and had only half
+applied it: `writeWorkItemFiles` carries a comment saying *"Every save, no
+button"*, for exactly this reason — files written only when somebody remembers
+are files three edits out of date. The handover brief was the one thing left
+behind a press.
+
+**It could not simply be called on save, and finding that out was the point.**
+`prepare_handover` computed an attempt number from the run history and created a
+**new run row and a new brief file every time**. Wired to a blur, that is one
+run and one file per edit — a runs list nobody could read, from a change meant
+to remove friction.
+
+So `change_run::prepare` is idempotent now: while a run is still `prepared` —
+nobody has started it — re-preparing rewrites *that* attempt and updates where
+its brief is. Once a run has moved past `prepared` an agent has been at it, so
+the next preparation is a genuinely new attempt and goes beside the old one.
+That is the distinction that makes "prepare on every save" safe.
+
+### Implemented
+
+- `db/change_run.rs` — `prepare` finds an unstarted run for this item and
+  Solution and updates it, inserting only when there is none. The brief path
+  follows the file, because a run pointing at a superseded brief is worse than
+  no run.
+- `components/planning/HandoverPanel.tsx` — the button gone; an effect prepares
+  on mount and whenever the panel above says something was saved. Cancelled on
+  unmount, so a slow prepare landing after the panel has moved to another work
+  item cannot overwrite its brief with the previous one's.
+- `components/planning/WorkItemBuildPlan.tsx` — a `savedAt` stamp bumped in
+  `run()`, the one path every save passes through.
+- The failure is a **`status`, not an `alert`**: the usual reason preparing
+  cannot run is that the Solution has no working copy yet, which is a state to
+  fix rather than an error in what somebody just typed.
+
+### Tests
+
+cargo 681/681 (23 ignored), Vitest 608/608, `tsc --noEmit`, `npm run build` and
+clippy `-D warnings` clean. Three new Rust tests: re-preparing an unstarted run
+is the same run; a run that has been reviewed gets a new attempt beside it;
+re-preparing updates where the brief is.
+
+Two existing tests changed, and the change is worth naming: both built history
+by calling `prepare` twice in a row, which idempotence now collapses into one
+run. They review the first attempt before preparing the second — which is what
+actually happens now, so the tests describe the real sequence rather than a
+shortcut that no longer exists.
+
+### Your Feedback
+
+- **The brief is now assembled on every save, which costs a little work each
+  time**: it reads the item, its plans, the changes and the rules, then writes a
+  file. All local, no network, and the same work the button did — but it happens
+  far more often, so if a large work item ever feels sluggish on save, this is
+  the first thing to look at.
+- **The Copy button stayed.** It is not a step in preparing — the brief is
+  already written by then — it just saves selecting a command by hand.
+
+### Technical Debt
+
+- **Nothing prunes superseded brief files.** Each new attempt writes a new one
+  beside the last, and re-preparing overwrites only the current attempt's file.
+  A work item that goes through several agent runs leaves a small pile in
+  `.coperativeai/briefs/`.
+
+---
+
+## Round 56 — the Product side, read-only, and the questions as a chat
+
+### My Feedback
+
+**Asked for three times before it was built.** That is on me — it was the
+largest of the outstanding items and it kept losing to smaller ones. It is
+built now.
+
+**Read-only is the point, not a limitation.** Product sets what customers get:
+what the work is, what could go wrong, which screens they want. Develop decides
+how it is built. A developer needs every word of the first and must not be able
+to quietly reword it — **a requirement edited by the person implementing it
+stops being a requirement.** So the Product tab renders prose, not fields, and
+the only control on it is asking a question.
+
+**The questions are the way across that line**, which is why they belong here
+rather than in a box at the bottom of the build plan. They read as a
+conversation: what was asked, what came back. Each answer still becomes a
+clarification on the work item, so it reaches the AI without anyone re-typing
+it — the mechanism is unchanged, only where it lives and how it reads.
+
+**Per work item, not per change.** I had flagged this as the open decision and
+then kept deferring the whole feature on it, which was the wrong trade. Per work
+item is what `ai_feedback` already supports, what the clarifications already
+flow from, and what makes the tab useful today. Anchoring a question to the
+individual change it is about is a real improvement and still worth doing — it
+is a migration, and it can be done under a chat that already exists.
+
+### Implemented
+
+- `components/planning/FromProduct.tsx` — what Product asked for (description,
+  risk, the changes wanted), read-only, and the conversation. `role="log"` on
+  the chat so a screen reader reads new entries as they arrive. An empty half is
+  **said** — "Product has not described this yet" — because silence reads as
+  "Product had nothing to say", which is a much more comfortable and quite
+  different claim.
+- `components/planning/WorkItemBuildPlan.tsx` — two tabs over the two sides,
+  reusing `SectionTabs` (`as="buttons"`, since the page has a tablist already).
+  The Product tab carries the count of unanswered questions in its label, so a
+  developer sees there is something waiting without switching to look.
+- The develop side is **hidden, not unmounted**, when Product's tab is showing:
+  it holds unsaved edits in its own boxes, and switching tabs must not throw
+  away something half-typed.
+
+### Tests
+
+cargo 681/681 (23 ignored), Vitest 612/612, `tsc --noEmit`, `npm run build` and
+clippy `-D warnings` clean. Four new Vitest tests on `FromProduct`:
+
+- What Product asked for is shown, and **the only textbox on the panel is the
+  one for asking a question** — the assertion that pins "read-only" as a fact
+  rather than an intention.
+- An empty description and an empty ask-list are each said out loud.
+- The questions read as a conversation, with an answer box on the open one and
+  none on the settled one.
+- Asking and answering call through.
+
+Three existing assertions moved to the new home: the questions are behind the
+Product tab now, and the waiting list became a `log`.
+
+### Your Feedback
+
+- **The handover block you asked about is unchanged and I did not touch it.**
+  `.coperativeai/briefs/<item>.md` is the file the app writes into the working
+  copy holding everything it knows about the work; the `claude "Read … and
+  implement it."` line is what you paste into a terminal to start an agent on
+  it; "Show the brief" reads that file back in-app. It is the **manual** route.
+  The Runs panel's **Start** does the same thing and more — worktree, terminal,
+  types the command — so this block is arguably redundant now. Worth deciding
+  deliberately rather than leaving two routes that look like alternatives.
+- **The `.md`/`.json` line is about a different pair of files** — the work
+  item's own documents, not the brief. Two sentences about files, next to each
+  other, describing different things: confusing, and worth merging into one
+  statement about what is on disk.
+
+### Technical Debt
+
+- **Questions are still per work item, not per change** (above). A developer
+  asking about one screen among six writes the screen's name into the question
+  by hand.
+- **Two routes to an agent, side by side**, and nothing says which to use.
+- **Two adjacent sentences about written files** describing different files.
+
+---
+
+## Round 57 — one route to an agent, one sentence about files
+
+### My Feedback
+
+**Two routes to an agent, side by side, is a choice nobody made.** This panel
+wrote a brief and offered a command to paste; the Runs panel's **Start** writes
+the brief, makes a worktree, opens a terminal and types the command itself.
+Checking before deleting mattered: `start_run` calls `change_run::prepare` and
+builds its own brief, so **Start was never depending on this panel having
+prepared anything** — nothing was lost by removing it.
+
+That also removed the reason for round 55's prepare-on-save: it existed to keep
+this block's brief fresh, and with the block gone it had no consumer. Round 55's
+*idempotence* fix stays useful — it now guards Start being pressed twice.
+
+**The Code tab's hand-over stays**, and is a different thing: it sends the
+command into a shell already open beside the editor rather than offering one to
+copy.
+
+### Implemented
+
+- `components/planning/HandoverPanel.tsx` and its test — deleted.
+- `WorkItemBuildPlan` — the block, the import, and the `savedAt` wiring gone.
+- The two adjacent file sentences merged into one: what is written on save, and
+  where the agent's brief actually comes from.
+
+### Tests
+
+Vitest 608/608, `tsc --noEmit`, `npm run build` clean. cargo untouched
+(681/681 from round 55).
+
+### Your Feedback — two things that already exist
+
+Both were asked for as if missing, and building them again would have made a
+third place to say the same thing, which is what this run of rounds has been
+removing:
+
+- **Branch name and unit tests are already editable**, per Solution, inside
+  "What this changes" — `WorkItemChanges` saves `branchName`, `cloneFrom` and
+  `unitTests` on the plan. If they are hard to find that is a layout problem,
+  not a missing feature.
+- **Product's mockups already reach the agent.** A change carries its mockup
+  path, the brief writes "(shown in …)" beside the change it belongs to, and
+  `build_change_plan_prompt` takes the images themselves for generation. What is
+  missing is not the plumbing but a statement in the brief telling the agent to
+  go and look at them.
+
+### Technical Debt
+
+- **The brief names a mockup but does not tell the agent to open it.** The path
+  is there; nothing says "read this picture before building the screen".

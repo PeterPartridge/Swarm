@@ -133,7 +133,39 @@ pub async fn prepare(
         }
         _ => {}
     }
+    // **Idempotent, because preparing happens on every save.** The handover
+    // brief is rewritten whenever the work is edited — there is no "prepare"
+    // button any more — so a run nobody has started yet is *this* attempt being
+    // re-prepared, and inserting again would fill the runs list with one row per
+    // edit. A run that has moved past `prepared` has had an agent at it, so the
+    // next preparation is a genuinely new attempt and goes beside it.
+    //
+    // Scoped so the read finishes before the write below.
+    let unstarted: Option<i64> = {
+        let mut rows = conn
+            .query(
+                "SELECT id FROM change_runs
+                 WHERE workItemId = ?1 AND solutionId = ?2 AND state = 'prepared'
+                 ORDER BY id DESC",
+                (work_item_id, solution_id),
+            )
+            .await?;
+        match rows.next().await? {
+            Some(row) => Some(row.get(0)?),
+            None => None,
+        }
+    };
     let now = now_millis();
+    if let Some(id) = unstarted {
+        // The brief's path follows the file: a run pointing at a brief that has
+        // been superseded is worse than no run at all.
+        conn.execute(
+            "UPDATE change_runs SET briefPath = ?1, updatedAt = ?2 WHERE id = ?3",
+            (brief_path, now, id),
+        )
+        .await?;
+        return Ok(id);
+    }
     conn.execute(
         "INSERT INTO change_runs (workItemId, solutionId, state, briefPath, findings, filesChanged, createdAt, updatedAt)
          VALUES (?1, ?2, 'prepared', ?3, '[]', 0, ?4, ?5)",
@@ -329,6 +361,10 @@ mod tests {
         let (conn, product_id) = db_with_product().await;
         let (item, sol) = setup(&conn, product_id).await;
         let first = prepare(&conn, item, sol, "one.md").await.expect("a");
+        // Reviewed first: preparing is idempotent while a run is still
+        // `prepared`, because it now happens on every save. A second attempt
+        // only exists once an agent has been at the first.
+        record_review(&conn, first, "[]", 0).await.expect("reviewed");
         let second = prepare(&conn, item, sol, "two.md").await.expect("b");
 
         let runs = list_for_item(&conn, item).await.expect("list");
@@ -347,6 +383,8 @@ mod tests {
         assert!(latest_open_for_solution(&conn, sol).await.expect("q").is_none());
 
         let first = prepare(&conn, item, sol, "one.md").await.expect("a");
+        // As above: a second attempt needs the first to have moved on.
+        record_review(&conn, first, "[]", 0).await.expect("reviewed");
         let second = prepare(&conn, item, sol, "two.md").await.expect("b");
         assert_eq!(
             latest_open_for_solution(&conn, sol).await.expect("q").unwrap().id,
@@ -373,6 +411,52 @@ mod tests {
         work_item::delete(&conn, item).await.expect("delete");
 
         assert!(list_for_item(&conn, item).await.expect("list").is_empty());
+    }
+
+    /// **Preparing is now something that happens on every save**, not a button
+    /// somebody remembers to press — so it has to be idempotent. A run nobody
+    /// has started yet is the same attempt being re-prepared; making a new row
+    /// each time would fill the runs list with one entry per keystroke.
+    #[tokio::test]
+    async fn re_preparing_an_unstarted_run_is_the_same_run() {
+        let (conn, product_id) = db_with_product().await;
+        let (item, sol) = setup(&conn, product_id).await;
+
+        let first = prepare(&conn, item, sol, "briefs/checkout-1.md").await.expect("prepare");
+        let again = prepare(&conn, item, sol, "briefs/checkout-1.md").await.expect("again");
+
+        assert_eq!(again, first, "the same attempt, not a second one");
+        assert_eq!(list_for_item(&conn, item).await.expect("list").len(), 1);
+    }
+
+    /// Once a run has been reviewed an agent has been at it, so the next
+    /// preparation is a genuinely new attempt and must not overwrite the old
+    /// one's record.
+    #[tokio::test]
+    async fn a_run_that_has_moved_on_gets_a_new_attempt_beside_it() {
+        let (conn, product_id) = db_with_product().await;
+        let (item, sol) = setup(&conn, product_id).await;
+
+        let first = prepare(&conn, item, sol, "briefs/checkout-1.md").await.expect("prepare");
+        record_review(&conn, first, "[]", 3).await.expect("reviewed");
+
+        let second = prepare(&conn, item, sol, "briefs/checkout-2.md").await.expect("second");
+        assert_ne!(second, first);
+        assert_eq!(list_for_item(&conn, item).await.expect("list").len(), 2);
+    }
+
+    /// The brief is rewritten as the work is edited, so the row must follow the
+    /// file — a run pointing at last week's brief is worse than none.
+    #[tokio::test]
+    async fn re_preparing_updates_where_the_brief_is() {
+        let (conn, product_id) = db_with_product().await;
+        let (item, sol) = setup(&conn, product_id).await;
+
+        let id = prepare(&conn, item, sol, "briefs/old.md").await.expect("prepare");
+        prepare(&conn, item, sol, "briefs/new.md").await.expect("again");
+
+        let run = find_by_id(&conn, id).await.expect("q").expect("there");
+        assert_eq!(run.brief_path, "briefs/new.md");
     }
 
     #[tokio::test]

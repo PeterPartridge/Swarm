@@ -638,7 +638,6 @@ pub async fn write_work_item_files(
             description: item.description.clone().unwrap_or_default(),
             risk: item.risk.clone(),
             product: product.name.clone(),
-            development_details: item.development_details.clone(),
             clarifications,
             solutions: parts,
             unassigned: all_changes
