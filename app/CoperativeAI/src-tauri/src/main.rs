@@ -284,6 +284,9 @@ fn main() {
             commands::policies::set_work_item_policy,
             commands::policies::get_product_policy,
             commands::policies::set_product_policy,
+            commands::policies::get_solution_policy,
+            commands::policies::set_solution_policy,
+            commands::policies::clear_solution_policy,
             commands::repositories::list_repositories,
             commands::repositories::add_repository,
         ])

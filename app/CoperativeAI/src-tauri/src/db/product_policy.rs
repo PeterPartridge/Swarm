@@ -21,6 +21,14 @@ pub struct ProductPolicy {
     pub allow_read: bool,
     /// May the AI create planning work items against this Product?
     pub allow_generate: bool,
+    /// May the AI change this Product's work — code, plans, schemas?
+    ///
+    /// **Here since 2026-08-21**, when permission moved up from the work item:
+    /// a new item was denied until somebody permitted it individually, and
+    /// permission had to be re-granted for every item forever.
+    pub allow_edit: bool,
+    /// May the AI write tests for this Product's work?
+    pub allow_generate_tests: bool,
     pub provider_id: Option<i64>,
     pub effort_tier: String,
     pub updated_at: i64,
@@ -33,6 +41,8 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             productId INTEGER NOT NULL UNIQUE,
             allowRead INTEGER NOT NULL DEFAULT 0,
             allowGenerate INTEGER NOT NULL DEFAULT 0,
+            allowEdit INTEGER NOT NULL DEFAULT 0,
+            allowGenerateTests INTEGER NOT NULL DEFAULT 0,
             providerId INTEGER,
             effortTier TEXT NOT NULL DEFAULT 'low',
             updatedAt INTEGER NOT NULL
@@ -40,15 +50,37 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
         (),
     )
     .await?;
+    // **Added, never rebuilt.** A policy is somebody's decision about what an
+    // AI may do to their work; recreating the table to add a column would
+    // silently revoke it. The two new flags default to 0, which is the right
+    // answer: a permission nobody has granted is not granted.
+    let columns = crate::db::table_columns(conn, "product_policies").await?;
+    for (name, ddl) in [
+        (
+            "allowEdit",
+            "ALTER TABLE product_policies ADD COLUMN allowEdit INTEGER NOT NULL DEFAULT 0",
+        ),
+        (
+            "allowGenerateTests",
+            "ALTER TABLE product_policies ADD COLUMN allowGenerateTests INTEGER NOT NULL DEFAULT 0",
+        ),
+    ] {
+        if !columns.is_empty() && !columns.iter().any(|c| c == name) {
+            conn.execute(ddl, ()).await?;
+        }
+    }
     Ok(())
 }
 
 /// Creates or replaces a Product's AI policy (one policy per Product).
+#[allow(clippy::too_many_arguments)]
 pub async fn set_policy(
     conn: &Connection,
     product_id: i64,
     allow_read: bool,
     allow_generate: bool,
+    allow_edit: bool,
+    allow_generate_tests: bool,
     provider_id: Option<i64>,
     effort_tier: &str,
 ) -> Result<()> {
@@ -74,12 +106,14 @@ pub async fn set_policy(
     .await?;
     conn.execute(
         "INSERT INTO product_policies
-            (productId, allowRead, allowGenerate, providerId, effortTier, updatedAt)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            (productId, allowRead, allowGenerate, allowEdit, allowGenerateTests, providerId, effortTier, updatedAt)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         (
             product_id,
             allow_read as i64,
             allow_generate as i64,
+            allow_edit as i64,
+            allow_generate_tests as i64,
             provider_id,
             effort_tier,
             now_millis(),
@@ -92,7 +126,7 @@ pub async fn set_policy(
 pub async fn for_product(conn: &Connection, product_id: i64) -> Result<Option<ProductPolicy>> {
     let mut rows = conn
         .query(
-            "SELECT id, productId, allowRead, allowGenerate, providerId, effortTier, updatedAt
+            "SELECT id, productId, allowRead, allowGenerate, providerId, effortTier, updatedAt, allowEdit, allowGenerateTests
              FROM product_policies WHERE productId = ?1",
             (product_id,),
         )
@@ -106,6 +140,10 @@ pub async fn for_product(conn: &Connection, product_id: i64) -> Result<Option<Pr
                 product_id: row.get(1)?,
                 allow_read: allow_read != 0,
                 allow_generate: allow_generate != 0,
+                // Read as false on a row written before they existed: a
+                // permission nobody has granted is not granted.
+                allow_edit: row.get::<i64>(7).unwrap_or(0) != 0,
+                allow_generate_tests: row.get::<i64>(8).unwrap_or(0) != 0,
                 provider_id: row.get(4)?,
                 effort_tier: row.get(5)?,
                 updated_at: row.get(6)?,
@@ -129,7 +167,7 @@ mod tests {
     #[tokio::test]
     async fn set_policy_round_trips_and_replaces() {
         let (conn, product_id) = db_with_product().await;
-        set_policy(&conn, product_id, true, true, None, "medium")
+        set_policy(&conn, product_id, true, true, false, false, None, "medium")
             .await
             .expect("set");
         let policy = for_product(&conn, product_id)
@@ -140,7 +178,7 @@ mod tests {
         assert_eq!(policy.effort_tier, "medium");
 
         // one policy per product — setting again replaces, never duplicates
-        set_policy(&conn, product_id, false, false, None, "low")
+        set_policy(&conn, product_id, false, false, false, false, None, "low")
             .await
             .expect("replace");
         let policy = for_product(&conn, product_id)
@@ -153,8 +191,8 @@ mod tests {
     #[tokio::test]
     async fn policy_validates_product_effort_and_provider() {
         let (conn, product_id) = db_with_product().await;
-        assert!(set_policy(&conn, 999, true, true, None, "low").await.is_err());
-        assert!(set_policy(&conn, product_id, true, true, None, "extreme").await.is_err());
-        assert!(set_policy(&conn, product_id, true, true, Some(999), "low").await.is_err());
+        assert!(set_policy(&conn, 999, true, true, false, false, None, "low").await.is_err());
+        assert!(set_policy(&conn, product_id, true, true, false, false, None, "extreme").await.is_err());
+        assert!(set_policy(&conn, product_id, true, true, false, false, Some(999), "low").await.is_err());
     }
 }

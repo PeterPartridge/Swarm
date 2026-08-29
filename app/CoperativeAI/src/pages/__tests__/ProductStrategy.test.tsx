@@ -66,6 +66,8 @@ const openPolicy: ProductPolicy = {
   productId: 1,
   allowRead: true,
   allowGenerate: true,
+  allowEdit: false,
+  allowGenerateTests: false,
   providerId: 2,
   effortTier: "medium",
 };

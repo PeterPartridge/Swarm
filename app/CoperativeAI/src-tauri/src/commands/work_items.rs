@@ -469,31 +469,64 @@ pub(crate) async fn resolve_item_ai_gate(
     item_id: i64,
     item_title: &str,
 ) -> Result<(crate::db::ai_provider::AiProvider, String), String> {
-    // No policy row, or one that doesn't allow reading via a named provider,
-    // blocks the call before any content moves.
-    let Some(policy) = work_item_policy::for_item(conn, item_id)
+    resolve_item_ai_use(conn, item_id, item_title, work_item_policy::AiUse::Read).await
+}
+
+/// The same gate, for a specific use.
+///
+/// **Permission comes from the Product, or the Solution that overrode it** —
+/// see `db::ai_permission`. It used to come from the work item, which meant a
+/// new item was denied until somebody permitted it individually and permission
+/// had to be granted again for every item, forever.
+///
+/// **Routing is still the work item's to say.** Its own provider and effort win
+/// where a developer has set them; otherwise the permission's own provider and
+/// effort are the default. So `work_item_policy` survives as a routing
+/// override, not as a permission.
+pub(crate) async fn resolve_item_ai_use(
+    conn: &turso::Connection,
+    item_id: i64,
+    item_title: &str,
+    ai_use: work_item_policy::AiUse,
+) -> Result<(crate::db::ai_provider::AiProvider, String), String> {
+    use crate::db::ai_permission;
+
+    let verdict = ai_permission::verdict(conn, item_id, ai_use)
         .await
-        .map_err(to_message)?
-    else {
+        .map_err(to_message)?;
+    if !verdict.allowed {
         return Err(format!(
-            "'{item_title}' has no AI policy, so AI can't touch it (deny-by-default). Set its work-item AI policy to allow reading, and configure an AI provider in AI Settings."
+            "'{item_title}': {}",
+            ai_permission::refusal(&verdict, ai_use)
         ));
-    };
-    let provider_id = match (policy.allow_read, policy.provider_id) {
-        (true, Some(provider_id)) => provider_id,
-        _ => {
-            return Err(format!(
-                "'{item_title}''s AI policy blocks this: it must allow reading and name an AI provider. Configure a provider in AI Settings and update the item's policy."
-            ));
-        }
+    }
+
+    // The developer's per-item override, when there is one.
+    let routing = work_item_policy::for_item(conn, item_id)
+        .await
+        .map_err(to_message)?;
+    let provider_id = routing
+        .as_ref()
+        .and_then(|r| r.provider_id)
+        .or(verdict.provider_id);
+    let Some(provider_id) = provider_id else {
+        return Err(format!(
+            "'{item_title}' has no AI provider to send to. Name one on the policy that permits it, in Admin → AI."
+        ));
     };
     let Some(provider) = crate::db::ai_provider::find_by_id(conn, provider_id)
         .await
         .map_err(to_message)?
     else {
-        return Err("the policy's AI provider no longer exists — update the item's policy".into());
+        return Err(
+            "the AI provider named by the policy no longer exists — choose another in Admin → AI"
+                .into(),
+        );
     };
-    Ok((provider, policy.effort_tier))
+    // Effort follows the same order: what the developer said about this item,
+    // then what the policy that permitted it says.
+    let effort = routing.map(|r| r.effort_tier).unwrap_or(verdict.effort_tier);
+    Ok((provider, effort))
 }
 
 /// Everything the Deliverable gate resolves before any content moves.
@@ -782,7 +815,10 @@ fn listed(drafts: &[crate::ai::client::StoryDraft]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{level_for_deliverable, resolve_deliverable_generation, resolve_story_generation};
+    use super::{
+        level_for_deliverable, resolve_deliverable_generation, resolve_item_ai_gate,
+        resolve_story_generation,
+    };
     use crate::db::product::tests::db_with_product;
     use crate::db::{
         ai_provider, deliverable, product_policy, system_setting, work_item, work_item_policy,
@@ -844,19 +880,19 @@ mod tests {
             .expect("provider");
 
         // reading allowed but generating denied
-        product_policy::set_policy(&conn, product_id, true, false, Some(provider), "low")
+        product_policy::set_policy(&conn, product_id, true, false, false, false, Some(provider), "low")
             .await
             .expect("policy");
         assert!(resolve_deliverable_generation(&conn, d).await.is_err());
 
         // both allowed but no provider named
-        product_policy::set_policy(&conn, product_id, true, true, None, "low")
+        product_policy::set_policy(&conn, product_id, true, true, false, false, None, "low")
             .await
             .expect("policy");
         assert!(resolve_deliverable_generation(&conn, d).await.is_err());
 
         // fully allowed
-        product_policy::set_policy(&conn, product_id, true, true, Some(provider), "medium")
+        product_policy::set_policy(&conn, product_id, true, true, false, false, Some(provider), "medium")
             .await
             .expect("policy");
         let context = resolve_deliverable_generation(&conn, d).await.expect("allowed");
@@ -880,7 +916,42 @@ mod tests {
             .await
             .err()
             .expect("must be blocked");
-        assert!(err.contains("deny-by-default"), "got: {err}");
+        assert!(err.contains("Nobody has said"), "got: {err}");
+    }
+
+    /// **Permission is the Product's; routing is the item's.** The Product
+    /// permits the work and names a fallback provider; the work item may
+    /// override which provider and how hard, and that override wins.
+    #[tokio::test]
+    async fn the_item_overrides_the_routing_the_permission_defaults_to() {
+        let (conn, product_id) = db_with_product().await;
+        let feature = work_item::create(&conn, "Checkout", "feature", product_id, None, None)
+            .await
+            .expect("feature");
+        let cheap = ai_provider::add(&conn, "Cheap", "https://cheap.example", &["m"], "cheap")
+            .await
+            .expect("provider");
+        let dear = ai_provider::add(&conn, "Claude", "https://a.example", &["m"], "alias")
+            .await
+            .expect("provider");
+
+        // The Product permits, and names the default.
+        product_policy::set_policy(&conn, product_id, true, true, false, false, Some(cheap), "low")
+            .await
+            .expect("policy");
+        let (provider, effort) =
+            resolve_item_ai_gate(&conn, feature, "Checkout").await.expect("allowed");
+        assert_eq!(provider.id, cheap, "the permission's provider is the default");
+        assert_eq!(effort, "low");
+
+        // A developer says this one is harder, and that wins.
+        work_item_policy::set_policy(&conn, feature, true, false, false, Some(dear), "high")
+            .await
+            .expect("routing override");
+        let (provider, effort) =
+            resolve_item_ai_gate(&conn, feature, "Checkout").await.expect("allowed");
+        assert_eq!(provider.id, dear, "the item's own provider wins");
+        assert_eq!(effort, "high");
     }
 
     #[tokio::test]
@@ -928,9 +999,13 @@ mod tests {
         )
         .await
         .expect("provider");
-        work_item_policy::set_policy(&conn, feature, true, false, false, Some(provider), "medium")
+        // Permission from the Product, routing from the item.
+        product_policy::set_policy(&conn, product_id, true, true, false, false, Some(provider), "low")
             .await
             .expect("policy");
+        work_item_policy::set_policy(&conn, feature, true, false, false, Some(provider), "medium")
+            .await
+            .expect("routing");
         let context = resolve_story_generation(&conn, feature)
             .await
             .expect("gates pass");

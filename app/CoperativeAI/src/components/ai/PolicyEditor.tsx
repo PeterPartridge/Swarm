@@ -11,7 +11,9 @@ import {
 interface PolicyEditorProps {
   workItemId: number;
   itemTitle: string;
-  onClose: () => void;
+  /** Shown as a Close button when the panel is a popover. Omitted where it is
+   *  a section of a page — Admin — because there is nothing to close. */
+  onClose?: () => void;
 }
 
 const CLOSED: Omit<WorkItemPolicy, "workItemId"> = {
@@ -118,7 +120,7 @@ export default function PolicyEditor({ workItemId, itemTitle, onClose }: PolicyE
           ))}
         </select>
       </label>
-      <button onClick={onClose}>Close</button>
+      {onClose && <button onClick={onClose}>Close</button>}
     </div>
   );
 }

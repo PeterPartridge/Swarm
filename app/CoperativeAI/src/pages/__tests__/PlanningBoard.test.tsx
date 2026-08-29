@@ -11,6 +11,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     listWorkItems: vi.fn(),
     createWorkItem: vi.fn(),
     updateWorkItemStatus: vi.fn(),
+    setWorkItemDescription: vi.fn(),
     updateWorkItem: vi.fn(),
     deleteWorkItem: vi.fn(),
     generateUserStories: vi.fn(),
@@ -508,33 +509,36 @@ describe("PlanningBoard", () => {
     expect(mocked.listWorkItems.mock.calls.length).toBeGreaterThan(1);
   });
 
-  it("opens the AI policy editor and saves changes (deny-by-default start)", async () => {
+  /// **Product does not set AI policy.** What the AI may do to a piece of work
+  /// is a governance decision, and it sat on this board — putting it in front
+  /// of the one role that should not be making it. It is Admin → AI now, and
+  /// its behaviour is tested there.
+  it("does not offer AI policy on a planning card", async () => {
+    render(<PlanningBoard productId={7} />);
+    await screen.findByLabelText("Checkout");
+
+    expect(
+      screen.queryByRole("button", { name: "AI policy for Checkout" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("AI may read this item")).not.toBeInTheDocument();
+  });
+
+  /// The description had no editor anywhere: it could be set when an item was
+  /// created and never corrected, and the build plan refuses to plan without
+  /// it. Product owns what the work is, so the box is on Product's board.
+  it("lets Product write what the work is, after it exists", async () => {
     const user = userEvent.setup();
-    mocked.setWorkItemPolicy.mockResolvedValue();
+    mocked.setWorkItemDescription.mockResolvedValue();
     render(<PlanningBoard productId={7} />);
 
-    await user.click(
-      await screen.findByRole("button", { name: "AI policy for Checkout" }),
-    );
-    const readToggle = await screen.findByLabelText("AI may read this item");
-    expect(readToggle).not.toBeChecked(); // deny-by-default
+    const box = await screen.findByLabelText("What Checkout is");
+    await user.type(box, "A customer pays for the basket.");
+    await user.tab();
 
-    await user.click(readToggle);
     await waitFor(() =>
-      expect(mocked.setWorkItemPolicy).toHaveBeenCalledWith({
-        workItemId: 1,
-        allowRead: true,
-        allowEdit: false,
-        allowGenerateTests: false,
-        providerId: null,
-        effortTier: "low",
-      }),
-    );
-
-    await user.selectOptions(screen.getByLabelText("Provider for Checkout"), "3");
-    await waitFor(() =>
-      expect(mocked.setWorkItemPolicy).toHaveBeenLastCalledWith(
-        expect.objectContaining({ providerId: 3 }),
+      expect(mocked.setWorkItemDescription).toHaveBeenCalledWith(
+        1,
+        "A customer pays for the basket.",
       ),
     );
   });

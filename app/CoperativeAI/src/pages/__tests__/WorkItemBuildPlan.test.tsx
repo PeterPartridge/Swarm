@@ -29,6 +29,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     generateChangePlan: vi.fn(),
     listAiFeedback: vi.fn(),
     listAiJobs: vi.fn(),
+    getWorkItemPolicy: vi.fn(),
     askProductQuestion: vi.fn(),
     resolveAiFeedback: vi.fn(),
     pickImages: vi.fn(),
@@ -111,6 +112,16 @@ describe("WorkItemBuildPlan", () => {
     mocked.listWorkItemPlans.mockResolvedValue([]);
     mocked.listAiFeedback.mockResolvedValue([]);
     mocked.listAiJobs.mockResolvedValue([]);
+    // Permitted by default in these tests: the deny-by-default rule has its own
+    // assertions, and leaving it null here would block every other one.
+    mocked.getWorkItemPolicy.mockResolvedValue({
+      workItemId: 12,
+      allowRead: true,
+      allowEdit: false,
+      allowGenerateTests: false,
+      providerId: 1,
+      effortTier: "medium",
+    });
     mocked.listWorkItemChanges.mockResolvedValue([]);
     mocked.changeKinds.mockResolvedValue([]);
     mocked.changeKindsForSolution.mockResolvedValue(["screen"]);
@@ -207,17 +218,39 @@ describe("WorkItemBuildPlan", () => {
   /// they are fixed in a single pass.
   it("lists everything missing, not only the first thing", () => {
     const bare = { ...item, description: null };
-    expect(whatIsMissing(bare, [])).toHaveLength(2);
-    expect(whatIsMissing(bare, []).join(" ")).toMatch(/described/i);
-    expect(whatIsMissing(bare, []).join(" ")).toMatch(/no Solution/i);
+    const allowed = {
+      workItemId: 12,
+      allowRead: true,
+      allowEdit: false,
+      allowGenerateTests: false,
+      providerId: 1,
+      effortTier: "medium",
+    };
+
+    // **Deny-by-default, said before the press.** The backend refuses an item
+    // nobody has permitted, which is the rule working — but learning that from
+    // a failed job in the queue is the long way round.
+    expect(whatIsMissing(item, [plan({ changesRequired: "x" })], null).join(" ")).toMatch(
+      /no permission on this item/i,
+    );
+    expect(
+      whatIsMissing(item, [plan({ changesRequired: "x" })], {
+        ...allowed,
+        providerId: null,
+      }).join(" "),
+    ).toMatch(/names no provider/i);
+
+    expect(whatIsMissing(bare, [], allowed)).toHaveLength(2);
+    expect(whatIsMissing(bare, [], allowed).join(" ")).toMatch(/described/i);
+    expect(whatIsMissing(bare, [], allowed).join(" ")).toMatch(/no Solution/i);
 
     // A Solution attached, but nobody has said what changes in it.
-    expect(whatIsMissing(item, [plan({})])).toEqual([
+    expect(whatIsMissing(item, [plan({})], allowed)).toEqual([
       expect.stringMatching(/nothing is written about what has to change/i),
     ]);
 
     // Described, attached, and written about: ready.
-    expect(whatIsMissing(item, [plan({ changesRequired: "Add POST /checkout" })])).toEqual([]);
+    expect(whatIsMissing(item, [plan({ changesRequired: "Add POST /checkout" })], allowed)).toEqual([]);
   });
 
   /// **The panel used to look identical before, during and after planning.**
@@ -413,6 +446,16 @@ describe("WorkItemBuildPlan approval", () => {
     vi.clearAllMocks();
     mocked.listAiFeedback.mockResolvedValue([]);
     mocked.listAiJobs.mockResolvedValue([]);
+    // Permitted by default in these tests: the deny-by-default rule has its own
+    // assertions, and leaving it null here would block every other one.
+    mocked.getWorkItemPolicy.mockResolvedValue({
+      workItemId: 12,
+      allowRead: true,
+      allowEdit: false,
+      allowGenerateTests: false,
+      providerId: 1,
+      effortTier: "medium",
+    });
     mocked.listWorkItemChanges.mockResolvedValue([]);
     mocked.changeKinds.mockResolvedValue([]);
     mocked.changeKindsForSolution.mockResolvedValue([]);

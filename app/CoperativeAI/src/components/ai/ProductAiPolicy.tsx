@@ -11,6 +11,8 @@ import {
 const CLOSED: Omit<ProductPolicy, "productId"> = {
   allowRead: false,
   allowGenerate: false,
+  allowEdit: false,
+  allowGenerateTests: false,
   providerId: null,
   effortTier: "low",
 };
@@ -80,6 +82,29 @@ export default function ProductAiPolicy({ productId }: { productId: number }) {
           onChange={(e) => save({ allowGenerate: e.target.checked })}
         />
         Allow creating work items
+      </label>
+      {/* **Here since permission moved up from the work item.** These two used
+          to be granted per item, which meant a new item was denied until
+          somebody permitted it individually — and permission had to be granted
+          again, forever, for every item. Granted once for the Product, and
+          overridden on a Solution where that repository genuinely differs. */}
+      <label className="switch">
+        <input
+          type="checkbox"
+          aria-label="Allow AI to change this Product's work"
+          checked={policy.allowEdit}
+          onChange={(e) => save({ allowEdit: e.target.checked })}
+        />
+        Allow changing code, plans and schemas
+      </label>
+      <label className="switch">
+        <input
+          type="checkbox"
+          aria-label="Allow AI to write tests for this Product"
+          checked={policy.allowGenerateTests}
+          onChange={(e) => save({ allowGenerateTests: e.target.checked })}
+        />
+        Allow writing tests
       </label>
       <label>
         AI provider

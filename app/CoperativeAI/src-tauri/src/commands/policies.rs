@@ -103,11 +103,14 @@ pub async fn get_product_policy(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn set_product_policy(
     db: State<'_, AppDb>,
     product_id: i64,
     allow_read: bool,
     allow_generate: bool,
+    allow_edit: bool,
+    allow_generate_tests: bool,
     provider_id: Option<i64>,
     effort_tier: String,
 ) -> Result<(), String> {
@@ -117,9 +120,80 @@ pub async fn set_product_policy(
         product_id,
         allow_read,
         allow_generate,
+        allow_edit,
+        allow_generate_tests,
         provider_id,
         &effort_tier,
     )
     .await
     .map_err(to_message)
+}
+
+/// A Solution's AI policy override — see `db::ai_permission` for the walk.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SolutionPolicyDto {
+    pub solution_id: i64,
+    pub allow_read: bool,
+    pub allow_edit: bool,
+    pub allow_generate_tests: bool,
+    pub provider_id: Option<i64>,
+    pub effort_tier: String,
+}
+
+/// The override for one Solution, or `None` where it follows its Product.
+#[tauri::command]
+pub async fn get_solution_policy(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+) -> Result<Option<SolutionPolicyDto>, String> {
+    let conn = db.0.lock().await;
+    let policy = crate::db::solution_policy::for_solution(&conn, solution_id)
+        .await
+        .map_err(to_message)?;
+    Ok(policy.map(|p| SolutionPolicyDto {
+        solution_id: p.solution_id,
+        allow_read: p.allow_read,
+        allow_edit: p.allow_edit,
+        allow_generate_tests: p.allow_generate_tests,
+        provider_id: p.provider_id,
+        effort_tier: p.effort_tier,
+    }))
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn set_solution_policy(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+    allow_read: bool,
+    allow_edit: bool,
+    allow_generate_tests: bool,
+    provider_id: Option<i64>,
+    effort_tier: String,
+) -> Result<(), String> {
+    let conn = db.0.lock().await;
+    crate::db::solution_policy::set_policy(
+        &conn,
+        solution_id,
+        allow_read,
+        allow_edit,
+        allow_generate_tests,
+        provider_id,
+        &effort_tier,
+    )
+    .await
+    .map_err(to_message)
+}
+
+/// Removes the override, so this Solution follows its Product again.
+#[tauri::command]
+pub async fn clear_solution_policy(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+) -> Result<(), String> {
+    let conn = db.0.lock().await;
+    crate::db::solution_policy::clear(&conn, solution_id)
+        .await
+        .map_err(to_message)
 }

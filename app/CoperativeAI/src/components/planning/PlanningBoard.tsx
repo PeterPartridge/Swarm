@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Notice, { type NoticeValue } from "../ai/Notice";
 import AiQuestions from "../ai/AiQuestions";
 import WorkItemChanges from "../code/WorkItemChanges";
-import PolicyEditor from "../ai/PolicyEditor";
 import { usePermissions } from "../../lib/permissions";
 import {
   createWorkItem,
@@ -217,7 +216,6 @@ export default function PlanningBoard({ productId }: PlanningBoardProps) {
   const [subItemParent, setSubItemParent] = useState<number | null>(null);
   const [subTitle, setSubTitle] = useState("");
   const [subType, setSubType] = useState<string>("");
-  const [policyItem, setPolicyItem] = useState<number | null>(null);
   const [screensItem, setScreensItem] = useState<number | null>(null);
   const { canSeeField } = usePermissions();
 
@@ -585,12 +583,6 @@ export default function PlanningBoard({ productId }: PlanningBoardProps) {
                     </button>
                   )}
                   <button
-                    aria-label={`AI policy for ${item.title}`}
-                    onClick={() => setPolicyItem(policyItem === item.id ? null : item.id)}
-                  >
-                    AI policy
-                  </button>
-                  <button
                     aria-label={`Delete ${item.title}`}
                     onClick={() => run(() => deleteWorkItem(item.id))}
                   >
@@ -604,13 +596,11 @@ export default function PlanningBoard({ productId }: PlanningBoardProps) {
                   >
                     Screens
                   </button>
-                  {policyItem === item.id && (
-                    <PolicyEditor
-                      workItemId={item.id}
-                      itemTitle={item.title}
-                      onClose={() => setPolicyItem(null)}
-                    />
-                  )}
+                  {/* **No AI policy button here.** What the AI may do to a
+                      piece of work is a governance decision, not a planning
+                      one — it is set in Admin → AI, per work item. Product says
+                      what customers get; whether an AI may read it is somebody
+                      else's call. */}
                   {/* Renders nothing unless the AI has asked something. */}
                   <AiQuestions workItemId={item.id} />
                   {/* Product's half: the screens this work needs, recorded

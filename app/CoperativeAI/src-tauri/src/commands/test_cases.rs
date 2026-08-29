@@ -244,25 +244,21 @@ pub(crate) async fn resolve_test_implementation(
         ));
     };
 
-    // The item's own gate — provider and effort — then the use-specific flag.
-    // Checked before the working copy is looked for: a refusal about policy is
-    // the more useful one to hear first, and it costs no filesystem work.
+    // **Asked as the use it is**, rather than permitted for reading and then
+    // checked again for writing tests. One question, one answer, and the
+    // refusal names which permission was missing and where it lives — the
+    // Product's policy, or the Solution that overrode it.
+    //
+    // Checked before the working copy is looked for: a refusal about permission
+    // is the more useful one to hear first, and it costs no filesystem work.
     let title = super::work_items::title_of(conn, work_item_id).await?;
-    let (provider, effort_tier) =
-        super::work_items::resolve_item_ai_gate(conn, work_item_id, &title).await?;
-    if !work_item_policy::is_allowed(
+    let (provider, effort_tier) = super::work_items::resolve_item_ai_use(
         conn,
         work_item_id,
+        &title,
         work_item_policy::AiUse::GenerateTests,
-        provider.id,
     )
-    .await
-    .map_err(to_message)?
-    {
-        return Err(format!(
-            "'{title}''s AI policy does not allow generating tests. Turn that on in the work item's AI policy — reading and editing are not the same permission."
-        ));
-    }
+    .await?;
 
     let place = resolve_scenario_place(conn, case).await?;
     Ok(TestImplementationContext {
@@ -571,7 +567,7 @@ pub async fn run_test_case(
 mod tests {
     use super::{resolve_test_implementation, resolve_test_run};
     use crate::db::product::tests::db_with_product;
-    use crate::db::{ai_provider, deliverable, solution, test_case, work_item, work_item_policy};
+    use crate::db::{ai_provider, deliverable, product_policy, solution, test_case, work_item};
 
     /// A Product, a provider, and a work item with a Solution pointed at a real
     /// folder — everything an implementable scenario needs except the policy,
@@ -664,7 +660,10 @@ mod tests {
             .await
             .err()
             .expect("must refuse");
-        assert!(err.contains("deny-by-default"), "got: {err}");
+        // Nobody has said anything anywhere — not on the Solution, not on the
+        // Product. Silence is still never permission.
+        assert!(err.contains("Nobody has said"), "got: {err}");
+        assert!(err.contains("Admin"), "and says where to go: {err}");
     }
 
     /// The spec's outstanding test, and the reason this round exists:
@@ -675,17 +674,22 @@ mod tests {
         let (conn, product_id, item, provider) = ready_to_implement().await;
         let case = scenario_for(&conn, product_id, Some(item), None).await;
 
-        work_item_policy::set_policy(&conn, item, true, true, false, Some(provider), "medium")
+        // Permission is the Product's now: reading and editing granted, writing
+        // tests not. Granting it on the work item would grant nothing.
+        product_policy::set_policy(&conn, product_id, true, true, true, false, Some(provider), "medium")
             .await
             .expect("policy");
         let err = resolve_test_implementation(&conn, case)
             .await
             .err()
             .expect("must refuse");
-        assert!(err.contains("generating tests"), "got: {err}");
+        assert!(err.contains("write tests"), "got: {err}");
+        // The refusal names which policy said no, so somebody knows whether to
+        // change the Product's or override it for this Solution.
+        assert!(err.contains("Product's AI policy"), "names the source: {err}");
 
         // …and the same policy with the one flag turned on goes through.
-        work_item_policy::set_policy(&conn, item, true, true, true, Some(provider), "medium")
+        product_policy::set_policy(&conn, product_id, true, true, true, true, Some(provider), "medium")
             .await
             .expect("policy");
         let context = resolve_test_implementation(&conn, case)
@@ -703,7 +707,7 @@ mod tests {
     async fn a_test_needs_a_solution_and_a_working_copy_to_land_in() {
         let (conn, product_id, item, provider) = ready_to_implement().await;
         let case = scenario_for(&conn, product_id, Some(item), None).await;
-        work_item_policy::set_policy(&conn, item, true, true, true, Some(provider), "medium")
+        product_policy::set_policy(&conn, product_id, true, true, true, true, Some(provider), "medium")
             .await
             .expect("policy");
 
@@ -789,7 +793,7 @@ mod tests {
     async fn an_implemented_scenario_is_not_written_twice() {
         let (conn, product_id, item, provider) = ready_to_implement().await;
         let case = scenario_for(&conn, product_id, Some(item), None).await;
-        work_item_policy::set_policy(&conn, item, true, true, true, Some(provider), "medium")
+        product_policy::set_policy(&conn, product_id, true, true, true, true, Some(provider), "medium")
             .await
             .expect("policy");
         test_case::update_case(

@@ -7,6 +7,7 @@ import { notifyWorkChanged, useWorkChanged } from "../../lib/workSignal";
 import {
   askProductQuestion,
   generateChangePlan,
+  getWorkItemPolicy,
   submitForPlanning,
   listAiFeedback,
   listAiJobs,
@@ -20,6 +21,7 @@ import {
   type Solution,
   type WorkItem,
   type WorkItemPlan,
+  type WorkItemPolicy,
 } from "../../lib/backend";
 
 /** Everything an AI would need that nobody has written yet, in the order it
@@ -32,11 +34,32 @@ import {
  *  pass instead of discovering the next one each time.
  *
  *  Pure, so the rules are testable without rendering anything. */
-export function whatIsMissing(item: WorkItem, plans: WorkItemPlan[]): string[] {
+export function whatIsMissing(
+  item: WorkItem,
+  plans: WorkItemPlan[],
+  policy: WorkItemPolicy | null,
+): string[] {
   const missing: string[] = [];
   if ((item.description ?? "").trim() === "") {
     missing.push(
       "Nobody has described what this is — Product writes that on the item.",
+    );
+  }
+  // **Deny-by-default, said before the press rather than after it.** The
+  // backend refuses an item with no policy, which is the rule working — but
+  // finding out by pressing Plan and reading a failure in the job queue is the
+  // long way round to "nobody has said the AI may touch this".
+  if (policy === null) {
+    missing.push(
+      'The AI has no permission on this item — go to Admin → AI, pick this item under "What the AI may do, per work item", and allow reading with a provider named. Nothing is allowed until somebody says so.',
+    );
+  } else if (!policy.allowRead) {
+    missing.push(
+      'Its AI policy does not allow reading, so nothing can be sent — turn that on in Admin → AI.',
+    );
+  } else if (policy.providerId === null) {
+    missing.push(
+      'Its AI policy names no provider — choose one in Admin → AI, adding one there first if the list is empty.',
     );
   }
   if (plans.length === 0) {
@@ -79,6 +102,9 @@ export default function WorkItemBuildPlan({
   /// This item's planning jobs, newest first — what the panel needs to say
   /// whether one is in flight and how the last one went.
   const [jobs, setJobs] = useState<AiJob[]>([]);
+  /// Whether the AI may touch this item at all. Deny-by-default, so `null`
+  /// means nobody has said and nothing is permitted.
+  const [policy, setPolicy] = useState<WorkItemPolicy | null>(null);
   /// Which side is showing. Develop first: this panel is opened from the
   /// Develop area, and what a developer came here to do is the default.
   const [view, setView] = useState("develop");
@@ -96,10 +122,11 @@ export default function WorkItemBuildPlan({
 
   const refresh = useCallback(async () => {
     try {
-      const [loadedPlans, loadedFeedback, loadedJobs] = await Promise.all([
+      const [loadedPlans, loadedFeedback, loadedJobs, loadedPolicy] = await Promise.all([
         listWorkItemPlans(item.id),
         listAiFeedback(item.id),
         listAiJobs(item.productId),
+        getWorkItemPolicy(item.id),
       ]);
       setPlans(loadedPlans);
       setQuestions(loadedFeedback);
@@ -109,6 +136,7 @@ export default function WorkItemBuildPlan({
           .filter((j) => j.workItemId === item.id)
           .sort((a, b) => b.submittedAt - a.submittedAt),
       );
+      setPolicy(loadedPolicy);
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -221,7 +249,7 @@ export default function WorkItemBuildPlan({
   }
 
   const openQuestions = questions.filter((q) => !q.resolved);
-  const missing = whatIsMissing(item, plans);
+  const missing = whatIsMissing(item, plans, policy);
   /// The planning job in flight for this item, if any. Both buttons wait on it:
   /// a second submission while one is running would plan the same item twice
   /// and pay for it twice.

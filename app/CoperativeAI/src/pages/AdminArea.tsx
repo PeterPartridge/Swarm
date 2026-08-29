@@ -6,6 +6,8 @@ import GithubCard from "../components/product/GithubCard";
 import ModelInstalls from "../components/ai/ModelInstalls";
 import SshCard from "../components/product/SshCard";
 import ProductAiPolicy from "../components/ai/ProductAiPolicy";
+import SolutionAiPolicy from "../components/ai/SolutionAiPolicy";
+import ClaudeTiers from "../components/ai/ClaudeTiers";
 import ThemeSetting from "../components/common/ThemeSetting";
 import {
   addTeamMember,
@@ -14,11 +16,13 @@ import {
   listProducts,
   listRoles,
   listTeamMembers,
+  listSolutions,
   removeTeamMember,
   setMemberRole,
   updateRole,
   type Product,
   type Role,
+  type Solution,
   type TeamMember,
 } from "../lib/backend";
 import { usePermissions } from "../lib/permissions";
@@ -70,6 +74,8 @@ export default function AdminArea() {
   // Development policies are per-Product, so Admin has to say which one.
   const [products, setProducts] = useState<Product[]>([]);
   const [policyProduct, setPolicyProduct] = useState<number | "">("");
+  /// The chosen Product's Solutions, each of which may override its policy.
+  const [policySolutions, setPolicySolutions] = useState<Solution[]>([]);
   const { reload: reloadPermissions } = usePermissions();
 
   const refresh = useCallback(async () => {
@@ -94,6 +100,22 @@ export default function AdminArea() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // The chosen Product's Solutions, for the per-Solution overrides. Reset when
+  // the Product changes so the list never shows another Product's repositories.
+  useEffect(() => {
+    if (policyProduct === "") {
+      setPolicySolutions([]);
+      return;
+    }
+    // `listSolutions` returns every Product's, so this filters — a policy list
+    // showing another Product's repositories would be worse than showing none.
+    void listSolutions()
+      .then((all) =>
+        setPolicySolutions(all.filter((s) => s.productId === Number(policyProduct))),
+      )
+      .catch(() => setPolicySolutions([]));
+  }, [policyProduct]);
 
   async function run(action: () => Promise<unknown>) {
     try {
@@ -163,6 +185,11 @@ export default function AdminArea() {
           {/* One panel. The provider forms live inside its Advanced fold now —
               two panels doing the same job meant reading both to find out which
               one you wanted. */}
+          {/* **Which model and effort each complexity gets, in front of you.**
+              It was two folds deep — Claude setup → Advanced → AI settings —
+              which is not where a setting somebody wants on day one belongs.
+              It decides what every routed call costs. */}
+          <ClaudeTiers />
           {policyProduct !== "" && <ClaudeSetup productId={Number(policyProduct)} />}
           <ModelInstalls productId={policyProduct === "" ? null : Number(policyProduct)} />
           <AiConcurrencySetting />
@@ -184,6 +211,40 @@ export default function AdminArea() {
                     that decides whether the AI may read this Product at all,
                     which is a different question and genuinely an Admin one. */}
                 <ProductAiPolicy productId={Number(policyProduct)} />
+
+                {/* **Per work item, and here rather than on Product's board.**
+                    What the AI may do to a piece of work is a governance
+                    decision, not a planning one — Product says what customers
+                    get, and whether an AI may read it is somebody else's call.
+                    It sat on the planning card until 2026-08-21, which put the
+                    decision in front of the one role that should not be making
+                    it. */}
+                {/* **Per Solution, not per work item.** Permission was granted
+                    per item, so a new item was denied until somebody permitted
+                    it individually and permission had to be granted again for
+                    every item, forever. The Product's policy above is the
+                    answer; a Solution appears here only when that repository
+                    genuinely differs. */}
+                <section className="admin-card" aria-label="Solution AI policies">
+                  <h2>What the AI may do, per Solution</h2>
+                  <p className="hint">
+                    Each Solution follows the Product's policy above unless
+                    somebody overrides it here — for a repository that should be
+                    treated differently from the rest.
+                  </p>
+                  {policySolutions.length === 0 ? (
+                    <p className="hint">This Product has no Solutions yet.</p>
+                  ) : (
+                    <ul className="solution-policies">
+                      {policySolutions.map((s) => (
+                        <li key={s.id}>
+                          <strong>{s.name}</strong>
+                          <SolutionAiPolicy solution={s} />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
               </>
             )
           )}

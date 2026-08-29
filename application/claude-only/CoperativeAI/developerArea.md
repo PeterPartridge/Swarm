@@ -2286,3 +2286,366 @@ removing:
 
 - **The brief names a mockup but does not tell the agent to open it.** The path
   is there; nothing says "read this picture before building the screen".
+
+---
+
+## Round 58 — Plan and Execute, and the silence around them
+
+### My Feedback
+
+**"I clicked Plan and nothing happens" was two separate silences, and neither
+was a swallowed error.**
+
+1. **The button was disabled and said nothing.** `submit_for_planning` returns
+   at once and the panel does show a notice on success and an error on failure —
+   nothing was lost. But with no Solution attached the button was greyed with no
+   reason given, and a disabled button that says nothing is indistinguishable
+   from a broken one.
+2. **Planning runs elsewhere and the panel never listened.** It is queued and
+   returns immediately, so the panel looked identical before, during and after;
+   the plan appeared only if somebody happened to reopen the item. The backend
+   has emitted `ai-job-changed` on every job move all along, and `workSignal`
+   already fans it out — this panel simply had nobody listening.
+
+**Execute is the approval, not a bypass of it.** `start_run` refuses an
+unapproved plan and generating clears the approval, so "plan then execute
+automatically" would always have been refused unless the app approved on the
+user's behalf — which is the framework's core promise. Pressing Execute *is* a
+person saying go, knowingly. It also stops dead on a decline: an AI that said it
+could not write the plan is not an AI whose plan should be handed to an agent.
+
+**A description could be written once and never corrected**, which the new
+validation exposed rather than caused: it was set at creation and appeared in no
+update path, so the one field an agent builds against was the one field a typo
+was permanent in. And the validation pointed at a box that did not exist.
+
+### Implemented
+
+- **Plan / Execute**, replacing Submit / Generate. Plan queues; Execute plans,
+  approves and starts.
+- **`whatIsMissing`** — a pure function listing *every* reason a plan cannot be
+  asked for, not just the first, so they are fixed in one pass.
+- **Job status in the panel** — queued, running, failed with its message,
+  blocked pointing at the question. Both buttons wait on an in-flight job: a
+  second submission plans the same item twice and pays twice.
+- **`work_item::set_description`** and a **"What this is" box on the Product
+  board** — its own writer rather than a field on `WorkItemFields`, which is
+  replaced wholesale and would have made a description edit able to silently
+  unassign somebody.
+- **The brief tells an agent to open the mockups.** The paths were already
+  there; nothing said to look at them, which wasted the one artefact Product
+  produces that says what a screen should look like. Written only when there is
+  a picture — an agent told to open mockups that do not exist goes looking.
+- **`vcs::list_branches` and a "Branch from" datalist.** A list you can still
+  type into, deliberately: the repository may not be on this machine, so an
+  empty list is legitimate, and a branch can be made between the list being read
+  and the run starting. Remote branches are included under their short name,
+  because the branch you cut from is usually one you have never checked out.
+
+### Tests
+
+cargo 685/685 (23 ignored), Vitest 613/613, `tsc --noEmit`, `npm run build` and
+clippy `-D warnings` clean. New: the queued/running/failed states and that both
+buttons wait; every reason listed rather than the first; plan-approve-start in
+one press and **not** past a decline; a description written after creation and
+cleared back to "nothing said"; remote branches under their short name and
+`origin/HEAD` excluded; the brief's mockup instruction, present only with a
+picture.
+
+Two test-shape notes worth keeping: the branch test caught my own bug — the
+first version stripped `feature/` from a local branch `feature/checkout` — and
+the mockup test builds its own document rather than adding a screen to the
+shared fixture, which would have given every other test a screen it did not ask
+for and broken the one proving an empty kind gets no heading.
+
+### Your Feedback
+
+- **"Branch from" is a datalist, not a `select`.** A closed dropdown would be
+  wrong the moment the working copy is missing or a branch is made elsewhere.
+- **The status is text, not a spinner.** Queued and running are different
+  states, and a spinner on a queued item claims it is working when it is
+  waiting its turn.
+- **Two things asked for already existed** — branch name and unit tests are
+  editable per Solution under "What this changes", and Product's mockups already
+  reached the agent. Only the instruction to open them was missing.
+
+### Technical Debt
+
+- **The work item's own `status` is untouched by planning.** The panel says
+  planning is running; the item still reads `planned` on the board. Moving it
+  would need a rule about what happens when planning fails, which nobody has
+  written.
+- **Questions are per work item, not per change.**
+- **`Execute` starts every attached Solution in turn**, and a failure partway
+  through leaves earlier ones started — there is no "all or nothing".
+
+---
+
+## Round 59 — policy is Admin's, and two settings that were buried
+
+### My Feedback
+
+**"Product should not be setting AI policy."** Right, and the codebase already
+agreed with you in writing: the Developer Rules editor carries the comment
+*"Editable in Admin, where policy lives"*, and Admin's own AI section says
+*"Set by Admin rather than by whoever is doing the planning."* The **per work
+item** policy simply never followed the rule it was written beside — it sat on
+the planning card, putting a governance decision in front of the one role that
+should not be making it.
+
+**Two things you asked for already existed and were buried**, which is its own
+kind of missing:
+
+- **Model and effort per complexity** — exactly what you described, defaults
+  and all (Sonnet/low, Sonnet/medium, Fable/xhigh). It was **two folds deep**:
+  Admin → AI → Claude setup → *Advanced* → AI settings → tiers. A setting that
+  decides what every routed call costs does not belong behind two disclosures.
+  It is now the first thing in Admin → AI.
+- **A work item's description** had no editor at all — settable at creation and
+  never afterwards. That is why the new validation pointed at a box that did not
+  exist. Product's board now has a **"What this is"** field.
+
+### Implemented
+
+- `PolicyEditor` moved from the Product board to **Admin → AI**, under a work
+  item picker for the chosen Product. `onClose` became optional — it is a
+  popover there and a section here, and a Close button on a page section is a
+  button that does nothing.
+- `ClaudeTiers` lifted out of the Advanced fold to the top of Admin → AI.
+- `work_item::set_description` + `set_work_item_description` + the Product-board
+  box, as its own writer rather than a field on `WorkItemFields` — that struct
+  is replaced wholesale, so a description edit through it could silently
+  unassign somebody.
+- The build plan's validation now checks the **policy** too, so deny-by-default
+  is said before the press rather than discovered as a failed job.
+
+### Tests
+
+cargo 685/685 (23 ignored), Vitest 614/614, `tsc --noEmit`, `npm run build` and
+clippy `-D warnings` clean. The board's policy test moved out and became its
+opposite — *"does not offer AI policy on a planning card"*, pinning the
+boundary — plus a new one for writing a description after the item exists, and
+assertions that no permission and no provider are each named before the press.
+
+### Your Feedback
+
+- **The redesign you described next is not a rename and I have not started it.**
+  Moving permission to a Product or Solution, keeping provider and effort per
+  work item with defaults, and letting QA set their own effort splits one
+  concept into two — *may the AI touch this* and *which model runs it* — and
+  changes the gate every AI call in the app passes through. It needs its own
+  round and some answers first.
+
+### Technical Debt
+
+- **Permission is still per work item**, which means an item created today is
+  denied until somebody visits Admin and permits it — the friction that
+  prompted the redesign.
+- The work item's own `status` is still untouched by planning.
+
+---
+
+## Round 60 — permission moves up: the data layer
+
+### My Feedback
+
+**"Product with a per-Solution override, and a developer and QA default."** That
+splits one table into two ideas, and the split is the whole point:
+
+- **Permission** is governance — *may the AI touch this at all*. A Product's
+  policy, overridden per Solution where a repository genuinely differs.
+- **Routing** is a working decision — *which provider, how hard*. A default per
+  area, which a developer may override on one work item.
+
+They were one row in `work_item_policy`, which is why a new work item was denied
+until somebody permitted it individually, and why permission had to be granted
+again for every item forever.
+
+**"There are none"** settled the migration question, so this is a clean build
+rather than a data rescue.
+
+**The override is total, not per-flag.** If a Solution has a row it is the
+answer, including when it is more restrictive than the Product's — a partial
+override would mean reading two rows to know what is permitted, and the
+commonest reason to override at all is to say *less* than the Product does.
+
+**Reading is the floor.** Editing and generating tests both imply reading, so
+neither is permitted while reading is not. A policy that allowed writing a test
+for work the AI may not look at would be incoherent.
+
+### Implemented — the data layer only
+
+- `db/ai_permission.rs` — the walk (**Solution override → Product → no**), the
+  `Verdict` carrying *where the answer came from*, and `refusal` turning that
+  into a sentence naming what to go and change. Deny-by-default survives: no
+  override and no Product policy is still no.
+- `db/solution_policy.rs` — the override table. **Absent means "not
+  overridden", not "denied"**, which is the distinction the whole walk rests on.
+- `db/product_policy.rs` — gains `allowEdit` and `allowGenerateTests` by
+  `ALTER TABLE`, so a Product can express everything a work item could. A
+  policy is somebody's decision about what an AI may do to their work;
+  rebuilding the table to add a column would silently revoke it.
+
+### Tests
+
+cargo 693/693 (23 ignored), clippy `-D warnings` clean. Eight new: permitting a
+Product permits its work; a Solution override beats the Product's, including
+when more restrictive; an override on one Solution does not leak to another;
+reading is the floor under edit and generate-tests; work with no Solution reads
+the Product's policy; a refusal names where to go; an override round-trips and
+clears back to following the Product; unknown Solutions and efforts refused.
+
+### Your Feedback
+
+**This is deliberately half a round.** What is built is additive and proven —
+nothing is half-wired, and every existing gate still behaves exactly as before,
+because nothing reads the new walk yet. What remains is where the risk is, and
+it should start fresh rather than at the end of a long session:
+
+1. **Rewire the three gates** — `resolve_item_ai_gate`,
+   `resolve_test_implementation`, and deliverable generation — onto
+   `ai_permission::verdict`, then stop reading `work_item_policy`'s permission
+   columns.
+2. **Routing defaults**: a developer default and a QA default per Product, with
+   the work item's own provider and effort as the developer's override.
+   `work_item_policy` keeps only those two columns.
+3. **Admin UI**: permission per Product with a Solution list for overrides, both
+   defaults, and the per-item permission editor removed.
+
+### Technical Debt
+
+- **The new walk has no callers yet.** Permission is still resolved per work
+  item, so the friction that prompted this is still there until step 1 lands.
+- `work_item_policy` still carries permission columns that will stop being read.
+
+---
+
+## Round 61 — the regression, and finishing what round 60 left
+
+### My Feedback
+
+**"AI planning policy doesn't work" was mine, and it is the interesting part.**
+Round 60 added two arguments to the `set_product_policy` command and did not
+update its caller. The Tauri boundary is **not typechecked** — the frontend
+passes an object, the backend deserialises it — so `tsc` was clean, all 614
+Vitest tests passed, clippy passed, and the panel was broken the moment it was
+loaded. Every gate this project runs was green over a feature that could not
+save.
+
+That is worth writing down: **a changed command signature is a contract change
+with no compiler on the other side.** The only thing that would have caught it
+is a test that goes through `invoke`, and there is none.
+
+**"Still here" was also fair.** I stopped round 60 after the data layer and said
+so, but from the screen's side nothing had changed — the section still said "per
+work item" two messages after being asked to change it. Explaining a partial
+delivery is not the same as delivering.
+
+### Implemented
+
+- **The regression fixed**: `setProductPolicy` and the `ProductPolicy` type
+  carry `allowEdit` and `allowGenerateTests`, and the panel has switches for
+  them — the two permissions that moved up from the work item.
+- **"What the AI may do, per work item" is gone.** In its place, **per
+  Solution**: each of the Product's Solutions listed, each following the
+  Product's policy until somebody overrides it. `SolutionAiPolicy` says which
+  state it is in and offers the way back — "Follow the Product instead".
+- `get_solution_policy`, `set_solution_policy`, `clear_solution_policy` and
+  their wrappers.
+- `PolicyEditor` is no longer rendered anywhere.
+
+### Tests
+
+cargo 693/693 (23 ignored), Vitest 614/614, `tsc --noEmit`, `npm run build` and
+clippy `-D warnings` clean.
+
+### Your Feedback
+
+- **Nothing yet reads the new walk.** The gates still resolve permission per
+  work item, so what you set on a Product or Solution does not gate anything
+  until `resolve_item_ai_gate`, `resolve_test_implementation` and deliverable
+  generation are rewired. **The screen now describes a model the backend is not
+  yet enforcing**, which is a worse state than either end being consistently
+  old — it should be the very next thing done.
+- **The routing defaults are not built.** Provider and effort are still per work
+  item only, with no developer or QA default to fall back on.
+
+### Technical Debt
+
+- **A command signature can change with nothing to catch its caller.** No test
+  crosses `invoke`; every one of them mocks it. Worth one end-to-end check per
+  command, or at least a generated type for the boundary.
+- **The UI is ahead of the gate** (above) — the highest-priority item.
+
+---
+
+## Round 62 — the gates now read the walk
+
+### My Feedback
+
+**The UI stops describing a model the backend was not enforcing.** What you set
+on a Product, or override on a Solution, is now what actually gates the AI.
+
+**One question, asked as the use it is.** The test gate used to permit for
+*reading* and then check a second flag for *writing tests* — two reads of two
+tables to answer one question, and a refusal that named neither. It now asks
+`resolve_item_ai_use(…, GenerateTests)` once, and the refusal says which policy
+said no and whether to change the Product's or override the Solution's.
+
+**Permission moved; routing stayed.** That is the split you asked for and it is
+visible in the resolution order:
+
+- **Permission** — the Solution's override, then the Product, then no.
+- **Routing** — the work item's own provider and effort if a developer set
+  them, otherwise the permitting policy's.
+
+So `work_item_policy` survives as a **routing override**, not as a permission.
+Its permission columns are no longer read by anything.
+
+**The verdict carries the effort**, which it did not when I first wrote it — the
+gate would otherwise have had to invent a default when an item had no override,
+and a guessed effort is a guessed bill.
+
+### Implemented
+
+- `commands/work_items.rs` — `resolve_item_ai_use` (the real gate) with
+  `resolve_item_ai_gate` kept as the `Read` case, so every existing caller works
+  unchanged.
+- `commands/test_cases.rs` — asks for `GenerateTests` directly; the second check
+  and its hand-written message are gone.
+- `db/ai_permission.rs` — `Verdict` gained `effort_tier`.
+- Deliverable generation left alone deliberately: it is gated on the **Product**
+  policy already, which is the model you asked for — it was right before this.
+
+### Tests
+
+cargo 694/694 (23 ignored), Vitest 614/614, `tsc --noEmit`, `npm run build` and
+clippy `-D warnings` clean.
+
+The new one is the one that matters: **the item overrides the routing the
+permission defaults to** — a Product permits and names a cheap provider at low
+effort, the gate uses it, then a developer says this item is harder and names a
+dearer one, and that wins. Three existing tests changed from granting on the
+work item to granting on the Product, which is the behaviour change stated as
+tests rather than described in a comment.
+
+### Your Feedback
+
+- **A work item with no Solution falls to the Product**, which is right for the
+  plenty of work that is not code — but it means a Solution override cannot
+  restrict work nobody has attached to a repository yet. Worth knowing; the
+  alternative is refusing unattached work outright, which would block planning
+  before the Solution is chosen.
+- **The routing defaults are still not built.** The fallback today is the
+  permitting policy's own provider and effort, which is a reasonable stand-in —
+  but there is no separate **developer default** and **QA default** yet, so QA
+  generation and developer planning share one fallback.
+
+### Technical Debt
+
+- **`work_item_policy` still has permission columns nothing reads.** They should
+  go, along with the parts of `is_allowed` no longer called.
+- **No developer/QA routing defaults** (above) — the last piece of the model you
+  described.
+- **Nothing crosses `invoke` in the tests**, which is how round 60's regression
+  shipped green.

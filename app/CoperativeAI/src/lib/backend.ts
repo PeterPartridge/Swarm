@@ -410,6 +410,14 @@ export interface ProductPolicy {
   productId: number;
   allowRead: boolean;
   allowGenerate: boolean;
+  /** May the AI change this Product's work — code, plans, schemas?
+   *
+   *  Here since permission moved up from the work item: it was granted per
+   *  item, so a new item was denied until somebody permitted it individually
+   *  and permission had to be granted again for every item, forever. */
+  allowEdit: boolean;
+  /** May the AI write tests for this Product's work? */
+  allowGenerateTests: boolean;
   providerId: number | null;
   effortTier: string;
 }
@@ -1527,10 +1535,39 @@ export const deleteModelPrice = (id: number): Promise<void> =>
 export const getProductPolicy = (
   productId: number,
 ): Promise<ProductPolicy | null> => invoke("get_product_policy", { productId });
+export interface SolutionPolicy {
+  solutionId: number;
+  allowRead: boolean;
+  allowEdit: boolean;
+  allowGenerateTests: boolean;
+  providerId: number | null;
+  effortTier: string;
+}
+
+/** One Solution's override of its Product's policy, or null where it follows
+ *  the Product. Absent is "not overridden", never "denied". */
+export const getSolutionPolicy = (
+  solutionId: number,
+): Promise<SolutionPolicy | null> =>
+  invoke("get_solution_policy", { solutionId });
+export const setSolutionPolicy = (policy: SolutionPolicy): Promise<void> =>
+  invoke("set_solution_policy", {
+    solutionId: policy.solutionId,
+    allowRead: policy.allowRead,
+    allowEdit: policy.allowEdit,
+    allowGenerateTests: policy.allowGenerateTests,
+    providerId: policy.providerId,
+    effortTier: policy.effortTier,
+  });
+export const clearSolutionPolicy = (solutionId: number): Promise<void> =>
+  invoke("clear_solution_policy", { solutionId });
+
 export const setProductPolicy = (policy: {
   productId: number;
   allowRead: boolean;
   allowGenerate: boolean;
+  allowEdit: boolean;
+  allowGenerateTests: boolean;
   providerId: number | null;
   effortTier: string;
 }): Promise<void> => invoke("set_product_policy", policy);

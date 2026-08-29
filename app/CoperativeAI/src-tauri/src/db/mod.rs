@@ -5,6 +5,7 @@
 
 pub mod ai_feedback;
 pub mod ai_job;
+pub mod ai_permission;
 pub mod ai_provider;
 pub mod ai_usage;
 pub mod architecture_doc;
@@ -26,6 +27,7 @@ pub mod repository;
 pub mod role;
 pub mod solution;
 pub mod solution_management;
+pub mod solution_policy;
 pub mod solution_strategy;
 pub mod sprint;
 pub mod sprint_capacity;
@@ -149,6 +151,8 @@ pub async fn create_all_tables(conn: &Connection) -> Result<()> {
     ai_job::create_table(conn).await?;
     developer_rules::create_table(conn).await?;
     solution_strategy::create_table(conn).await?;
+    // after solution: an override belongs to one
+    solution_policy::create_table(conn).await?;
     feature_design::create_table(conn).await?;
     strategy::create_table(conn).await?;
     // after product: design assets belong to one

@@ -1,5 +1,4 @@
 import SectionTabs from "../common/SectionTabs";
-import ClaudeTiers from "./ClaudeTiers";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   addAiProvider,
@@ -144,7 +143,10 @@ export default function AiSettings() {
 
       {family === "claude" && (
         <>
-      <ClaudeTiers />
+        {/* **The complexity tiers are not here any more.** They are on Admin →
+            AI directly, above the Claude setup: which model and effort each
+            complexity gets is one of the first things somebody wants to set,
+            and it was two folds deep — inside Advanced, inside this panel. */}
       <form onSubmit={onAdd} aria-label="Add AI provider">
         <input
           aria-label="Provider name"
