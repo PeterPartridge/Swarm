@@ -483,6 +483,15 @@ pub(crate) async fn resolve_item_ai_gate(
 /// where a developer has set them; otherwise the permission's own provider and
 /// effort are the default. So `work_item_policy` survives as a routing
 /// override, not as a permission.
+/// Which area's default applies to a use. Writing tests is QA's work whoever
+/// pressed the button; everything else is Develop's.
+fn area_of(ai_use: work_item_policy::AiUse) -> &'static str {
+    match ai_use {
+        work_item_policy::AiUse::GenerateTests => "test",
+        _ => "develop",
+    }
+}
+
 pub(crate) async fn resolve_item_ai_use(
     conn: &turso::Connection,
     item_id: i64,
@@ -491,6 +500,9 @@ pub(crate) async fn resolve_item_ai_use(
 ) -> Result<(crate::db::ai_provider::AiProvider, String), String> {
     use crate::db::ai_permission;
 
+    let Some(item) = work_item::find_by_id(conn, item_id).await.map_err(to_message)? else {
+        return Err("that work item no longer exists".into());
+    };
     let verdict = ai_permission::verdict(conn, item_id, ai_use)
         .await
         .map_err(to_message)?;
@@ -505,9 +517,16 @@ pub(crate) async fn resolve_item_ai_use(
     let routing = work_item_policy::for_item(conn, item_id)
         .await
         .map_err(to_message)?;
+    // **Three places, most specific first**: what a developer said about this
+    // item, then this area's default, then the policy that permitted it. Each
+    // is somebody's decision; none of them is a guess.
+    let area_default = crate::db::routing_default::for_area(conn, item.product_id, area_of(ai_use))
+        .await
+        .map_err(to_message)?;
     let provider_id = routing
         .as_ref()
         .and_then(|r| r.provider_id)
+        .or_else(|| area_default.as_ref().and_then(|d| d.provider_id))
         .or(verdict.provider_id);
     let Some(provider_id) = provider_id else {
         return Err(format!(
@@ -525,7 +544,10 @@ pub(crate) async fn resolve_item_ai_use(
     };
     // Effort follows the same order: what the developer said about this item,
     // then what the policy that permitted it says.
-    let effort = routing.map(|r| r.effort_tier).unwrap_or(verdict.effort_tier);
+    let effort = routing
+        .map(|r| r.effort_tier)
+        .or(area_default.map(|d| d.effort_tier))
+        .unwrap_or(verdict.effort_tier);
     Ok((provider, effort))
 }
 

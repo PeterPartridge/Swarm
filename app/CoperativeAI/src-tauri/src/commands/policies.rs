@@ -74,6 +74,8 @@ pub struct ProductPolicyDto {
     pub product_id: i64,
     pub allow_read: bool,
     pub allow_generate: bool,
+    pub allow_edit: bool,
+    pub allow_generate_tests: bool,
     pub provider_id: Option<i64>,
     pub effort_tier: String,
 }
@@ -84,6 +86,8 @@ impl From<ProductPolicy> for ProductPolicyDto {
             product_id: p.product_id,
             allow_read: p.allow_read,
             allow_generate: p.allow_generate,
+            allow_edit: p.allow_edit,
+            allow_generate_tests: p.allow_generate_tests,
             provider_id: p.provider_id,
             effort_tier: p.effort_tier,
         }
@@ -196,4 +200,60 @@ pub async fn clear_solution_policy(
     crate::db::solution_policy::clear(&conn, solution_id)
         .await
         .map_err(to_message)
+}
+
+/// Whether the AI may act on one work item, and what to change if not.
+///
+/// **The walk, exposed for the UI.** The build plan disables Plan and Execute
+/// when nothing may act, and it has to ask the same question the gate asks —
+/// otherwise the button and the backend disagree, which is how a screen ends up
+/// refusing work the backend would have allowed, or offering work it will
+/// refuse.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiPermissionDto {
+    pub allowed: bool,
+    /// Empty when allowed; otherwise what to change and where.
+    pub reason: String,
+    /// Whether a provider is named anywhere that could run it.
+    pub has_provider: bool,
+}
+
+#[tauri::command]
+pub async fn check_item_ai_permission(
+    db: State<'_, AppDb>,
+    work_item_id: i64,
+) -> Result<AiPermissionDto, String> {
+    use crate::db::{ai_permission, work_item_policy::AiUse};
+
+    let conn = db.0.lock().await;
+    let verdict = ai_permission::verdict(&conn, work_item_id, AiUse::Read)
+        .await
+        .map_err(to_message)?;
+    // The item's own routing override can name a provider the permission does
+    // not, so both are considered before saying there is nothing to send to.
+    let own = crate::db::work_item_policy::for_item(&conn, work_item_id)
+        .await
+        .map_err(to_message)?
+        .and_then(|p| p.provider_id);
+    let area = crate::db::work_item::find_by_id(&conn, work_item_id)
+        .await
+        .map_err(to_message)?
+        .map(|i| i.product_id);
+    let default = match area {
+        Some(product_id) => crate::db::routing_default::for_area(&conn, product_id, "develop")
+            .await
+            .map_err(to_message)?
+            .and_then(|d| d.provider_id),
+        None => None,
+    };
+    Ok(AiPermissionDto {
+        allowed: verdict.allowed,
+        reason: if verdict.allowed {
+            String::new()
+        } else {
+            ai_permission::refusal(&verdict, AiUse::Read)
+        },
+        has_provider: own.or(default).or(verdict.provider_id).is_some(),
+    })
 }

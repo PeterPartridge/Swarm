@@ -7,7 +7,7 @@ import { notifyWorkChanged, useWorkChanged } from "../../lib/workSignal";
 import {
   askProductQuestion,
   generateChangePlan,
-  getWorkItemPolicy,
+  checkItemAiPermission,
   submitForPlanning,
   listAiFeedback,
   listAiJobs,
@@ -19,9 +19,9 @@ import {
   type AiFeedback,
   type AiJob,
   type Solution,
+  type AiPermission,
   type WorkItem,
   type WorkItemPlan,
-  type WorkItemPolicy,
 } from "../../lib/backend";
 
 /** Everything an AI would need that nobody has written yet, in the order it
@@ -37,7 +37,7 @@ import {
 export function whatIsMissing(
   item: WorkItem,
   plans: WorkItemPlan[],
-  policy: WorkItemPolicy | null,
+  permission: AiPermission | null,
 ): string[] {
   const missing: string[] = [];
   if ((item.description ?? "").trim() === "") {
@@ -45,21 +45,14 @@ export function whatIsMissing(
       "Nobody has described what this is — Product writes that on the item.",
     );
   }
-  // **Deny-by-default, said before the press rather than after it.** The
-  // backend refuses an item with no policy, which is the rule working — but
-  // finding out by pressing Plan and reading a failure in the job queue is the
-  // long way round to "nobody has said the AI may touch this".
-  if (policy === null) {
+  // **Deny-by-default, said before the press rather than after it.** Asked of
+  // the same walk the backend gate uses — Solution override, then Product —
+  // so the button and the backend cannot disagree about what is permitted.
+  if (permission !== null && !permission.allowed) {
+    missing.push(permission.reason);
+  } else if (permission !== null && !permission.hasProvider) {
     missing.push(
-      'The AI has no permission on this item — go to Admin → AI, pick this item under "What the AI may do, per work item", and allow reading with a provider named. Nothing is allowed until somebody says so.',
-    );
-  } else if (!policy.allowRead) {
-    missing.push(
-      'Its AI policy does not allow reading, so nothing can be sent — turn that on in Admin → AI.',
-    );
-  } else if (policy.providerId === null) {
-    missing.push(
-      'Its AI policy names no provider — choose one in Admin → AI, adding one there first if the list is empty.',
+      "The AI is permitted here but no provider is named to send to — name one on the policy that permits it, in Admin → AI.",
     );
   }
   if (plans.length === 0) {
@@ -102,9 +95,9 @@ export default function WorkItemBuildPlan({
   /// This item's planning jobs, newest first — what the panel needs to say
   /// whether one is in flight and how the last one went.
   const [jobs, setJobs] = useState<AiJob[]>([]);
-  /// Whether the AI may touch this item at all. Deny-by-default, so `null`
-  /// means nobody has said and nothing is permitted.
-  const [policy, setPolicy] = useState<WorkItemPolicy | null>(null);
+  /// Whether the AI may touch this item at all — the same walk the backend
+  /// gate uses, so the button cannot disagree with what would happen.
+  const [permission, setPermission] = useState<AiPermission | null>(null);
   /// Which side is showing. Develop first: this panel is opened from the
   /// Develop area, and what a developer came here to do is the default.
   const [view, setView] = useState("develop");
@@ -122,11 +115,11 @@ export default function WorkItemBuildPlan({
 
   const refresh = useCallback(async () => {
     try {
-      const [loadedPlans, loadedFeedback, loadedJobs, loadedPolicy] = await Promise.all([
+      const [loadedPlans, loadedFeedback, loadedJobs, loadedPermission] = await Promise.all([
         listWorkItemPlans(item.id),
         listAiFeedback(item.id),
         listAiJobs(item.productId),
-        getWorkItemPolicy(item.id),
+        checkItemAiPermission(item.id),
       ]);
       setPlans(loadedPlans);
       setQuestions(loadedFeedback);
@@ -136,7 +129,7 @@ export default function WorkItemBuildPlan({
           .filter((j) => j.workItemId === item.id)
           .sort((a, b) => b.submittedAt - a.submittedAt),
       );
-      setPolicy(loadedPolicy);
+      setPermission(loadedPermission);
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -249,7 +242,7 @@ export default function WorkItemBuildPlan({
   }
 
   const openQuestions = questions.filter((q) => !q.resolved);
-  const missing = whatIsMissing(item, plans, policy);
+  const missing = whatIsMissing(item, plans, permission);
   /// The planning job in flight for this item, if any. Both buttons wait on it:
   /// a second submission while one is running would plan the same item twice
   /// and pay for it twice.
@@ -277,13 +270,23 @@ export default function WorkItemBuildPlan({
             : "Planning now… the plan appears below when it lands."}
         </p>
       )}
-      {!planning && lastJob && lastJob.state !== "done" && (
-        <p className="plan-status plan-stopped" role="status">
-          {lastJob.state === "blocked"
-            ? `Planning stopped and asked a question: ${lastJob.message} — answer it under "From Product".`
-            : lastJob.state === "cancelled"
-              ? "The last planning run was cancelled."
-              : `Planning failed: ${lastJob.message}`}
+      {/* **Both outcomes, not only the bad one.** A run that finished and said
+          nothing is indistinguishable from one that never happened. And a
+          failed run is reported as *the last attempt* rather than as the
+          current state, because Plan is available again the moment it ends —
+          the message is history, not a block. */}
+      {!planning && lastJob && (
+        <p
+          className={`plan-status ${lastJob.state === "done" ? "plan-passed" : "plan-stopped"}`}
+          role="status"
+        >
+          {lastJob.state === "done"
+            ? "Planning passed — the plan is below, per Solution."
+            : lastJob.state === "blocked"
+              ? `The last planning attempt stopped and asked a question: ${lastJob.message} — answer it under "From Product", then plan again.`
+              : lastJob.state === "cancelled"
+                ? "The last planning attempt was cancelled. Plan again when you are ready."
+                : `The last planning attempt failed: ${lastJob.message} — fix that and plan again.`}
         </p>
       )}
 

@@ -25,6 +25,7 @@ pub mod product_policy;
 pub mod repo_link;
 pub mod repository;
 pub mod role;
+pub mod routing_default;
 pub mod solution;
 pub mod solution_management;
 pub mod solution_policy;
@@ -139,6 +140,8 @@ pub async fn create_all_tables(conn: &Connection) -> Result<()> {
     ai_provider::create_table(conn).await?;
     work_item_policy::create_table(conn).await?;
     product_policy::create_table(conn).await?;
+    // after product + ai_provider: a default names both
+    routing_default::create_table(conn).await?;
     // after ai_provider + product: budgets name providers, prices name models
     ai_usage::create_table(conn).await?;
     model_price::create_table(conn).await?;

@@ -29,7 +29,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     generateChangePlan: vi.fn(),
     listAiFeedback: vi.fn(),
     listAiJobs: vi.fn(),
-    getWorkItemPolicy: vi.fn(),
+    checkItemAiPermission: vi.fn(),
     askProductQuestion: vi.fn(),
     resolveAiFeedback: vi.fn(),
     pickImages: vi.fn(),
@@ -114,13 +114,10 @@ describe("WorkItemBuildPlan", () => {
     mocked.listAiJobs.mockResolvedValue([]);
     // Permitted by default in these tests: the deny-by-default rule has its own
     // assertions, and leaving it null here would block every other one.
-    mocked.getWorkItemPolicy.mockResolvedValue({
-      workItemId: 12,
-      allowRead: true,
-      allowEdit: false,
-      allowGenerateTests: false,
-      providerId: 1,
-      effortTier: "medium",
+    mocked.checkItemAiPermission.mockResolvedValue({
+      allowed: true,
+      reason: "",
+      hasProvider: true,
     });
     mocked.listWorkItemChanges.mockResolvedValue([]);
     mocked.changeKinds.mockResolvedValue([]);
@@ -218,27 +215,30 @@ describe("WorkItemBuildPlan", () => {
   /// they are fixed in a single pass.
   it("lists everything missing, not only the first thing", () => {
     const bare = { ...item, description: null };
-    const allowed = {
-      workItemId: 12,
-      allowRead: true,
-      allowEdit: false,
-      allowGenerateTests: false,
-      providerId: 1,
-      effortTier: "medium",
-    };
+    const allowed = { allowed: true, reason: "", hasProvider: true };
 
     // **Deny-by-default, said before the press.** The backend refuses an item
     // nobody has permitted, which is the rule working — but learning that from
     // a failed job in the queue is the long way round.
-    expect(whatIsMissing(item, [plan({ changesRequired: "x" })], null).join(" ")).toMatch(
-      /no permission on this item/i,
-    );
+    // **The refusal is the backend's own words**, asked of the same walk the
+    // gate uses — so the button and the backend cannot disagree about what is
+    // permitted, which is how a screen ends up blocking work the backend would
+    // have allowed.
+    expect(
+      whatIsMissing(item, [plan({ changesRequired: "x" })], {
+        allowed: false,
+        reason: "Nobody has said the AI may read this work.",
+        hasProvider: false,
+      }).join(" "),
+    ).toMatch(/Nobody has said/i);
+
+    // Permitted, but with nothing to send to.
     expect(
       whatIsMissing(item, [plan({ changesRequired: "x" })], {
         ...allowed,
-        providerId: null,
+        hasProvider: false,
       }).join(" "),
-    ).toMatch(/names no provider/i);
+    ).toMatch(/no provider is named/i);
 
     expect(whatIsMissing(bare, [], allowed)).toHaveLength(2);
     expect(whatIsMissing(bare, [], allowed).join(" ")).toMatch(/described/i);
@@ -293,7 +293,11 @@ describe("WorkItemBuildPlan", () => {
       { ...queued, state: "failed" as const, message: "no AI policy on this item" },
     ]);
     render(<WorkItemBuildPlan item={item} solutions={solutions} />);
-    expect(await screen.findByText(/Planning failed: no AI policy/)).toBeInTheDocument();
+    // Reported as the last attempt, not as the current state: Plan is available
+    // again the moment it ends.
+    expect(
+      await screen.findByText(/last planning attempt failed: no AI policy/),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: `Plan ${item.title}` })).toBeEnabled();
   });
 
@@ -448,13 +452,10 @@ describe("WorkItemBuildPlan approval", () => {
     mocked.listAiJobs.mockResolvedValue([]);
     // Permitted by default in these tests: the deny-by-default rule has its own
     // assertions, and leaving it null here would block every other one.
-    mocked.getWorkItemPolicy.mockResolvedValue({
-      workItemId: 12,
-      allowRead: true,
-      allowEdit: false,
-      allowGenerateTests: false,
-      providerId: 1,
-      effortTier: "medium",
+    mocked.checkItemAiPermission.mockResolvedValue({
+      allowed: true,
+      reason: "",
+      hasProvider: true,
     });
     mocked.listWorkItemChanges.mockResolvedValue([]);
     mocked.changeKinds.mockResolvedValue([]);

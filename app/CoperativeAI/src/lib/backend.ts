@@ -1546,6 +1546,20 @@ export interface SolutionPolicy {
 
 /** One Solution's override of its Product's policy, or null where it follows
  *  the Product. Absent is "not overridden", never "denied". */
+export interface AiPermission {
+  allowed: boolean;
+  /** Empty when allowed; otherwise what to change and where. */
+  reason: string;
+  hasProvider: boolean;
+}
+
+/** Whether the AI may act on one work item — the same walk the backend gate
+ *  uses, so the button and the backend cannot disagree. */
+export const checkItemAiPermission = (
+  workItemId: number,
+): Promise<AiPermission> =>
+  invoke("check_item_ai_permission", { workItemId });
+
 export const getSolutionPolicy = (
   solutionId: number,
 ): Promise<SolutionPolicy | null> =>

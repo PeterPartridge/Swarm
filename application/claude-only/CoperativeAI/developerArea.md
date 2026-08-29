@@ -2649,3 +2649,72 @@ tests rather than described in a comment.
   described.
 - **Nothing crosses `invoke` in the tests**, which is how round 60's regression
   shipped green.
+
+---
+
+## Round 63 — the defaults, and two bugs the redesign caused
+
+### My Feedback
+
+**"Allow reading… won't turn on" was the same mistake as round 60, one layer
+along.** `ProductPolicyDto` did not carry the two new permissions, so the panel
+loaded a policy without them, sent `undefined` back, and the Rust command failed
+to deserialise — **every** switch on that panel, including the two that had
+nothing to do with the change. Second time the Tauri boundary has done this in
+four rounds. It is no longer a slip; it is a missing guard.
+
+**"The Plan button is greyed out" was me too, and it is the sharper one.** The
+validation still asked `getWorkItemPolicy` — the *work item's* policy — for
+permission, after permission had moved to the Product. So it read `null`,
+concluded nothing was permitted, and disabled the button **for exactly the
+friction this redesign existed to remove.** The screen and the gate were asking
+different questions about the same thing.
+
+The fix is the general one rather than a patch: `check_item_ai_permission`
+exposes the gate's own walk, and the panel asks *that*. A button and a backend
+that disagree is how a screen ends up blocking work the backend would have
+allowed — the only way to be sure they agree is to have them ask the same
+question.
+
+**The stale message you saw** — "Set its work-item AI policy" — was a stored job
+record from before the rewire, shown as though it were current. It now reads as
+*the last attempt*, which is what it is.
+
+### Implemented
+
+- **The defaults**: `db/routing_default.rs`, one per Product per area
+  (`develop`, `test`). Resolution in the gate is now **three places, most
+  specific first**: what a developer said about this item → this area's default
+  → the policy that permitted it. Each is somebody's decision; none is a guess.
+  `area_of` sends `GenerateTests` to QA's default and everything else to
+  Develop's — writing tests is QA's work whoever pressed the button.
+- **`ProductPolicyDto` carries the two new permissions** (the bug).
+- **`check_item_ai_permission`** and the panel using it (the other bug).
+- **Planning says both outcomes**: "Planning passed — the plan is below" as well
+  as the failures, because a run that finished silently is indistinguishable
+  from one that never happened. Failures are worded as *the last attempt* and
+  the button is available again, which it already was.
+
+### Tests
+
+cargo 698/698 (23 ignored), Vitest 614/614, `tsc --noEmit`, `npm run build` and
+clippy `-D warnings` clean. Four new on the defaults: each area keeps its own;
+nothing said is `None` rather than a guessed model; setting twice replaces;
+unknown area, effort or Product refused.
+
+### Your Feedback
+
+- **`whatIsMissing` now takes the backend's own refusal text** rather than
+  composing its own. Less pretty, and correct: there is one wording, from the
+  code that actually decides.
+- **The QA default is wired but has no UI yet**, and neither does Develop's.
+  They resolve correctly and fall back to the permitting policy, so nothing is
+  broken — but until Admin can set them, the fallback is all there is.
+
+### Technical Debt
+
+- **Nothing in the test suite crosses `invoke`.** Two shipped regressions now
+  have come through that gap, both invisible to cargo, Vitest, tsc and clippy.
+  This should stop being a debt line and become a test.
+- **No Admin UI for the two routing defaults** (above).
+- `work_item_policy` still carries permission columns nothing reads.

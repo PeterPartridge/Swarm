@@ -151,15 +151,20 @@ pub async fn cancel(conn: &Connection, id: i64, message: &str) -> Result<Option<
     Ok(Some(was))
 }
 
-/// Clears jobs left `running` when the app stopped.
+/// Clears jobs left `running` **or `queued`** when the app stopped.
 ///
-/// Called once at startup. A process that is gone is not still working, and a
-/// row that says `running` forever is worse than one that admits it was
-/// interrupted — it blocks the item from ever being submitted again.
+/// Called once at startup. A process that is gone is not still working — and a
+/// queue nothing reads is not a queue: jobs are spawned when they are
+/// submitted, and no sweep picks up what was waiting when the app closed. A
+/// row left in either state waits forever, blocks the item from being
+/// submitted again, and greys out the buttons that check for a job in flight.
 pub async fn fail_interrupted(conn: &Connection) -> Result<i64> {
     let stuck: Vec<i64> = {
         let mut rows = conn
-            .query("SELECT id FROM ai_jobs WHERE state = 'running'", ())
+            .query(
+                "SELECT id FROM ai_jobs WHERE state = 'running' OR state = 'queued'",
+                (),
+            )
             .await?;
         let mut ids = Vec::new();
         while let Some(row) = rows.next().await? {
@@ -362,7 +367,14 @@ mod tests {
         mark_running(&conn, running).await.expect("running");
         let queued = submit(&conn, b, "changePlan").await.expect("b");
 
-        assert_eq!(fail_interrupted(&conn).await.expect("sweep"), 1);
+        // **Both, and the queued one is the bug this test used to assert.** It
+        // said a queued job was "untouched — it never started, so it is still
+        // waiting", which is only true if something later picks it up. Nothing
+        // does: the runner is spawned when a job is *submitted*, and no sweep
+        // looks at the queue on startup. So a job queued when the app closed
+        // waits forever — and the build plan, which disables Plan and Execute
+        // while a job is in flight, greys them out permanently because of it.
+        assert_eq!(fail_interrupted(&conn).await.expect("sweep"), 2);
 
         let jobs = list_for_item(&conn, a).await.expect("list");
         assert_eq!(jobs[0].state, "failed");
@@ -370,10 +382,10 @@ mod tests {
         // and it can be submitted again
         submit(&conn, a, "changePlan").await.expect("resubmit");
 
-        // A queued job is untouched — it never started, so it is still waiting.
-        let still = list_for_item(&conn, b).await.expect("list");
-        assert_eq!(still[0].state, "queued");
-        assert_eq!(still[0].id, queued);
+        let swept = list_for_item(&conn, b).await.expect("list");
+        assert_eq!(swept[0].id, queued);
+        assert_eq!(swept[0].state, "failed", "a queue nothing reads is not a queue");
+        submit(&conn, b, "changePlan").await.expect("resubmit the queued one too");
     }
 
     /// Blocked is not failed. The AI declining to guess, or the budget refusing
