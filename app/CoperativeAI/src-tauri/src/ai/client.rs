@@ -1233,6 +1233,18 @@ pub struct PlannedChange<'a> {
     pub mockup: Option<&'a str>,
 }
 
+/// The schemas already generated for a Solution, when the plan is being
+/// revised rather than written for the first time.
+///
+/// `Option` on the plan rather than empty strings: "there is no plan yet" and
+/// "the plan has an empty API schema" are different things to tell a model, and
+/// only the second one is something to keep.
+pub struct ExistingPlan<'a> {
+    pub api_schema: &'a str,
+    pub page_schema: &'a str,
+    pub files_to_change: &'a str,
+}
+
 pub struct SolutionPlanPrompt<'a> {
     pub name: &'a str,
     pub solution_type: &'a str,
@@ -1252,6 +1264,8 @@ pub struct SolutionPlanPrompt<'a> {
     /// them" — a model told to look at pictures it was not sent will invent
     /// what it saw.
     pub mockups_attached: bool,
+    /// What this Solution's plan says now, when revising it.
+    pub existing: Option<ExistingPlan<'a>>,
 }
 
 /// Builds the prompt that turns a written work-item plan into schemas.
@@ -1271,6 +1285,9 @@ pub fn build_change_plan_prompt(
     architecture: &[(String, String)],
     clarifications: &[String],
     plans: &[SolutionPlanPrompt<'_>],
+    // What the reviewer asked to be different about the plan they are looking
+    // at. `None` on a first generation.
+    revision: Option<&str>,
 ) -> Prompt {
     let mut context = product_context(product_name, product_answers, Some(strategy), &[]);
 
@@ -1366,7 +1383,31 @@ pub fn build_change_plan_prompt(
                 ));
             }
         }
+        // What it already says, so a revision can leave alone what nobody
+        // objected to. Only when revising: on a first generation there is
+        // nothing to keep and naming empty fields invites filling them.
+        if let Some(existing) = &plan.existing {
+            task.push_str("The plan for this Solution says, today:\n");
+            for (label, body) in [
+                ("API schema", existing.api_schema),
+                ("Page schema", existing.page_schema),
+                ("Files expected to change", existing.files_to_change),
+            ] {
+                if !body.trim().is_empty() {
+                    task.push_str(&format!("- {label}: {body}\n"));
+                }
+            }
+        }
         task.push('\n');
+    }
+    if let Some(asked) = revision {
+        task.push_str(&format!(
+            "The plan above has been read by a person, who asked for this to be \
+             different: {asked}\n\nRewrite it with that change made. Keep everything \
+             you were not asked to change exactly as it reads now — this is a revision \
+             of a plan somebody is part-way through agreeing to, not a fresh \
+             start.\n\n"
+        ));
     }
     task.push_str(
         "For EACH Solution above, give the schemas a developer would build from: \
@@ -1979,9 +2020,10 @@ mod tests {
             mockups: &["C:/shots/basket.png".to_string()],
             changes: &[],
             mockups_attached: true,
+            existing: None,
         }];
         let prompt = build_change_plan_prompt(
-            "Shop", "{}", "{}", "Basket", None, &rules, &[], &[], &plans,
+            "Shop", "{}", "{}", "Basket", None, &rules, &[], &[], &plans, None,
         );
 
         assert!(prompt.task.contains("basket.png"), "still named");
@@ -1991,6 +2033,93 @@ mod tests {
             "it can see them: {}",
             prompt.task
         );
+    }
+
+    /// **A revision is a revision, not a re-run.** Asked to "use anyhow rather
+    /// than a custom error type", a model that was never shown the plan it is
+    /// revising writes a fresh one — and everything the reviewer was happy with
+    /// changes underneath them. So the current plan travels with the
+    /// instruction, and the instruction says to keep the rest.
+    #[test]
+    fn a_revision_carries_the_plan_it_is_revising() {
+        let rules = DeveloperRulesPrompt {
+            coding_standards: "",
+            architecture_principles: "",
+            maintainability: "",
+            preferred_frameworks: "",
+            allowed_tech: "",
+            disallowed_tech: "",
+            ai_constraints: "",
+        };
+        let plans = [SolutionPlanPrompt {
+            name: "Greeter",
+            solution_type: "console",
+            changes_required: "Greet by name",
+            unit_tests: "",
+            mockups: &[],
+            changes: &[],
+            mockups_attached: false,
+            existing: Some(ExistingPlan {
+                api_schema: "",
+                page_schema: "",
+                files_to_change: "src/main.rs; src/greeting.rs",
+            }),
+        }];
+        let prompt = build_change_plan_prompt(
+            "Shop",
+            "{}",
+            "{}",
+            "Greeting",
+            None,
+            &rules,
+            &[],
+            &[],
+            &plans,
+            Some("use anyhow rather than a custom error type"),
+        );
+
+        assert!(
+            prompt.task.contains("src/greeting.rs"),
+            "the plan being revised: {}",
+            prompt.task
+        );
+        assert!(prompt.task.contains("use anyhow"), "the instruction");
+        assert!(
+            prompt.task.to_lowercase().contains("were not asked"),
+            "and to leave the rest alone: {}",
+            prompt.task
+        );
+    }
+
+    /// The ordinary case is untouched by the revision wording: a first
+    /// generation that talked about "the plan you are revising" would be
+    /// describing something that does not exist.
+    #[test]
+    fn a_first_generation_is_not_described_as_a_revision() {
+        let rules = DeveloperRulesPrompt {
+            coding_standards: "",
+            architecture_principles: "",
+            maintainability: "",
+            preferred_frameworks: "",
+            allowed_tech: "",
+            disallowed_tech: "",
+            ai_constraints: "",
+        };
+        let plans = [SolutionPlanPrompt {
+            name: "Greeter",
+            solution_type: "console",
+            changes_required: "Greet by name",
+            unit_tests: "",
+            mockups: &[],
+            changes: &[],
+            mockups_attached: false,
+            existing: None,
+        }];
+        let prompt = build_change_plan_prompt(
+            "Shop", "{}", "{}", "Greeting", None, &rules, &[], &[], &plans, None,
+        );
+
+        assert!(!prompt.task.to_lowercase().contains("revis"), "{}", prompt.task);
     }
 
     /// The half the prompt used to miss entirely. The team wrote a structured
@@ -2039,9 +2168,10 @@ mod tests {
             changes: &changes,
             mockups: &["C:/shots/basket.png".to_string()],
             mockups_attached: true,
+            existing: None,
         }];
         let prompt = build_change_plan_prompt(
-            "Shop", "{}", "{}", "Checkout", None, &rules, &[], &[], &plans,
+            "Shop", "{}", "{}", "Checkout", None, &rules, &[], &[], &plans, None,
         );
 
         assert!(prompt.task.contains("POST /checkout"), "the endpoint travels");
@@ -2083,9 +2213,10 @@ mod tests {
             changes: &[],
             mockups: &[],
             mockups_attached: false,
+            existing: None,
         }];
         let prompt = build_change_plan_prompt(
-            "Shop", "{}", "{}", "Checkout", None, &rules, &[], &[], &plans,
+            "Shop", "{}", "{}", "Checkout", None, &rules, &[], &[], &plans, None,
         );
         assert!(!prompt.task.contains("complete list"), "got: {}", prompt.task);
     }
@@ -2113,6 +2244,7 @@ mod tests {
                 mockups: &[],
                 changes: &[],
                 mockups_attached: false,
+                existing: None,
             },
             SolutionPlanPrompt {
                 name: "Shop Web",
@@ -2122,6 +2254,7 @@ mod tests {
                 unit_tests: "",
                 changes: &[],
                 mockups_attached: false,
+                existing: None,
             },
         ];
         let prompt = build_change_plan_prompt(
@@ -2129,6 +2262,7 @@ mod tests {
             &[("How it fits".into(), "flowchart TD".into())],
             &["Card payments only, no wallets.".to_string()],
             &plans,
+            None,
         );
 
         assert!(prompt.context.contains("Card payments only"), "answers travel");

@@ -782,6 +782,7 @@ export default function WorkItemChanges({
                 </div>
               </div>
 
+
               {draft.refused.length > 0 && (
                 <ul className="change-refused" aria-label="Not recorded">
                   {draft.refused.map((line) => (
@@ -790,25 +791,16 @@ export default function WorkItemChanges({
                 </ul>
               )}
 
-              {(plan.apiSchema || plan.pageSchema || plan.filesToChange) && (
-                // <section>, not <div>: an aria-label on a div is not a region.
-                <section
-                  className="plan-generated"
-                  aria-label={`Schemas for ${plan.solutionName}`}
-                >
-                  {[
-                    ["API schema", plan.apiSchema],
-                    ["Page schema", plan.pageSchema],
-                    ["Files expected to change", plan.filesToChange],
-                  ]
-                    .filter(([, body]) => body !== "")
-                    .map(([heading, body]) => (
-                      <div key={heading}>
-                        <span className="plan-generated-head">{heading}</span>
-                        <pre>{body}</pre>
-                      </div>
-                    ))}
-                </section>
+              {/* **The AI's plan is not shown here any more.** It was three
+                  `<pre>` blobs at the bottom of this block — the same text the
+                  model returned, in the shape it returned it, under the boxes
+                  the team types into. Nobody reads a plan like that, and there
+                  was nowhere to correct one. It has its own tab now, a row per
+                  file, editable. This block is what the *team* writes. */}
+              {(plan.apiSchema || plan.filesToChange) && (
+                <p className="plan-generated-elsewhere">
+                  The AI has planned this Solution — read it under "AI planning".
+                </p>
               )}
             </div>
           );

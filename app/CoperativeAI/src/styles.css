@@ -1967,12 +1967,103 @@ code {
   font-size: 0.72rem;
 }
 
-.plan-generated pre {
+.plan-generated pre,
+.plan-schema pre {
   margin: 0.2rem 0 0.4rem;
   font-size: 0.72rem;
   white-space: pre-wrap;
   max-height: 12rem;
   overflow: auto;
+}
+
+/* The AI planning tab. A plan is read line by line and argued with line by
+   line, so the file list is a list — not one line of semicolons in a <pre>,
+   which is what it was and why nobody read it. */
+.ai-plan-review {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.plan-solution-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.plan-solution-head h4 {
+  margin: 0;
+  flex: 1;
+}
+
+.plan-approved,
+.plan-unapproved {
+  font-size: 0.72rem;
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+}
+
+.plan-approved {
+  background: var(--ok-bg, var(--raised));
+  color: var(--ok-fg, var(--fg));
+}
+
+.plan-unapproved {
+  background: var(--raised);
+  color: var(--fg-muted);
+}
+
+.plan-files {
+  list-style: none;
+  margin: 0.2rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.plan-files > li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  border-left: 2px solid var(--line);
+  padding-left: 0.5rem;
+}
+
+.plan-files code {
+  font-size: 0.78rem;
+}
+
+/* The reason the file is in the plan — prose, so it wraps like prose. */
+.plan-file-note {
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.plan-files.editing > li {
+  border-left: none;
+  padding-left: 0;
+  gap: 0.25rem;
+}
+
+.plan-file-path {
+  font-family: var(--mono, monospace);
+}
+
+.plan-revise {
+  border-top: 1px solid var(--line);
+  padding-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  align-items: flex-start;
+}
+
+.plan-generated-elsewhere {
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  margin: 0.2rem 0 0;
 }
 
 .ask-product {
@@ -6783,6 +6874,37 @@ button.ready-action.link:hover {
 .briefing-lines .chip.warn-chip {
   background: var(--warn-tint);
   color: var(--warn);
+}
+
+/* The plan inside the briefing. A path is read as a path — monospace, on its
+   own line — and the model's reason for it wraps underneath as prose. */
+.briefing-plan + .briefing-plan {
+  margin-top: 0.4rem;
+}
+
+.briefing-plan-solution {
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+}
+
+.briefing-lines.files li {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.1rem;
+}
+
+.briefing-lines.files li::before {
+  content: "·";
+}
+
+.briefing-lines.files code {
+  font-size: 0.75rem;
+}
+
+.briefing-file-note {
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+  line-height: 1.4;
 }
 
 .briefing-policy {

@@ -8,6 +8,10 @@ vi.mock("../../lib/backend", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../lib/backend")>();
   return {
     ...original,
+    // The Solution git panel sits in every change block now. Unmocked it falls
+    // through to the real invoke and adds a second role="alert" to the page.
+    solutionGitState: vi.fn(),
+    githubStatus: vi.fn(),
     listWorkItemChanges: vi.fn(),
     listWorkItemPlans: vi.fn(),
     addWorkItemChange: vi.fn(),

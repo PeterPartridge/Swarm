@@ -52,6 +52,75 @@ pub async fn list_solution_branches(
     Ok(vcs::list_branches(&root).unwrap_or_default())
 }
 
+/// Everything a screen needs to say about one Solution's git situation.
+///
+/// **One read, both halves.** Where the code lives on this machine and what is
+/// on GitHub are two different questions with two different fixes, and a panel
+/// that knew only the second told somebody to link a repository when what they
+/// needed was `git init`. Absent rather than an error at every step: a Solution
+/// with no folder is a normal state, not a failure.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SolutionGitDto {
+    pub local_path: Option<String>,
+    /// False when there is no folder, or the folder is not a git repository.
+    pub is_repo: bool,
+    /// A repository with no commit cannot be branched from, so a run still
+    /// cannot start — different sentence, different button.
+    pub has_commit: bool,
+    pub branch: String,
+    pub github_url: Option<String>,
+    pub github_visibility: Option<String>,
+}
+
+#[tauri::command]
+pub async fn solution_git_state(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+) -> Result<SolutionGitDto, String> {
+    let row = {
+        let conn = db.0.lock().await;
+        solution::find_by_id(&conn, solution_id)
+            .await
+            .map_err(to_message)?
+            .ok_or("that Solution no longer exists")?
+    };
+    let local_path = row.local_path.filter(|p| !p.trim().is_empty());
+    // A folder that has been deleted underneath us reads as "not a repository"
+    // rather than as an error: the panel's job is to offer the fix, and the fix
+    // for both is to point it somewhere real.
+    let state = match &local_path {
+        Some(path) => vcs::repo_state(path).unwrap_or(vcs::RepoState {
+            is_repo: false,
+            has_commit: false,
+            branch: String::new(),
+        }),
+        None => vcs::RepoState { is_repo: false, has_commit: false, branch: String::new() },
+    };
+    Ok(SolutionGitDto {
+        local_path,
+        is_repo: state.is_repo,
+        has_commit: state.has_commit,
+        branch: state.branch,
+        github_url: row.github_url,
+        github_visibility: row.github_visibility,
+    })
+}
+
+/// Makes a Solution's folder a git repository, with a first commit.
+///
+/// The answer to "`…\hello-world` is not a git repository", which until now was
+/// a dead end inside the app: every route out of it — status, worktree, run —
+/// refused for the same reason and none of them offered to fix it.
+#[tauri::command]
+pub async fn init_solution_repo(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+) -> Result<String, String> {
+    let root = root_for(&db, solution_id).await?;
+    vcs::init_repo(&root, "First commit")
+}
+
 /// Commits, with the message someone typed or the file list when they did not.
 #[tauri::command]
 pub async fn commit_solution(

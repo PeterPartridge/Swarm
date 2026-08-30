@@ -2718,3 +2718,148 @@ unknown area, effort or Product refused.
   This should stop being a debt line and become a test.
 - **No Admin UI for the two routing defaults** (above).
 - `work_item_policy` still carries permission columns nothing reads.
+
+## Round 64 — the stuck queue, the boundary test, and a plan you can argue with
+
+### My Feedback
+
+**"The Plan and Execute are grayed out" was a job nobody would ever pick up.**
+`fail_interrupted` swept `running` at startup and left `queued` alone, on the
+reasoning that a queued job "never started, so it is still waiting". That is
+only true if something later reads the queue. Nothing does — the runner is
+spawned when a job is *submitted*, and no sweep looks at the queue on launch. So
+a job queued when the app closed waits forever; `submit` refuses a second job
+while one is outstanding; and the panel, which disables both buttons while a job
+is in flight, greys them out permanently. Three correct-looking rules, one dead
+row, and a screen that looks broken.
+
+**The boundary test exists now, and it found a live mismatch on its first run.**
+`setModelPrice` sent `inputPencePerMTok`; the command takes
+`input_pence_per_mtok`, which is `inputPencePerMtok` on the wire. Neither
+direction would have worked. Nothing in the UI calls it yet, so nobody had hit
+it — which is exactly the kind of thing a gate should catch before somebody
+does. Three shipped regressions had already come through this seam, all invisible
+to cargo, Vitest, tsc and clippy. It is a test now rather than a debt line.
+
+**"A single text box is not user friendly" is the right complaint about the
+plan.** The model returns one long line — `src/main.rs (console entry point:
+…); src/greeting.rs (pure function …)` — and it was rendered as a `<pre>` at
+the bottom of the panel people type into. The plan is the thing somebody is
+being asked to *approve*, and it was formatted as something to scroll past, with
+no way to correct a wrong path short of paying for another generation.
+
+### Implemented
+
+- **`fail_interrupted` sweeps `queued` too**, with the message saying which it
+  was — a running job may have spent money, a queued one certainly did not.
+- **`TauriBoundary.test.ts`**: reads `generate_handler!`, every
+  `#[tauri::command]` signature and every `invoke(…)` in `backend.ts`, and
+  compares them. It follows `{ ...rules }` to the interface behind it, because
+  spreading a typed object is how the longest argument lists are sent — and a
+  long argument list is where a new parameter goes unnoticed. Unreadable
+  payloads report nothing rather than guessing.
+- **The AI planning tab** (`AiPlanReview.tsx`): per Solution, a row per file
+  with its reason beside it rather than concatenated into it. `parseFiles`
+  splits at paren depth zero, because the notes are prose and prose has
+  semicolons in it. Two ways to change a plan: **edit it yourself** — no model
+  call, nothing else moves — or **tell the AI what to change**, which sends the
+  instruction *with the current plan* so it revises rather than starting over.
+  Both go through `set_generated`, so both withdraw approval; that rule lives
+  one layer down and neither route can forget it.
+- **`save_plan_schemas`** and `generate_change_plan(work_item_id, instruction)`.
+- **The `<pre>` blocks are gone from "What this changes"**, replaced by one line
+  pointing at the tab. Same rule as every other duplicate this app has removed:
+  one place, or they drift.
+
+### Tests
+
+cargo 700/700 (23 ignored), Vitest 634/634, `tsc --noEmit`, clippy `-D warnings`
+and `npm run build` clean. New: two on the revision prompt (it carries the plan
+being revised and says to keep the rest; a first generation is not described as
+a revision), seven on the boundary in both directions, and thirteen on the
+planning tab — including the real string from your report, and a semicolon
+inside a note.
+
+### Your Feedback
+
+- **The plan tab shows every Solution, and a revision rewrites all of them.**
+  The command generates per work item, not per Solution, so "change this one" is
+  not something the button can honestly offer yet. The hint says so.
+- **Editing the plan withdraws approval**, including for a one-character path
+  fix. That is deliberate — consent belongs to the version that was read — but
+  it will feel heavy if you are tidying paths.
+
+### Technical Debt
+
+- **Still no Admin UI for the developer/QA routing defaults.** Carried from 63.
+- **The boundary test does not compare DTO shapes**, only argument names. The
+  `ProductPolicyDto` regression in round 63 was a missing *field* on a returned
+  struct, and this would not have caught it.
+- `work_item_policy` still carries permission columns nothing reads.
+- Nothing prunes superseded brief files; work item `status` is still untouched
+  by planning.
+
+## Round 65 — the plan reaches the briefing, and Plan bows out
+
+### My Feedback
+
+**Execute was re-planning what was already planned.** It generated
+unconditionally, then approved and started. Once the AI planning tab existed
+that became actively wrong: pressing Execute threw away the plan somebody had
+just read — and possibly corrected by hand — and charged for the replacement.
+So Execute now generates *only* when there is nothing planned, and the Plan
+button disappears once there is. Planning again is still available, in the one
+place it belongs: beside the plan, on the AI planning tab.
+
+**"Every, not any."** `isPlanned` requires every attached Solution to have
+something generated. One planned and one not is not a planned work item —
+Execute would start an agent on the unplanned half with nothing to build from.
+
+**The briefing was the one screen that could not show the plan.** Develop →
+Work → Ready draws an "Agent briefing" down the right whose entire job is *this
+is what an agent would be handed* — description, Solutions, branch, tests,
+open questions, readiness. It said nothing about the files the AI worked out.
+It does now, per Solution, using the same parser the planning tab uses.
+
+**Which meant an extraction, not a copy.** `parseFiles`, `formatFiles` and
+`isPlanned` moved to `lib/plan.ts`. Two readers of a plan that parsed it their
+own way would eventually disagree about what the plan says — and the second
+reader is a list view, which had no business importing a panel with
+`generateChangePlan` behind it just to split a string.
+
+### Implemented
+
+- **`lib/plan.ts`** — the plan-reading rules, pure, no React.
+- **`isPlanned` drives both the buttons and the wording**: Plan is not rendered
+  once there is a plan, Execute's hint changes to say it approves what is there,
+  and the running message says "Approved and started" rather than claiming to
+  have planned.
+- **"What the AI planned" in the agent briefing**, with a `planned` /
+  `not planned` chip on the block head and the model's reason under each path.
+  Named per Solution only when there is more than one — a flat list of paths
+  across three repositories does not say which repository each is in.
+
+### Tests
+
+Vitest 639/639, `tsc --noEmit` and `npm run build` clean; cargo and clippy
+untouched this round. Five new: `isPlanned` on four shapes, only Execute once
+planned, Execute running the plan that is there without calling the model, and
+the briefing showing the files — and saying so when there are none.
+
+### Your Feedback
+
+- **I read "Develop → work → agent Tree" as the Agent briefing** in the Ready
+  view — the panel under Develop → Work that lists what an agent would be
+  handed. If you meant the file tree in Build, or the agent lane down its left,
+  say so and it goes there instead; the parser is shared now, so it is a small
+  change either way.
+- **The briefing shows files, not the API and page schemas.** They are long
+  enough to push the readiness list off the screen, and the tab is one click
+  away.
+
+### Technical Debt
+
+- Carried: no Admin UI for the routing defaults; the boundary test compares
+  argument names but not DTO shapes; `work_item_policy` keeps permission columns
+  nothing reads; nothing prunes superseded brief files; planning still does not
+  move the work item's `status`.

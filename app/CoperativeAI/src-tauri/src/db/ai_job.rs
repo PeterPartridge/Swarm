@@ -159,27 +159,29 @@ pub async fn cancel(conn: &Connection, id: i64, message: &str) -> Result<Option<
 /// row left in either state waits forever, blocks the item from being
 /// submitted again, and greys out the buttons that check for a job in flight.
 pub async fn fail_interrupted(conn: &Connection) -> Result<i64> {
-    let stuck: Vec<i64> = {
+    let stuck: Vec<(i64, String)> = {
         let mut rows = conn
             .query(
-                "SELECT id FROM ai_jobs WHERE state = 'running' OR state = 'queued'",
+                "SELECT id, state FROM ai_jobs WHERE state = 'running' OR state = 'queued'",
                 (),
             )
             .await?;
-        let mut ids = Vec::new();
+        let mut found = Vec::new();
         while let Some(row) = rows.next().await? {
-            ids.push(row.get(0)?);
+            found.push((row.get(0)?, row.get::<String>(1)?));
         }
-        ids
+        found
     };
-    for id in &stuck {
-        finish(
-            conn,
-            *id,
-            "failed",
-            "the app closed while this was running — submit it again",
-        )
-        .await?;
+    for (id, was) in &stuck {
+        // Says which it was, because the two want different reactions: a job
+        // that was running may have spent money, a queued one certainly did
+        // not.
+        let message = if was == "running" {
+            "the app closed while this was running — submit it again"
+        } else {
+            "the app closed before this was started — submit it again"
+        };
+        finish(conn, *id, "failed", message).await?;
     }
     Ok(stuck.len() as i64)
 }

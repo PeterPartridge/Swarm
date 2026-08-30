@@ -10,6 +10,8 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     ...original,
     listProducts: vi.fn(),
     listSolutions: vi.fn(),
+    // The Solution git panel loads its own state wherever it is shown.
+    solutionGitState: vi.fn(),
     createSolutionWithStarter: vi.fn(),
     listStarters: vi.fn(),
     deleteSolution: vi.fn(),

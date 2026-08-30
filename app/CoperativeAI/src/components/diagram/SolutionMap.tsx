@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { hueFor, markFor } from "../ai/AgentLane";
+import SolutionRepo from "../vcs/SolutionRepo";
 import {
   createSolution,
   linkSolutions,
@@ -800,7 +801,13 @@ export default function SolutionMap({
                 <div>
                   <dt>Repository</dt>
                   <dd className={chosen.githubUrl ? "card-mono" : "warn"}>
-                    {chosen.githubUrl ?? "not linked"}
+                    {chosen.githubUrl ? (
+                      <a href={chosen.githubUrl} target="_blank" rel="noreferrer">
+                        {chosen.githubUrl}
+                      </a>
+                    ) : (
+                      "not linked"
+                    )}
                   </dd>
                 </div>
                 <div>
@@ -808,6 +815,17 @@ export default function SolutionMap({
                   <dd>{chosen.language ?? "not recorded"}</dd>
                 </div>
               </dl>
+            </div>
+
+            {/* **Two dead facts became the place they are fixed.** "Working
+                copy: not set" and "Repository: not linked" were the truth and
+                nothing else — you read them here and went looking for the
+                screen that could change them. The same panel that reports the
+                state offers every way out of it: initialise the folder, link a
+                repository, or create one. */}
+            <div className="inspect-group">
+              <span className="palette-label">Git</span>
+              <SolutionRepo solution={chosen} onChange={refresh} />
             </div>
 
             {agentIn[chosen.id] && (

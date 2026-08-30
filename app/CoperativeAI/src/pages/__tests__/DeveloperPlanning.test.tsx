@@ -10,6 +10,8 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     ...original,
     listArchitectureDocs: vi.fn(),
     listSolutions: vi.fn(),
+    // The Solution git panel loads its own state wherever it is shown.
+    solutionGitState: vi.fn(),
     generateArchitectureDoc: vi.fn(),
     deleteArchitectureDoc: vi.fn(),
     // The embedded SolutionMap loads and can act on these; mocked so it mounts

@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import Notice, { type NoticeValue } from "../ai/Notice";
 import WorkItemChanges from "../code/WorkItemChanges";
+import AiPlanReview from "./AiPlanReview";
 import FromProduct from "./FromProduct";
+import SolutionRepo from "../vcs/SolutionRepo";
 import SectionTabs from "../common/SectionTabs";
+import { isPlanned } from "../../lib/plan";
 import { notifyWorkChanged, useWorkChanged } from "../../lib/workSignal";
 import {
   askProductQuestion,
@@ -66,6 +69,7 @@ export function whatIsMissing(
   }
   return missing;
 }
+
 
 /** How one work item is going to be built: the Solutions it touches and what
  *  each needs, the questions Product still owes an answer to, and the schemas
@@ -202,23 +206,39 @@ export default function WorkItemBuildPlan({
     }
   }
 
-  /** Plans it now, approves what came back, and starts an agent on it.
+  /** Approves what is planned and starts an agent on it — planning first only
+   *  if there is nothing planned yet.
    *
    *  **The approval is this press.** `start_run` refuses an unapproved plan and
-   *  generating clears the approval, so a chain that ran straight through would
-   *  be refused unless somebody said go — pressing Execute is saying go. What it
-   *  must never do is carry on past a decline: an AI that said it could not
-   *  write the plan is not an AI whose plan should be handed to an agent. */
+   *  both generating and editing clear the approval, so a chain that ran
+   *  straight through would be refused unless somebody said go — pressing
+   *  Execute is saying go. What it must never do is carry on past a decline: an
+   *  AI that said it could not write the plan is not an AI whose plan should be
+   *  handed to an agent.
+   *
+   *  **And it does not re-plan what is already planned.** It used to generate
+   *  unconditionally, which threw away the plan somebody had just read — and
+   *  possibly corrected by hand — and charged for the privilege. Re-planning is
+   *  a deliberate act now, on the AI planning tab. */
   async function onExecute() {
+    // Read once: `plans` is refreshed part-way through, and the message at the
+    // end should describe what this press actually did.
+    const planned = isPlanned(plans);
     setBusy(true);
-    setNotice("Planning, then starting an agent…");
+    setNotice(
+      planned
+        ? "Approving the plan and starting an agent…"
+        : "Planning, then starting an agent…",
+    );
     try {
-      const result = await generateChangePlan(item.id);
-      if (result.blocked) {
-        setNotice({ blocked: result.blocked, what: "inventing the rest" });
-        await refresh();
-        setGeneratedAt(Date.now());
-        return;
+      if (!planned) {
+        const result = await generateChangePlan(item.id);
+        if (result.blocked) {
+          setNotice({ blocked: result.blocked, what: "inventing the rest" });
+          await refresh();
+          setGeneratedAt(Date.now());
+          return;
+        }
       }
       const fresh = await listWorkItemPlans(item.id);
       const started: string[] = [];
@@ -228,7 +248,7 @@ export default function WorkItemBuildPlan({
         started.push(p.solutionName);
       }
       setNotice(
-        `Planned, approved and started on ${started.join(", ")}. The agent is working in its own checkout — follow it on the Runs panel.`,
+        `${planned ? "Approved and started" : "Planned, approved and started"} on ${started.join(", ")}. The agent is working in its own checkout — follow it on the Runs panel.`,
       );
       await refresh();
       setGeneratedAt(Date.now());
@@ -251,6 +271,9 @@ export default function WorkItemBuildPlan({
   /// going quiet and leaving somebody to guess.
   const lastJob = jobs.find((j) => j.state !== "queued" && j.state !== "running");
   const nothingToPlan = missing.length > 0;
+  /// Whether the AI has already planned every Solution. Once it has, Plan is
+  /// not offered and Execute stops re-planning.
+  const planned = isPlanned(plans);
 
   return (
     <section className="build-plan" aria-label={`Build plan for ${item.title}`}>
@@ -290,10 +313,12 @@ export default function WorkItemBuildPlan({
         </p>
       )}
 
-      {/* **Two sides, two tabs.** Product sets what customers get; Develop
-          decides how it is built. Product's half is read-only here — a
-          requirement reworded by the person implementing it stops being a
-          requirement — and the questions are the way across the line. */}
+      {/* **Three sides, three tabs.** Product sets what customers get; Develop
+          decides how it is built; and what the AI worked out from the two of
+          them is a third thing, which somebody has to read before it is built.
+          Product's half is read-only here — a requirement reworded by the
+          person implementing it stops being a requirement — and the questions
+          are the way across the line. */}
       <SectionTabs
         label="Build plan view"
         as="buttons"
@@ -305,6 +330,13 @@ export default function WorkItemBuildPlan({
               ? `From Product (${openQuestions.length} unanswered)`
               : "From Product",
           },
+          { id: "ai", label: "AI planning" },
+          // **The one assumption everything else on this panel makes.** A
+          // branch cut from `main`, a worktree for an agent, a run at all —
+          // none of it works if the Solution's folder is not a git repository,
+          // and the only way to discover that was to press Execute and read a
+          // red box with no way forward in it.
+          { id: "git", label: "Git" },
         ]}
         active={view}
         onSelect={setView}
@@ -316,6 +348,46 @@ export default function WorkItemBuildPlan({
           questions={questions}
           onAsk={(question) => run(() => askProductQuestion(item.id, question))}
           onAnswer={(id, answer) => run(() => resolveAiFeedback(id, answer))}
+        />
+      )}
+
+      {view === "git" && (
+        <div className="build-git">
+          {plans.length === 0 ? (
+            <p className="hint">
+              No Solution is attached yet, so there is no repository to set up.
+              Add one under "What this changes".
+            </p>
+          ) : (
+            plans.map((p) => {
+              const sol = solutions.find((s) => s.id === p.solutionId);
+              return sol ? (
+                <SolutionRepo
+                  key={p.id}
+                  solution={sol}
+                  onChange={() => void refresh()}
+                />
+              ) : (
+                <p key={p.id} className="hint">
+                  {p.solutionName} is attached but is not in this Product's
+                  Solutions any more.
+                </p>
+              );
+            })
+          )}
+        </div>
+      )}
+
+      {view === "ai" && (
+        <AiPlanReview
+          workItemId={item.id}
+          plans={plans}
+          onChanged={() => {
+            void refresh();
+            // The blocks in "What this changes" draw these schemas too; without
+            // this they would keep showing the version before the edit.
+            setGeneratedAt(Date.now());
+          }}
         />
       )}
 
@@ -389,14 +461,20 @@ export default function WorkItemBuildPlan({
             the approval — so anything that ran straight after generating would
             be refused unless a person said go. Execute is a person saying go,
             knowingly, rather than the app approving on their behalf. */}
-        <button
-          aria-label={`Plan ${item.title}`}
-          aria-describedby={nothingToPlan ? "plan-blocked" : undefined}
-          onClick={onSubmit}
-          disabled={busy || nothingToPlan || planning !== undefined}
-        >
-          {planning ? "Planning…" : busy ? "Working…" : "Plan"}
-        </button>
+        {/* **Gone once there is a plan.** Planning again is a real thing to
+            want, but it is a decision about the plan you are looking at, so it
+            lives on the AI planning tab beside it. Left here it offered to pay
+            for the same schemas twice, one press away from Execute. */}
+        {!planned && (
+          <button
+            aria-label={`Plan ${item.title}`}
+            aria-describedby={nothingToPlan ? "plan-blocked" : undefined}
+            onClick={onSubmit}
+            disabled={busy || nothingToPlan || planning !== undefined}
+          >
+            {planning ? "Planning…" : busy ? "Working…" : "Plan"}
+          </button>
+        )}
         <button
           aria-label={`Execute ${item.title}`}
           aria-describedby={nothingToPlan ? "plan-blocked" : undefined}
@@ -420,10 +498,21 @@ export default function WorkItemBuildPlan({
           </div>
         ) : (
           <span className="hint">
-            <strong>Plan</strong> queues it and returns at once, so you can write
-            up the next item while this one plans — watch it in the AI queue on
-            the Work tab. <strong>Execute</strong> plans it now, approves it, and
-            starts an agent on it in its own checkout.
+            {planned ? (
+              <>
+                It is planned. <strong>Execute</strong> approves the plan as it
+                stands and starts an agent on it in its own checkout — read it
+                under <strong>AI planning</strong> first, which is also where
+                you change it or ask the AI to redo it.
+              </>
+            ) : (
+              <>
+                <strong>Plan</strong> queues it and returns at once, so you can
+                write up the next item while this one plans — watch it in the AI
+                queue on the Work tab. <strong>Execute</strong> plans it now,
+                approves it, and starts an agent on it in its own checkout.
+              </>
+            )}
           </span>
         )}
       </div>

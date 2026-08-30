@@ -163,6 +163,28 @@ pub async fn save_work_item_plan(
     .map_err(to_message)
 }
 
+/// The reviewer's edit to what the AI planned.
+///
+/// **A plan you may only accept or regenerate is not a plan you are reviewing.**
+/// Correcting one file path should not cost another call to a model, and it
+/// should not mean retyping the other nine. It writes through `set_generated`
+/// rather than a route of its own, so a hand edit withdraws approval exactly as
+/// a regeneration does — the version somebody agreed to is the version they
+/// read.
+#[tauri::command]
+pub async fn save_plan_schemas(
+    db: State<'_, AppDb>,
+    id: i64,
+    api_schema: String,
+    page_schema: String,
+    files_to_change: String,
+) -> Result<(), String> {
+    let conn = db.0.lock().await;
+    work_item_plan::set_generated(&conn, id, &api_schema, &page_schema, &files_to_change)
+        .await
+        .map_err(to_message)
+}
+
 #[tauri::command]
 pub async fn detach_work_item_plan(db: State<'_, AppDb>, id: i64) -> Result<(), String> {
     let conn = db.0.lock().await;
@@ -179,8 +201,11 @@ pub async fn detach_work_item_plan(db: State<'_, AppDb>, id: i64) -> Result<(), 
 pub async fn generate_change_plan(
     db: State<'_, AppDb>,
     work_item_id: i64,
+    // What a reviewer asked to be different about the plan they are reading.
+    // Absent on a first generation.
+    instruction: Option<String>,
 ) -> Result<super::work_items::GenerationResult, String> {
-    run_change_plan(&db, work_item_id).await
+    run_change_plan(&db, work_item_id, instruction.as_deref()).await
 }
 
 /// The same work, callable without a Tauri command context.
@@ -191,6 +216,7 @@ pub async fn generate_change_plan(
 pub(crate) async fn run_change_plan(
     db: &AppDb,
     work_item_id: i64,
+    revision: Option<&str>,
 ) -> Result<super::work_items::GenerationResult, String> {
     use crate::ai::{backend, client};
     use crate::commands::ai_run;
@@ -339,7 +365,8 @@ pub(crate) async fn run_change_plan(
         let borrowed: Vec<client::SolutionPlanPrompt<'_>> = prompt_plans
             .iter()
             .zip(planned_borrowed.iter())
-            .map(|((name, kind, changes, tests, mockups), changes_list)| {
+            .zip(plans.iter())
+            .map(|(((name, kind, changes, tests, mockups), changes_list), row)| {
                 client::SolutionPlanPrompt {
                     name,
                     solution_type: kind,
@@ -348,6 +375,14 @@ pub(crate) async fn run_change_plan(
                     changes: changes_list,
                     mockups,
                     mockups_attached,
+                    // Only when revising: what it says now is what "keep the
+                    // rest" refers to, and on a first generation there is no
+                    // rest to keep.
+                    existing: revision.map(|_| client::ExistingPlan {
+                        api_schema: &row.api_schema,
+                        page_schema: &row.page_schema,
+                        files_to_change: &row.files_to_change,
+                    }),
                 }
             })
             .collect();
@@ -370,6 +405,7 @@ pub(crate) async fn run_change_plan(
             &architecture,
             &clarifications,
             &borrowed,
+            revision,
         );
         let names: Vec<(i64, String)> = plans
             .iter()

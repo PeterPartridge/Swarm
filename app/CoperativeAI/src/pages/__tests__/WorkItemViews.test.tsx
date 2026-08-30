@@ -28,6 +28,10 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     // error state instead of the fields.
     listWorkItemPlans: vi.fn(),
     listAiFeedback: vi.fn(),
+    // The Solution git panel sits in every change block now. Unmocked it falls
+    // through to the real invoke and adds a second role="alert" to the page.
+    solutionGitState: vi.fn(),
+    githubStatus: vi.fn(),
     listWorkItemChanges: vi.fn(),
     // Ready is the default view now, and it reads these three. Left unmocked
     // they fall through to the real invoke and the view renders its error state
@@ -197,6 +201,51 @@ describe("WorkItemViews", () => {
     expect(
       within(briefing).getByRole("button", { name: "Open the build plan" }),
     ).toBeInTheDocument();
+  });
+
+  /// **The briefing is what the agent is handed, and the plan is most of it.**
+  /// It listed the branch and the tests and said nothing about the files the
+  /// AI worked out — so the one screen that claims to show what an agent would
+  /// receive was the one place the plan could not be read.
+  it("shows the AI's plan in the briefing", async () => {
+    const user = userEvent.setup();
+    mocked.listWorkItems.mockResolvedValue([item({ id: 1, title: "Checkout" })]);
+    mocked.listWorkItemPlans.mockResolvedValue([
+      {
+        id: 4,
+        workItemId: 1,
+        solutionId: 5,
+        solutionName: "Shop API",
+        changesRequired: "Add POST /checkout",
+        unitTests: "",
+        branchName: "feature/checkout",
+        cloneFrom: "main",
+        mockups: "[]",
+        apiSchema: "POST /checkout -> 201",
+        pageSchema: "",
+        filesToChange: "src/api/checkout.rs (the endpoint); src/db/order.rs (the row)",
+        approvedAt: 0,
+      },
+    ]);
+    render(<WorkItemViews productId={7} />);
+
+    await user.click(await screen.findByLabelText("Show the briefing for Checkout"));
+    const briefing = await screen.findByRole("complementary", { name: "Agent briefing" });
+
+    expect(within(briefing).getByText("src/api/checkout.rs")).toBeInTheDocument();
+    expect(within(briefing).getByText("src/db/order.rs")).toBeInTheDocument();
+    // The reason is the model's own words, so it travels with the path.
+    expect(briefing).toHaveTextContent(/the endpoint/);
+  });
+
+  it("says the AI has not planned it yet rather than showing an empty block", async () => {
+    const user = userEvent.setup();
+    mocked.listWorkItems.mockResolvedValue([item({ id: 1, title: "Checkout" })]);
+    render(<WorkItemViews productId={7} />);
+
+    await user.click(await screen.findByLabelText("Show the briefing for Checkout"));
+    const briefing = await screen.findByRole("complementary", { name: "Agent briefing" });
+    expect(briefing).toHaveTextContent(/has not planned this yet/i);
   });
 
   /// An item that already has an agent is not a scoping question any more, so

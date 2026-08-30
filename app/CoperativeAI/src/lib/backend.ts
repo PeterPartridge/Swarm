@@ -379,8 +379,8 @@ export interface ModelPrice {
   id: number;
   providerId: number;
   model: string;
-  inputPencePerMTok: number;
-  outputPencePerMTok: number;
+  inputPencePerMtok: number;
+  outputPencePerMtok: number;
   tokensPerSecond: number;
 }
 
@@ -586,10 +586,25 @@ export const saveWorkItemPlan = (args: {
 }): Promise<void> => invoke("save_work_item_plan", args);
 export const detachWorkItemPlan = (id: number): Promise<void> =>
   invoke("detach_work_item_plan", { id });
-/** Turns what the team wrote into API and page schemas per Solution. */
+/** Turns what the team wrote into API and page schemas per Solution.
+ *
+ *  `instruction` is what a reviewer asked to be different about the plan they
+ *  are reading. With it the model is shown the current plan and told to keep
+ *  the rest, so "use anyhow instead" changes one thing rather than everything. */
 export const generateChangePlan = (
   workItemId: number,
-): Promise<GenerationResult> => invoke("generate_change_plan", { workItemId });
+  instruction?: string,
+): Promise<GenerationResult> =>
+  invoke("generate_change_plan", { workItemId, instruction });
+
+/** A reviewer's own edit to the generated plan. Withdraws approval, exactly as
+ *  regenerating does — consent belongs to the version that was read. */
+export const savePlanSchemas = (args: {
+  id: number;
+  apiSchema: string;
+  pageSchema: string;
+  filesToChange: string;
+}): Promise<void> => invoke("save_plan_schemas", args);
 
 export const TEST_STRATEGY_FIELDS: { id: string; label: string }[] = [
   { id: "testPlans", label: "Test plans" },
@@ -650,6 +665,27 @@ export const removeGithubToken = (): Promise<void> =>
   invoke("remove_github_token");
 export const linkSolutionRepo = (solutionId: number, url: string): Promise<void> =>
   invoke("link_solution_repo", { solutionId, url });
+
+/** One Solution's git situation: the folder on this machine and the repository
+ *  on GitHub, which are two different questions with two different fixes. */
+export interface SolutionGitState {
+  localPath: string | null;
+  isRepo: boolean;
+  /** A repository with no commit still cannot be branched from, so a run
+   *  cannot start from it. */
+  hasCommit: boolean;
+  branch: string;
+  githubUrl: string | null;
+  githubVisibility: string | null;
+}
+
+export const solutionGitState = (solutionId: number): Promise<SolutionGitState> =>
+  invoke("solution_git_state", { solutionId });
+
+/** `git init` plus a first commit, so the folder is one a run can branch from.
+ *  Returns what it found and did, in a sentence to show. */
+export const initSolutionRepo = (solutionId: number): Promise<string> =>
+  invoke("init_solution_repo", { solutionId });
 export const createSolutionRepo = (args: {
   solutionId: number;
   repoName: string;
@@ -1524,8 +1560,8 @@ export const listModelPrices = (): Promise<ModelPrice[]> =>
 export const setModelPrice = (price: {
   providerId: number;
   model: string;
-  inputPencePerMTok: number;
-  outputPencePerMTok: number;
+  inputPencePerMtok: number;
+  outputPencePerMtok: number;
   tokensPerSecond: number;
 }): Promise<number> => invoke("set_model_price", price);
 export const deleteModelPrice = (id: number): Promise<void> =>

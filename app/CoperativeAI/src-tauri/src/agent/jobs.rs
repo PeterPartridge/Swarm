@@ -118,7 +118,7 @@ pub fn spawn(app: AppHandle, runner: Arc<JobRunner>, job_id: i64, work_item_id: 
         }
         announce(&app);
 
-        let outcome = crate::commands::work_item_plans::run_change_plan(db, work_item_id).await;
+        let outcome = crate::commands::work_item_plans::run_change_plan(db, work_item_id, None).await;
 
         let (state, message) = match outcome {
             // A refusal to guess is not a failure: the AI asked a question and

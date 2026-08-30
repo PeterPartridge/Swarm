@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import WorkItemBuildPlan, {
   whatIsMissing,
 } from "../../components/planning/WorkItemBuildPlan";
+import { isPlanned } from "../../lib/plan";
 import type { Solution, WorkItem, WorkItemPlan } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {
@@ -14,6 +15,10 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     // The build plan now embeds WorkItemChanges. Leaving these unmocked lets
     // them fall through to the real invoke, which renders an error alert and
     // quietly breaks assertions about what else is on screen.
+    // The Solution git panel sits in every change block now. Unmocked it falls
+    // through to the real invoke and adds a second role="alert" to the page.
+    solutionGitState: vi.fn(),
+    githubStatus: vi.fn(),
     listWorkItemChanges: vi.fn(),
     changeKinds: vi.fn(),
     changeKindsForSolution: vi.fn(),
@@ -37,6 +42,9 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     startRun: vi.fn(),
     createSolution: vi.fn(),
     listSolutions: vi.fn(),
+    initSolutionRepo: vi.fn(),
+    linkSolutionRepo: vi.fn(),
+    createSolutionRepo: vi.fn(),
   };
 });
 
@@ -382,7 +390,13 @@ describe("WorkItemBuildPlan", () => {
     );
 
     await waitFor(() => expect(mocked.generateChangePlan).toHaveBeenCalledWith(12));
-    const schemas = await screen.findByRole("region", { name: "Schemas for Shop API" });
+
+    // The plan is read on its own tab — the thing being approved gets a place
+    // of its own rather than three <pre> blocks under the boxes people type in.
+    await user.click(screen.getByRole("button", { name: "AI planning" }));
+    const schemas = await screen.findByRole("region", {
+      name: "AI plan for Shop API",
+    });
     expect(within(schemas).getByText("POST /checkout -> 201")).toBeInTheDocument();
     expect(within(schemas).getByText("src/api/checkout.rs")).toBeInTheDocument();
     // an empty half is left out rather than shown as a blank block
@@ -594,5 +608,135 @@ describe("WorkItemBuildPlan approval", () => {
     expect(await screen.findByText(/Not written — .*has no folder yet/)).toBeInTheDocument();
     expect(mocked.saveWorkItemPlan).toHaveBeenCalled();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("once there is a plan", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocked.listAiFeedback.mockResolvedValue([]);
+    mocked.listAiJobs.mockResolvedValue([]);
+    mocked.checkItemAiPermission.mockResolvedValue({
+      allowed: true,
+      reason: "",
+      hasProvider: true,
+    });
+    mocked.listWorkItemChanges.mockResolvedValue([]);
+    mocked.changeKinds.mockResolvedValue([]);
+    mocked.changeKindsForSolution.mockResolvedValue([]);
+    mocked.solutionCatalogue.mockResolvedValue([]);
+    mocked.writeWorkItemFiles.mockResolvedValue([]);
+    mocked.updateWorkItem.mockResolvedValue(undefined);
+    mocked.setPlanApproval.mockResolvedValue(undefined);
+    mocked.startRun.mockResolvedValue({
+      runId: 1,
+      worktreePath: "/tmp/wt",
+      briefPath: "b.md",
+      branch: "feature/12",
+      command: "claude \"Read b.md and implement it.\"",
+      runStart: "",
+    });
+  });
+
+  const planned = plan({
+    changesRequired: "Add POST /checkout",
+    filesToChange: "src/api/checkout.rs (the endpoint)",
+  });
+
+  it("knows a plan when every Solution has one", () => {
+    expect(isPlanned([])).toBe(false);
+    expect(isPlanned([plan({ changesRequired: "x" })])).toBe(false);
+    expect(isPlanned([planned])).toBe(true);
+    // One Solution planned and one not is not a planned work item: executing
+    // would start an agent on the unplanned half with nothing to build from.
+    expect(isPlanned([planned, plan({ id: 2, solutionId: 4 })])).toBe(false);
+  });
+
+  /// Planning again is what the AI planning tab is for. Leaving Plan beside
+  /// Execute after it has succeeded offers to pay for the same thing twice.
+  it("offers only Execute", async () => {
+    mocked.listWorkItemPlans.mockResolvedValue([planned]);
+    render(<WorkItemBuildPlan item={item} solutions={solutions} />);
+
+    expect(
+      await screen.findByRole("button", { name: `Execute ${item.title}` }),
+    ).toBeEnabled();
+    expect(
+      screen.queryByRole("button", { name: `Plan ${item.title}` }),
+    ).not.toBeInTheDocument();
+  });
+
+  /// **The plan on screen is the plan that runs.** Regenerating first would
+  /// throw away what somebody just read — and possibly edited — and charge for
+  /// the privilege.
+  it("runs the plan that is there rather than making it again", async () => {
+    const user = userEvent.setup();
+    mocked.listWorkItemPlans.mockResolvedValue([planned]);
+    render(<WorkItemBuildPlan item={item} solutions={solutions} />);
+
+    await user.click(await screen.findByLabelText(`Execute ${item.title}`));
+
+    await waitFor(() => expect(mocked.startRun).toHaveBeenCalledWith(12, 3));
+    expect(mocked.setPlanApproval).toHaveBeenCalledWith(12, 3, true);
+    expect(mocked.generateChangePlan).not.toHaveBeenCalled();
+  });
+});
+
+/// **Where the "not a git repository" error is answered.** Everything the panel
+/// offers — plan, execute, a branch cut from `main` — assumes the Solution's
+/// folder is a repository, and until now the only way to find out it was not
+/// was to press Execute and read a red box with no way forward in it.
+describe("the Git tab", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocked.listAiFeedback.mockResolvedValue([]);
+    mocked.listAiJobs.mockResolvedValue([]);
+    mocked.checkItemAiPermission.mockResolvedValue({
+      allowed: true,
+      reason: "",
+      hasProvider: true,
+    });
+    mocked.listWorkItemChanges.mockResolvedValue([]);
+    mocked.changeKinds.mockResolvedValue([]);
+    mocked.changeKindsForSolution.mockResolvedValue([]);
+    mocked.solutionCatalogue.mockResolvedValue([]);
+    mocked.writeWorkItemFiles.mockResolvedValue([]);
+    mocked.updateWorkItem.mockResolvedValue(undefined);
+    mocked.listWorkItemPlans.mockResolvedValue([plan()]);
+    mocked.githubStatus.mockResolvedValue({ connected: true });
+    mocked.solutionGitState.mockResolvedValue({
+      localPath: "C:/repo/shop-api",
+      isRepo: false,
+      hasCommit: false,
+      branch: "",
+      githubUrl: null,
+      githubVisibility: null,
+    });
+    mocked.initSolutionRepo.mockResolvedValue("it is a git repository now");
+  });
+
+  it("shows each attached Solution's repository, and offers to create one", async () => {
+    const user = userEvent.setup();
+    render(<WorkItemBuildPlan item={item} solutions={solutions} />);
+
+    await user.click(await screen.findByRole("button", { name: "Git" }));
+
+    const panel = await screen.findByRole("region", { name: "Repository for Shop API" });
+    expect(panel).toHaveTextContent(/not a git repository/i);
+    await user.click(
+      within(panel).getByRole("button", { name: "Make Shop API a git repository" }),
+    );
+    await waitFor(() => expect(mocked.initSolutionRepo).toHaveBeenCalledWith(3));
+  });
+
+  it("says there is nothing to set up until a Solution is attached", async () => {
+    const user = userEvent.setup();
+    mocked.listWorkItemPlans.mockResolvedValue([]);
+    render(<WorkItemBuildPlan item={item} solutions={solutions} />);
+
+    await user.click(await screen.findByRole("button", { name: "Git" }));
+    expect(
+      await screen.findByText(/No Solution is attached/i),
+    ).toBeInTheDocument();
   });
 });

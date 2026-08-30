@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { isPlanned, parseFiles } from "../../lib/plan";
 import { useWorkChanged } from "../../lib/workSignal";
 import {
   getWorkItemPolicy,
@@ -404,6 +405,48 @@ export default function WorkReadiness({
                     </li>
                   ))}
                 </ul>
+              )}
+            </div>
+
+            {/* **What the AI planned, on the screen that claims to show what
+                an agent is handed.** The briefing listed the branch, the tests
+                and the open questions and said nothing about the files — so the
+                one view whose whole job is "here is what would go" was the one
+                place the plan could not be read. Same parser as the planning
+                tab, so the two cannot disagree about what the plan says. */}
+            <div className="briefing-block">
+              <div className="briefing-block-head">
+                <span>What the AI planned</span>
+                <span className={isPlanned(plans) ? "ok" : "warn"}>
+                  {isPlanned(plans) ? "planned" : "not planned"}
+                </span>
+              </div>
+              {plans.filter((p) => p.filesToChange.trim() !== "").length === 0 ? (
+                <p className="hint">
+                  The AI has not planned this yet. Open the build plan and press
+                  Plan — what it works out appears here and under AI planning.
+                </p>
+              ) : (
+                plans
+                  .filter((p) => p.filesToChange.trim() !== "")
+                  .map((p) => (
+                    <div key={p.id} className="briefing-plan">
+                      {/* Named per Solution: one work item can plan three
+                          repositories, and a flat list of paths would not say
+                          which repository each one is in. */}
+                      {plans.length > 1 && (
+                        <span className="briefing-plan-solution">{p.solutionName}</span>
+                      )}
+                      <ul className="briefing-lines files">
+                        {parseFiles(p.filesToChange).map((f) => (
+                          <li key={`${p.id}-${f.path}`}>
+                            <code>{f.path}</code>
+                            {f.note && <span className="briefing-file-note">{f.note}</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))
               )}
             </div>
 

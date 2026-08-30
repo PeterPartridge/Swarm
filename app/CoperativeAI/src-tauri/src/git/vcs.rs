@@ -353,6 +353,88 @@ pub struct CommitResult {
     pub pushed: Option<Result<(), String>>,
 }
 
+/// What a folder is, as far as git is concerned.
+///
+/// Three states rather than a bool, because the middle one is a real place to
+/// be and it is the one that surprises people: `cargo new` inside an existing
+/// repository leaves a folder with no `.git` of its own, and a fresh `git init`
+/// leaves a repository a worktree cannot branch from. "Not a repository" and
+/// "a repository with nothing in it" need different sentences and different
+/// buttons.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct RepoState {
+    pub is_repo: bool,
+    /// Whether anything has been committed. A worktree needs a commit to branch
+    /// from, so an empty repository still cannot start a run.
+    pub has_commit: bool,
+    /// The current branch, empty when there is nothing committed yet.
+    pub branch: String,
+}
+
+/// Whether a folder is a git repository, and whether it has anything in it.
+///
+/// Never an error for "it is not a repository" — that is an answer, and the
+/// caller is asking precisely because it might not be.
+pub fn repo_state(root: &str) -> Result<RepoState, String> {
+    let root_path = canonical(root)?;
+    if !root_path.join(".git").exists() {
+        return Ok(RepoState { is_repo: false, has_commit: false, branch: String::new() });
+    }
+    let (ok, head, _) = git_allowing_failure(&root_path, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+    Ok(RepoState {
+        is_repo: true,
+        has_commit: ok,
+        branch: if ok { head.trim().to_string() } else { String::new() },
+    })
+}
+
+/// Makes a folder a git repository an agent can actually be sent to.
+///
+/// **Both halves, because half of it is not usable.** `git init` alone leaves a
+/// repository with no commit, and `add_worktree` branches from a commit — so
+/// initialising without committing swaps one refusal ("not a git repository")
+/// for another ("invalid reference: HEAD"), which reads like the app doing
+/// nothing twice. Anything already in the folder becomes the first commit.
+///
+/// Idempotent, and says which case it met: pressing it on a repository that
+/// already works should not be an error, it should be a sentence saying so.
+pub fn init_repo(root: &str, first_message: &str) -> Result<String, String> {
+    let root_path = canonical(root)?;
+    let before = repo_state(root)?;
+    if before.is_repo && before.has_commit {
+        return Ok(format!(
+            "{root} is already a git repository, on {}.",
+            before.branch
+        ));
+    }
+    if !before.is_repo {
+        // `-b main` rather than git's default, which varies by version and by
+        // whatever the person has configured — a Solution's branch names are
+        // written down elsewhere and have to match something.
+        git(&root_path, &["init", "-b", "main"])?;
+    }
+
+    let (staged, _, _) = git_allowing_failure(&root_path, &["add", "--all"])?;
+    if !staged {
+        return Ok(format!("{root} is a git repository now, with nothing committed yet."));
+    }
+    let (committed, _, err) =
+        git_allowing_failure(&root_path, &["commit", "-m", first_message])?;
+    if !committed {
+        // An empty folder is the usual reason, and it is not a failure: the
+        // repository exists and the first file committed will be the first
+        // commit. git's own words travel for anything else — an unset
+        // `user.email` is the one people hit and cannot guess.
+        return Ok(format!(
+            "{root} is a git repository now, but nothing was committed: {}",
+            err.trim()
+        ));
+    }
+    Ok(format!(
+        "{root} is a git repository now, with everything in it committed to main."
+    ))
+}
+
 /// Stages everything and commits it.
 ///
 /// **Refused during a merge.** A conflicted working tree staged wholesale is
@@ -1037,6 +1119,59 @@ ddd4\u{1f}\u{1f}tag: v1\u{1f}First commit\u{1f}Ada\u{1f}1700000100
         };
         run(&["add", "-A"]);
         run(&["commit", "-m", message]);
+    }
+
+    /// **The error a person actually hits.** A Solution pointed at a folder
+    /// somebody made by hand — or that a starter left without a repository — is
+    /// not a git repository, and everything downstream refuses: no status, no
+    /// worktree, no run. Initialising has to leave it in a state a run can
+    /// actually use, which means a commit as well as a `.git`.
+    #[test]
+    fn initialising_a_plain_folder_leaves_a_repository_a_run_can_branch_from() {
+        let dir = crate::testing::scratch("git-init", "plain").join("hello-world");
+        std::fs::create_dir_all(&dir).expect("folder");
+        std::fs::write(dir.join("main.rs"), "fn main() {}").expect("a file");
+        let root = dir.display().to_string();
+
+        let before = repo_state(&root).expect("state");
+        assert!(!before.is_repo, "the folder starts as an ordinary one");
+
+        // No global git identity on a build machine would fail the commit, and
+        // that is the machine's setup rather than this function's behaviour.
+        let told = match init_repo(&root, "First commit") {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("skipped: git is not usable here ({e})");
+                return;
+            }
+        };
+        let after = repo_state(&root).expect("state");
+        assert!(after.is_repo, "it is a repository now: {told}");
+        if !after.has_commit {
+            eprintln!("skipped: git has no identity configured here ({told})");
+            return;
+        }
+        assert_eq!(after.branch, "main", "named, not left to git's default");
+        // The proof that matters: a worktree can be cut from it, which is what
+        // starting a run does.
+        assert!(
+            add_worktree(&root, "feature/1-first", "main").is_ok(),
+            "a run can branch from it"
+        );
+    }
+
+    /// Pressing it twice is not an error. Somebody who cannot tell whether it
+    /// worked will press it again, and the second press should say so rather
+    /// than produce a red box.
+    #[test]
+    fn initialising_a_repository_that_already_works_says_so_instead_of_failing() {
+        let Some(dir) = temp_repo_with_commit("git-init-twice") else {
+            eprintln!("skipped: git is not usable here");
+            return;
+        };
+        let root = dir.display().to_string();
+        let told = init_repo(&root, "First commit").expect("no error");
+        assert!(told.contains("already"), "got: {told}");
     }
 
     /// The happy path: a run's branch comes home.
