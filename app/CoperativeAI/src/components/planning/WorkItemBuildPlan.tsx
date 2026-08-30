@@ -355,8 +355,8 @@ export default function WorkItemBuildPlan({
         <div className="build-git">
           {plans.length === 0 ? (
             <p className="hint">
-              No Solution is attached yet, so there is no repository to set up.
-              Add one under "What this changes".
+              Nothing to set up yet — attach a Solution under "What this
+              changes" and its repository appears here.
             </p>
           ) : (
             plans.map((p) => {

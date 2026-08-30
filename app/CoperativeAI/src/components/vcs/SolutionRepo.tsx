@@ -116,7 +116,9 @@ export default function SolutionRepo({
   const visibility = state?.githubVisibility ?? solution.githubVisibility;
 
   return (
-    <div className="solution-repo" aria-label={`Repository for ${solution.name}`}>
+    // <section>, not <div>: an aria-label on a div names nothing a screen
+    // reader can find, and this panel is looked up by name in four places.
+    <section className="solution-repo" aria-label={`Repository for ${solution.name}`}>
       {/* The folder first: a repository on GitHub is no use to a run that
           cannot make a worktree here. */}
       <span className="repo-local">
@@ -248,6 +250,6 @@ export default function SolutionRepo({
           </button>
         </form>
       )}
-    </div>
+    </section>
   );
 }
