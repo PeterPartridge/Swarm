@@ -67,6 +67,29 @@ pub async fn list_work_items(
     Ok(items.into_iter().map(WorkItemDto::from).collect())
 }
 
+/// One work item by id.
+///
+/// **For the screens that have an id and nothing else** — a pulled-out window
+/// opened from a URL, a link followed from somewhere that does not know the
+/// Product. Without it the only way in was `list_work_items` per Product, so a
+/// window that knew exactly which item it wanted read every item of every
+/// Product to find it.
+///
+/// `None` rather than an error when it is gone: an id in a URL can outlive the
+/// row it names, and "that work item is not here any more" is a sentence for
+/// the screen to write, not a failure to report.
+#[tauri::command]
+pub async fn get_work_item(
+    db: State<'_, AppDb>,
+    work_item_id: i64,
+) -> Result<Option<WorkItemDto>, String> {
+    let conn = db.0.lock().await;
+    Ok(work_item::find_by_id(&conn, work_item_id)
+        .await
+        .map_err(to_message)?
+        .map(WorkItemDto::from))
+}
+
 #[tauri::command]
 pub async fn create_work_item(
     db: State<'_, AppDb>,

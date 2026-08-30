@@ -2863,3 +2863,259 @@ the briefing showing the files — and saying so when there are none.
   argument names but not DTO shapes; `work_item_policy` keeps permission columns
   nothing reads; nothing prunes superseded brief files; planning still does not
   move the work item's `status`.
+
+## Round 66 — git as a first-class thing, and three panes that were one
+
+### My Feedback
+
+**"`…\hello-world` is not a git repository" was a dead end inside the app.**
+Every route out of it — status, worktree, run — refused for that same reason,
+and not one of them offered `git init`. The panel that talked about
+repositories talked only about GitHub, so a folder with no `.git` read as "No
+repository linked" — and linking one would not have fixed it. Two different
+questions had been collapsed into one.
+
+**Initialising has to leave a repository a run can actually use.** `git init`
+alone swaps one refusal for another: `add_worktree` branches from a commit, so
+a fresh repository fails with "invalid reference: HEAD", which reads like the
+app doing nothing twice. `init_repo` commits what is in the folder, names the
+branch `main` rather than leaving it to whatever git is configured with, and is
+idempotent — pressing it on a working repository says so instead of erroring,
+because somebody who cannot tell whether it worked will press it again.
+
+**The console was a debugging tool sitting under the code at all times.**
+"Terminal will open in Hello world / Open terminal / Debugger output / Nothing
+printed yet" occupied the bottom of the screen for everyone reading code. It is
+a tab now, and the tab does not exist until Debug has been pressed.
+
+### Implemented
+
+- **`vcs::repo_state` and `vcs::init_repo`**, `solution_git_state` and
+  `init_solution_repo`. Three states, not a bool: no folder, a folder that is
+  not a repository, and a repository with nothing committed — each needs a
+  different sentence and a different button.
+- **`SolutionRepo` is the one git panel** and loads its own state, which is what
+  lets it be dropped wherever a Solution is looked at. It now leads with the
+  local folder, and offers *Make it a git repository* beside *Link existing* and
+  *Create new*. Visibility is two radios rather than a "Private" tick —
+  publishing is the consequential half and a checkbox says it in the negative.
+- **Three placements**: a **Git tab** on the build plan (Develop → Work), the
+  **Map inspector** (Develop → Planning), and the Solutions list where it was.
+  The inspector's two dead facts — "Working copy: not set", "Repository: not
+  linked" — are now the place they are fixed.
+- **Code / Work item tabs in Build.** Picking an agent used to stack its
+  workbench and the code pane in one column: a file's diff above the file
+  itself. Hidden rather than unmounted, so a half-typed edit survives switching.
+- **A Debug output tab**, holding the console, mounted from the first press of
+  Debug and hidden thereafter — never unmounted, or a trip to the code would
+  kill the shell.
+
+### Tests
+
+cargo 702/702 (23 ignored), Vitest 651/651, `tsc --noEmit`, clippy `-D warnings`
+and `npm run build` clean. New: two on `init_repo` (a plain folder becomes one a
+worktree can be cut from; pressing it twice says so rather than failing), seven
+on the git panel's states and actions, two on the build plan's Git tab, and
+three on the Build view's panes.
+
+### Your Feedback
+
+- **"Only show when I am running debug" is implemented as "once you press Debug
+  in this Build session".** Nothing tells this view that a debug session has
+  *ended* — the board owns its own shells — so the tab stays available until you
+  leave Build. If you want it to disappear the moment the last session stops,
+  that needs the board to report session state upward.
+- **Creating a GitHub repository does not push the folder to it.** It creates
+  the repo and records the URL; wiring the remote and the first push is a
+  separate step nothing does yet.
+
+### Technical Debt
+
+- No `git remote add` / first push after Create new (above).
+- Carried: no Admin UI for the routing defaults; the boundary test compares
+  argument names but not DTO shapes; `work_item_policy` keeps permission columns
+  nothing reads; planning still does not move the work item's `status`.
+
+## Round 67 — why Execute would not run, and three panes that pull out
+
+### My Feedback
+
+**"Hello world (no AI budget is set for this Product)" was a job that had just
+succeeded.** The job runner wrote `format!("{} ({})", created, reason)` — the
+Solutions it planned, and beside them the *routing* reason in brackets. Every
+call carries one and it is always recorded; the two quiet ones say only that
+nothing unusual happened. In brackets after a result, "no AI budget is set"
+reads as the reason it failed. `router::worth_saying` decides, beside the
+strings it classifies, and a test walks the reasons `route()` really produces:
+a handover or a warning is worth repeating — it changed the model, or is about
+to — and "no budget" and "within budget" are not.
+
+**Execute would not run because the folder is not a git repository.** That is
+the same thing round 66 was about, discovered at a different door:
+`add_worktree` refuses it, and refuses a repository with no commit for a second
+reason ("invalid reference: HEAD"). Both messages say what is wrong and nothing
+about what to do, so `prepare_run` now checks first and names the button —
+Git tab, "Make it a git repository" — because this press is where somebody finds
+out.
+
+**Clicking a file opened it into a pane that was not showing.** The tabs added
+last round defaulted to the work item when an agent was selected, so the tree's
+click did nothing visible. It switches to Code now. The workbench still points
+at the same file, so its diff is there when you switch back — the two are
+different questions about one file, which is why they are two tabs.
+
+### Implemented
+
+- **`router::worth_saying`**, and the job message reading `Planned Hello world`.
+- **The pre-flight in `prepare_run`**, naming the fix for both git states.
+- **Create new now connects and pushes**: `vcs::set_remote` (set, not add — a
+  folder pushed somewhere before already has an `origin`, and `remote add` fails
+  on it), then `push`. Reported rather than raised: the repository *was*
+  created, and a failed push must not read as though it was not, so the sentence
+  says how far it got.
+- **The Debug output tab comes and goes with the sessions.** `DebugBoard`
+  reports how many Solutions have a shell or a debugger mounted, because "am I
+  debugging?" is only answerable from inside it. At zero the tab goes and the
+  pane falls back to the code, so it cannot vanish under what it was showing.
+- **Every section pulls out**: `open_work_item_window` and `open_file_window`,
+  rendered by `StandaloneBuildPane`, which reads the record from its id rather
+  than being handed copies in query parameters. One window per file, because the
+  reason to pull one out is to hold it beside another. The console keeps its own
+  drag-out on its header — two answers to one question would be worse.
+
+### Tests
+
+cargo 704/704 (23 ignored), Vitest 652/652, `tsc --noEmit`, clippy `-D warnings`
+and `npm run build` clean. New: the reason classification over the router's real
+outputs, the query encoder against the characters a Windows path actually has,
+the pull-out per pane, and the debug tab appearing on attach and going on
+detach.
+
+### Your Feedback
+
+- **The plan is not what stopped Execute** — it planned fine. What stopped it
+  was the working copy, at the worktree step, which is why the message now
+  points at the Git tab rather than at the AI settings.
+- **Pushing needs git to be able to authenticate.** Creating the repository uses
+  the GitHub token; the push uses whatever git on this machine is set up with.
+  If it fails, the sentence says so and the repository is still there to push to.
+
+### Technical Debt
+
+- The pulled-out work item searches every Product's items to find one by id;
+  there is no `get_work_item` command and this is the read that would want it.
+- Carried: no Admin UI for the routing defaults; the boundary test compares
+  argument names but not DTO shapes; `work_item_policy` keeps permission columns
+  nothing reads; planning still does not move the work item's `status`.
+
+## Round 68 — one read for one work item, and the error that erased itself
+
+### My Feedback
+
+**"Execute is not working" was, in part, a message that deleted itself.** The
+panel had one `error` state, and `refresh` cleared it on every successful read
+— which happens on every work-changed signal: a job finishing anywhere in the
+Product, a save in the changes block mounted inside this same panel, the
+panel's own reload. So "'Shop API' is not a git repository" appeared and was
+gone. A failure that erases itself within a second is indistinguishable from a
+button that does nothing, which is exactly what it was reported as.
+
+The test written for it could not find the alert **even once** — worse than the
+diagnosis, and the proof that this was not a subtle race. There are two errors
+now: `loadError`, which is about the read that just happened and is cleared by
+the next one, and `actionError`, which is about the last press and is cleared
+only by the next press.
+
+**`get_work_item` exists because a window that knew exactly what it wanted was
+reading the whole workspace to find it.** The pulled-out build plan had only
+`list_work_items` per Product, so it walked every Product's items looking for
+one id.
+
+### Implemented
+
+- **`get_work_item(work_item_id) -> Option<WorkItemDto>`**. `None` rather than
+  an error when it is gone: an id in a URL outlives the row it names, and that
+  is a sentence for the screen to write, not a failure to report.
+- **The pull-out uses it**: one read for the item, one for the Solutions its
+  panel offers, in parallel.
+- **The two errors split** in `WorkItemBuildPlan`, and a press clears its own
+  error before starting rather than leaving the last one standing.
+
+### Tests
+
+cargo 704/704 (23 ignored), Vitest 656/656, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean. New: the Execute failure surviving a
+work-changed reload, and three on the pulled-out window — it asks for one item
+and never lists, it says so when the item has gone, and a pulled-out file reads
+its Solution.
+
+### Your Feedback
+
+- **If Execute still fails after this, the message will now stay put** and name
+  what stopped it. The pre-flight from round 67 covers the two git states; a
+  message that says anything else is worth sending back to me verbatim.
+- **The split is only in the build plan.** Other panels still share one error
+  state; none of them mounts a child that refreshes them, which is what made
+  this one bite, but the pattern is worth repeating if it shows up again.
+
+### Technical Debt
+
+- Carried: no Admin UI for the routing defaults; the boundary test compares
+  argument names but not DTO shapes; `work_item_policy` keeps permission columns
+  nothing reads; planning still does not move the work item's `status`.
+
+## Round 69 — the failure box, because saying it quietly is not saying it
+
+### My Feedback
+
+**"Execute failed but no error is appearing."** After round 68 the message was
+no longer being erased — it was being *said where nobody was looking*. The
+build plan renders inside the workbench inside the Build view, and its alert
+sits at the top of a section long enough to have scrolled away. A panel telling
+itself is not the same as somebody being told.
+
+**So the report is separate from the display.** `lib/failures.ts` is the same
+shape as `workSignal` and for the same reason: the failure happens four
+components from the one part of the screen that is always visible, and
+threading a callback through all four would put a reporting concern into every
+component between them — each forgetting it in a different way.
+
+**Only the last one, and only a person clears it.** A list would be a log; this
+is a message, and "what just went wrong?" has one answer. Nothing dismisses it
+on the reader's behalf — not a reload, not a later success elsewhere — because
+whether it has been read is not something to guess at.
+
+### Implemented
+
+- **`reportFailure` / `useLastFailure`**, and a failure box at the top of the
+  ship rail: what was pressed, the backend's own sentence unreworded, and
+  Dismiss. Above the tabs, because it is not one of them.
+- **Reported from every press that can fail**: Execute, Plan, saving in the
+  build plan, and the rail's own Review, Keep and Discard.
+- Each still says it in place as well. The rail is the shout, not a replacement
+  for the panel saying what happened where it happened.
+
+### Tests
+
+cargo 704/704 (23 ignored), Vitest 661/661, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean. Five new: the box shows what failed in
+the backend's words, shows one that happened before the rail was on screen,
+stays until dismissed, says nothing when nothing has failed, and — end to end —
+a press deep inside the workbench reaching the rail.
+
+### Your Feedback
+
+- **If Execute still fails with nothing on the rail**, then the press is not
+  reaching a `catch` at all, which would be a different bug and worth saying so
+  — that is now a meaningful distinction rather than a shrug.
+- **The box is per session, not per run.** It is the last thing that went
+  wrong anywhere in Build, not a history against the agent, and switching
+  agents does not clear it.
+
+### Technical Debt
+
+- Only the Build view shows the box. Product and Test have presses that can fail
+  the same way and no rail to put one on.
+- Carried: no Admin UI for the routing defaults; the boundary test compares
+  argument names but not DTO shapes; `work_item_policy` keeps permission columns
+  nothing reads; planning still does not move the work item's `status`.

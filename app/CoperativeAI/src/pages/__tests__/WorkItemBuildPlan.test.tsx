@@ -5,6 +5,7 @@ import WorkItemBuildPlan, {
   whatIsMissing,
 } from "../../components/planning/WorkItemBuildPlan";
 import { isPlanned } from "../../lib/plan";
+import { notifyWorkChanged } from "../../lib/workSignal";
 import type { Solution, WorkItem, WorkItemPlan } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {
@@ -680,6 +681,72 @@ describe("once there is a plan", () => {
     expect(mocked.setPlanApproval).toHaveBeenCalledWith(12, 3, true);
     expect(mocked.generateChangePlan).not.toHaveBeenCalled();
   });
+
+  /// **One work item, two repositories, and only one of them broken.** The loop
+  /// stopped at the first refusal, so a Solution that started fine was never
+  /// mentioned and the ones after it were never tried — and the press read as a
+  /// total failure when it was a partial one. Every Solution is attempted now,
+  /// and the message says both halves.
+  it("starts what it can and names the Solution that refused", async () => {
+    const user = userEvent.setup();
+    mocked.listWorkItemPlans.mockResolvedValue([
+      planned,
+      plan({ id: 2, solutionId: 4, solutionName: "Shop Web", filesToChange: "a.ts (x)" }),
+    ]);
+    mocked.startRun.mockImplementation(async (_item: number, solutionId: number) => {
+      if (solutionId === 4) {
+        throw "'Shop Web' has no folder on this machine, so there is nothing to make a worktree from";
+      }
+      return {
+        runId: 1,
+        worktreePath: "/tmp/wt",
+        briefPath: "b.md",
+        branch: "feature/12",
+        command: "claude",
+        runStart: "",
+      };
+    });
+    render(<WorkItemBuildPlan item={item} solutions={solutions} />);
+
+    await user.click(await screen.findByLabelText(`Execute ${item.title}`));
+
+    // The one that worked is not lost in the one that did not.
+    await waitFor(() => expect(mocked.startRun).toHaveBeenCalledTimes(2));
+    const failure = await screen.findByRole("alert");
+    expect(failure).toHaveTextContent(/Shop Web/);
+    expect(failure).toHaveTextContent(/no folder on this machine/);
+    expect(screen.getByRole("status")).toHaveTextContent(/Shop API/);
+  });
+
+
+  /// **"I pressed Execute and nothing happened."** The message was there and
+  /// then it was not: `refresh` cleared the panel's one error state, and it runs
+  /// on every work-changed signal — a job finishing anywhere in the Product, a
+  /// save in the changes block below, this panel's own reload after the press. A
+  /// failure that erases itself within a second is indistinguishable from a
+  /// button that does nothing.
+  it("keeps what went wrong on screen when something else reloads the panel", async () => {
+    const user = userEvent.setup();
+    mocked.listWorkItemPlans.mockResolvedValue([planned]);
+    mocked.startRun.mockRejectedValue(
+      "'Shop API' is not a git repository, so there is no branch to cut a checkout from.",
+    );
+    render(<WorkItemBuildPlan item={item} solutions={solutions} />);
+
+    const button = await screen.findByLabelText(`Execute ${item.title}`);
+    expect(button).toBeEnabled();
+    await user.click(button);
+    expect(mocked.startRun).toHaveBeenCalled();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/not a git repository/);
+
+    // Anything at all re-reads the panel — this is the queue announcing a job.
+    notifyWorkChanged();
+    await waitFor(() =>
+      expect(mocked.listWorkItemPlans.mock.calls.length).toBeGreaterThan(1),
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(/not a git repository/);
+  });
+
 });
 
 /// **Where the "not a git repository" error is answered.** Everything the panel

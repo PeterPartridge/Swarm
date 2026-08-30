@@ -1075,6 +1075,12 @@ export const setRoadmapMode = (mode: string): Promise<void> =>
 // Work items
 export const listWorkItems = (productId: number): Promise<WorkItem[]> =>
   invoke("list_work_items", { productId });
+
+/** One work item by id, for a screen that has an id and nothing else — a
+ *  pulled-out window opened from a URL. Null when it is gone: an id in a URL
+ *  can outlive the row it names. */
+export const getWorkItem = (workItemId: number): Promise<WorkItem | null> =>
+  invoke("get_work_item", { workItemId });
 export const createWorkItem = (args: {
   title: string;
   itemType: string;
@@ -2802,3 +2808,15 @@ export const getClaudeTiers = (): Promise<ClaudeTier[]> =>
   invoke("get_claude_tiers");
 export const setClaudeTiers = (tiers: ClaudeTier[]): Promise<void> =>
   invoke("set_claude_tiers", { tiers });
+
+/** One work item's build plan as its own OS window — the Build view's Work
+ *  item pane, pulled out. */
+export const openWorkItemWindow = (
+  workItemId: number,
+  title: string,
+): Promise<void> => invoke("open_work_item_window", { workItemId, title });
+
+/** One file from a Solution's working copy as its own OS window. One window per
+ *  file, because the reason to pull one out is to hold it beside another. */
+export const openFileWindow = (solutionId: number, path: string): Promise<void> =>
+  invoke("open_file_window", { solutionId, path });

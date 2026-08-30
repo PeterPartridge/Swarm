@@ -5339,6 +5339,35 @@ code {
   padding: 0.75rem;
 }
 
+/* Code / Work item / Debug output. Sticky, because the column scrolls and a
+   way out of a long diff should not be at the top of it. */
+.build-panes {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg);
+  padding-bottom: 0.4rem;
+  margin-bottom: 0.4rem;
+}
+
+/* Beside the tabs, small: it is a way out of the pane, not one of the panes. */
+.pane-pop {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  align-self: flex-start;
+  margin-bottom: 0.4rem;
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+}
+
+.build-code,
+.build-debug {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 .workbench {
   display: flex;
   flex-direction: column;
@@ -5623,6 +5652,36 @@ code {
 }
 
 /* ── Review and ship ──────────────────────────────────────────────────────── */
+
+/* The last press that failed, at the top of the rail. Loud on purpose: it is
+   there because the quiet version — a line inside the panel that ran it — was
+   read by nobody. */
+.rail-failure {
+  border: 1px solid var(--bad, var(--warn));
+  border-left-width: 3px;
+  border-radius: 4px;
+  background: var(--bad-tint, var(--warn-tint, var(--raised)));
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.rail-failure-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+/* The backend's own sentence, which is often long and always worth reading in
+   full — so it wraps rather than being cut off, and a path in it can break. */
+.rail-failure p {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
 
 .ship-rail {
   width: 18rem;

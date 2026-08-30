@@ -5,6 +5,7 @@ import AiPlanReview from "./AiPlanReview";
 import FromProduct from "./FromProduct";
 import SolutionRepo from "../vcs/SolutionRepo";
 import SectionTabs from "../common/SectionTabs";
+import { reportFailure } from "../../lib/failures";
 import { isPlanned } from "../../lib/plan";
 import { notifyWorkChanged, useWorkChanged } from "../../lib/workSignal";
 import {
@@ -107,7 +108,19 @@ export default function WorkItemBuildPlan({
   const [view, setView] = useState("develop");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<NoticeValue | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  /// Why the panel could not read itself. Cleared by the next successful read,
+  /// because it is a statement about the load that just happened.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  /// Why the last press failed.
+  ///
+  /// **Held apart from the one above, and this is not tidiness.** They shared a
+  /// state, and `refresh` cleared it on every successful read — which happens
+  /// on every work-changed signal: a job finishing anywhere in the Product, a
+  /// save in the changes block below, this panel's own reload. So "Execute
+  /// failed because that folder is not a git repository" was erased within a
+  /// second of appearing, and the button looked like it did nothing at all.
+  /// Only another press clears this.
+  const [actionError, setActionError] = useState<string | null>(null);
   /// When the schemas were last written, so the panel that draws them re-reads.
   const [generatedAt, setGeneratedAt] = useState(0);
   /// What became of the last automatic write. Named rather than assumed —
@@ -134,9 +147,9 @@ export default function WorkItemBuildPlan({
           .sort((a, b) => b.submittedAt - a.submittedAt),
       );
       setPermission(loadedPermission);
-      setError(null);
+      setLoadError(null);
     } catch (e) {
-      setError(String(e));
+      setLoadError(String(e));
     }
   }, [item.id, item.productId]);
 
@@ -176,7 +189,7 @@ export default function WorkItemBuildPlan({
     try {
       await action();
       await refresh();
-      setError(null);
+      setActionError(null);
       // Every mutation here moves something a run depends on — approving,
       // withdrawing, changing the branch, or editing text, which clears the
       // approval. The rail's Start button has to follow all of them, so the
@@ -184,7 +197,8 @@ export default function WorkItemBuildPlan({
       notifyWorkChanged();
       await writeFiles();
     } catch (e) {
-      setError(String(e));
+      setActionError(String(e));
+      reportFailure("Saving", String(e));
     }
   }
 
@@ -196,13 +210,15 @@ export default function WorkItemBuildPlan({
      its plans. */
 
   async function onSubmit() {
+    setActionError(null);
     try {
       await submitForPlanning(item.id);
       setNotice("Submitted for planning — follow it in the AI queue on the Work tab.");
-      setError(null);
+      setActionError(null);
     } catch (e) {
       setNotice(null);
-      setError(String(e));
+      setActionError(String(e));
+      reportFailure("Plan", String(e));
     }
   }
 
@@ -225,6 +241,7 @@ export default function WorkItemBuildPlan({
     // end should describe what this press actually did.
     const planned = isPlanned(plans);
     setBusy(true);
+    setActionError(null);
     setNotice(
       planned
         ? "Approving the plan and starting an agent…"
@@ -241,21 +258,43 @@ export default function WorkItemBuildPlan({
         }
       }
       const fresh = await listWorkItemPlans(item.id);
+      // **Every Solution is attempted, and both halves are reported.** One work
+      // item can touch three repositories, and this loop used to stop at the
+      // first refusal — so a Solution that started fine went unmentioned, the
+      // ones after it were never tried, and a partial result read as a total
+      // failure. A Solution with no folder on this machine is exactly that
+      // case, and it says which one.
       const started: string[] = [];
+      const refused: string[] = [];
       for (const p of fresh) {
-        await setPlanApproval(item.id, p.solutionId, true);
-        await startRun(item.id, p.solutionId);
-        started.push(p.solutionName);
+        try {
+          await setPlanApproval(item.id, p.solutionId, true);
+          await startRun(item.id, p.solutionId);
+          started.push(p.solutionName);
+        } catch (e) {
+          refused.push(`${p.solutionName}: ${String(e)}`);
+        }
       }
       setNotice(
-        `${planned ? "Approved and started" : "Planned, approved and started"} on ${started.join(", ")}. The agent is working in its own checkout — follow it on the Runs panel.`,
+        started.length === 0
+          ? null
+          : `${planned ? "Approved and started" : "Planned, approved and started"} on ${started.join(", ")}. The agent is working in its own checkout — follow it on the Runs panel.`,
       );
+      if (refused.length > 0) {
+        const message = refused.join(" · ");
+        setActionError(message);
+        reportFailure("Execute", message);
+      }
       await refresh();
       setGeneratedAt(Date.now());
       notifyWorkChanged();
     } catch (e) {
       setNotice(null);
-      setError(String(e));
+      setActionError(String(e));
+      // Said on the rail as well as here. This panel can be scrolled, tabbed
+      // away from, or four components deep inside the Build view — "Execute
+      // failed and nothing appeared" was all three at once.
+      reportFailure("Execute", String(e));
     } finally {
       setBusy(false);
     }
@@ -277,7 +316,8 @@ export default function WorkItemBuildPlan({
 
   return (
     <section className="build-plan" aria-label={`Build plan for ${item.title}`}>
-      {error && <p role="alert">{error}</p>}
+      {loadError && <p role="alert">{loadError}</p>}
+      {actionError && <p role="alert">{actionError}</p>}
       <Notice value={notice} />
 
       {/* **What the queued job is doing, said here rather than only in the

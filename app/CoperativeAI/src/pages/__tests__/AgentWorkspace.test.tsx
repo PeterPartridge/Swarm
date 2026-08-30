@@ -27,6 +27,8 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     suggestDevCommand: vi.fn(),
     startRun: vi.fn(),
     listMySpaces: vi.fn(),
+    openWorkItemWindow: vi.fn(),
+    openFileWindow: vi.fn(),
     openMySpace: vi.fn(),
     closeMySpace: vi.fn(),
     // The Build view reads the tree, the changed files and the review itself.
@@ -662,4 +664,147 @@ describe("AgentWorkspace (the Build view)", () => {
       expect(mocked.closeMySpace).toHaveBeenCalledWith(5, "C:/w/myspace-desk"),
     );
   });
+
+  /// **Two things, two tabs.** Picking an agent used to stack its workbench and
+  /// the code pane in one column: the diff of a file and the file itself, one
+  /// under the other, with the console below both. They are separate questions —
+  /// "what is this agent doing?" and "what does this file say?" — so they get
+  /// separate tabs, and neither is unmounted by switching, because a dev server
+  /// and a half-typed edit both live in the code half.
+  it("opens the work item when an agent is picked, and the code beside it", async () => {
+    const user = userEvent.setup();
+    mocked.listRuns.mockResolvedValue([
+      run({ state: "prepared", worktreePath: "C:/wt/checkout" }),
+    ]);
+    render(panel());
+
+    await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
+
+    // The workbench is what picking an agent asked for.
+    expect(
+      await screen.findByRole("region", { name: "Agent for Add checkout" }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Code" }));
+    expect(
+      screen.queryByRole("region", { name: "Agent for Add checkout" }),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Work item" }));
+    expect(
+      screen.getByRole("region", { name: "Agent for Add checkout" }),
+    ).toBeInTheDocument();
+  });
+
+  /// With no agent there is only one thing in the column, and a tab strip
+  /// offering to switch between one thing and nothing is noise.
+  it("offers no tabs in your own workspace", async () => {
+    render(panel());
+    expect(await screen.findByText("the code editor")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Work item" })).not.toBeInTheDocument();
+  });
+
+  /// **The console is a debugging tool.** It sat under the code permanently,
+  /// saying "nothing printed yet" to people who were reading code — so it is a
+  /// tab of its own now, and there is no tab until somebody presses Debug.
+  it("keeps the console out of the way until Debug is pressed", async () => {
+    const user = userEvent.setup();
+    render(panel());
+
+    // Scoped to the Solution, which is where a console has a folder to run in.
+    const bar = await screen.findByRole("tablist", { name: "Solutions" });
+    await user.click(within(bar).getByRole("tab", { name: /^Shop API/ }));
+
+    await screen.findByText("the code editor");
+    expect(
+      screen.queryByLabelText("Console for Shop API"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Debug output" }),
+    ).not.toBeInTheDocument();
+
+    // Pressing Debug opens the board; pressing it again comes back to the code
+    // with the debug output now reachable as its own tab.
+    await user.click(screen.getByLabelText("Open the Debug board"));
+    await user.click(screen.getByLabelText("Open the Debug board"));
+
+    await user.click(await screen.findByRole("button", { name: "Debug output" }));
+    expect(
+      await screen.findByLabelText("Console for Shop API"),
+    ).toBeInTheDocument();
+
+    // And it goes away with the last session rather than staying for the rest
+    // of the visit — which is the whole complaint about the old dock.
+    await user.click(screen.getByLabelText("Open the Debug board"));
+    await user.click(await screen.findByLabelText("Detach Shop API"));
+    await user.click(screen.getByLabelText("Open the Debug board"));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Debug output" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(await screen.findByText("the code editor")).toBeInTheDocument();
+  });
+
+  /// **Every section pulls out.** The console could already be dragged onto the
+  /// other monitor and the other two could not, so comparing a plan against the
+  /// code it produced meant switching tabs to see what was asked for. The
+  /// button opens whichever pane is being read.
+  it("pulls the pane being read into its own window", async () => {
+    const user = userEvent.setup();
+    mocked.openWorkItemWindow.mockResolvedValue(undefined);
+    mocked.openFileWindow.mockResolvedValue(undefined);
+    mocked.listRuns.mockResolvedValue([
+      run({ state: "prepared", worktreePath: "C:/wt/checkout" }),
+    ]);
+    mocked.readSolutionTree.mockResolvedValue({
+      entries: [{ path: "src/main.ts", name: "main.ts", isDir: false, depth: 0 }],
+      truncated: false,
+    });
+    render(panel());
+
+    await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
+    await user.click(
+      await screen.findByLabelText("Open Add checkout in its own window"),
+    );
+    await waitFor(() =>
+      expect(mocked.openWorkItemWindow).toHaveBeenCalledWith(9, "Add checkout"),
+    );
+
+    // Clicking a file shows the code, and the button follows the pane.
+    await user.click(await screen.findByLabelText("src/main.ts"));
+    await user.click(
+      await screen.findByLabelText("Open src/main.ts in its own window"),
+    );
+    await waitFor(() =>
+      expect(mocked.openFileWindow).toHaveBeenCalledWith(5, "src/main.ts"),
+    );
+  });
+
+  /// **"Execute failed but no error is appearing."** It was appearing — inside
+  /// the build plan, four components deep, at the top of a section long enough
+  /// to have scrolled away. The rail is the one part of this screen that is
+  /// always in view, so a failed press says so there too.
+  it("says on the rail when a press deep inside the workbench fails", async () => {
+    const user = userEvent.setup();
+    mocked.listRuns.mockResolvedValue([
+      run({ state: "prepared", worktreePath: "C:/wt/checkout" }),
+    ]);
+    mocked.reviewSolutionChanges.mockRejectedValue(
+      "'Shop API' is not a git repository",
+    );
+    render(panel());
+
+    await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
+    const rail = screen.getByRole("complementary", { name: /Review and ship/ });
+    await user.click(within(rail).getByRole("button", { name: "Review what changed" }));
+
+    const box = await within(rail).findByRole("alert");
+    expect(box).toHaveTextContent("Review what changed failed");
+    expect(box).toHaveTextContent(/not a git repository/);
+
+    await user.click(within(rail).getByRole("button", { name: "Dismiss this failure" }));
+    expect(within(rail).queryByRole("alert")).not.toBeInTheDocument();
+  });
+
 });

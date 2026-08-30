@@ -65,6 +65,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::work_items::list_work_items,
+            commands::work_items::get_work_item,
             commands::work_items::create_work_item,
             commands::work_items::update_work_item_status,
             commands::work_items::set_work_item_description,
@@ -221,6 +222,8 @@ fn main() {
             commands::settings::set_roadmap_mode,
             commands::windows::open_screen_window,
             commands::windows::open_console_window,
+            commands::windows::open_work_item_window,
+            commands::windows::open_file_window,
             commands::budgets::get_product_budget,
             commands::budgets::set_product_budget,
             commands::budgets::get_spend_summary,

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { relativeTo } from "../../lib/breakpoints";
 import { debugEvaluate } from "../../lib/backend";
+import { reportFailure } from "../../lib/failures";
 import { useWorkChanged } from "../../lib/workSignal";
 import AgentJobPanel from "./AgentJobPanel";
 import AgentLane, { hueFor, markFor, status, type Agent } from "./AgentLane";
@@ -12,6 +13,7 @@ import ConsoleDock from "../code/ConsoleDock";
 import DebugBoard from "../code/DebugBoard";
 import DebugToolbar from "../code/DebugToolbar";
 import RunBar, { type RunRequest } from "../code/RunBar";
+import SectionTabs from "../common/SectionTabs";
 import GitExplorer from "../vcs/GitExplorer";
 import JobsPanel from "./JobsPanel";
 import QuestionsPanel from "./QuestionsPanel";
@@ -36,8 +38,15 @@ import {
   listMySpaces,
   openMySpace,
   closeMySpace,
+  openFileWindow,
+  openWorkItemWindow,
 } from "../../lib/backend";
 import { track } from "../../lib/saving";
+
+/** Which pane of the middle column is showing. `debug` exists only once
+ *  somebody has pressed Debug — the console used to sit under the code at all
+ *  times, saying "nothing printed yet" to people who were reading code. */
+type Pane = "code" | "work" | "debug";
 
 /** The Build view: every agent down the left, the files in the middle, one
  *  agent's work in the workbench, and the decision to ship it down the right.
@@ -80,10 +89,18 @@ export default function AgentWorkspace({
   const [items, setItems] = useState<WorkItem[]>([]);
   const [selected, setSelected] = useState<string>("code");
   const [error, setError] = useState<string | null>(null);
+  /// Which pane of the middle column is showing: the code, the selected
+  /// agent's work item, or the debug output. All stay mounted — see the
+  /// wrappers — so switching never kills a shell or a half-typed edit.
+  const [pane, setPane] = useState<Pane>("code");
   /// Whether Debug has been opened at all. Nothing of it exists until it has:
   /// mounting the board on arrival would read every Solution's run command for
   /// somebody who never pressed the button.
   const [debugUsed, setDebugUsed] = useState(false);
+  /// How many Solutions the Debug board has a shell or a debugger in right now.
+  /// The debug-output tab exists only while this is above zero — a tab that
+  /// outlives the last session is the permanent console it replaced.
+  const [debugLive, setDebugLive] = useState(0);
   /// What the Debug board has been asked to start, and when the Debug button
   /// last asked the picker to start whatever it holds.
   const [runRequest, setRunRequest] = useState<RunRequest | null>(null);
@@ -196,11 +213,17 @@ export default function AgentWorkspace({
 
   // Picking an agent moves the tree to its worktree's Solution, because "where
   // has this one been?" is the next question after "what is it doing?".
+  //
+  // It also decides which half of the column is showing: picking an agent is a
+  // request to see that agent's work item, and picking your own workspace is a
+  // request to see code. Neither is a lasting choice — the tabs are right
+  // there — but the first thing shown should be the thing that was asked for.
   useEffect(() => {
     if (active?.run) {
       setBrowsing(active.run.solutionId);
       setSelectedFile(null);
     }
+    setPane(active ? "work" : "code");
   }, [active]);
 
   // A Solution opened from Map lands in your own workspace, with its tree beside
@@ -243,6 +266,7 @@ export default function AgentWorkspace({
     } catch (e) {
       setReview(null);
       setError(String(e));
+      reportFailure("Review what changed", String(e));
     } finally {
       setReviewing(false);
     }
@@ -258,6 +282,7 @@ export default function AgentWorkspace({
         void refresh();
       } catch (e) {
         setError(String(e));
+        reportFailure(state === "kept" ? "Keep" : "Discard", String(e));
       }
     },
     [review, refresh],
@@ -405,6 +430,22 @@ export default function AgentWorkspace({
     }
   }
   const openFileSolution = solutions.find((s) => s.id === fileFrom) ?? null;
+
+  /// What "Pull out" would open, for the pane being read. Null when the pane has
+  /// nothing to pull out — an empty code pane with no file picked — and for the
+  /// console, which has its own drag-out on its header.
+  const pullOut: { label: string; open: () => Promise<void> } | null =
+    pane === "work" && active
+      ? {
+          label: `Open ${active.item.title} in its own window`,
+          open: () => openWorkItemWindow(active.item.id, active.item.title),
+        }
+      : pane === "code" && openFileSolution && selectedFile
+        ? {
+            label: `Open ${selectedFile} in its own window`,
+            open: () => openFileWindow(openFileSolution.id, selectedFile),
+          }
+        : null;
   const selectedChange =
     review?.changes.find((c) => c.path === selectedFile) ?? null;
 
@@ -531,6 +572,12 @@ export default function AgentWorkspace({
             onSelectFile={(solutionId, path) => {
               setFileFrom(solutionId);
               setSelectedFile(path);
+              // **Clicking a file is a request to see the file.** Without this
+              // the tree opened it into a pane that was not showing, and the
+              // click looked like it had done nothing. The workbench still
+              // points at the same file — its diff is there when you switch
+              // back — but what appears now is the code.
+              setPane("code");
             }}
           />
         )}
@@ -547,6 +594,55 @@ export default function AgentWorkspace({
               onResumed={() => setStop(null)}
             />
           )}
+          {/* **Two things, two tabs.** With an agent selected this column held
+              its workbench *and* the code pane, one under the other: the diff
+              of a file above the file itself, with the console below both. They
+              answer different questions — "what is this agent doing?" and "what
+              does this file say?" — so they are switched between rather than
+              stacked. Only offered when there is a second thing to switch to. */}
+          {(active || debugLive > 0) && selected !== "debug" && selected !== "all" && (
+            <SectionTabs
+              label="Build pane"
+              as="buttons"
+              className="build-panes"
+              options={[
+                { id: "code", label: "Code" },
+                ...(active ? [{ id: "work", label: "Work item" }] : []),
+                // Only once there is something debugging to look at. A tab for
+                // a console nobody has started is the thing this replaced.
+                ...(debugLive > 0 ? [{ id: "debug", label: "Debug output" }] : []),
+              ]}
+              active={pane}
+              onSelect={(id) => setPane(id as Pane)}
+            />
+          )}
+
+          {/* **Every section pulls out.** The console could already be dragged
+              onto the other monitor; the other two could not, so comparing a
+              plan against the code it produced meant switching tabs to see what
+              was asked for. The button opens whichever pane is showing, because
+              that is the one being read.
+
+              The console's own pull-out stays on its header, where the drag
+              gesture already is — moving it up here would have made two answers
+              to one question. */}
+          {pullOut && (
+            <button
+              type="button"
+              className="pane-pop"
+              aria-label={pullOut.label}
+              title="Opens it in its own window"
+              onClick={() => void pullOut.open()}
+            >
+              ⧉ Pull out
+            </button>
+          )}
+
+          {/* **Hidden, not unmounted.** A dev server in the console and a
+              half-typed edit in the editor both live in here, and switching to
+              the work item must not kill either — the same rule the Debug board
+              below already follows. */}
+          <div className="build-code" hidden={active !== null && pane !== "code"}>
           {/* A file picked in the Files pane wins the pane: clicking a file is
               a request to look at it, whatever else was showing. Closing it
               puts the previous pane back. */}
@@ -567,26 +663,41 @@ export default function AgentWorkspace({
                 setFileFrom(null);
               }}
             />
+          ) : selected === "code" ? (
+            <CodeEditor solutions={solutions} opened={opened} />
           ) : (
-            selected === "code" && <CodeEditor solutions={solutions} opened={opened} />
+            active && (
+              <p className="hint">
+                Pick a file on the left to open it here. The agent's own diffs
+                are under <strong>Work item</strong>.
+              </p>
+            )
           )}
 
-          {/* **The console lives with the code**, because output belongs beside
-              the line that produced it — a console on another tab means
-              alt-tabbing between the thing that broke and the reason. Drag its
-              header to pull it onto the other monitor.
+          </div>
 
-              Only where there is a working copy to run in, and not while the
-              Debug board is up: that board has its own shells per Solution, and
-              two panels adopting the same PTY would fight over its size. */}
-          {selected !== "debug" && browsingSolution?.localPath && (
-            <ConsoleDock
-              // Keyed per Solution so switching tabs does not carry one
-              // Solution's shell under another one's name.
-              key={browsingSolution.id}
-              solution={browsingSolution}
-              active={selected !== "debug"}
-            />
+          {/* **The console is a debugging tool, so it lives with debugging.**
+              It used to sit under the code at all times, on the reasoning that
+              output belongs beside the line that produced it — which is true
+              while something is running and noise the rest of the time. "Open
+              terminal / nothing printed yet" was permanently occupying the
+              bottom of the screen for people who were reading code.
+
+              Mounted from the first press of Debug and then hidden rather than
+              unmounted, so a shell survives a trip to the code and back. Not
+              while the Debug board itself is up: that board has its own shells
+              per Solution, and two panels adopting one PTY fight over its
+              size. */}
+          {debugLive > 0 && selected !== "debug" && browsingSolution?.localPath && (
+            <div className="build-debug" hidden={pane !== "debug"}>
+              <ConsoleDock
+                // Keyed per Solution so switching tabs does not carry one
+                // Solution's shell under another one's name.
+                key={browsingSolution.id}
+                solution={browsingSolution}
+                active={pane === "debug"}
+              />
+            </div>
           )}
 
           {/* Mounted on first use and then hidden rather than unmounted, so a
@@ -604,6 +715,9 @@ export default function AgentWorkspace({
                 // attach a shell to each and type its command into it.
                 run={runRequest}
                 onStopped={onDebugStopped}
+                // What makes the Debug output tab come and go with the sessions
+                // rather than staying for the rest of the visit.
+                onLive={setDebugLive}
                 onResumed={() => setStop(null)}
               />
             </div>
@@ -629,6 +743,7 @@ export default function AgentWorkspace({
           )}
 
           {active && (
+            <div hidden={pane !== "work"}>
             <AgentJobPanel
               // Remounted per agent so no sub-panel state leaks between them —
               // agent A's open terminal must not appear under agent B.
@@ -648,6 +763,7 @@ export default function AgentWorkspace({
               }}
               onTests={setTests}
             />
+            </div>
           )}
         </div>
 

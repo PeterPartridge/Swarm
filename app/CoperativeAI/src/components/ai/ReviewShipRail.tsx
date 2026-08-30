@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ChangeReview, FileChange, Run, Solution } from "../../lib/backend";
+import { clearFailure, useLastFailure } from "../../lib/failures";
 
 /** One line of the ship checklist. */
 interface Check {
@@ -54,6 +55,11 @@ export default function ReviewShipRail({
   selectedChange: FileChange | null;
 }) {
   const [tab, setTab] = useState<"ship" | "inspect">("ship");
+  /// The last press that failed, from anywhere in the Build view. Subscribed
+  /// here rather than passed in: the failure happens four components away, and
+  /// threading a callback through all four would put a reporting concern into
+  /// every one of them.
+  const failure = useLastFailure();
 
   const report = review?.report ?? null;
   const violations = report?.violations ?? [];
@@ -96,6 +102,33 @@ export default function ReviewShipRail({
 
   return (
     <aside className="ship-rail" aria-label={`Review and ship ${agentLabel}`}>
+      {/* **Above the tabs, because it is not one of them.** A press that failed
+          is the most recent thing that happened on this screen and the thing
+          the person is waiting to hear about — it does not belong behind a tab,
+          and it does not belong only in the panel that ran it, four components
+          away and far enough down to have scrolled off.
+
+          It outlives a reload and a later success: only being dismissed clears
+          it, because whether it has been read is not something to guess at. */}
+      {failure && (
+        <div className="rail-failure" role="alert">
+          <div className="rail-failure-head">
+            <strong>{failure.what} failed</strong>
+            <button
+              type="button"
+              aria-label="Dismiss this failure"
+              className="link-button"
+              onClick={clearFailure}
+            >
+              Dismiss
+            </button>
+          </div>
+          {/* The backend's own words, never reworded: the sentence that names
+              the fix is its, and a friendlier paraphrase loses it. */}
+          <p>{failure.message}</p>
+        </div>
+      )}
+
       <div className="ship-tabs" role="tablist" aria-label="Rail panels">
         <button
           type="button"

@@ -72,6 +72,7 @@ export default function DebugBoard({
   run,
   onStopped,
   onResumed,
+  onLive,
 }: {
   solutions: Solution[];
   /** Solutions to attach a shell to and start, from the bar above. Carries a
@@ -89,12 +90,25 @@ export default function DebugBoard({
     hovers: boolean;
   }) => void;
   onResumed?: () => void;
+  /** How many Solutions currently have a shell or a debugger mounted here.
+   *
+   *  **Because "am I debugging?" is only answerable from inside this board.**
+   *  The view above it offers a debug-output tab, and a tab that outlives the
+   *  last session is the permanent console this replaced. Reported on every
+   *  change rather than asked for, since nothing outside can see an attach. */
+  onLive?: (count: number) => void;
   /** False while Debug is mounted but behind another Build pane. The shells
    *  keep running; only their terminals stop being measured. */
   active?: boolean;
 }) {
   /// Which Solutions have a shell mounted, and when each reported itself open.
   const [attached, setAttached] = useState<number[]>([]);
+
+  // Told upward on every change, including back to nothing when the last one
+  // is detached — the tab above disappears with it.
+  useEffect(() => {
+    onLive?.(attached.length);
+  }, [attached, onLive]);
   const [openedAt, setOpenedAt] = useState<Record<number, number>>({});
   const [pending, setPending] = useState<Record<number, string | null>>({});
   /// Each Solution's run command, read once so the header can show the port this

@@ -198,6 +198,33 @@ pub(crate) async fn prepare_run(
                 row.name
             )
         })?;
+        // **Checked here, with the way out named.** `add_worktree` refuses a
+        // folder that is not a repository, and it refuses one with no commit
+        // for a different reason ("invalid reference: HEAD") — two messages
+        // that say what is wrong and nothing about what to do. This is the
+        // press where somebody finds out, so it is the press that should say
+        // where the button is.
+        match vcs::repo_state(&root) {
+            Ok(state) if !state.is_repo => {
+                return Err(format!(
+                    "'{}' is not a git repository, so there is no branch to cut a checkout from. \
+                     Open the Git tab on this work item and press \"Make it a git repository\".",
+                    row.name
+                ))
+            }
+            Ok(state) if !state.has_commit => {
+                return Err(format!(
+                    "'{}' is a git repository with nothing committed, and a checkout has to \
+                     branch from a commit. Open the Git tab on this work item and press \
+                     \"Make the first commit\".",
+                    row.name
+                ))
+            }
+            // A folder that has gone missing, or a git that will not run: the
+            // worktree call below says so in git's own words, which is more
+            // than this check could add.
+            _ => {}
+        }
         // Detection reads the same manifest the worktree will have — the repo is
         // one repository — so the command works run from the checkout below.
         let run_start = match run_override {

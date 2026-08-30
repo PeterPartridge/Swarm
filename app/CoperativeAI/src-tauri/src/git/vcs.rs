@@ -489,6 +489,25 @@ pub fn push(root: &str) -> Result<String, String> {
     git(&root_path, &["push", "-u", "origin", "HEAD"])
 }
 
+/// Points a repository's `origin` at `url`, adding it or moving it.
+///
+/// **Set, not add.** A folder that has been pushed somewhere before already has
+/// an `origin`, and `git remote add` fails on it — which would turn "connect
+/// this to the repository I just made" into an error about a remote the person
+/// never mentioned. Moving it is what they asked for; the old URL is returned
+/// so the caller can say what it replaced rather than changing it silently.
+pub fn set_remote(root: &str, url: &str) -> Result<Option<String>, String> {
+    let root_path = canonical(root)?;
+    let (had, existing, _) = git_allowing_failure(&root_path, &["remote", "get-url", "origin"])?;
+    let previous = had.then(|| existing.trim().to_string()).filter(|u| !u.is_empty());
+    if previous.is_some() {
+        git(&root_path, &["remote", "set-url", "origin", url])?;
+    } else {
+        git(&root_path, &["remote", "add", "origin", url])?;
+    }
+    Ok(previous)
+}
+
 /// Marks a conflicted file resolved by staging it.
 ///
 /// Refuses while conflict markers remain. Staging a file with markers still in

@@ -72,6 +72,26 @@ pub fn used_pct(budget: &BudgetState) -> i64 {
     money.max(tokens)
 }
 
+/// Whether a routing reason from a **successful** call is worth repeating
+/// outside the ledger.
+///
+/// **Because "why" is not "what went wrong".** Every call carries a reason and
+/// it is always recorded; the two quiet ones say only that nothing unusual
+/// happened. Printed beside a result they read as a complaint —
+/// `Hello world (no AI budget is set for this Product)` was a job that had just
+/// succeeded, and the bracket made it look like the reason it had not.
+///
+/// The loud ones are the two that changed what ran or are about to: a handover
+/// swaps the model, so output quality changes and somebody must not discover
+/// that by wondering why the results got worse; a warning says the budget is
+/// nearly gone.
+///
+/// It lives here, beside the strings it classifies, so adding a reason and
+/// classifying it are one edit rather than two files apart.
+pub fn worth_saying(reason: &str) -> bool {
+    !(reason.starts_with("no AI budget is set") || reason.starts_with("within budget"))
+}
+
 /// Chooses the provider and model for a call.
 ///
 /// `fallback` is the provider the work item's policy names — used when no
@@ -242,6 +262,35 @@ mod tests {
             hard_stop_pct: 100,
             chain: vec![1, 2],
         }
+    }
+
+    /// The classification, checked against the reasons the router really
+    /// produces rather than against strings written twice. A reason added
+    /// without a decision about which of the two it is will fail here.
+    #[test]
+    fn only_the_reasons_that_changed_something_are_worth_repeating() {
+        let quiet = |decision: Decision| match decision {
+            Decision::Use { reason, .. } => {
+                assert!(!worth_saying(&reason), "should be quiet: {reason}");
+            }
+            other => panic!("expected Use, got {other:?}"),
+        };
+        let loud = |decision: Decision| match decision {
+            Decision::Use { reason, .. } => {
+                assert!(worth_saying(&reason), "should be said: {reason}");
+            }
+            other => panic!("expected Use, got {other:?}"),
+        };
+
+        // Nothing unusual: no budget at all, and a budget with room in it.
+        quiet(route(None, &[claude()], 1, "high", true));
+        quiet(route(Some(&budget_at(10)), &[claude(), ollama()], 1, "high", true));
+
+        // Something the reader has to know: the budget is nearly gone, and the
+        // model has been swapped underneath them.
+        loud(route(Some(&budget_at(80)), &[claude(), ollama()], 1, "high", true));
+        loud(route(Some(&budget_at(95)), &[claude(), ollama()], 1, "high", true));
+        loud(route(Some(&budget_at(101)), &[claude(), ollama()], 1, "high", true));
     }
 
     #[test]

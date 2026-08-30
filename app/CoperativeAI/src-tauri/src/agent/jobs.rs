@@ -130,12 +130,26 @@ pub fn spawn(app: AppHandle, runner: Arc<JobRunner>, job_id: i64, work_item_id: 
                     format!("{} {}", blocked.reason, blocked.what_is_needed),
                 )
             }
+            // **Success has to read as success.** This said
+            // `Hello world (no AI budget is set for this Product)` — the
+            // Solution it planned, and beside it a routing note in brackets
+            // that reads like the reason it failed. It did not fail; the note
+            // is how the call was routed, which belongs in the ledger and only
+            // here when it changed the outcome.
             Ok(result) => (
                 "done",
                 if result.created.is_empty() {
-                    format!("nothing came back ({})", result.reason)
+                    format!("Nothing came back — {}", result.reason)
                 } else {
-                    format!("{} ({})", result.created.join(", "), result.reason)
+                    format!(
+                        "Planned {}{}",
+                        result.created.join(", "),
+                        if crate::ai::router::worth_saying(&result.reason) {
+                            format!(" — {}", result.reason)
+                        } else {
+                            String::new()
+                        }
+                    )
                 },
             ),
             Err(message) => ("failed", message),

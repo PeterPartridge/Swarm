@@ -73,9 +73,40 @@ pub async fn create_solution_repo(
     let token = github::get_token()?;
     let url = github::create_repo(&token, repo_name.trim(), private, description.trim()).await?;
     let visibility = if private { "private" } else { "public" };
-    let conn = db.0.lock().await;
-    solution::set_github(&conn, solution_id, Some(&url), Some(visibility), "created")
-        .await
-        .map_err(to_message)?;
-    Ok(url)
+    let local = {
+        let conn = db.0.lock().await;
+        solution::set_github(&conn, solution_id, Some(&url), Some(visibility), "created")
+            .await
+            .map_err(to_message)?;
+        solution::find_by_id(&conn, solution_id)
+            .await
+            .map_err(to_message)?
+            .and_then(|s| s.local_path)
+            .filter(|p| !p.trim().is_empty())
+    };
+
+    // **Made and connected, or it is only half done.** Creating the repository
+    // and recording its URL left an empty repository on GitHub and a folder
+    // here that had never heard of it — the two looked joined on screen and
+    // were not, and the first push was a command somebody had to know to type.
+    //
+    // Reported rather than raised: the repository *was* created, and turning a
+    // push failure into an error on the create button would suggest it was not.
+    // A repository with no commits, no git identity, or no push rights all land
+    // here, and all of them are things to fix and try again.
+    let Some(root) = local else {
+        return Ok(format!(
+            "{url} — created. This Solution has no folder on this machine, so there is nothing \
+             to push to it yet."
+        ));
+    };
+    if let Err(e) = crate::git::vcs::set_remote(&root, &url) {
+        return Ok(format!("{url} — created, but its remote could not be set: {e}"));
+    }
+    match crate::git::vcs::push(&root) {
+        Ok(_) => Ok(format!("{url} — created, connected as origin, and pushed.")),
+        Err(e) => Ok(format!(
+            "{url} — created and connected as origin, but the push failed: {e}"
+        )),
+    }
 }

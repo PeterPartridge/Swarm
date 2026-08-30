@@ -4,10 +4,12 @@ import {
   githubStatus,
   initSolutionRepo,
   linkSolutionRepo,
+  setSolutionPath,
   solutionGitState,
   type Solution,
   type SolutionGitState,
 } from "../../lib/backend";
+import FolderField from "../common/FolderField";
 
 /** One Solution's git situation, and every way out of it.
  *
@@ -96,13 +98,18 @@ export default function SolutionRepo({
   async function onCreate(e: FormEvent) {
     e.preventDefault();
     if (!repoName.trim()) return;
-    await run(() =>
-      createSolutionRepo({
-        solutionId: solution.id,
-        repoName: repoName.trim(),
-        private: priv,
-        description: `Repository for ${solution.name}`,
-      }),
+    // Kept and shown: creating now also wires `origin` and pushes, and any of
+    // the three can succeed while a later one does not. The sentence says how
+    // far it got, which is the difference between "try again" and "it worked".
+    await run(async () =>
+      setNotice(
+        await createSolutionRepo({
+          solutionId: solution.id,
+          repoName: repoName.trim(),
+          private: priv,
+          description: `Repository for ${solution.name}`,
+        }),
+      ),
     );
   }
 
@@ -126,8 +133,9 @@ export default function SolutionRepo({
           "Reading the folder…"
         ) : state.localPath === null ? (
           <span className="warn">
-            No folder on this machine yet — point it at one, or create the
-            project from a starter.
+            No folder on this machine yet, so there is nothing to make a
+            checkout from. Point it at one below, or create the project from a
+            starter in Develop → Solutions.
           </span>
         ) : state.isRepo && state.hasCommit ? (
           <>
@@ -146,6 +154,18 @@ export default function SolutionRepo({
           </span>
         )}
       </span>
+
+      {/* **The fix beside the sentence that names the problem.** "Execute
+          failed: 'Shop API' has no folder on this machine" was true, and said
+          in a panel that could do nothing about it — so the next move was to go
+          and find the screen that could. This is that screen now. Offered while
+          there is a folder too: pointing a Solution somewhere else is how a
+          repository moved on disk gets reconnected. */}
+      <FolderField
+        label={state?.localPath ? "Move it to" : "Folder on this machine"}
+        value={state?.localPath ?? ""}
+        onChange={(path) => void run(() => setSolutionPath(solution.id, path))}
+      />
 
       {state?.localPath && !(state.isRepo && state.hasCommit) && (
         <button

@@ -8,6 +8,8 @@ vi.mock("../../lib/backend", async (importOriginal) => {
   return {
     ...original,
     solutionGitState: vi.fn(),
+    setSolutionPath: vi.fn(),
+    pickFolder: vi.fn(),
     initSolutionRepo: vi.fn(),
     linkSolutionRepo: vi.fn(),
     createSolutionRepo: vi.fn(),
@@ -160,5 +162,29 @@ describe("the git panel on a Solution", () => {
     expect(
       screen.queryByRole("button", { name: "Make hello-world a git repository" }),
     ).not.toBeInTheDocument();
+  });
+
+  /** **The whole point of saying it here.** "Execute failed: 'Shop API' has no
+   *  folder on this machine" is a true sentence in a panel that could not do
+   *  anything about it — so the next move was to go and find the screen that
+   *  could. The chooser is the fix, beside the sentence that names the
+   *  problem. */
+  it("points the Solution at a folder from here", async () => {
+    mocked.solutionGitState.mockResolvedValue(state({ localPath: null }));
+    mocked.pickFolder.mockResolvedValue("C:/repos/hello-world");
+    mocked.setSolutionPath.mockResolvedValue(undefined);
+    const onChange = vi.fn();
+    render(
+      <SolutionRepo solution={{ ...solution, localPath: null }} onChange={onChange} />,
+    );
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Choose folder/ }),
+    );
+
+    await waitFor(() =>
+      expect(mocked.setSolutionPath).toHaveBeenCalledWith(3, "C:/repos/hello-world"),
+    );
+    expect(onChange).toHaveBeenCalled();
   });
 });
