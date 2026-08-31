@@ -3429,3 +3429,141 @@ running kept, other items untouched) and the panel's press.
 - Carried: the lifecycle checklist reports but does not enforce; no Admin UI for
   the routing defaults; the boundary test compares argument names but not DTO
   shapes; `work_item_policy` keeps permission columns nothing reads.
+
+## Round 75 — the activity log, and buttons that refuse out loud
+
+### My Feedback
+
+**No, you do not need an AI budget.** `router::route` takes `Option<&BudgetState>`
+and the `None` arm uses the policy's provider with the reason "no AI budget is
+set for this Product" — a budget is what opts a Product *into* cost control, not
+a requirement to run. What is required is three things: a Product AI policy that
+allows reading, a provider named on it, and a model installed on that provider
+(plus paid API allowed in Admin if the provider is metered).
+
+**The dates confirm it.** 29 Aug × 8 and 29 Jul are old rows — the wording in
+them was removed from this codebase in round 62. They are history, and now they
+say so.
+
+**"Nothing happens" was, at least in part, a disabled button.** A disabled
+button eats the click: no handler runs, nothing is logged, nothing is said. The
+panel greyed Plan and Execute out whenever something was missing or a job looked
+in flight, so the most common way to hit this feature was also the way that
+produced silence. **They press now.** Only `busy` disables them — a press that
+is already running is the one case where a second press has nothing to add.
+Everything else lands and refuses out loud: the reason goes to the panel, to the
+ship rail, and to the log.
+
+**And an app log, because a press that stops early leaves no trace anywhere
+else.** The ledger records calls that reached a provider; the queue records jobs
+that were submitted. A refusal before either wrote nothing. Both halves write to
+it now — the screen logs what was pressed and what came back, the commands log
+what they decided — and read together they say *where* a press stopped, which
+neither half can say alone.
+
+### Implemented
+
+- **`db/app_log.rs`**: an append-and-trim log, capped at 500. Trimmed on write,
+  because a sweep nobody triggers never runs. `note` swallows its own errors: a
+  log that can break what it is logging is worse than no log.
+- **`log_event`, `list_app_log`, `clear_app_log`**, and `logEvent` on the
+  screen side.
+- **Logged**: the Execute and Plan presses, every refusal before they start,
+  what they threw, both ends of `start_run`, and every route out of
+  `run_change_plan` — which needed splitting into an inner function so the
+  logging wraps the early refusals too, since those are the interesting ones.
+- **Admin → Activity log**: newest first, full timestamps, with the detail under
+  each line. Refresh and Clear.
+
+### Tests
+
+cargo 714/714 (23 ignored), Vitest 687/687, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean. Three new on the log store (order, the
+cap enforced where the table grows, clearing), and three rewritten: the buttons
+now press and refuse rather than being disabled, and the refusal reaches the
+rail.
+
+### Your Feedback
+
+- **Press Execute once more after rebuilding, then read Admin → Activity log.**
+  It will say either "refused before starting" with the reason, or how far into
+  `startRun` / `changePlan` it got. That is the answer we have been guessing at.
+- **The log holds no prompts and no answers** — only what was pressed and what
+  was decided. What the AI was sent is in the AI log, which is a different panel
+  for a different question.
+
+### Technical Debt
+
+- Nothing else logs yet: the Product and QA screens' presses go unrecorded, so
+  the log is honest about Develop and silent elsewhere.
+- Carried: the lifecycle checklist reports but does not enforce; no Admin UI for
+  the routing defaults; the boundary test compares argument names but not DTO
+  shapes; `work_item_policy` keeps permission columns nothing reads.
+
+## Round 76 — the app you are running was built on 13 August
+
+### My Feedback
+
+**I should have checked this five rounds ago.** The binaries on this machine:
+
+```
+src-tauri/target/debug/coperativeai.exe            31 Aug 19:32   (my cargo build, today)
+src-tauri/target/release/coperativeai.exe          13 Aug 13:23
+target/release/bundle/nsis/CoperativeAI_0.1.0…exe  13 Aug 13:23   (the installer)
+```
+
+If the app being launched is the installed one, it is **eighteen days old** and
+contains none of rounds 60–75: not the permission rewire, not the failure box,
+not the always-pressable buttons, not the activity log. Every symptom fits
+exactly — new attempts writing the *old* "work-item AI policy" wording, which
+was deleted from this codebase in round 62; Execute doing nothing with no error
+anywhere; buttons greyed with no reason. That is not a bug in the code we have
+been discussing; it is the code we have been discussing not being there.
+
+**So the app now says which copy of itself is running.** `build.rs` stamps the
+compile time into the binary, startup writes it as the first line of the
+activity log, and Admin → Activity log shows it above the entries. "It does
+nothing" and "that fix is not in this build" have looked identical from here for
+five rounds, and they will not again.
+
+### Two questions answered
+
+- **Does Execute work from Develop → Work → Board → Build plan?** It is the same
+  component everywhere it appears — the Board and Sprint views, the List view's
+  inline row, the Ready view, the Build workbench's Plan tab, and a pulled-out
+  window. One implementation, one set of buttons; where it is opened from
+  changes nothing.
+- **Do you need to approve the plan after pressing Plan?** No —
+  `onExecute` calls `setPlanApproval(item, solution, true)` for every attached
+  Solution immediately before `startRun`, because generating clears approval and
+  a chain that ran straight through would otherwise be refused. Pressing Execute
+  *is* the approval. Pressing **Start** on the rail instead does need one, and
+  says so.
+
+### Implemented
+
+- **`build.rs` stamps `BUILD_AT`**; `app_build` returns it with the version.
+- **Startup logs it** as the first line of every session.
+- **Admin → Activity log shows it** above the entries.
+
+### Tests
+
+cargo 714/714 (23 ignored), Vitest 687/687, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean. No new tests: the stamp is a compile-
+time constant and a `toLocaleString`, and a test asserting either would be
+asserting the standard library.
+
+### Your Feedback
+
+- **`npm run tauri dev` runs the fresh debug build; the Start-menu app does
+  not.** If you are launching the installed one, it needs
+  `npm run tauri build` and reinstalling — otherwise every round we discuss
+  lands in a copy you are not running.
+- After that, Admin → Activity log will show today's date at the top and the
+  Execute trail underneath.
+
+### Technical Debt
+
+- Carried: the lifecycle checklist reports but does not enforce; no logging
+  outside Develop; no Admin UI for the routing defaults; the boundary test
+  compares argument names but not DTO shapes.

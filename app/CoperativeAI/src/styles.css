@@ -9068,3 +9068,58 @@ button.ready-action.link:hover {
 .feedback-times {
   color: var(--warn);
 }
+
+/* The activity log: read when something did not work, so it is dense and in
+   order rather than pretty. */
+.app-log {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.app-log-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.app-log-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-height: 32rem;
+  overflow-y: auto;
+}
+
+.app-log-list > li {
+  display: grid;
+  grid-template-columns: 11rem 7rem 1fr;
+  gap: 0.4rem;
+  align-items: baseline;
+  border-bottom: 1px solid var(--line-soft);
+  padding-bottom: 0.25rem;
+  font-size: 0.78rem;
+}
+
+.app-log-when,
+.app-log-area {
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+}
+
+.app-log-message {
+  overflow-wrap: anywhere;
+}
+
+/* The long half sits under the line it belongs to, across the full width. */
+.app-log-detail {
+  grid-column: 3;
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}

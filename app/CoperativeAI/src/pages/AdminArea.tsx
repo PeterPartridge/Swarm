@@ -1,3 +1,4 @@
+import AppLogPanel from "../components/ai/AppLogPanel";
 import SectionTabs from "../components/common/SectionTabs";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import AiConcurrencySetting from "../components/ai/AiConcurrencySetting";
@@ -57,6 +58,10 @@ const ADMIN_SECTIONS = [
   { id: "connections", label: "Connections" },
   { id: "people", label: "People" },
   { id: "appearance", label: "Appearance" },
+  // **Last, and its own section.** It is read when something did not work, not
+  // while setting anything up — and it is the one place that answers "nothing
+  // happened", so it must not be buried inside a settings panel.
+  { id: "log", label: "Activity log" },
 ] as const;
 
 type AdminSection = (typeof ADMIN_SECTIONS)[number]["id"];
@@ -161,6 +166,8 @@ export default function AdminArea() {
 
       {/* One picker for every per-Product setting on this page, at the top
           rather than repeated inside each card. */}
+      {section === "log" && <AppLogPanel />}
+
       {section === "ai" && products.length > 0 && (
         <label className="develop-product-picker">
           Product

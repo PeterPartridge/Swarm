@@ -56,6 +56,18 @@ fn main() {
                 let db = app.state::<commands::AppDb>();
                 let conn = db.0.lock().await;
                 let _ = db::ai_job::fail_interrupted(&conn).await;
+                // First line of every session: which build is running. An
+                // eighteen-day-old installed app and a freshly built one look
+                // identical on screen, and a log that cannot say which wrote it
+                // is a log two people can read differently.
+                let build = commands::build_info::app_build();
+                db::app_log::note(
+                    &conn,
+                    "app",
+                    &format!("started — version {} built at {}", build.version, build.built_at),
+                    "",
+                )
+                .await;
                 db::system_setting::ai_concurrency(&conn)
                     .await
                     .unwrap_or(db::system_setting::AI_CONCURRENCY_DEFAULT)
@@ -120,6 +132,10 @@ fn main() {
             commands::jobs::submit_for_planning,
             commands::jobs::cancel_ai_job,
             commands::jobs::clear_ai_jobs,
+            commands::build_info::app_build,
+            commands::logging::log_event,
+            commands::logging::list_app_log,
+            commands::logging::clear_app_log,
             commands::jobs::list_ai_jobs,
             commands::jobs::list_recent_ai_jobs,
             commands::jobs::get_ai_concurrency,

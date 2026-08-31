@@ -7,6 +7,7 @@ import SolutionRepo from "../vcs/SolutionRepo";
 import WorkItemLifecycle from "./WorkItemLifecycle";
 import SectionTabs from "../common/SectionTabs";
 import { reportFailure } from "../../lib/failures";
+import { logEvent } from "../../lib/backend";
 import { isPlanned } from "../../lib/plan";
 import { notifyWorkChanged, useWorkChanged } from "../../lib/workSignal";
 import {
@@ -232,6 +233,14 @@ export default function WorkItemBuildPlan({
 
   async function onSubmit() {
     setActionError(null);
+    void logEvent("plan", `pressed on work item ${item.id}`, item.title);
+    if (nothingToPlan) {
+      const why = missing.join(" · ");
+      setActionError(why);
+      reportFailure("Plan", why);
+      void logEvent("plan", "refused before starting", why);
+      return;
+    }
     try {
       await submitForPlanning(item.id);
       setNotice("Submitted for planning — follow it in the AI queue on the Work tab.");
@@ -258,6 +267,26 @@ export default function WorkItemBuildPlan({
    *  possibly corrected by hand — and charged for the privilege. Re-planning is
    *  a deliberate act now, on the AI planning tab. */
   async function onExecute() {
+    void logEvent("execute", `pressed on work item ${item.id}`, item.title);
+    // **A press that cannot run says so; it is not swallowed.** These buttons
+    // used to be disabled when something was missing, and a disabled button
+    // eats the click — which is what "I press Execute and nothing happens" has
+    // meant every time it has been reported. Now the press always lands and
+    // the refusal is the answer.
+    if (nothingToPlan) {
+      const why = missing.join(" · ");
+      setActionError(why);
+      reportFailure("Execute", why);
+      void logEvent("execute", "refused before starting", why);
+      return;
+    }
+    if (planning !== undefined) {
+      const why = `There is already a ${planning.state} job on this item. Wait for it, or clear it under "AI feedback".`;
+      setActionError(why);
+      reportFailure("Execute", why);
+      void logEvent("execute", "refused before starting", why);
+      return;
+    }
     // Read once: `plans` is refreshed part-way through, and the message at the
     // end should describe what this press actually did.
     const planned = isPlanned(plans);
@@ -315,6 +344,7 @@ export default function WorkItemBuildPlan({
         const message = refused.join(" · ");
         setActionError(message);
         reportFailure("Execute", message);
+      void logEvent("execute", "some Solutions refused", message);
       }
       await refresh();
       setGeneratedAt(Date.now());
@@ -326,6 +356,7 @@ export default function WorkItemBuildPlan({
       // away from, or four components deep inside the Build view — "Execute
       // failed and nothing appeared" was all three at once.
       reportFailure("Execute", String(e));
+      void logEvent("execute", "threw", String(e));
     } finally {
       setBusy(false);
     }
@@ -552,7 +583,7 @@ export default function WorkItemBuildPlan({
             aria-label={`Plan ${item.title}`}
             aria-describedby={nothingToPlan ? "plan-blocked" : undefined}
             onClick={onSubmit}
-            disabled={busy || nothingToPlan || planning !== undefined}
+            disabled={busy}
           >
             {planning ? "Planning…" : busy ? "Working…" : "Plan"}
           </button>
@@ -561,7 +592,7 @@ export default function WorkItemBuildPlan({
           aria-label={`Execute ${item.title}`}
           aria-describedby={nothingToPlan ? "plan-blocked" : undefined}
           onClick={onExecute}
-          disabled={busy || nothingToPlan || planning !== undefined}
+          disabled={busy}
         >
           {busy ? "Working…" : "Execute"}
         </button>

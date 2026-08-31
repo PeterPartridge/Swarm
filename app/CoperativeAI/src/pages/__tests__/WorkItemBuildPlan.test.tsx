@@ -30,6 +30,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     listLifecycleSteps: vi.fn(),
     listWorkItemSteps: vi.fn(),
     setWorkItemStep: vi.fn(),
+    logEvent: vi.fn(),
     listWorkItemPlans: vi.fn(),
     // The build plan now embeds WorkItemChanges. Leaving these unmocked lets
     // them fall through to the real invoke, which renders an error alert and
@@ -136,6 +137,7 @@ const solutions = [solution(3, "Shop API"), solution(4, "Shop Web")];
 describe("WorkItemBuildPlan", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocked.logEvent.mockResolvedValue(undefined);
     mocked.lifecycleGates.mockResolvedValue([]);
     mocked.listLifecycleSteps.mockResolvedValue([]);
     mocked.listWorkItemSteps.mockResolvedValue([]);
@@ -230,15 +232,30 @@ describe("WorkItemBuildPlan", () => {
   /// Both of these need a Solution attached, and pressing them before that
   /// happened produced no plan, no error, and no reason — which is what "I
   /// clicked it and nothing happened" actually was.
-  it("says why it cannot plan or execute yet", async () => {
-    render(<WorkItemBuildPlan item={item} solutions={solutions} />);
+  it("presses, and says why it will not run yet", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <WorkItemBuildPlan item={item} solutions={solutions} />
+        <Probe />
+      </>,
+    );
 
-    const plan = await screen.findByRole("button", { name: `Plan ${item.title}` });
-    const execute = screen.getByRole("button", { name: `Execute ${item.title}` });
-    expect(plan).toBeDisabled();
-    expect(execute).toBeDisabled();
-    expect(plan).toHaveAccessibleDescription(/no Solution is attached/i);
+    const execute = await screen.findByRole("button", { name: `Execute ${item.title}` });
+    // **A disabled button eats the click.** These greyed out when something was
+    // missing, and a press then produced no plan, no error and no reason —
+    // which is what "I clicked it and nothing happened" has meant every time it
+    // has been reported. They press now, and refuse out loud.
+    expect(execute).toBeEnabled();
     expect(execute).toHaveAccessibleDescription(/no Solution is attached/i);
+
+    await user.click(execute);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /no Solution is attached/i,
+    );
+    // And it reaches the rail, like every other refusal.
+    expect(screen.getByTestId("probe")).toHaveTextContent(/no Solution is attached/i);
+    expect(mocked.generateChangePlan).not.toHaveBeenCalled();
   });
 
   /// **Every reason, not just the first.** Discovering the next blocker each
@@ -311,7 +328,10 @@ describe("WorkItemBuildPlan", () => {
     expect(await screen.findByText(/Queued for planning/)).toBeInTheDocument();
     // Not plannable twice: a second submission while one runs plans the same
     // item again and pays for it again.
-    expect(screen.getByRole("button", { name: `Plan ${item.title}` })).toBeDisabled();
+    // Not plannable twice — but said, not swallowed: pressing while one is in
+    // flight answers with the job that is already there.
+    await userEvent.click(screen.getByRole("button", { name: `Execute ${item.title}` }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/already a queued job/i);
     first.unmount();
 
     mocked.listAiJobs.mockResolvedValue([{ ...queued, state: "running" as const }]);
@@ -458,11 +478,13 @@ describe("WorkItemBuildPlan", () => {
   });
 
   /// Nothing to generate from is worth saying before it is worth paying for.
-  it("cannot generate before a Solution is affected", async () => {
+  it("will not generate before a Solution is affected", async () => {
     render(<WorkItemBuildPlan item={item} solutions={solutions} />);
-    expect(
-      await screen.findByLabelText("Execute Add checkout"),
-    ).toBeDisabled();
+    await userEvent.click(await screen.findByLabelText("Execute Add checkout"));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /No Solution is attached/i,
+    );
+    expect(mocked.generateChangePlan).not.toHaveBeenCalled();
   });
 
   /// **What is no longer here.** The ticklist of affected Solutions, the
@@ -485,6 +507,7 @@ describe("WorkItemBuildPlan", () => {
 describe("WorkItemBuildPlan approval", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocked.logEvent.mockResolvedValue(undefined);
     mocked.lifecycleGates.mockResolvedValue([]);
     mocked.listLifecycleSteps.mockResolvedValue([]);
     mocked.listWorkItemSteps.mockResolvedValue([]);
@@ -641,6 +664,7 @@ describe("WorkItemBuildPlan approval", () => {
 describe("once there is a plan", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocked.logEvent.mockResolvedValue(undefined);
     mocked.lifecycleGates.mockResolvedValue([]);
     mocked.listLifecycleSteps.mockResolvedValue([]);
     mocked.listWorkItemSteps.mockResolvedValue([]);
@@ -789,6 +813,7 @@ describe("once there is a plan", () => {
 describe("the Git tab", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocked.logEvent.mockResolvedValue(undefined);
     mocked.lifecycleGates.mockResolvedValue([]);
     mocked.listLifecycleSteps.mockResolvedValue([]);
     mocked.listWorkItemSteps.mockResolvedValue([]);

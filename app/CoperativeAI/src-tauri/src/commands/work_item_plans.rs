@@ -218,6 +218,39 @@ pub(crate) async fn run_change_plan(
     work_item_id: i64,
     revision: Option<&str>,
 ) -> Result<super::work_items::GenerationResult, String> {
+    let outcome = run_change_plan_inner(db, work_item_id, revision).await;
+    {
+        let conn = db.0.lock().await;
+        match &outcome {
+            Ok(result) if result.blocked.is_some() => {
+                let blocked = result.blocked.as_ref().expect("just checked");
+                crate::db::app_log::note(
+                    &conn, "changePlan", "the AI declined", &blocked.reason,
+                )
+                .await
+            }
+            Ok(result) => {
+                crate::db::app_log::note(
+                    &conn,
+                    "changePlan",
+                    &format!("planned {}", result.created.join(", ")),
+                    &result.reason,
+                )
+                .await
+            }
+            Err(why) => crate::db::app_log::note(&conn, "changePlan", "refused", why).await,
+        }
+    }
+    outcome
+}
+
+/// The body, so the logging above wraps every route out of it — including the
+/// early refusals, which are the ones somebody is trying to explain.
+async fn run_change_plan_inner(
+    db: &AppDb,
+    work_item_id: i64,
+    revision: Option<&str>,
+) -> Result<super::work_items::GenerationResult, String> {
     use crate::ai::{backend, client};
     use crate::commands::ai_run;
     use crate::db::{ai_feedback, architecture_doc, developer_rules, product, strategy};

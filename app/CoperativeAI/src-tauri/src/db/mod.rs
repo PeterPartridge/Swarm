@@ -26,6 +26,7 @@ pub mod repo_link;
 pub mod repository;
 pub mod role;
 pub mod routing_default;
+pub mod app_log;
 pub mod lifecycle;
 pub mod solution;
 pub mod solution_management;
@@ -150,6 +151,7 @@ pub async fn create_all_tables(conn: &Connection) -> Result<()> {
     product_budget::create_table(conn).await?;
     emitted_file::create_table(conn).await?;
     // after work_item: feedback hangs off an item
+    app_log::create_table(conn).await?;
     lifecycle::create_table(conn).await?;
     ai_feedback::create_table(conn).await?;
     // after work_item: a job is queued against one

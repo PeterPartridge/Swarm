@@ -3,6 +3,7 @@
 pub mod ai_run;
 pub mod ai_settings;
 pub mod architecture;
+pub mod build_info;
 pub mod budgets;
 pub mod capacity;
 pub mod debugging;
@@ -13,6 +14,7 @@ pub mod feedback;
 pub mod github;
 pub mod inspectors;
 pub mod lifecycle;
+pub mod logging;
 pub mod jobs;
 pub mod models;
 pub mod policies;

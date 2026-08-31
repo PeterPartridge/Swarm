@@ -2867,3 +2867,37 @@ export const setWorkItemStep = (
   stepId: number,
   done: boolean,
 ): Promise<void> => invoke("set_work_item_step", { workItemId, stepId, done });
+
+/** A line from the app log — what the app did, in order. */
+export interface LogEntry {
+  id: number;
+  at: number;
+  area: string;
+  message: string;
+  detail: string;
+}
+
+/** Writes a line from the screen. The screen's half matters as much as the
+ *  backend's: a press that never reached a command leaves nothing in any
+ *  backend log, and that is the case somebody is trying to explain when they
+ *  say nothing happened. */
+export const logEvent = (
+  area: string,
+  message: string,
+  detail?: string,
+): Promise<void> => invoke("log_event", { area, message, detail });
+
+export const listAppLog = (limit?: number): Promise<LogEntry[]> =>
+  invoke("list_app_log", { limit });
+
+export const clearAppLog = (): Promise<void> => invoke("clear_app_log");
+
+/** Which build of the app is running. An installed copy and a rebuilt one are
+ *  two binaries on one machine, and nothing on screen told them apart. */
+export interface BuildInfo {
+  version: string;
+  /** Epoch milliseconds, stamped in at compile time. */
+  builtAt: number;
+}
+
+export const appBuild = (): Promise<BuildInfo> => invoke("app_build");
