@@ -12,6 +12,7 @@ pub mod emit;
 pub mod feedback;
 pub mod github;
 pub mod inspectors;
+pub mod lifecycle;
 pub mod jobs;
 pub mod models;
 pub mod policies;

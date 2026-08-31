@@ -2820,3 +2820,44 @@ export const openWorkItemWindow = (
  *  file, because the reason to pull one out is to hold it beside another. */
 export const openFileWindow = (solutionId: number, path: string): Promise<void> =>
   invoke("open_file_window", { solutionId, path });
+
+// The life of a work item: three handovers, each with a checklist the team
+// writes for itself.
+export interface LifecycleGate {
+  id: string;
+  label: string;
+  /** "product" | "develop" | "test" — who owns these steps. Product sees every
+   *  gate; Develop and QA see the one they own. */
+  owner: string;
+}
+
+export interface LifecycleStep {
+  id: number;
+  gate: string;
+  name: string;
+  position: number;
+}
+
+export const lifecycleGates = (): Promise<LifecycleGate[]> =>
+  invoke("lifecycle_gates");
+
+export const listLifecycleSteps = (productId: number): Promise<LifecycleStep[]> =>
+  invoke("list_lifecycle_steps", { productId });
+
+/** Replaces one gate's checklist. The order sent is the order it is read in;
+ *  a step whose name survives keeps the ticks already against it. */
+export const setLifecycleSteps = (
+  productId: number,
+  gate: string,
+  names: string[],
+): Promise<void> => invoke("set_lifecycle_steps", { productId, gate, names });
+
+/** The ids of the steps this work item has ticked off. */
+export const listWorkItemSteps = (workItemId: number): Promise<number[]> =>
+  invoke("list_work_item_steps", { workItemId });
+
+export const setWorkItemStep = (
+  workItemId: number,
+  stepId: number,
+  done: boolean,
+): Promise<void> => invoke("set_work_item_step", { workItemId, stepId, done });

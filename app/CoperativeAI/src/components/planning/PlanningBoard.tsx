@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Notice, { type NoticeValue } from "../ai/Notice";
-import AiQuestions from "../ai/AiQuestions";
+import AiFeedbackPanel from "../ai/AiFeedbackPanel";
 import WorkItemChanges from "../code/WorkItemChanges";
 import { usePermissions } from "../../lib/permissions";
 import {
@@ -313,7 +313,7 @@ export default function PlanningBoard({ productId }: PlanningBoardProps) {
           blocked: result.blocked,
           what: `guessing at "${item.title}"`,
           // The question is stored against the item and shown on the card by
-          // `AiQuestions`, so repeating it here would say it twice.
+          // `AiFeedbackPanel`, so repeating it here would say it twice.
           answerOn: "the card",
         });
         await refresh();
@@ -602,7 +602,7 @@ export default function PlanningBoard({ productId }: PlanningBoardProps) {
                       what customers get; whether an AI may read it is somebody
                       else's call. */}
                   {/* Renders nothing unless the AI has asked something. */}
-                  <AiQuestions workItemId={item.id} />
+                  <AiFeedbackPanel workItemId={item.id} />
                   {/* Product's half: the screens this work needs, recorded
                       before anyone knows which Solution grows them. */}
                   {screensItem === item.id && (

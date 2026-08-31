@@ -297,7 +297,9 @@ describe("AgentWorkspace (the Build view)", () => {
 
     await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
     const tabs = await screen.findByRole("tablist", { name: "Agent sub-panels" });
-    for (const name of ["Plan", "Changes", "Tests", "Preview", "Run", "Scope", "Questions"]) {
+    // "AI feedback", not "Questions": the panel shows what failed and what the
+    // AI could not do as well as what it asked.
+    for (const name of ["Plan", "Changes", "Tests", "Preview", "Run", "Scope", "AI feedback"]) {
       expect(within(tabs).getByRole("tab", { name: new RegExp(`^${name}`) })).toBeInTheDocument();
     }
 
@@ -321,7 +323,7 @@ describe("AgentWorkspace (the Build view)", () => {
     await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
     const tabs = await screen.findByRole("tablist", { name: "Agent sub-panels" });
     expect(within(tabs).getByRole("tab", { name: /^Plan/ })).toBeInTheDocument();
-    expect(within(tabs).getByRole("tab", { name: /^Questions/ })).toBeInTheDocument();
+    expect(within(tabs).getByRole("tab", { name: /^AI feedback/ })).toBeInTheDocument();
     expect(within(tabs).queryByRole("tab", { name: /^Changes/ })).not.toBeInTheDocument();
     expect(within(tabs).queryByRole("tab", { name: /^Preview/ })).not.toBeInTheDocument();
 

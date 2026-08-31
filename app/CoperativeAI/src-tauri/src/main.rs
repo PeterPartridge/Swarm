@@ -66,6 +66,11 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::work_items::list_work_items,
             commands::work_items::get_work_item,
+            commands::lifecycle::lifecycle_gates,
+            commands::lifecycle::list_lifecycle_steps,
+            commands::lifecycle::set_lifecycle_steps,
+            commands::lifecycle::list_work_item_steps,
+            commands::lifecycle::set_work_item_step,
             commands::work_items::create_work_item,
             commands::work_items::update_work_item_status,
             commands::work_items::set_work_item_description,

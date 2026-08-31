@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Notice, { type NoticeValue } from "../ai/Notice";
 import WorkItemChanges from "../code/WorkItemChanges";
 import AiPlanReview from "./AiPlanReview";
@@ -157,6 +157,26 @@ export default function WorkItemBuildPlan({
     void refresh();
   }, [refresh]);
 
+  /// The last job this panel has already shouted about, so a reload does not
+  /// report the same failure again.
+  const reported = useRef<number | null>(null);
+
+  // **Planning runs in the queue, so its failure is nobody's press.** Nothing
+  // catches it here, so nothing reported it, and the rail stayed empty while
+  // the job that was meant to produce the plan had failed. Reported once, when
+  // the job comes back — the ref is what makes it once rather than on every
+  // refresh.
+  useEffect(() => {
+    const finished = jobs.find((j) => j.state !== "queued" && j.state !== "running");
+    if (!finished || (finished.state !== "failed" && finished.state !== "blocked")) return;
+    if (reported.current === finished.id) return;
+    reported.current = finished.id;
+    reportFailure(
+      finished.state === "blocked" ? "The AI declined" : "Planning",
+      finished.message,
+    );
+  }, [jobs]);
+
   // **This is what "I clicked Plan and nothing happened" needed.** Planning is
   // queued and runs elsewhere, so without listening the panel showed the same
   // thing before, during and after — and the plan appeared only if somebody
@@ -252,6 +272,16 @@ export default function WorkItemBuildPlan({
         const result = await generateChangePlan(item.id);
         if (result.blocked) {
           setNotice({ blocked: result.blocked, what: "inventing the rest" });
+          // **A decline is the AI error.** It comes back as a result rather
+          // than an exception, so it reached the notice in this panel and
+          // nothing else — the one failure that is entirely the AI's, missing
+          // from the box built for showing failures.
+          reportFailure(
+            "The AI declined",
+            [result.blocked.reason, result.blocked.whatIsNeeded]
+              .filter((part) => part.trim() !== "")
+              .join(" — "),
+          );
           await refresh();
           setGeneratedAt(Date.now());
           return;

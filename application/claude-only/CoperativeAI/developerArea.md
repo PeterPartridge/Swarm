@@ -3119,3 +3119,128 @@ a press deep inside the workbench reaching the rail.
 - Carried: no Admin UI for the routing defaults; the boundary test compares
   argument names but not DTO shapes; `work_item_policy` keeps permission columns
   nothing reads; planning still does not move the work item's `status`.
+
+## Round 70 — the folder, the half that started, and what the AI could not do
+
+### My Feedback
+
+**"Execute failed: 'Shop API' has no folder on this machine."** True, said in a
+panel that could do nothing about it — so the next move was to go and find the
+screen that could. The Git tab reported the state and offered `git init`, link
+and create, but not the one thing that was actually missing. `FolderField` is
+there now, beside the sentence that names the problem, and it is offered when
+there *is* a folder too: pointing a Solution somewhere else is how a repository
+moved on disk gets reconnected.
+
+**And the press was reporting a partial failure as a total one.** Execute
+loops over every attached Solution, and the loop stopped at the first refusal —
+so a Solution that started fine was never mentioned, the ones after it were
+never tried, and one broken repository out of three read as "Execute failed".
+Every Solution is attempted now and both halves are said: what started, and
+which one refused with what.
+
+**"What the AI could not do" was filed under "Questions".** They are not the
+same thing: a question wants an answer, a refusal wants a decision, and a failed
+attempt wants neither — it wants reading. The sub-panel showed only the middle
+one and called all of it questions, while a failed attempt lived on another tab
+entirely.
+
+### Implemented
+
+- **`FolderField` on the git panel**, with `setSolutionPath`.
+- **Execute attempts every Solution**, collecting `started` and `refused`, and
+  reports both — the notice for what is running, the failure box for what is
+  not.
+- **`AiFeedbackPanel`** replaces `AiQuestions` and is three lists:
+  - *Attempts that failed* — this item's failed and blocked jobs, read-only,
+    in the words they failed with;
+  - *What the AI could not do* — `cantImplement`, a list nobody can edit,
+    because it is a record of what happened and a box invites correcting the
+    account rather than answering it. Beside each, the developer's half: **how
+    to solve it**, stored as the resolution so it travels into the next attempt;
+  - *Questions the AI asked* — the rest, with the answer flow as it was.
+  The workbench tab is "AI feedback" now, and the panel re-reads on
+  `work-changed`, so an attempt that fails while it is open appears.
+
+### Tests
+
+cargo 704/704 (23 ignored), Vitest 669/669, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean. New: the folder chooser recording a
+path, Execute starting one Solution while naming the other's refusal, and six
+on the feedback panel — including that the only field in a "could not do" row
+is the developer's, never the AI's account.
+
+### Your Feedback
+
+- **The Product board keeps the questions half.** It has no queue to read and no
+  business with a developer's failed runs, so it renders the same component
+  without a `productId` and shows two lists instead of three.
+- **"How to solve it" is stored as the resolution**, which is the same field an
+  answer to a question uses. That is deliberate — both travel into the next
+  prompt — but it means the two read the same way in the ledger.
+
+### Technical Debt
+
+- Only the Build view has the failure box. Product and Test have presses that
+  can fail the same way and no rail to put one on.
+- Carried: no Admin UI for the routing defaults; the boundary test compares
+  argument names but not DTO shapes; `work_item_policy` keeps permission columns
+  nothing reads; planning still does not move the work item's `status`.
+
+## Round 71 — the two AI failures that were not reaching the box
+
+### My Feedback
+
+**You asked whether it is displaying the AI error. It was displaying two of the
+four.** I traced every path a failure can take rather than answering from
+memory, and the box built in round 69 was catching only the ones that arrive as
+an exception from something you pressed:
+
+| what happens | before | now |
+| --- | --- | --- |
+| Execute throws (no folder, not a repository, budget, permission) | box ✓ | ✓ |
+| Review / Keep / Discard throw | box ✓ | ✓ |
+| **The AI declines** (`blocked`) | notice inside the panel only | box ✓ |
+| **A queued Plan job fails** | the panel's status line and the AI feedback tab | box ✓ |
+
+**The decline was the worst of the four to be missing.** It is the one failure
+that is entirely the AI's — it comes back as a *result* rather than an
+exception, so the catch never saw it and it reached the notice and nothing else.
+
+**A queued job's failure is nobody's press.** Planning returns at once and runs
+in the queue, so no `catch` in this session ever sees it; the panel showed it in
+two places, and neither is the one that is always visible. It is reported when
+the job comes back, once — a ref holds the last job id shouted about, so a
+reload does not report the same failure again.
+
+### Implemented
+
+- `reportFailure("The AI declined", reason — whatIsNeeded)` on a blocked result.
+- An effect over this item's jobs that reports the newest finished `failed` or
+  `blocked` one, exactly once.
+- A `Probe` in the tests that reads the shared channel through its real hook, so
+  what reaches the rail is asserted without rendering the Build view around the
+  panel.
+
+### Tests
+
+cargo 704/704 (23 ignored), Vitest 671/671, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean. Two new, both red first: the refusal
+reaching the channel with what it needs, and a queued job's failure reaching it
+when the queue announces.
+
+### Your Feedback
+
+- **What still will not appear there**: a failure in Product or Test. Those
+  screens have no rail, and the channel is not read outside Build — so the
+  answer to "is it displaying the AI error" is yes *in Build*, and unchanged
+  elsewhere.
+- **The box shows the last one only.** Two failures in a row means the first is
+  replaced; the AI feedback tab keeps the history per work item.
+
+### Technical Debt
+
+- No failure surface outside Build (above).
+- Carried: no Admin UI for the routing defaults; the boundary test compares
+  argument names but not DTO shapes; `work_item_policy` keeps permission columns
+  nothing reads; planning still does not move the work item's `status`.

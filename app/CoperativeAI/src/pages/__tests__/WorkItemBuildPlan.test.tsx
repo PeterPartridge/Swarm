@@ -6,6 +6,18 @@ import WorkItemBuildPlan, {
 } from "../../components/planning/WorkItemBuildPlan";
 import { isPlanned } from "../../lib/plan";
 import { notifyWorkChanged } from "../../lib/workSignal";
+import { clearFailure, useLastFailure } from "../../lib/failures";
+
+/** Reads the shared failure channel the ship rail shows, so a test can assert
+ *  what reached it without rendering the Build view around this panel. */
+function Probe() {
+  const failure = useLastFailure();
+  return (
+    <span data-testid="probe">
+      {failure ? `${failure.what}: ${failure.message}` : ""}
+    </span>
+  );
+}
 import type { Solution, WorkItem, WorkItemPlan } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {
@@ -615,6 +627,9 @@ describe("WorkItemBuildPlan approval", () => {
 describe("once there is a plan", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The failure channel is module state — one test's failure would otherwise
+    // still be showing in the next.
+    clearFailure();
     mocked.listAiFeedback.mockResolvedValue([]);
     mocked.listAiJobs.mockResolvedValue([]);
     mocked.checkItemAiPermission.mockResolvedValue({
@@ -807,3 +822,74 @@ describe("the Git tab", () => {
     ).toBeInTheDocument();
   });
 });
+
+
+  /// **A decline is the AI error.** It came back as a result rather than an
+  /// exception, so it went to the notice inside this panel and nowhere else —
+  /// the one kind of failure that is entirely the AI's, missing from the box
+  /// built for showing failures.
+  it("puts the AI's refusal on the rail as well as in the panel", async () => {
+    const user = userEvent.setup();
+    mocked.listWorkItemPlans.mockResolvedValue([plan({ changesRequired: "x" })]);
+    mocked.generateChangePlan.mockResolvedValue({
+      created: [],
+      provider: "Claude",
+      model: "m",
+      reason: "within budget",
+      blocked: {
+        reason: "Two Solutions claim the same endpoint",
+        whatIsNeeded: "say which one owns it",
+        feedbackId: 3,
+      },
+    });
+    render(
+      <>
+        <WorkItemBuildPlan item={item} solutions={solutions} />
+        <Probe />
+      </>,
+    );
+
+    await user.click(await screen.findByLabelText(`Execute ${item.title}`));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("probe")).toHaveTextContent(
+        /Two Solutions claim the same endpoint/,
+      ),
+    );
+    expect(screen.getByTestId("probe")).toHaveTextContent(/say which one owns it/);
+  });
+
+  /// **Planning runs in the queue, so its failure is nobody's press.** Nothing
+  /// caught it, so nothing reported it, and the rail stayed empty while the job
+  /// that was meant to produce the plan had failed.
+  it("puts a queued job's failure on the rail when it comes back", async () => {
+    mocked.listWorkItemPlans.mockResolvedValue([plan({ changesRequired: "x" })]);
+    mocked.listAiJobs.mockResolvedValue([]);
+    render(
+      <>
+        <WorkItemBuildPlan item={item} solutions={solutions} />
+        <Probe />
+      </>,
+    );
+    await screen.findByLabelText(`Plan ${item.title}`);
+
+    // The queue announces the job it just finished.
+    mocked.listAiJobs.mockResolvedValue([
+      {
+        id: 8,
+        workItemId: 12,
+        workItemTitle: "Add checkout",
+        purpose: "changePlan",
+        state: "failed",
+        message: "the AI provider has no models configured",
+        submittedAt: 1,
+        startedAt: null,
+        finishedAt: 2,
+      },
+    ]);
+    notifyWorkChanged();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("probe")).toHaveTextContent(/no models configured/),
+    );
+  });

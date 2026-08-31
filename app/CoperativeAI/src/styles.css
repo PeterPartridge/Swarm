@@ -3277,12 +3277,75 @@ code {
 }
 
 /* AI questions raised against a work item instead of guessing */
-.ai-questions {
+.ai-questions,
+.ai-feedback {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
   margin-top: 0.4rem;
   font-size: 0.78rem;
+}
+
+/* Three groups, each a list: what failed, what it could not do, what it asked.
+   A list rather than a stack of cards, because the first two are a record — you
+   read down them — and only the third is a form. */
+.feedback-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.feedback-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.feedback-list > li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  border-left: 2px solid var(--line);
+  padding-left: 0.5rem;
+}
+
+/* What it could not do is the loud one: it is the reason the work stopped. */
+.feedback-list.cannot > li {
+  border-left-color: var(--warn);
+}
+
+.feedback-kind {
+  color: var(--fg-muted);
+  font-size: 0.7rem;
+}
+
+.feedback-message {
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.feedback-needed {
+  color: var(--fg-muted);
+  line-height: 1.35;
+}
+
+.feedback-answer {
+  color: var(--fg-muted);
+  line-height: 1.35;
+}
+
+.feedback-reply {
+  display: flex;
+  gap: 0.3rem;
+  margin-top: 0.15rem;
+}
+
+.feedback-reply input {
+  flex: 1;
+  min-width: 6rem;
 }
 
 .ai-question.open {

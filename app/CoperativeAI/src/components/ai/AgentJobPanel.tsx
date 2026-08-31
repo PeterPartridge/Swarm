@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import AiQuestions from "./AiQuestions";
+import AiFeedbackPanel from "./AiFeedbackPanel";
 import PreviewPanel from "../code/PreviewPanel";
 import RunTerminal from "../code/RunTerminal";
 import WorkItemBuildPlan from "../planning/WorkItemBuildPlan";
@@ -44,7 +44,7 @@ const LABELS: Record<SubPanel, string> = {
   changes: "Changes",
   tests: "Tests",
   scope: "Scope",
-  questions: "Questions",
+  questions: "AI feedback",
   preview: "Preview",
   terminal: "Run",
 };
@@ -455,7 +455,7 @@ export default function AgentJobPanel({
 
         {panel === "questions" && (
           <div className="agent-questions">
-            <AiQuestions workItemId={item.id} />
+            <AiFeedbackPanel workItemId={item.id} productId={item.productId} />
             <p className="hint">
               An answer is stored against this work item and travels with the next
               prompt for it, so the same question is not asked — or paid for —
