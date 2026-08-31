@@ -3244,3 +3244,81 @@ when the queue announces.
 - Carried: no Admin UI for the routing defaults; the boundary test compares
   argument names but not DTO shapes; `work_item_policy` keeps permission columns
   nothing reads; planning still does not move the work item's `status`.
+
+## Round 72 — the life of a work item, and QA gets work
+
+### My Feedback
+
+**The gates are the framework; the steps are yours.** Product → Develop → QA is
+the shape this whole app is built on, so the three handovers are a constant. What
+a team does before letting go of an item is not: "spike the API" and "signed off
+by legal" are both right answers, and an app that shipped a default checklist
+would be telling people how to work. Every list starts empty and says so.
+
+**A tick is a record that somebody did something**, so editing the list must not
+quietly undo one. `set_steps` matches by name: reordering or inserting keeps the
+ticks, and only a step that is genuinely removed takes its ticks with it —
+correct, because there is nothing left for them to be about.
+
+**QA had no work items at all.** The area held a testing strategy and a list of
+test cases — what to test and how — but not *what is waiting*. So "what has
+Develop handed me?", the first question anybody standing there asks, was
+answered on another team's screen.
+
+**What QA may change is deliberately narrow**, and this is your own boundary
+rule applied: the status, because moving work along is QA's to do; the release
+checklist, because those steps are theirs; and a question to Product, which is
+how this app has always crossed a line. **Not the description** — a requirement
+reworded by the person testing it stops being a requirement, the same reason
+Product's half is read-only in the build plan.
+
+**Scoped reads, again.** `tick` held a `Rows` open across its own INSERT and the
+write went nowhere — no error, no row. Two tests caught it; the fix is the block
+this project already uses everywhere else, and the comment says why so the next
+person does not undo it.
+
+### Implemented
+
+- **`db/lifecycle.rs`**: three fixed gates, user-written steps per Product, and
+  a tick per (work item, step). No row is "not done", so a step added later
+  starts unticked on every existing item with nothing to backfill.
+- **Five commands** and their wrappers; the boundary test passes them.
+- **`LifecycleSteps`** in Develop → Rules — the same kind of thing as the
+  Developer Rules, written where the rest of the standing direction is. Add,
+  remove, reorder with buttons rather than drag, because a checklist is read in
+  order and two buttons work with a keyboard.
+- **`WorkItemLifecycle`**, mounted three ways: **Product** sees all three gates
+  on its board, **Develop** sees `toTest` on the build plan, **QA** sees
+  `toRelease`. A gate is clear when every step in it is ticked — a count of
+  rows, not a state anybody sets, because a status somebody can set
+  independently of the checklist is a second answer that disagrees by Friday.
+- **`TestWorkItems`** in QA: every work item, its status, its release checklist,
+  a question to Product, and what the AI has said about it.
+
+### Tests
+
+cargo 710/710 (23 ignored), Vitest 683/683, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean. Eighteen new: six on the data rules
+(order, unknown gate refused, ticks surviving an edit, a removed step taking
+them, idempotence both ways), eight on the two panels (each area seeing its own
+gate and only its own), and four on QA's list.
+
+### Your Feedback
+
+- **Product's edit ability was already there** — the planning board creates
+  items, edits descriptions, statuses, assignees, sprints and sub-items. What it
+  gained is the whole life on each card.
+- **No "mark as ready" button anywhere.** Readiness is the count of ticks. If
+  you want a gate that can be forced past, that is a different decision and
+  worth making deliberately.
+- **The gates are per Product**, so two Products can have different checklists;
+  they are not per item type. An epic and a bug walk the same three gates.
+
+### Technical Debt
+
+- Nothing stops work moving through a gate that is not clear — the checklist
+  reports, it does not enforce. Enforcing it would want the same care the plan
+  approval gate got.
+- Carried: no Admin UI for the routing defaults; the boundary test compares
+  argument names but not DTO shapes; `work_item_policy` keeps permission columns
+  nothing reads; planning still does not move the work item's `status`.

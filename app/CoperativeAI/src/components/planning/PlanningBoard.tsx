@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Notice, { type NoticeValue } from "../ai/Notice";
 import AiFeedbackPanel from "../ai/AiFeedbackPanel";
+import WorkItemLifecycle from "./WorkItemLifecycle";
 import WorkItemChanges from "../code/WorkItemChanges";
 import { usePermissions } from "../../lib/permissions";
 import {
@@ -603,6 +604,18 @@ export default function PlanningBoard({ productId }: PlanningBoardProps) {
                       else's call. */}
                   {/* Renders nothing unless the AI has asked something. */}
                   <AiFeedbackPanel workItemId={item.id} />
+
+                  {/* **The whole life, and only here.** Product owns the
+                      journey end to end, so this is the one screen that shows
+                      all three handovers — its own, Develop's and QA's.
+                      Develop and QA each see the gate they tick, on their own
+                      screens, because a checklist you cannot act on is noise. */}
+                  <WorkItemLifecycle
+                    workItemId={item.id}
+                    productId={productId}
+                    area="product"
+                    onChanged={() => void refresh()}
+                  />
                   {/* Product's half: the screens this work needs, recorded
                       before anyone knows which Solution grows them. */}
                   {screensItem === item.id && (

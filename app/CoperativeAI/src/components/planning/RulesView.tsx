@@ -1,4 +1,5 @@
 import DeveloperRulesEditor from "../ai/DeveloperRulesEditor";
+import LifecycleSteps from "./LifecycleSteps";
 import RuleEnforcement from "../ai/RuleEnforcement";
 import StrategyEditor from "./StrategyEditor";
 import { DEVELOP_STRATEGY_FIELDS } from "../../lib/backend";
@@ -49,6 +50,12 @@ export default function RulesView({ productId }: { productId: number }) {
 
           {/* Editable here, and only here. */}
           <DeveloperRulesEditor productId={productId} />
+
+          {/* **The same kind of thing as the rules above.** What every team
+              agrees to before the work starts, read on every work item
+              afterwards — so it is written where the rest of the standing
+              direction is, rather than growing a settings screen of its own. */}
+          <LifecycleSteps productId={productId} />
         </div>
 
         <RuleEnforcement productId={productId} />

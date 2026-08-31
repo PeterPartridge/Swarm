@@ -4,6 +4,7 @@ import WorkItemChanges from "../code/WorkItemChanges";
 import AiPlanReview from "./AiPlanReview";
 import FromProduct from "./FromProduct";
 import SolutionRepo from "../vcs/SolutionRepo";
+import WorkItemLifecycle from "./WorkItemLifecycle";
 import SectionTabs from "../common/SectionTabs";
 import { reportFailure } from "../../lib/failures";
 import { isPlanned } from "../../lib/plan";
@@ -467,6 +468,17 @@ export default function WorkItemBuildPlan({
           showing: it holds unsaved edits in its own boxes, and switching tabs
           must not throw away something half-typed. */}
       <div hidden={view !== "develop"}>
+      {/* **Develop's bit of the item's life.** The steps before it is ready
+          for QA, ticked by the people doing them. Product sees all three gates
+          on its own board; here there is one, because a checklist you cannot
+          act on is noise on the screen of somebody trying to work. */}
+      <WorkItemLifecycle
+        workItemId={item.id}
+        productId={item.productId}
+        area="develop"
+        onChanged={notifyWorkChanged}
+      />
+
       <WorkItemChanges
         workItemId={item.id}
         mode="developer"

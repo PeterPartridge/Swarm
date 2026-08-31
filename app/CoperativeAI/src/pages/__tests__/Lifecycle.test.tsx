@@ -158,7 +158,10 @@ describe("a work item's life", () => {
     mocked.listWorkItemSteps.mockResolvedValue([2]);
     render(<WorkItemLifecycle workItemId={9} productId={7} area="develop" />);
 
-    expect(await screen.findByText(/Ready for QA/i)).toBeInTheDocument();
+    // Asserted on the panel, not on the words alone: the gate's own label is
+    // "Before it is ready for QA", so a loose text match finds two.
+    const panel = await screen.findByRole("region", { name: "Where this has got to" });
+    expect(panel).toHaveTextContent(/1 of 1 · Ready for QA/);
   });
 
   /// A Product that has written no checklist has no gate to fail, and the panel

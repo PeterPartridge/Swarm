@@ -345,7 +345,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_step_that_does_not_exist_cannot_be_ticked() {
-        let (conn, product) = conn().await;
+        let (conn, _product) = conn().await;
         assert!(tick(&conn, 9, 404, true).await.is_err());
     }
 }

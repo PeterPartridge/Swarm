@@ -8924,3 +8924,136 @@ button.ready-action.link:hover {
   align-items: baseline;
   gap: 0.5rem;
 }
+
+/* ── The life of a work item ──────────────────────────────────────────────── */
+
+/* Three gates in Rules, each a numbered list somebody writes for their team. */
+.lifecycle-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.lifecycle-gate {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.lifecycle-gate-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+/* Numbered, because the order is the point: a checklist is read down. */
+.lifecycle-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.8rem;
+}
+
+.lifecycle-list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.lifecycle-add {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.lifecycle-add input {
+  flex: 1;
+}
+
+/* On a work item: how far each gate has got, and the ticks themselves. */
+.work-lifecycle {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.4rem 0;
+}
+
+.lifecycle-progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.lifecycle-ticks {
+  list-style: none;
+  margin: 0.2rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.8rem;
+}
+
+.lifecycle-ticks label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+/* QA's list of what is waiting. */
+.test-work-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.test-item-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.test-item {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  text-align: left;
+  padding: 0.35rem 0.5rem;
+}
+
+.test-item.on {
+  border-color: var(--accent);
+}
+
+.test-item-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.test-item-meta {
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+}
+
+.test-item-open {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}

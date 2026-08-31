@@ -22,6 +22,12 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     listSolutions: vi.fn(),
     listSprints: vi.fn(),
     listTeamMembers: vi.fn(),
+    // The lifecycle panel hangs off every work item now. Unmocked these fall
+    // through to the real invoke and each renders its own error alert.
+    lifecycleGates: vi.fn(),
+    listLifecycleSteps: vi.fn(),
+    listWorkItemSteps: vi.fn(),
+    setWorkItemStep: vi.fn(),
     listWorkItemPlans: vi.fn(),
     listAiFeedback: vi.fn(),
     suggestDevCommand: vi.fn(),
@@ -184,6 +190,10 @@ describe("AgentWorkspace (the Build view)", () => {
     });
     mocked.closeMySpace.mockResolvedValue(undefined);
     vi.clearAllMocks();
+    mocked.lifecycleGates.mockResolvedValue([]);
+    mocked.listLifecycleSteps.mockResolvedValue([]);
+    mocked.listWorkItemSteps.mockResolvedValue([]);
+    mocked.setWorkItemStep.mockResolvedValue(undefined);
     mocked.listWorkItems.mockResolvedValue([item()]);
     mocked.listRuns.mockResolvedValue([]);
     mocked.listAiJobs.mockResolvedValue([]);

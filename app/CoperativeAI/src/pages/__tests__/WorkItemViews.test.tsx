@@ -26,6 +26,12 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     // Opening a work item mounts the build plan, which loads these. Left
     // unmocked they fall through to the real invoke and the editor renders its
     // error state instead of the fields.
+    // The lifecycle panel hangs off every work item now. Unmocked these fall
+    // through to the real invoke and each renders its own error alert.
+    lifecycleGates: vi.fn(),
+    listLifecycleSteps: vi.fn(),
+    listWorkItemSteps: vi.fn(),
+    setWorkItemStep: vi.fn(),
     listWorkItemPlans: vi.fn(),
     listAiFeedback: vi.fn(),
     // The Solution git panel sits in every change block now. Unmocked it falls
@@ -114,6 +120,10 @@ describe("readinessOf", () => {
 describe("WorkItemViews", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocked.lifecycleGates.mockResolvedValue([]);
+    mocked.listLifecycleSteps.mockResolvedValue([]);
+    mocked.listWorkItemSteps.mockResolvedValue([]);
+    mocked.setWorkItemStep.mockResolvedValue(undefined);
     mocked.listSprints.mockResolvedValue([sprint]);
     mocked.listSolutions.mockResolvedValue([]);
     mocked.listTeamMembers.mockResolvedValue([ada, bob]);

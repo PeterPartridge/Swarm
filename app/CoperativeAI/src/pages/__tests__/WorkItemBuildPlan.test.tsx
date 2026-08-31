@@ -24,6 +24,12 @@ vi.mock("../../lib/backend", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../lib/backend")>();
   return {
     ...original,
+    // The lifecycle panel hangs off every work item now. Unmocked these fall
+    // through to the real invoke and each renders its own error alert.
+    lifecycleGates: vi.fn(),
+    listLifecycleSteps: vi.fn(),
+    listWorkItemSteps: vi.fn(),
+    setWorkItemStep: vi.fn(),
     listWorkItemPlans: vi.fn(),
     // The build plan now embeds WorkItemChanges. Leaving these unmocked lets
     // them fall through to the real invoke, which renders an error alert and
@@ -130,6 +136,10 @@ const solutions = [solution(3, "Shop API"), solution(4, "Shop Web")];
 describe("WorkItemBuildPlan", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocked.lifecycleGates.mockResolvedValue([]);
+    mocked.listLifecycleSteps.mockResolvedValue([]);
+    mocked.listWorkItemSteps.mockResolvedValue([]);
+    mocked.setWorkItemStep.mockResolvedValue(undefined);
     mocked.listWorkItemPlans.mockResolvedValue([]);
     mocked.listAiFeedback.mockResolvedValue([]);
     mocked.listAiJobs.mockResolvedValue([]);
@@ -475,6 +485,10 @@ describe("WorkItemBuildPlan", () => {
 describe("WorkItemBuildPlan approval", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocked.lifecycleGates.mockResolvedValue([]);
+    mocked.listLifecycleSteps.mockResolvedValue([]);
+    mocked.listWorkItemSteps.mockResolvedValue([]);
+    mocked.setWorkItemStep.mockResolvedValue(undefined);
     mocked.listAiFeedback.mockResolvedValue([]);
     mocked.listAiJobs.mockResolvedValue([]);
     // Permitted by default in these tests: the deny-by-default rule has its own
@@ -627,6 +641,10 @@ describe("WorkItemBuildPlan approval", () => {
 describe("once there is a plan", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocked.lifecycleGates.mockResolvedValue([]);
+    mocked.listLifecycleSteps.mockResolvedValue([]);
+    mocked.listWorkItemSteps.mockResolvedValue([]);
+    mocked.setWorkItemStep.mockResolvedValue(undefined);
     // The failure channel is module state — one test's failure would otherwise
     // still be showing in the next.
     clearFailure();
@@ -771,6 +789,10 @@ describe("once there is a plan", () => {
 describe("the Git tab", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocked.lifecycleGates.mockResolvedValue([]);
+    mocked.listLifecycleSteps.mockResolvedValue([]);
+    mocked.listWorkItemSteps.mockResolvedValue([]);
+    mocked.setWorkItemStep.mockResolvedValue(undefined);
     mocked.listAiFeedback.mockResolvedValue([]);
     mocked.listAiJobs.mockResolvedValue([]);
     mocked.checkItemAiPermission.mockResolvedValue({
