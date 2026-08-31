@@ -8,6 +8,19 @@ vi.mock("../../lib/backend", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../lib/backend")>();
   return {
     ...original,
+    // The lifecycle checklist is written on this screen now; unmocked these
+
+    // fall through to the real invoke and render an error alert.
+
+    lifecycleGates: vi.fn(),
+
+    listLifecycleSteps: vi.fn(),
+
+    setLifecycleSteps: vi.fn(),
+
+    listWorkItemSteps: vi.fn(),
+
+    setWorkItemStep: vi.fn(),
     listProducts: vi.fn(),
     getStrategy: vi.fn(),
     saveStrategy: vi.fn(),
@@ -72,6 +85,9 @@ const testCase: TestCase = {
 describe("TestArea (Testing Strategy + test cases)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocked.lifecycleGates.mockResolvedValue([]);
+    mocked.listLifecycleSteps.mockResolvedValue([]);
+    mocked.listWorkItemSteps.mockResolvedValue([]);
     mocked.listProducts.mockResolvedValue([product]);
     mocked.getStrategy.mockResolvedValue("{}");
     mocked.listTestCases.mockResolvedValue([testCase]);

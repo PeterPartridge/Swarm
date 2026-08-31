@@ -3322,3 +3322,110 @@ gate and only its own), and four on QA's list.
 - Carried: no Admin UI for the routing defaults; the boundary test compares
   argument names but not DTO shapes; `work_item_policy` keeps permission columns
   nothing reads; planning still does not move the work item's `status`.
+
+## Round 73 — nine rows saying one thing, and each checklist where it belongs
+
+### My Feedback
+
+**Those nine failures are history, and the panel was presenting them as news.**
+The wording you pasted — "Set its work-item AI policy" — does not exist in this
+codebase any more; permission moved to the Product with a per-Solution override
+in round 62, and `ai_permission::refusal` says "Set this Product's AI policy in
+Admin → AI". So those rows were written before that change and have been sitting
+in the queue table ever since. The panel I built in round 70 listed every failed
+attempt **undated**, which made an old refusal indistinguishable from a current
+one — and nine identical ones read as nine things going wrong rather than one
+thing that went wrong then.
+
+Two fixes, both in the panel rather than the data: failures are **grouped by
+what they said**, with a count and the most recent time. `lib/when.ts` holds the
+formatter, moved out of `RuleEnforcement` at its second use, because both panels
+list attempts that stopped and an undated list is exactly what caused this.
+
+**Admin does not show failures, and did not need to.** It holds the policy the
+message points at — Admin → AI, per Product — which is the thing to *change*.
+Where failures are read is the work item, the queue, and the AI log; the ship
+rail carries the last one.
+
+**Each checklist now lives with the team that writes it.** Product's handover is
+in Product → Strategy, Develop's in Develop → Rules, QA's beside the Testing
+Strategy. One screen holding all three made two of them somebody else's
+business, which is the same thing the areas exist to prevent — and the panel on
+a work item already worked this way.
+
+### Implemented
+
+- **`lib/when.ts`**: `whenStopped` (moved, now shared) and `groupFailures`.
+- **The failed-attempts list is grouped, counted and dated.**
+- **`LifecycleSteps` takes an `owner`** and shows only that gate; mounted three
+  times, once per area. The empty state points each area at its own screen —
+  one that said "Develop → Rules" to everybody would send two teams to a screen
+  that no longer holds their list.
+
+### Tests
+
+cargo 710/710 (23 ignored), Vitest 686/686, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean. New: a repeated failure said once with
+its count, a dated failure, the editor showing only its own gate, and each area
+pointed at its own screen.
+
+### Your Feedback
+
+- **Nothing deletes the old rows.** They are the record of what happened, and I
+  am not going to quietly erase history to tidy a screen — but they are dated
+  now, so they read as what they are. If you want them gone, that is a "clear
+  the queue for this item" button and worth asking for deliberately.
+- **The refusal you are seeing on new attempts, if any**, will read "Set this
+  Product's AI policy in Admin → AI". If you still see the old wording after a
+  rebuild, that is a stored row, not a live refusal — check the date beside it.
+
+### Technical Debt
+
+- Carried: the checklist reports but does not enforce; no Admin UI for the
+  routing defaults; the boundary test compares argument names but not DTO
+  shapes; `work_item_policy` keeps permission columns nothing reads.
+
+## Round 74 — clearing the queue for one item
+
+### My Feedback
+
+**Deleting history, only when asked, and only the settled part.** The queue is
+the record of every attempt, which is why nothing prunes it on its own — an app
+that quietly tidied failures away would be deciding for somebody which ones
+mattered. A press is somebody deciding, and now there is one.
+
+**What it will not delete is anything still in flight.** A `queued` or `running`
+row belongs to the runner that is about to write to it; taking it orphans the
+task, and "it vanished mid-flight" is a worse screen than a stale line. The test
+pins both halves, and that the neighbouring item's queue is not this item's
+business.
+
+**And the spend stays.** What each call cost is in `ai_usage`; this touches
+`ai_jobs` only. The notice says so, because "cleared" must not read as "the
+bill is gone too" on a screen about AI that has spent money.
+
+### Implemented
+
+- **`ai_job::clear_finished`** and the `clear_ai_jobs` command.
+- **"Clear the failed attempts"** beside the heading in the AI feedback panel,
+  reporting how many went and what stayed.
+
+### Tests
+
+cargo 711/711 (23 ignored), Vitest 687/687, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean. Two new: the data rule (settled gone,
+running kept, other items untouched) and the panel's press.
+
+### Your Feedback
+
+- **It clears the item you are looking at**, not the Product. Clearing every
+  item at once would be a different button in a different place, and worth
+  asking for separately if the old rows are spread about.
+- The grouped list from round 73 means you can see what you are about to lose
+  before you press it — nine rows now read as one line with a count and a date.
+
+### Technical Debt
+
+- Carried: the lifecycle checklist reports but does not enforce; no Admin UI for
+  the routing defaults; the boundary test compares argument names but not DTO
+  shapes; `work_item_policy` keeps permission columns nothing reads.

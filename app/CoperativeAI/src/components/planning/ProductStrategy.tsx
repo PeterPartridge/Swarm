@@ -1,3 +1,4 @@
+import LifecycleSteps from "./LifecycleSteps";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import Notice, { type NoticeValue } from "../ai/Notice";
 import {
@@ -183,6 +184,10 @@ export default function ProductStrategy({ productId }: { productId: number }) {
           ))}
         </div>
       </section>
+
+      {/* What Product does before handing an item over — its own half of the
+          item's life, beside the strategy that decides what the items are. */}
+      <LifecycleSteps productId={productId} owner="product" />
 
       <div className="strategy-fields">
         {STRATEGY_FIELDS.map((f) => (

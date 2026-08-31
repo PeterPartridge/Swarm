@@ -186,6 +186,31 @@ pub async fn fail_interrupted(conn: &Connection) -> Result<i64> {
     Ok(stuck.len() as i64)
 }
 
+/// Forgets the settled jobs for one work item, leaving anything in flight.
+///
+/// **History, deleted on purpose and only when asked.** These rows are the
+/// record of every attempt, and a refusal from before the thing was fixed reads
+/// as noise long after it stopped being news — so somebody can clear it. What
+/// they cannot clear is a job that is still `queued` or `running`: deleting one
+/// orphans the runner that is about to write to it, and "it vanished mid-flight"
+/// is a worse screen than a stale row.
+///
+/// **The spend is not in here.** What each call cost lives in `ai_usage`, which
+/// this does not touch — clearing the queue tidies the account of what was
+/// tried, never the account of what was paid.
+pub async fn clear_finished(conn: &Connection, work_item_id: i64) -> Result<i64> {
+    let settled: Vec<i64> = list_for_item(conn, work_item_id)
+        .await?
+        .into_iter()
+        .filter(|j| j.state != "queued" && j.state != "running")
+        .map(|j| j.id)
+        .collect();
+    for id in &settled {
+        conn.execute("DELETE FROM ai_jobs WHERE id = ?1", (*id,)).await?;
+    }
+    Ok(settled.len() as i64)
+}
+
 pub async fn list_for_product(conn: &Connection, product_id: i64) -> Result<Vec<AiJob>> {
     let mut rows = conn
         .query(
@@ -358,6 +383,31 @@ mod tests {
         // needs a second pass after the questions are answered.
         finish(&conn, id, "done", "").await.expect("finish");
         submit(&conn, a, "changePlan").await.expect("again");
+    }
+
+    /// **Clearing the queue is deleting history, so it deletes only history.**
+    /// Nine refusals from before a fix are noise; a job that is still in flight
+    /// is the runner's, and taking the row it is about to write to is worse
+    /// than leaving a stale one on screen.
+    #[tokio::test]
+    async fn clearing_an_item_forgets_what_settled_and_keeps_what_is_running() {
+        let (conn, a, b) = fixture().await;
+        let old = submit(&conn, a, "changePlan").await.expect("one");
+        finish(&conn, old, "failed", "no AI policy").await.expect("failed");
+        let older = submit(&conn, a, "changePlan").await.expect("two");
+        finish(&conn, older, "done", "Planned").await.expect("done");
+        let live = submit(&conn, b, "changePlan").await.expect("three");
+        mark_running(&conn, live).await.expect("running");
+
+        assert_eq!(clear_finished(&conn, a).await.expect("clear"), 2);
+        assert!(list_for_item(&conn, a).await.expect("list").is_empty());
+
+        // Another item's queue is not this item's business, and the running
+        // one is nobody's to delete.
+        let others = list_for_item(&conn, b).await.expect("list");
+        assert_eq!(others.len(), 1);
+        assert_eq!(clear_finished(&conn, b).await.expect("clear"), 0);
+        assert_eq!(list_for_item(&conn, b).await.expect("list").len(), 1);
     }
 
     /// A row that says `running` forever is worse than one that admits it was

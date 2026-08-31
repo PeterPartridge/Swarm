@@ -7,7 +7,7 @@ import {
   type LifecycleStep,
 } from "../../lib/backend";
 
-/** The three handovers, and the checklist each team writes for itself.
+/** The checklist a team writes for its own handover.
  *
  *  **The gates are the framework; the steps are yours.** Product → Develop →
  *  QA is the shape this whole app is built on, so the three are fixed. What a
@@ -15,10 +15,20 @@ import {
  *  off by legal" are both right answers, and an app that shipped a default list
  *  would be telling people how to work. Every list starts empty and says so.
  *
- *  **Written here, in Rules, with the rest of the standing direction.** They
- *  are the same kind of thing as the Developer Rules — what everybody agrees to
- *  before the work starts — and they are read on every work item afterwards. */
-export default function LifecycleSteps({ productId }: { productId: number }) {
+ *  **Each list is written in the area that owns it**, beside that team's own
+ *  strategy: Product writes what it does before handing over, Develop writes
+ *  what it does before QA, QA writes what it does before release. One screen
+ *  holding all three made two of them somebody else's business — the same
+ *  reason the panel on a work item shows a team only its own gate. Given no
+ *  `owner`, every gate shows. */
+export default function LifecycleSteps({
+  productId,
+  owner,
+}: {
+  productId: number;
+  /** Show only the gate this area owns: "product", "develop" or "test". */
+  owner?: string;
+}) {
   const [gates, setGates] = useState<LifecycleGate[]>([]);
   const [steps, setSteps] = useState<LifecycleStep[]>([]);
   const [typed, setTyped] = useState<Record<string, string>>({});
@@ -70,14 +80,19 @@ export default function LifecycleSteps({ productId }: { productId: number }) {
       <header>
         <h3>Steps a work item goes through</h3>
         <p className="hint">
-          Three handovers, and what has to be true before each one. Product sees
-          all of them on an item; Develop and QA see the list they own.
+          {owner === undefined
+            ? "Three handovers, and what has to be true before each one."
+            : "What has to be true before this handover."}{" "}
+          Product sees every gate on an item; Develop and QA see the one they
+          own.
         </p>
       </header>
 
       {error && <p role="alert">{error}</p>}
 
-      {gates.map((gate) => {
+      {gates
+        .filter((gate) => owner === undefined || gate.owner === owner)
+        .map((gate) => {
         const mine = inGate(gate.id);
         return (
           <div key={gate.id} className="lifecycle-gate" role="group" aria-label={gate.label}>

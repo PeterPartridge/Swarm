@@ -9057,3 +9057,14 @@ button.ready-action.link:hover {
   flex-direction: column;
   gap: 0.5rem;
 }
+
+.feedback-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.feedback-times {
+  color: var(--warn);
+}

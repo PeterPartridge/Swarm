@@ -18,6 +18,19 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     getActivePermissions: vi.fn(),
     createDeliverable: vi.fn(),
     deleteDeliverable: vi.fn(),
+    // The lifecycle checklist is written on this screen now; unmocked these
+
+    // fall through to the real invoke and render an error alert.
+
+    lifecycleGates: vi.fn(),
+
+    listLifecycleSteps: vi.fn(),
+
+    setLifecycleSteps: vi.fn(),
+
+    listWorkItemSteps: vi.fn(),
+
+    setWorkItemStep: vi.fn(),
     listWorkItems: vi.fn(),
     generateDeliverableWork: vi.fn(),
     getProductPolicy: vi.fn(),
@@ -75,6 +88,9 @@ const openPolicy: ProductPolicy = {
 describe("ProductStrategy — generating the work for a Deliverable", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocked.lifecycleGates.mockResolvedValue([]);
+    mocked.listLifecycleSteps.mockResolvedValue([]);
+    mocked.listWorkItemSteps.mockResolvedValue([]);
     mocked.getStrategy.mockResolvedValue("{}");
     mocked.listDeliverables.mockResolvedValue([deliverable]);
     mocked.listWorkItems.mockResolvedValue([]);

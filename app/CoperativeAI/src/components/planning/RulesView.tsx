@@ -51,11 +51,12 @@ export default function RulesView({ productId }: { productId: number }) {
           {/* Editable here, and only here. */}
           <DeveloperRulesEditor productId={productId} />
 
-          {/* **The same kind of thing as the rules above.** What every team
-              agrees to before the work starts, read on every work item
-              afterwards — so it is written where the rest of the standing
-              direction is, rather than growing a settings screen of its own. */}
-          <LifecycleSteps productId={productId} />
+          {/* **Develop's own handover, and only that one.** The same kind of
+              thing as the rules above — what this team agrees to before the
+              work moves on. Product writes its list in Product Strategy and QA
+              writes its own in the Testing Strategy: a team editing another
+              team's checklist is the thing the areas exist to prevent. */}
+          <LifecycleSteps productId={productId} owner="develop" />
         </div>
 
         <RuleEnforcement productId={productId} />

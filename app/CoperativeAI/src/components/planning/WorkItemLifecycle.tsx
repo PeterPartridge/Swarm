@@ -82,8 +82,17 @@ export default function WorkItemLifecycle({
 
       {nothingDefined ? (
         <p className="hint">
-          No steps are defined for this yet. Write them in Develop → Rules, under
-          "Steps a work item goes through".
+          {/* Each area writes its own list, so each is sent to its own screen:
+              one that said "Develop → Rules" to everybody would be sending two
+              teams to a screen that no longer holds their checklist. */}
+          No steps are defined for this yet. Write them under "Steps a work item
+          goes through", in{" "}
+          {area === "product"
+            ? "Product → Strategy"
+            : area === "develop"
+              ? "Develop → Rules"
+              : "the Testing Strategy"}
+          .
         </p>
       ) : (
         mine.map((gate) => {

@@ -10,6 +10,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     listAiFeedback: vi.fn(),
     listAiJobs: vi.fn(),
     resolveAiFeedback: vi.fn(),
+    clearAiJobs: vi.fn(),
   };
 });
 
@@ -47,6 +48,7 @@ describe("the AI feedback panel", () => {
     mocked.listAiFeedback.mockResolvedValue([]);
     mocked.listAiJobs.mockResolvedValue([]);
     mocked.resolveAiFeedback.mockResolvedValue(undefined);
+    mocked.clearAiJobs.mockResolvedValue(0);
   });
 
   /// **What failed, in one place.** An attempt that failed lived only in the
@@ -145,4 +147,55 @@ describe("the AI feedback panel", () => {
       await screen.findByText(/The AI has not reported anything on this item/i),
     ).toBeInTheDocument();
   });
+  /// **Nine rows saying one thing.** A refusal repeated on every attempt is one
+  /// fact about this item, not nine — and read as a list it looks like nine
+  /// separate things going wrong.
+  it("says a repeated failure once, with how many times", async () => {
+    const same = "'Create a console app' has no AI policy, so AI can't touch it";
+    mocked.listAiJobs.mockResolvedValue([
+      job({ id: 1, message: same, submittedAt: 1_700_000_000_000 }),
+      job({ id: 2, message: same, submittedAt: 1_700_000_100_000 }),
+      job({ id: 3, message: same, submittedAt: 1_700_000_200_000 }),
+      job({ id: 4, message: "something else" }),
+    ]);
+    render(<AiFeedbackPanel workItemId={9} productId={7} />);
+
+    const failures = await screen.findByRole("list", { name: "Attempts that failed" });
+    expect(within(failures).getAllByRole("listitem")).toHaveLength(2);
+    expect(within(failures).getByText("3 times")).toBeInTheDocument();
+  });
+
+  /// **A failure with no date reads as a failure now.** These are the record of
+  /// every attempt, including ones from before whatever was wrong got fixed —
+  /// undated, an old refusal is indistinguishable from a current one.
+  it("says when each one happened", async () => {
+    mocked.listAiJobs.mockResolvedValue([
+      job({ id: 1, submittedAt: new Date("2026-03-04T09:00:00").getTime() }),
+    ]);
+    render(<AiFeedbackPanel workItemId={9} productId={7} />);
+
+    const failures = await screen.findByRole("list", { name: "Attempts that failed" });
+    expect(failures).toHaveTextContent(/4 Mar/);
+  });
+
+  /// **Old attempts are noise once they are fixed, and only a person can say
+  /// so.** Nothing prunes them on its own: they are the record of what was
+  /// tried, and an app that quietly tidied history would be deciding for
+  /// somebody which failures mattered.
+  it("clears the settled attempts when asked, and says what stays", async () => {
+    mocked.listAiJobs.mockResolvedValue([job({ id: 1 }), job({ id: 2 })]);
+    mocked.clearAiJobs.mockResolvedValue(2);
+    render(<AiFeedbackPanel workItemId={9} productId={7} />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Clear the failed attempts" }),
+    );
+
+    await waitFor(() => expect(mocked.clearAiJobs).toHaveBeenCalledWith(9));
+    expect(await screen.findByRole("status")).toHaveTextContent(/2 attempts/);
+    // Says what it did not touch, because "cleared" should not read as "the
+    // spend is gone too".
+    expect(screen.getByRole("status")).toHaveTextContent(/what they cost/i);
+  });
+
 });

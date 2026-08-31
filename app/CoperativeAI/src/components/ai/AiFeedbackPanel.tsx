@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  clearAiJobs,
   listAiFeedback,
   listAiJobs,
   resolveAiFeedback,
   type AiFeedback,
   type AiJob,
 } from "../../lib/backend";
+import { groupFailures } from "../../lib/when";
 import { useWorkChanged } from "../../lib/workSignal";
 
 /** Everything the AI has said about one work item, and what it was told back.
@@ -40,6 +42,7 @@ export default function AiFeedbackPanel({
   const [jobs, setJobs] = useState<AiJob[]>([]);
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -84,9 +87,25 @@ export default function AiFeedbackPanel({
   const asked = feedback.filter((f) => f.kind !== "cantImplement");
   const nothing = jobs.length === 0 && feedback.length === 0;
 
+  /// Forgets the settled attempts. Only on a press: they are the record of
+  /// what was tried, and an app that quietly pruned history would be deciding
+  /// for somebody which failures mattered.
+  async function clear() {
+    try {
+      const gone = await clearAiJobs(workItemId);
+      setNotice(
+        `Cleared ${gone} attempt${gone === 1 ? "" : "s"} from the queue. Anything still running stayed, and what they cost is still in the ledger.`,
+      );
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   return (
     <section className="ai-feedback" aria-label="AI feedback">
       {error && <p role="alert">{error}</p>}
+      {notice && <p className="note" role="status">{notice}</p>}
 
       {nothing && (
         <p className="hint">
@@ -97,12 +116,31 @@ export default function AiFeedbackPanel({
 
       {jobs.length > 0 && (
         <div className="feedback-group">
-          <span className="palette-label">Attempts that failed</span>
+          <div className="feedback-group-head">
+            <span className="palette-label">Attempts that failed</span>
+            {/* **Only a person clears history.** Nothing prunes these on its
+                own — they are what was tried, and an app that tidied them away
+                would be deciding which failures mattered. */}
+            <button className="link-button" onClick={() => void clear()}>
+              Clear the failed attempts
+            </button>
+          </div>
+          {/* Grouped and dated. Eight presses against a policy that says no
+              wrote eight identical rows, undated — which read as eight things
+              going wrong now rather than one thing that went wrong then. */}
           <ul className="feedback-list" aria-label="Attempts that failed">
-            {jobs.map((j) => (
-              <li key={j.id}>
-                <span className="feedback-kind">{j.purpose}</span>
-                <span className="feedback-message">{j.message}</span>
+            {groupFailures(jobs).map((f) => (
+              <li key={f.id}>
+                <span className="feedback-kind">
+                  {f.purpose} · {f.when}
+                  {f.times > 1 && (
+                    <>
+                      {" · "}
+                      <span className="feedback-times">{f.times} times</span>
+                    </>
+                  )}
+                </span>
+                <span className="feedback-message">{f.message}</span>
               </li>
             ))}
           </ul>

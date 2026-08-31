@@ -2623,6 +2623,12 @@ export const listOpenQuestions = (productId: number): Promise<OpenQuestion[]> =>
 export const cancelAiJob = (id: number): Promise<string> =>
   invoke("cancel_ai_job", { id });
 
+/** Forgets one work item's settled jobs, returning how many went. Anything
+ *  still queued or running stays — the runner is about to write to it — and
+ *  what the calls cost is in the ledger, which this does not touch. */
+export const clearAiJobs = (workItemId: number): Promise<number> =>
+  invoke("clear_ai_jobs", { workItemId });
+
 export const listRecentAiJobs = (): Promise<AiJob[]> =>
   invoke("list_recent_ai_jobs");
 export const listAiJobs = (productId: number): Promise<AiJob[]> =>

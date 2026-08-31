@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import StrategyEditor from "../components/planning/StrategyEditor";
 import TestCases from "../components/testing/TestCases";
 import TestWorkItems from "../components/testing/TestWorkItems";
+import LifecycleSteps from "../components/planning/LifecycleSteps";
 import { listProducts, TEST_STRATEGY_FIELDS, type Product } from "../lib/backend";
 
 /** The Test environment: pick a Product to see its Testing Strategy, the work
@@ -58,6 +59,10 @@ export default function TestArea() {
                 title="Testing Strategy"
                 fields={TEST_STRATEGY_FIELDS}
               />
+              {/* QA's own handover, written beside the Testing Strategy: what
+                  has to be true before this is releasable. */}
+              <LifecycleSteps productId={Number(activeProduct)} owner="test" />
+
               {/* Before the test cases: "what has Develop handed me?" is the
                   question somebody standing here asks first, and it used to be
                   answered on another team's screen. */}

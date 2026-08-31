@@ -187,3 +187,20 @@ pub async fn set_ai_concurrency(db: State<'_, AppDb>, limit: i64) -> Result<(), 
         .await
         .map_err(to_message)
 }
+
+/// Forgets the settled jobs for one work item.
+///
+/// **Deleting history, only when asked, and only the settled part.** The queue
+/// is the record of every attempt, so a refusal from before the thing was fixed
+/// sits there long after it stopped being news. Anything still `queued` or
+/// `running` stays: the runner is about to write to that row.
+///
+/// What the calls cost is in the ledger, which this does not touch — clearing
+/// the queue tidies the account of what was tried, never of what was paid.
+#[tauri::command]
+pub async fn clear_ai_jobs(db: State<'_, AppDb>, work_item_id: i64) -> Result<i64, String> {
+    let conn = db.0.lock().await;
+    ai_job::clear_finished(&conn, work_item_id)
+        .await
+        .map_err(to_message)
+}

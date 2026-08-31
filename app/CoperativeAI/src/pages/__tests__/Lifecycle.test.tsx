@@ -58,6 +58,23 @@ describe("defining the steps", () => {
     expect(screen.getAllByText(/No steps yet/i)).toHaveLength(3);
   });
 
+  /// **Each list is written where it is owned.** Product writes its handover in
+  /// Product Strategy, Develop in Rules, QA beside the Testing Strategy — a
+  /// team editing another team's checklist is what the areas exist to prevent.
+  it("shows only the gate the area owns", async () => {
+    render(<LifecycleSteps productId={7} owner="test" />);
+
+    expect(
+      await screen.findByRole("group", { name: "Before it is ready to release" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("group", { name: "Before Product hands it to Develop" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("group", { name: "Before it is ready for QA" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("adds a step to the gate it was typed into", async () => {
     const user = userEvent.setup();
     mocked.listLifecycleSteps.mockResolvedValue([step({})]);
@@ -165,11 +182,22 @@ describe("a work item's life", () => {
   });
 
   /// A Product that has written no checklist has no gate to fail, and the panel
-  /// says where to write one rather than showing an empty box.
-  it("points at the Rules when no steps are defined", async () => {
-    render(<WorkItemLifecycle workItemId={9} productId={7} area="develop" />);
-    expect(
-      await screen.findByText(/No steps are defined .* Develop → Rules/i),
-    ).toBeInTheDocument();
+  /// says where to write one rather than showing an empty box — each area sent
+  /// to the screen that now holds its own list.
+  it("points each area at the screen that holds its list", async () => {
+    const { unmount } = render(
+      <WorkItemLifecycle workItemId={9} productId={7} area="develop" />,
+    );
+    expect(await screen.findByText(/Develop → Rules/)).toBeInTheDocument();
+    unmount();
+
+    const second = render(
+      <WorkItemLifecycle workItemId={9} productId={7} area="product" />,
+    );
+    expect(await screen.findByText(/Product → Strategy/)).toBeInTheDocument();
+    second.unmount();
+
+    render(<WorkItemLifecycle workItemId={9} productId={7} area="test" />);
+    expect(await screen.findByText(/the Testing Strategy/)).toBeInTheDocument();
   });
 });

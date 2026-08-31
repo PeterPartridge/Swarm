@@ -1,22 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useWorkChanged } from "../../lib/workSignal";
 import { listAiJobs, type AiJob } from "../../lib/backend";
-
-/** When a job stopped, in the shortest form that is still unambiguous. */
-function when(job: AiJob): string {
-  const at = job.finishedAt ?? job.startedAt ?? job.submittedAt;
-  if (!at) return "—";
-  const d = new Date(at);
-  if (Number.isNaN(d.getTime())) return "—";
-  const today = new Date();
-  const sameDay =
-    d.getFullYear() === today.getFullYear() &&
-    d.getMonth() === today.getMonth() &&
-    d.getDate() === today.getDate();
-  return sameDay
-    ? d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
-    : d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
-}
+import { whenStopped } from "../../lib/when";
 
 /** Where agents got stopped — the real version.
  *
@@ -106,7 +91,7 @@ export default function RuleEnforcement({ productId }: { productId: number }) {
               <div className="enforce-top">
                 <span className={`enforce-state ${job.state}`}>{job.state}</span>
                 <span className="enforce-item">{job.workItemTitle}</span>
-                <span className="enforce-when">{when(job)}</span>
+                <span className="enforce-when">{whenStopped(job)}</span>
               </div>
               <p className="enforce-why">
                 {job.message.trim() === "" ? "No reason recorded." : job.message}
