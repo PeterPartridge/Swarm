@@ -3621,3 +3621,133 @@ terminal in the checkout with the command `start_run` handed back.
   Execute: one agent terminal here, not the agent-plus-app pair.
 - Carried: the lifecycle checklist reports but does not enforce; no logging
   outside Develop; no Admin UI for the routing defaults.
+
+## Round 78 — the terminal was being killed, and the agent was being asked
+
+### My Feedback
+
+**It was not dying. It was being killed.** `RunTerminal`'s unmount cleanup
+called `closeTerminal` — so navigating away from the panel ended the shell, and
+with it the agent working in its own checkout. An afternoon's work stopped by
+clicking another tab, with a comment above it reasoning about orphan processes.
+
+The process belongs to the backend, which already knows how to hand one back:
+`list_terminals` says what is live and `attach_terminal` returns its recent
+output. So unmounting now lets go of the *view*; **Close** is what ends the
+shell, which is what a button called Close should mean. On the way back in, the
+widget adopts the shell already running in that checkout rather than starting a
+second — and does **not** retype the command into it, because that would put a
+second agent in a checkout that has one, every time somebody navigated back.
+
+**"The terminal is asking me loads of questions."** That is Claude Code's
+default asking before each tool use, and it is the opposite of what this
+framework is for. `RUN_MODES` now has three, and the default is the middle one:
+
+- ask before everything (Claude Code's default),
+- **write files without asking, stop for anything else** — `--permission-mode
+  acceptEdits`, the default here, because an agent that asks before writing a
+  file in the checkout it was made for is asking about the one thing it was sent
+  to do,
+- never ask — `--dangerously-skip-permissions`, which is a decision somebody
+  makes on purpose. The option says what the flag says, and choosing it prints
+  what it means underneath.
+
+**And several at once is now true across screens.** The runs panel reads the
+terminal registry and adopts any live agent for its runs, so an agent started by
+Execute on a work item appears there too rather than being offered a Start
+button for something already running.
+
+### Implemented
+
+- `RunTerminal`: adopt-or-open, replay the scrollback, type the command only
+  into a shell it started, and never close on unmount.
+- `lib/paths.ts` — `sameFolder`, shared the moment there were two readers: the
+  same folder arrives as `C:/repos/x`, `C:\repos\x` and with a trailing slash,
+  and comparing them as strings starts a duplicate agent rather than erroring.
+- `RUN_MODES`, `agent_run_mode` in settings, and **Admin → AI → How agents run**.
+- The runs panel adopts live agents on every refresh.
+
+### Tests
+
+cargo 714/714 (23 ignored), Vitest 692/692, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean. New: the command builder's three modes
+and its fallback, the three-way picker with its warning, and the runs panel
+picking up an agent it did not start.
+
+### Your Feedback
+
+- **Closing a terminal still ends that agent** — deliberately, because
+  otherwise nothing would.
+- **Two agents in one checkout is still prevented**, now in two places: one
+  worktree per (work item, Solution), and adopt-rather-than-open per folder.
+- **Sub-agents are Claude Code's own business.** This app hands each agent a
+  brief in an isolated checkout; whether that agent spawns sub-agents inside its
+  own run is between it and its configuration, and nothing here constrains it.
+
+### Technical Debt
+
+- The adopted rows in the runs panel carry an empty `command`, so its
+  "restart this one" would have nothing to retype — it does not offer one yet.
+- Carried: the lifecycle checklist reports but does not enforce; no logging
+  outside Develop; no Admin UI for the routing defaults.
+
+## Round 79 — the agent that could not run, and the app that let the shell say so
+
+### My Feedback
+
+**The app is fine; Claude Code is not installed properly on this machine.** Two
+facts, both read off disk rather than guessed:
+
+```
+~/.npmrc                                              os=linux
+…/@anthropic-ai/claude-code/bin/claude.exe   500 bytes, starts with `echo`
+```
+
+That `claude.exe` is not a program — it is the package's own placeholder, whose
+text says the platform-native binary was never downloaded. `os=linux` in the
+npm config is why: npm skipped the win32 optional dependency, so the shim points
+at a stub and PowerShell reports "not a valid application for this OS platform".
+
+**I have not touched the npm config.** It is machine configuration outside this
+app, and `os=linux` is there for some reason I do not know; overriding it per
+command is reversible, editing the file for somebody is not.
+
+**What was wrong on our side is that the app let the shell explain it.** There
+has been a probe for this since Claude Code support went in — `discover` runs
+`--version` against every candidate and says which copy answered and why the
+others did not — and the handover path never asked it. So Execute made a
+checkout, typed a command into a terminal, and the person read a PowerShell
+stack trace.
+
+Execute asks now, **before making anything**: a checkout with nobody in it is
+worse than a refusal. Plan is not stopped by it — planning is an API call from
+this app, while Execute hands a command to a shell — which is why the check
+sits beside `whatIsMissing` rather than inside it.
+
+### Implemented
+
+- The build plan reads `claude_code_status` with the rest of its state, and
+  Execute refuses with the probe's own words plus where to fix it.
+- Never fatal: a probe that cannot run is treated as "fine", because a check
+  that blanks the panel is worse than the thing it checks for.
+
+### Tests
+
+cargo 714/714 (23 ignored), Vitest 693/693, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean. One new: a broken CLI refuses the press
+and starts nothing.
+
+### Your Feedback
+
+- **To fix the install**, either re-run the package's own postinstall or
+  reinstall overriding the platform for that one command. The stub itself prints
+  the first of those.
+- **Admin → AI → Claude Code already tests this** and would have said the same
+  thing — it is the panel the refusal now points at.
+
+### Technical Debt
+
+- Only Execute checks the CLI. The Runs panel's Start hands over the same
+  command and does not.
+- Carried: the lifecycle checklist reports but does not enforce; no logging
+  outside Develop; no Admin UI for the routing defaults.

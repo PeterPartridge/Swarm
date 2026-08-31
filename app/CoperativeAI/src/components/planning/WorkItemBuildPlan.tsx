@@ -8,7 +8,7 @@ import SolutionRepo from "../vcs/SolutionRepo";
 import WorkItemLifecycle from "./WorkItemLifecycle";
 import SectionTabs from "../common/SectionTabs";
 import { reportFailure } from "../../lib/failures";
-import { logEvent } from "../../lib/backend";
+import { claudeCodeStatus, logEvent } from "../../lib/backend";
 import { isPlanned } from "../../lib/plan";
 import { notifyWorkChanged, useWorkChanged } from "../../lib/workSignal";
 import {
@@ -106,6 +106,15 @@ export default function WorkItemBuildPlan({
   /// Whether the AI may touch this item at all — the same walk the backend
   /// gate uses, so the button cannot disagree with what would happen.
   const [permission, setPermission] = useState<AiPermission | null>(null);
+  /// Whether the agent this app hands work to can actually run here, and what
+  /// is wrong when it cannot.
+  ///
+  /// **Because the command it hands over has to be a command this machine can
+  /// run.** A Claude Code install whose npm shim points at a binary for another
+  /// platform turned Execute into a PowerShell stack trace in a terminal — the
+  /// app letting the shell explain something the app already knew how to
+  /// check, and had a probe for.
+  const [agentCli, setAgentCli] = useState<{ ok: boolean; problem: string } | null>(null);
   /// Which side is showing. Develop first: this panel is opened from the
   /// Develop area, and what a developer came here to do is the default.
   const [view, setView] = useState("develop");
@@ -171,6 +180,16 @@ export default function WorkItemBuildPlan({
       setLoadError(null);
     } catch (e) {
       setLoadError(String(e));
+    }
+
+    // Asked separately and never fatally: a probe that cannot run must not
+    // blank the panel, and "we could not check" is treated as "fine" — the
+    // press still refuses on the real error if there is one.
+    try {
+      const cli = await claudeCodeStatus();
+      setAgentCli({ ok: cli.installed, problem: cli.problem });
+    } catch {
+      setAgentCli(null);
     }
   }, [item.id, item.productId]);
 
@@ -299,6 +318,15 @@ export default function WorkItemBuildPlan({
       void logEvent("execute", "refused before starting", why);
       return;
     }
+    // Checked before anything is made: a checkout with nobody in it is worse
+    // than a refusal, and this is the one thing Execute needs that Plan does
+    // not.
+    if (agentProblem !== null) {
+      setActionError(agentProblem);
+      reportFailure("Execute", agentProblem);
+      void logEvent("execute", "refused before starting", agentProblem);
+      return;
+    }
     if (planning !== undefined) {
       const why = `There is already a ${planning.state} job on this item. Wait for it, or clear it under "AI feedback".`;
       setActionError(why);
@@ -400,6 +428,14 @@ export default function WorkItemBuildPlan({
 
   const openQuestions = questions.filter((q) => !q.resolved);
   const missing = whatIsMissing(item, plans, permission);
+  /// **What Execute needs that planning does not: an agent that runs here.**
+  /// Kept out of `whatIsMissing` because Plan does not need it — planning is an
+  /// API call from this app, while Execute hands a command to a shell. Only
+  /// Execute is stopped by it.
+  const agentProblem =
+    agentCli !== null && !agentCli.ok
+      ? `The agent cannot run on this machine: ${agentCli.problem} Fix it in Admin → AI → Claude Code.`
+      : null;
   /// The planning job in flight for this item, if any. Both buttons wait on it:
   /// a second submission while one is running would plan the same item twice
   /// and pay for it twice.

@@ -41,6 +41,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     listWorkItemSteps: vi.fn(),
     setWorkItemStep: vi.fn(),
     logEvent: vi.fn(),
+    claudeCodeStatus: vi.fn(),
     listWorkItemPlans: vi.fn(),
     // The build plan now embeds WorkItemChanges. Leaving these unmocked lets
     // them fall through to the real invoke, which renders an error alert and
@@ -148,6 +149,14 @@ describe("WorkItemBuildPlan", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocked.logEvent.mockResolvedValue(undefined);
+    mocked.claudeCodeStatus.mockResolvedValue({
+      installed: true,
+      version: "1.0.0",
+      path: "C:/claude.exe",
+      problem: "",
+      signedIn: true,
+      authMethod: "subscription",
+    });
     mocked.lifecycleGates.mockResolvedValue([]);
     mocked.listLifecycleSteps.mockResolvedValue([]);
     mocked.listWorkItemSteps.mockResolvedValue([]);
@@ -518,6 +527,14 @@ describe("WorkItemBuildPlan approval", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocked.logEvent.mockResolvedValue(undefined);
+    mocked.claudeCodeStatus.mockResolvedValue({
+      installed: true,
+      version: "1.0.0",
+      path: "C:/claude.exe",
+      problem: "",
+      signedIn: true,
+      authMethod: "subscription",
+    });
     mocked.lifecycleGates.mockResolvedValue([]);
     mocked.listLifecycleSteps.mockResolvedValue([]);
     mocked.listWorkItemSteps.mockResolvedValue([]);
@@ -675,6 +692,14 @@ describe("once there is a plan", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocked.logEvent.mockResolvedValue(undefined);
+    mocked.claudeCodeStatus.mockResolvedValue({
+      installed: true,
+      version: "1.0.0",
+      path: "C:/claude.exe",
+      problem: "",
+      signedIn: true,
+      authMethod: "subscription",
+    });
     mocked.lifecycleGates.mockResolvedValue([]);
     mocked.listLifecycleSteps.mockResolvedValue([]);
     mocked.listWorkItemSteps.mockResolvedValue([]);
@@ -747,6 +772,34 @@ describe("once there is a plan", () => {
     await waitFor(() => expect(mocked.startRun).toHaveBeenCalledWith(12, 3));
     expect(mocked.setPlanApproval).toHaveBeenCalledWith(12, 3, true);
     expect(mocked.generateChangePlan).not.toHaveBeenCalled();
+  });
+
+  /// **The command it hands over has to be a command this machine can run.**
+  /// A broken Claude Code install — an npm shim pointing at a binary for
+  /// another platform — turned Execute into a PowerShell stack trace in a
+  /// terminal, which is the app letting the shell explain a thing the app knew
+  /// how to check.
+  it("refuses when the agent cannot run on this machine, and says so", async () => {
+    const user = userEvent.setup();
+    mocked.listWorkItemPlans.mockResolvedValue([planned]);
+    mocked.claudeCodeStatus.mockResolvedValue({
+      installed: false,
+      version: "",
+      path: "",
+      problem:
+        "Found 1 copy of Claude Code but none of them would run. The last tried: claude.exe — not a valid application for this OS platform",
+      signedIn: false,
+      authMethod: "",
+    });
+    render(<WorkItemBuildPlan item={item} solutions={solutions} />);
+
+    await user.click(await screen.findByLabelText(`Execute ${item.title}`));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /none of them would run/,
+    );
+    // Nothing was started: a checkout with nobody in it is worse than a refusal.
+    expect(mocked.startRun).not.toHaveBeenCalled();
   });
 
   /// **"Execute is not working" — and it was, right up to the last step.** It
@@ -850,6 +903,14 @@ describe("the Git tab", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocked.logEvent.mockResolvedValue(undefined);
+    mocked.claudeCodeStatus.mockResolvedValue({
+      installed: true,
+      version: "1.0.0",
+      path: "C:/claude.exe",
+      problem: "",
+      signedIn: true,
+      authMethod: "subscription",
+    });
     mocked.lifecycleGates.mockResolvedValue([]);
     mocked.listLifecycleSteps.mockResolvedValue([]);
     mocked.listWorkItemSteps.mockResolvedValue([]);
