@@ -218,14 +218,37 @@ pub fn brief_path(work_item_title: &str, attempt: usize) -> String {
     }
 }
 
+/// How much the agent stops to ask.
+///
+/// **The point of the framework is that it does not.** An agent that asks
+/// before every edit is a person doing the work with extra steps — and the
+/// terminal fills with prompts nobody wants to answer. But "never ask" hands a
+/// shell the run of the machine, so it is a decision somebody makes on purpose
+/// rather than a default that arrives with an update.
+///
+/// The middle one is the useful default: file edits inside the run's own
+/// checkout go through without asking, and anything else still stops.
+pub const RUN_MODES: &[(&str, &str)] = &[
+    ("ask", "Ask before everything (Claude Code's default)"),
+    ("acceptEdits", "Write files without asking; stop for anything else"),
+    ("never", "Never ask — the agent runs unattended"),
+];
+
 /// The command that runs this brief through Claude Code.
 ///
-/// Shown rather than executed. Spawning it would make the app responsible for
-/// a long-running interactive process it cannot supervise, and would still not
-/// tell it what the run cost — so the honest arrangement is to prepare the work
-/// properly and hand it over in the open.
-pub fn suggested_command(brief_rel_path: &str) -> String {
-    format!("claude \"Read {brief_rel_path} and implement it.\"")
+/// Shown and typed into a terminal rather than spawned behind the app: a
+/// long-running interactive process the app cannot supervise is not something
+/// to hide, and the scrollback is where somebody watches what an agent did.
+pub fn suggested_command(brief_rel_path: &str, mode: &str) -> String {
+    let flags = match mode {
+        "acceptEdits" => " --permission-mode acceptEdits",
+        // The flag says what it is. An agent that never asks can run anything
+        // the shell can, which is why this is not the default and why the
+        // setting that turns it on says so in the same words.
+        "never" => " --dangerously-skip-permissions",
+        _ => "",
+    };
+    format!("claude{flags} \"Read {brief_rel_path} and implement it.\"")
 }
 
 #[cfg(test)]
@@ -429,6 +452,12 @@ mod tests {
             brief_path("Add checkout!", 3),
             ".coperativeai/briefs/add-checkout-attempt-3.md"
         );
-        assert!(suggested_command(".coperativeai/briefs/add-checkout.md").starts_with("claude "));
+        assert!(suggested_command(".coperativeai/briefs/add-checkout.md", "ask").starts_with("claude \""));
+        // The two that exist to stop the terminal asking, and the flag each
+        // one turns into.
+        assert!(suggested_command("b.md", "acceptEdits").contains("--permission-mode acceptEdits"));
+        assert!(suggested_command("b.md", "never").contains("--dangerously-skip-permissions"));
+        // An unknown mode asks, because the safe end is the one to fall back to.
+        assert!(!suggested_command("b.md", "nonsense").contains("--"));
     }
 }

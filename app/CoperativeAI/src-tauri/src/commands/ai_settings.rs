@@ -427,3 +427,31 @@ pub async fn test_ai_provider(db: State<'_, AppDb>, id: i64) -> Result<String, S
     client::test_connection(&base_url, &key, &model).await?;
     Ok(format!("Connection OK ({model})"))
 }
+
+/// The three ways an agent can be run, for the picker in Admin.
+#[tauri::command]
+pub fn agent_run_modes() -> Vec<(String, String)> {
+    crate::agent::handover::RUN_MODES
+        .iter()
+        .map(|(id, label)| ((*id).to_string(), (*label).to_string()))
+        .collect()
+}
+
+#[tauri::command]
+pub async fn get_agent_run_mode(db: State<'_, AppDb>) -> Result<String, String> {
+    let conn = db.0.lock().await;
+    crate::db::system_setting::agent_run_mode(&conn)
+        .await
+        .map_err(to_message)
+}
+
+/// **A deliberate press, not a default that arrives with an update.** "Never
+/// ask" hands a shell the run of the machine; the option says so in the words
+/// the flag uses, and the setting is somebody choosing it.
+#[tauri::command]
+pub async fn set_agent_run_mode(db: State<'_, AppDb>, mode: String) -> Result<(), String> {
+    let conn = db.0.lock().await;
+    crate::db::system_setting::set_agent_run_mode(&conn, &mode)
+        .await
+        .map_err(to_message)
+}

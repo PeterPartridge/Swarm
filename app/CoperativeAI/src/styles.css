@@ -9123,3 +9123,20 @@ button.ready-action.link:hover {
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
+
+.run-mode-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.82rem;
+}
+
+.run-mode-list label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.hint.warn {
+  color: var(--warn);
+}

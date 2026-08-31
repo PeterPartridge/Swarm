@@ -1,3 +1,4 @@
+import AgentRunMode from "../components/ai/AgentRunMode";
 import AppLogPanel from "../components/ai/AppLogPanel";
 import SectionTabs from "../components/common/SectionTabs";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
@@ -200,6 +201,9 @@ export default function AdminArea() {
           {policyProduct !== "" && <ClaudeSetup productId={Number(policyProduct)} />}
           <ModelInstalls productId={policyProduct === "" ? null : Number(policyProduct)} />
           <AiConcurrencySetting />
+          {/* Beside the concurrency: both are about how work actually runs,
+              rather than about who may ask for it. */}
+          <AgentRunMode />
           {products.length === 0 ? (
             <p className="hint">
               No Products yet — the per-Product AI policies appear once there is

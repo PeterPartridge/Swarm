@@ -2901,3 +2901,14 @@ export interface BuildInfo {
 }
 
 export const appBuild = (): Promise<BuildInfo> => invoke("app_build");
+
+/** How much an agent stops to ask while it works. The middle one is the
+ *  default: an agent that asks before writing a file in the checkout it was
+ *  made for is asking about the one thing it was sent there to do. */
+export const agentRunModes = (): Promise<[string, string][]> =>
+  invoke("agent_run_modes");
+
+export const getAgentRunMode = (): Promise<string> => invoke("get_agent_run_mode");
+
+export const setAgentRunMode = (mode: string): Promise<void> =>
+  invoke("set_agent_run_mode", { mode });

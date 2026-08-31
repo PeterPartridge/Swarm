@@ -14,6 +14,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     getAiConcurrency: vi.fn(),
     submitForPlanning: vi.fn(),
     listRuns: vi.fn(),
+    listTerminals: vi.fn(),
     startRun: vi.fn(),
     discardRunWorktree: vi.fn(),
     listAbandonedWorktrees: vi.fn(),
@@ -69,6 +70,7 @@ const run = (over: Partial<Run> = {}): Run => ({
 describe("JobsPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocked.listTerminals.mockResolvedValue([]);
     mocked.getAiConcurrency.mockResolvedValue({ limit: 1, available: 1 });
   });
 
@@ -106,6 +108,7 @@ describe("JobsPanel", () => {
 describe("RunsPanel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocked.listTerminals.mockResolvedValue([]);
     mocked.listAbandonedWorktrees.mockResolvedValue([]);
   });
 
@@ -380,11 +383,39 @@ describe("RunsPanel", () => {
     expect(mocked.startRun).toHaveBeenCalledWith(9, 3);
     expect(mocked.startRun).toHaveBeenCalledWith(10, 3);
   });
+
+  /// **Several agents at once, wherever each was started.** A run launched by
+  /// Execute on a work item keeps going when that panel closes — the shell is
+  /// the backend’s — so this panel picks it up rather than offering Start for
+  /// something already running.
+  it("picks up an agent started somewhere else", async () => {
+    mocked.listRuns.mockResolvedValue([
+      run({ id: 3, state: "prepared", worktreePath: "C:/wt/checkout" }),
+    ]);
+    mocked.listTerminals.mockResolvedValue([
+      {
+        id: "t1",
+        solutionId: 3,
+        shell: "pwsh",
+        // The same folder as the run's, spelled the way Windows hands it back —
+        // which is the whole reason the comparison is not `===`.
+        cwd: "C:\\wt\\checkout",
+        startedAt: 1,
+      },
+    ]);
+    render(<RunsPanel productId={7} />);
+
+    // Its terminal is on screen without anybody pressing Start here.
+    expect(await screen.findByTestId("run-terminal")).toBeInTheDocument();
+    expect(mocked.startRun).not.toHaveBeenCalled();
+  });
+
 });
 
 describe("RunsPanel and the approval gate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocked.listTerminals.mockResolvedValue([]);
     mocked.listAbandonedWorktrees.mockResolvedValue([]);
   });
 
@@ -422,6 +453,7 @@ describe("RunsPanel and the approval gate", () => {
 describe("JobsPanel cancelling", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocked.listTerminals.mockResolvedValue([]);
     mocked.getAiConcurrency.mockResolvedValue({ limit: 1, available: 0 });
   });
 

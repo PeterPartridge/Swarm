@@ -3,6 +3,7 @@ import Notice, { type NoticeValue } from "../ai/Notice";
 import WorkItemChanges from "../code/WorkItemChanges";
 import AiPlanReview from "./AiPlanReview";
 import FromProduct from "./FromProduct";
+import RunTerminal from "../code/RunTerminal";
 import SolutionRepo from "../vcs/SolutionRepo";
 import WorkItemLifecycle from "./WorkItemLifecycle";
 import SectionTabs from "../common/SectionTabs";
@@ -131,6 +132,24 @@ export default function WorkItemBuildPlan({
   const [files, setFiles] = useState<
     { written: string[] } | { blocked: string } | null
   >(null);
+  /// The agents this press started, each with the checkout it is working in and
+  /// the command running there.
+  ///
+  /// **This is what Execute was missing.** `start_run` *prepares*: it approves
+  /// the plan, makes the worktree, writes the brief and hands back the command
+  /// — and the caller is what runs it. The Runs panel had always opened a
+  /// terminal on the result; this press threw it away, so the checkout appeared
+  /// on disk, no agent ever started, and the screen showed nothing at all while
+  /// the notice claimed one was working.
+  const [agents, setAgents] = useState<
+    {
+      runId: number;
+      solutionId: number;
+      worktreePath: string;
+      command: string;
+      title: string;
+    }[]
+  >([]);
 
   const refresh = useCallback(async () => {
     try {
@@ -329,7 +348,24 @@ export default function WorkItemBuildPlan({
       for (const p of fresh) {
         try {
           await setPlanApproval(item.id, p.solutionId, true);
-          await startRun(item.id, p.solutionId);
+          const run = await startRun(item.id, p.solutionId);
+          // Kept, and opened below: this is the half that turns a prepared
+          // checkout into an agent actually working in it.
+          setAgents((held) => [
+            ...held.filter((a) => a.runId !== run.runId),
+            {
+              runId: run.runId,
+              solutionId: p.solutionId,
+              worktreePath: run.worktreePath,
+              command: run.command,
+              title: `${item.title} → ${p.solutionName}`,
+            },
+          ]);
+          void logEvent(
+            "execute",
+            `started run ${run.runId} on ${run.branch}`,
+            run.command,
+          );
           started.push(p.solutionName);
         } catch (e) {
           refused.push(`${p.solutionName}: ${String(e)}`);
@@ -338,7 +374,7 @@ export default function WorkItemBuildPlan({
       setNotice(
         started.length === 0
           ? null
-          : `${planned ? "Approved and started" : "Planned, approved and started"} on ${started.join(", ")}. The agent is working in its own checkout — follow it on the Runs panel.`,
+          : `${planned ? "Approved and started" : "Planned, approved and started"} on ${started.join(", ")}. Its agent is running in its own checkout, in the terminal below.`,
       );
       if (refused.length > 0) {
         const message = refused.join(" · ");
@@ -629,6 +665,24 @@ export default function WorkItemBuildPlan({
           </span>
         )}
       </div>
+
+      {/* **The agent, actually running, where it was started from.** A terminal
+          per Solution, in that Solution's own checkout — several at once is
+          what "two agents on one work item" looks like. Closing one leaves the
+          checkout and the branch: the run is a record in the database, not this
+          panel's state. */}
+      {agents.map((agent) => (
+        <RunTerminal
+          key={agent.runId}
+          solutionId={agent.solutionId}
+          worktreePath={agent.worktreePath}
+          command={agent.command}
+          title={agent.title}
+          onClose={() =>
+            setAgents((held) => held.filter((a) => a.runId !== agent.runId))
+          }
+        />
+      ))}
     </section>
   );
 }

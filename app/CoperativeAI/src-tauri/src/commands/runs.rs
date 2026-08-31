@@ -149,6 +149,12 @@ pub(crate) async fn prepare_run(
 ) -> Result<StartedRun, String> {
     use crate::agent::handover;
 
+    // How much the agent stops to ask, read once here: the command is built
+    // below and the setting is one place, so a run cannot disagree with what
+    // Admin says.
+    let run_mode = crate::db::system_setting::agent_run_mode(conn)
+        .await
+        .unwrap_or_else(|_| "acceptEdits".into());
     let (root, branch, clone_from, brief, brief_path, attempt, run_start) = {
         let Some(plan) = work_item_plan::list_for_item(conn, work_item_id)
             .await
@@ -274,7 +280,7 @@ pub(crate) async fn prepare_run(
         run_id,
         worktree_path: worktree,
         branch,
-        command: handover::suggested_command(&brief_path),
+        command: handover::suggested_command(&brief_path, &run_mode),
         brief_path,
         run_start,
     })

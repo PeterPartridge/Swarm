@@ -20,6 +20,16 @@ function Probe() {
 }
 import type { Solution, WorkItem, WorkItemPlan } from "../../lib/backend";
 
+// Stubbed: it opens a real PTY, and what these tests are about is whether
+// Execute opens one at all and with what.
+vi.mock("../../components/code/RunTerminal", () => ({
+  default: ({ command, title }: { command: string; title: string }) => (
+    <div>
+      terminal for {title}: {command}
+    </div>
+  ),
+}));
+
 vi.mock("../../lib/backend", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../lib/backend")>();
   return {
@@ -737,6 +747,32 @@ describe("once there is a plan", () => {
     await waitFor(() => expect(mocked.startRun).toHaveBeenCalledWith(12, 3));
     expect(mocked.setPlanApproval).toHaveBeenCalledWith(12, 3, true);
     expect(mocked.generateChangePlan).not.toHaveBeenCalled();
+  });
+
+  /// **"Execute is not working" — and it was, right up to the last step.** It
+  /// approved the plan, made the worktree and wrote the brief, then threw the
+  /// result away: `start_run` *prepares* a checkout and hands back the command,
+  /// and the caller is what runs it. The Runs panel had always done that; this
+  /// press had not, so no agent was ever started and the screen showed nothing
+  /// — while the notice claimed one was working.
+  it("starts the agent in the checkout, not just the checkout", async () => {
+    const user = userEvent.setup();
+    mocked.listWorkItemPlans.mockResolvedValue([planned]);
+    mocked.startRun.mockResolvedValue({
+      runId: 4,
+      worktreePath: "C:/wt/checkout",
+      briefPath: ".coperativeai/briefs/add-checkout.md",
+      branch: "feature/12-add-checkout",
+      command: 'claude "Read .coperativeai/briefs/add-checkout.md and implement it."',
+      runStart: "",
+    });
+    render(<WorkItemBuildPlan item={item} solutions={solutions} />);
+
+    await user.click(await screen.findByLabelText(`Execute ${item.title}`));
+
+    const terminal = await screen.findByText(/terminal for/);
+    expect(terminal).toHaveTextContent(/Shop API/);
+    expect(terminal).toHaveTextContent(/claude "Read/);
   });
 
   /// **One work item, two repositories, and only one of them broken.** The loop

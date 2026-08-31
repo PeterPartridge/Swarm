@@ -102,6 +102,31 @@ pub const AI_CONCURRENCY_MAX: i64 = 8;
 /// bills for somebody else's hardware just as surely. Turning it on is the
 /// deliberate act that opts into being charged.
 pub const API_USAGE_KEY: &str = "allowPaidApiCalls";
+const AGENT_RUN_MODE_KEY: &str = "agentRunMode";
+
+/// How much the agent stops to ask — see `agent::handover::RUN_MODES`.
+///
+/// **Defaults to the middle one, not to Claude Code's default.** This app
+/// exists to hand work to agents, and an agent that asks before writing a file
+/// in the checkout it was made for is asking about the one thing it was sent
+/// there to do. It still stops for everything that is not an edit.
+pub async fn agent_run_mode(conn: &Connection) -> Result<String> {
+    Ok(match get(conn, AGENT_RUN_MODE_KEY).await? {
+        Some(json) => serde_json::from_str::<String>(&json).unwrap_or_else(|_| "acceptEdits".into()),
+        None => "acceptEdits".into(),
+    })
+}
+
+pub async fn set_agent_run_mode(conn: &Connection, mode: &str) -> Result<()> {
+    if !crate::agent::handover::RUN_MODES.iter().any(|(id, _)| *id == mode) {
+        let ids: Vec<&str> = crate::agent::handover::RUN_MODES.iter().map(|(id, _)| *id).collect();
+        return Err(crate::db::DbError::Validation(format!(
+            "run mode must be one of {ids:?}, got '{mode}'"
+        )));
+    }
+    let json = serde_json::to_string(mode).expect("string serialize");
+    set(conn, AGENT_RUN_MODE_KEY, &json).await
+}
 
 pub async fn paid_api_allowed(conn: &Connection) -> Result<bool> {
     Ok(match get(conn, API_USAGE_KEY).await? {

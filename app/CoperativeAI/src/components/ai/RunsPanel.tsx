@@ -4,6 +4,7 @@ import {
   discardRunWorktree,
   listAbandonedWorktrees,
   listRuns,
+  listTerminals,
   mergeRunBranch,
   previewRunMerge,
   removeWorktreeAt,
@@ -14,6 +15,7 @@ import {
   type Run,
 } from "../../lib/backend";
 import RunTerminal from "../code/RunTerminal";
+import { sameFolder } from "../../lib/paths";
 import { notifyWorkChanged, useWorkChanged } from "../../lib/workSignal";
 
 /** A run started this session: its own worktree terminal and the command to run
@@ -142,11 +144,47 @@ export default function RunsPanel({ productId }: { productId: number }) {
   const [merges, setMerges] = useState<Record<number, MergeInfo>>({});
 
   const refresh = useCallback(async () => {
+    let loaded: Run[] = [];
     try {
-      setRuns(await listRuns(productId));
+      loaded = await listRuns(productId);
+      setRuns(loaded);
       setError(null);
     } catch (e) {
       setError(String(e));
+    }
+
+    // **Every agent that is live, wherever it was started from.** A run started
+    // by Execute on a work item keeps going when that panel is closed — the
+    // shell lives in the backend — so this panel picks it up rather than
+    // offering Start for something already running. That is what "several
+    // agents at once" looks like from here: one list, whichever screen each was
+    // launched from.
+    try {
+      const live = await listTerminals();
+      setStarted((held) => {
+        const next = [...held];
+        for (const run of loaded) {
+          if (!run.worktreePath || next.some((s) => s.runId === run.id)) continue;
+          const shell = live.find(
+            (l) => l.solutionId === run.solutionId && sameFolder(l.cwd, run.worktreePath),
+          );
+          if (!shell) continue;
+          next.push({
+            runId: run.id,
+            solutionId: run.solutionId,
+            worktreePath: run.worktreePath,
+            // Nothing is retyped into a shell that is already running — the
+            // terminal knows it adopted one — so what matters is that the row
+            // exists and points at the right checkout.
+            command: "",
+            runStart: "",
+            title: `${run.workItemTitle} → ${run.solutionName}`,
+          });
+        }
+        return next;
+      });
+    } catch {
+      // A registry that cannot be read costs the adoption, not the panel.
     }
     // Separately, and never fatal: leftovers are a tidiness question, and
     // failing to read them must not blank the runs this panel is actually for.

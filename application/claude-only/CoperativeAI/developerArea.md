@@ -3567,3 +3567,57 @@ asserting the standard library.
 - Carried: the lifecycle checklist reports but does not enforce; no logging
   outside Develop; no Admin UI for the routing defaults; the boundary test
   compares argument names but not DTO shapes.
+
+## Round 77 — Execute prepared everything and never started the agent
+
+### My Feedback
+
+**It was working right up to the last step, and the last step was missing.**
+`start_run` *prepares*: it approves the plan, makes the worktree, writes the
+brief into it, records the run — and hands back `{ worktreePath, command }`.
+**The caller is what runs the command.** `RunsPanel` had always done that,
+opening a `RunTerminal` on the result. `onExecute` called `startRun` and threw
+the result away.
+
+So Execute did five of six things, silently and correctly, and never started an
+agent. On screen: nothing. And my own notice said "The agent is working in its
+own checkout — follow it on the Runs panel", which was false twice over —
+nothing was working, and the Runs panel had nothing to follow.
+
+**This is the bug behind every "Execute is not working" in this thread.** The
+stale binary was real and had to be fixed first, but it was hiding this: even on
+today's build, the press would have looked like nothing.
+
+**"Is it to do with the AI working in its own file space?"** — that was the
+right instinct. The file space was made; nobody was put in it.
+
+### Implemented
+
+- **`onExecute` keeps what `startRun` returns** and opens a `RunTerminal` per
+  Solution, in that Solution's checkout, running the handover command — several
+  at once, which is what two agents on one work item looks like.
+- **The notice tells the truth**: "Its agent is running in its own checkout, in
+  the terminal below."
+- **The started run is logged** with its id, branch and command, so the activity
+  log shows the last step as well as the first five.
+
+### Tests
+
+cargo 714/714 (23 ignored), Vitest 688/688, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean. One new, red first: Execute opens a
+terminal in the checkout with the command `start_run` handed back.
+
+### Your Feedback
+
+- **Closing a terminal does not stop the run.** The run is a row in the
+  database and the branch is on disk; closing the panel closes the view of it.
+- **The Runs panel still starts agents too.** Two doors into the same command
+  is deliberate — Execute is the one on the work item, Start is the one on the
+  queue — and both now do the same thing.
+
+### Technical Debt
+
+- The dev-server terminal (`runStart`) is opened by the Runs panel but not by
+  Execute: one agent terminal here, not the agent-plus-app pair.
+- Carried: the lifecycle checklist reports but does not enforce; no logging
+  outside Develop; no Admin UI for the routing defaults.

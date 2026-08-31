@@ -511,13 +511,16 @@ pub async fn prepare_handover(
     )?;
 
     let conn = db.0.lock().await;
+    let run_mode = crate::db::system_setting::agent_run_mode(&conn)
+        .await
+        .unwrap_or_else(|_| "acceptEdits".into());
     let run_id = crate::db::change_run::prepare(&conn, work_item_id, solution_id, &brief_path)
         .await
         .map_err(to_message)?;
 
     Ok(HandoverDto {
         run_id,
-        command: crate::agent::handover::suggested_command(&brief_path),
+        command: crate::agent::handover::suggested_command(&brief_path, &run_mode),
         brief_path,
         brief,
     })
