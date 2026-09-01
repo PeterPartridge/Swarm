@@ -169,13 +169,20 @@ describe("the AI feedback panel", () => {
   /// every attempt, including ones from before whatever was wrong got fixed —
   /// undated, an old refusal is indistinguishable from a current one.
   it("says when each one happened", async () => {
-    mocked.listAiJobs.mockResolvedValue([
-      job({ id: 1, submittedAt: new Date("2026-03-04T09:00:00").getTime() }),
-    ]);
+    const at = new Date("2026-03-04T09:00:00");
+    mocked.listAiJobs.mockResolvedValue([job({ id: 1, submittedAt: at.getTime() })]);
     render(<AiFeedbackPanel workItemId={9} productId={7} />);
 
+    // **The date in the reader's own locale, not in mine.** This asserted
+    // "4 Mar" and passed on an en-GB laptop while failing on an en-US runner,
+    // where the same day is "Mar 4" — a green suite locally and a red pipeline,
+    // over a difference the app is right to have. What is worth pinning is that
+    // the row carries *that* day, short, however the reader's machine writes
+    // it.
+    const short = at.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+    expect(short).not.toBe("—");
     const failures = await screen.findByRole("list", { name: "Attempts that failed" });
-    expect(failures).toHaveTextContent(/4 Mar/);
+    expect(failures).toHaveTextContent(short);
   });
 
   /// **Old attempts are noise once they are fixed, and only a person can say

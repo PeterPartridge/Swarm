@@ -3873,3 +3873,53 @@ view.
 - Carried: the lifecycle checklist reports but does not enforce; no logging
   outside Develop; no Admin UI for the routing defaults; only Execute checks the
   agent CLI.
+
+## Round 82 — green here, red there: a test that asserted my locale
+
+### My Feedback
+
+**The pipeline was right and the test was wrong.** One assertion read
+
+```
+expect(failures).toHaveTextContent(/4 Mar/);
+```
+
+which is how an `en-GB` machine writes that day. The runner is `en-US`, where
+the same date is `Mar 4` — so the suite was green on this laptop and red in CI
+over a difference the app is *right* to have: the failure list is dated in the
+reader's own locale, and pinning one spelling of that pinned my machine's
+settings as the behaviour.
+
+The test now formats the same day with the same `Intl` call the component uses
+and asserts the row carries *that*, plus that it is not the "—" fallback. It
+still fails if the date goes missing, which is the thing worth guarding, and it
+passes wherever it is run.
+
+**Checked the rest rather than fixing the one that was reported.** The only
+other locale-shaped assertions are the money ones, and `formatMoney` builds its
+string with `toFixed` rather than `Intl`, so they are the same everywhere. No
+test asserts a clock time, so nothing is timezone-sensitive either — the runner
+is UTC and this laptop is not.
+
+### Implemented
+
+- One locale-independent date assertion, with the reason written beside it.
+
+### Tests
+
+cargo 719/719 (23 ignored), Vitest 702/702, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean — and now green on an `en-US` runner as
+well, which is the half that was failing.
+
+### Your Feedback
+
+- **Nothing stops the next one.** A rule that catches "this assertion depends on
+  the machine's locale" would need a lint, and one has not been written; what
+  exists is a comment on the test explaining why the obvious version is wrong.
+
+### Technical Debt
+
+- No guard against locale-dependent assertions (above).
+- Carried: no "run the regression suite" action; the lifecycle checklist reports
+  but does not enforce; no logging outside Develop; no Admin UI for the routing
+  defaults.
