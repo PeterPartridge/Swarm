@@ -3751,3 +3751,52 @@ and starts nothing.
   command and does not.
 - Carried: the lifecycle checklist reports but does not enforce; no logging
   outside Develop; no Admin UI for the routing defaults.
+
+## Round 80 — the agent was not gone, it was not being looked for
+
+### My Feedback
+
+**The shell survives; the view did not.** Round 78 stopped `RunTerminal` from
+closing its PTY on unmount, so navigating away no longer kills the agent — but
+the build plan holds its list of started agents in component state, and a panel
+that unmounts rebuilds itself empty. So coming back showed no terminal, and an
+agent that was still working looked as if it had been killed.
+
+It now does what the runs panel learned to do in round 78: read this item's runs
+and the live terminal registry, and adopt any shell running in a run's checkout.
+Nothing is retyped into an adopted shell — that rule already lives in
+`RunTerminal` — so re-opening the panel picks the agent back up rather than
+starting a second one beside it.
+
+**Both readers now share `sameFolder`**, which is why that moved to `lib/paths`
+last round: git says `C:/repos/x`, the registry says `C:\repos\x`, and comparing
+them as strings would have found nothing and started a duplicate agent.
+
+### Implemented
+
+- The build plan adopts live agents on every refresh, keyed by run id.
+- Its refresh depends on `item.title` now, because the adopted row is labelled
+  with it.
+
+### Tests
+
+cargo 714/714 (23 ignored), Vitest 694/694, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean. One new, red first: reopening the panel
+shows an agent that is still running, and starts nothing.
+
+### Your Feedback
+
+- **The Claude Code install is fixed on this machine** — the binary is a real
+  217 MB Windows executable now and answers `2.1.252`. The error pasted after
+  the reinstall was from a shell started before it.
+- **`os=linux` is still in `~/.npmrc`.** This install works; the next global
+  install of anything with platform-native binaries will hit the same wall. I
+  have left the file alone deliberately.
+
+### Technical Debt
+
+- Adopted rows carry an empty command, so neither panel can offer "run it
+  again" for one — it would have nothing to type.
+- Carried: the lifecycle checklist reports but does not enforce; no logging
+  outside Develop; no Admin UI for the routing defaults; only Execute checks the
+  agent CLI.

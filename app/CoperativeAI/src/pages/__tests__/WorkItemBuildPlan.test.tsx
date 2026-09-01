@@ -42,6 +42,8 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     setWorkItemStep: vi.fn(),
     logEvent: vi.fn(),
     claudeCodeStatus: vi.fn(),
+    listRuns: vi.fn(),
+    listTerminals: vi.fn(),
     listWorkItemPlans: vi.fn(),
     // The build plan now embeds WorkItemChanges. Leaving these unmocked lets
     // them fall through to the real invoke, which renders an error alert and
@@ -149,6 +151,8 @@ describe("WorkItemBuildPlan", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocked.logEvent.mockResolvedValue(undefined);
+    mocked.listRuns.mockResolvedValue([]);
+    mocked.listTerminals.mockResolvedValue([]);
     mocked.claudeCodeStatus.mockResolvedValue({
       installed: true,
       version: "1.0.0",
@@ -527,6 +531,8 @@ describe("WorkItemBuildPlan approval", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocked.logEvent.mockResolvedValue(undefined);
+    mocked.listRuns.mockResolvedValue([]);
+    mocked.listTerminals.mockResolvedValue([]);
     mocked.claudeCodeStatus.mockResolvedValue({
       installed: true,
       version: "1.0.0",
@@ -692,6 +698,8 @@ describe("once there is a plan", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocked.logEvent.mockResolvedValue(undefined);
+    mocked.listRuns.mockResolvedValue([]);
+    mocked.listTerminals.mockResolvedValue([]);
     mocked.claudeCodeStatus.mockResolvedValue({
       installed: true,
       version: "1.0.0",
@@ -772,6 +780,45 @@ describe("once there is a plan", () => {
     await waitFor(() => expect(mocked.startRun).toHaveBeenCalledWith(12, 3));
     expect(mocked.setPlanApproval).toHaveBeenCalledWith(12, 3, true);
     expect(mocked.generateChangePlan).not.toHaveBeenCalled();
+  });
+
+  /// **Navigating away must not take the agent with it.** The shell keeps
+  /// running — it belongs to the backend — but this panel rebuilt itself empty
+  /// every time it was mounted, so coming back showed no terminal and the agent
+  /// looked gone. It picks up what is live for this item instead.
+  it("shows an agent that is still running when the panel is reopened", async () => {
+    mocked.listWorkItemPlans.mockResolvedValue([planned]);
+    mocked.listRuns.mockResolvedValue([
+      {
+        id: 4,
+        workItemId: 12,
+        workItemTitle: "Add checkout",
+        solutionId: 3,
+        solutionName: "Shop API",
+        state: "prepared",
+        branch: "feature/12",
+        worktreePath: "C:/wt/checkout",
+        terminalId: "",
+        briefPath: "b.md",
+        filesChanged: 0,
+        planApproved: true,
+      },
+    ]);
+    mocked.listTerminals.mockResolvedValue([
+      {
+        id: "t1",
+        solutionId: 3,
+        shell: "pwsh",
+        // Windows hands the same folder back with its own slashes.
+        cwd: "C:\\wt\\checkout",
+        startedAt: 1,
+      },
+    ]);
+    render(<WorkItemBuildPlan item={item} solutions={solutions} />);
+
+    // Nobody pressed Execute — this is the agent that was already working.
+    expect(await screen.findByText(/terminal for/)).toHaveTextContent(/Shop API/);
+    expect(mocked.startRun).not.toHaveBeenCalled();
   });
 
   /// **The command it hands over has to be a command this machine can run.**
@@ -903,6 +950,8 @@ describe("the Git tab", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocked.logEvent.mockResolvedValue(undefined);
+    mocked.listRuns.mockResolvedValue([]);
+    mocked.listTerminals.mockResolvedValue([]);
     mocked.claudeCodeStatus.mockResolvedValue({
       installed: true,
       version: "1.0.0",
