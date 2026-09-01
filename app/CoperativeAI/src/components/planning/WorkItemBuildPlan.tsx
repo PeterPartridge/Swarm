@@ -9,7 +9,7 @@ import WorkItemLifecycle from "./WorkItemLifecycle";
 import SectionTabs from "../common/SectionTabs";
 import { reportFailure } from "../../lib/failures";
 import { claudeCodeStatus, logEvent } from "../../lib/backend";
-import { sameFolder } from "../../lib/paths";
+import { adoptRunning } from "../../lib/agents";
 import { isPlanned } from "../../lib/plan";
 import { notifyWorkChanged, useWorkChanged } from "../../lib/workSignal";
 import {
@@ -201,27 +201,14 @@ export default function WorkItemBuildPlan({
     // and the agent looked gone. It is not gone; it was never being looked for.
     try {
       const [runs, live] = await Promise.all([listRuns(item.productId), listTerminals()]);
-      setAgents((held) => {
-        const next = [...held];
-        for (const run of runs.filter((r) => r.workItemId === item.id && r.worktreePath)) {
-          if (next.some((a) => a.runId === run.id)) continue;
-          const shell = live.find(
-            (l) => l.solutionId === run.solutionId && sameFolder(l.cwd, run.worktreePath),
-          );
-          if (!shell) continue;
-          next.push({
-            runId: run.id,
-            solutionId: run.solutionId,
-            worktreePath: run.worktreePath,
-            // Nothing is typed into a shell that is already running — the
-            // terminal knows it adopted one — so the command is not needed to
-            // put the row back.
-            command: "",
-            title: `${item.title} → ${run.solutionName}`,
-          });
-        }
-        return next;
-      });
+      setAgents((held) =>
+        adoptRunning(
+          runs.filter((r) => r.workItemId === item.id),
+          live,
+          held,
+          (run) => `${item.title} → ${run.solutionName}`,
+        ),
+      );
     } catch {
       // Losing the adoption costs the view of a running agent, not the panel.
     }

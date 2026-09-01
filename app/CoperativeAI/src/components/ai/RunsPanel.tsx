@@ -15,7 +15,7 @@ import {
   type Run,
 } from "../../lib/backend";
 import RunTerminal from "../code/RunTerminal";
-import { sameFolder } from "../../lib/paths";
+import { adoptRunning } from "../../lib/agents";
 import { notifyWorkChanged, useWorkChanged } from "../../lib/workSignal";
 
 /** A run started this session: its own worktree terminal and the command to run
@@ -161,28 +161,14 @@ export default function RunsPanel({ productId }: { productId: number }) {
     // launched from.
     try {
       const live = await listTerminals();
-      setStarted((held) => {
-        const next = [...held];
-        for (const run of loaded) {
-          if (!run.worktreePath || next.some((s) => s.runId === run.id)) continue;
-          const shell = live.find(
-            (l) => l.solutionId === run.solutionId && sameFolder(l.cwd, run.worktreePath),
-          );
-          if (!shell) continue;
-          next.push({
-            runId: run.id,
-            solutionId: run.solutionId,
-            worktreePath: run.worktreePath,
-            // Nothing is retyped into a shell that is already running — the
-            // terminal knows it adopted one — so what matters is that the row
-            // exists and points at the right checkout.
-            command: "",
-            runStart: "",
-            title: `${run.workItemTitle} → ${run.solutionName}`,
-          });
-        }
-        return next;
-      });
+      setStarted((held) =>
+        adoptRunning(
+          loaded,
+          live,
+          held,
+          (r) => `${r.workItemTitle} → ${r.solutionName}`,
+        ).map((a) => ({ ...a, runStart: held.find((h) => h.runId === a.runId)?.runStart ?? "" })),
+      );
     } catch {
       // A registry that cannot be read costs the adoption, not the panel.
     }
