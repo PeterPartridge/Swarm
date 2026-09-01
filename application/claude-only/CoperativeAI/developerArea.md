@@ -3800,3 +3800,76 @@ shows an agent that is still running, and starts nothing.
 - Carried: the lifecycle checklist reports but does not enforce; no logging
   outside Develop; no Admin UI for the routing defaults; only Execute checks the
   agent CLI.
+
+## Round 81 — the reuse audit, and QA's tests
+
+### My Feedback
+
+**"Are we using reusable components?" — measured, not asserted.** Counting
+non-test files that import each component:
+
+```
+SectionTabs 7 · Notice 6 · AgentLane 6 · TerminalPanel 5 · BlockedNote 4
+WorkItemLifecycle / WorkItemChanges / SolutionRepo / RunTerminal /
+LifecycleSteps / FolderField / AiFeedbackPanel / WorkItemBuildPlan 3 each
+```
+
+and the pure modules under `lib`: `workSignal` 12, `permissions` 9,
+`debuggers` 4, `breakpoints` 4, then `plan`, `paths`, `failures`, `theme`,
+`saving` at 3 and `when` at 2. That is a real shared layer rather than a folder
+of one-offs.
+
+**The audit found one duplication and it was mine.** The runs panel and the
+build plan each worked out which runs already have a live shell, in twenty near
+identical lines. That is not a cosmetic repeat: the cost of the two drifting is
+a *second agent started in a checkout that already has one*.
+`lib/agents::adoptRunning` is the one rule now, pure and tested.
+
+**QA's tests, in the component that already knew how to run them.** `TestCases`
+takes an optional `workItemId`: it filters to that item and links anything added
+there to it without asking. A second "the same list, filtered" component would
+have been a second place to fix how a scenario is implemented or run — which is
+the answer to the question above, applied rather than stated.
+
+**Playwright is a suite of its own.** Detected from `playwright.config.*`
+*beside* the unit suite rather than instead of it — a project has both, and they
+answer different questions: one proves a function, the other proves the product
+still works. Narrowed by spec path, and its JSON reporter is parsed, reading the
+**last** result of each spec so a flaky test that passed on retry counts as a
+pass rather than the failure it started as.
+
+**The regression suite is a decision, so it is a tick.** Nothing infers it: the
+same spec is a one-off check this week and the thing guarding checkout for two
+years, and no property of the test tells those apart. It survives the scenario
+being edited, because it is its own call rather than part of the general update.
+
+### Implemented
+
+- `lib/agents::adoptRunning`, used by both panels.
+- Playwright: detection, narrowing, and a JSON parser.
+- `regression` on `test_case` (added, not recreated around), its command and
+  wrapper, and the tick beside each scenario.
+- `TestCases` filtered by work item, mounted on QA's work item panel.
+
+### Tests
+
+cargo 719/719 (23 ignored), Vitest 702/702, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean. New: six on the adoption rule, four on
+Playwright, one on the regression flag surviving an edit, and two on the QA
+view.
+
+### Your Feedback
+
+- **Nothing runs "the regression suite" as a set yet.** Each scenario runs on
+  its own, and the tick records which belong to it — the button that runs all of
+  them at once is the obvious next step and is not there.
+- **A Playwright spec still has to exist.** The AI can write one through
+  Implement, but this round did not teach the generator anything about
+  Playwright, so what it writes follows the Solution's own conventions.
+
+### Technical Debt
+
+- No "run the regression suite" action (above).
+- Carried: the lifecycle checklist reports but does not enforce; no logging
+  outside Develop; no Admin UI for the routing defaults; only Execute checks the
+  agent CLI.

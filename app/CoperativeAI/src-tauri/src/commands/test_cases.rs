@@ -29,6 +29,9 @@ pub struct TestCaseDto {
     pub last_run_at: Option<i64>,
     pub last_run_outcome: Option<String>,
     pub last_run_summary: Option<String>,
+    /// Whether this scenario is in the regression suite — the set run to prove
+    /// the product still works, rather than to prove one change.
+    pub regression: bool,
 }
 
 impl From<TestCase> for TestCaseDto {
@@ -46,6 +49,7 @@ impl From<TestCase> for TestCaseDto {
             last_run_at: t.last_run_at,
             last_run_outcome: t.last_run_outcome,
             last_run_summary: t.last_run_summary,
+            regression: t.regression,
         }
     }
 }
@@ -817,4 +821,22 @@ mod tests {
             .expect("must refuse");
         assert!(err.contains("already"), "got: {err}");
     }
+}
+
+/// Puts a scenario in the regression suite, or takes it out.
+///
+/// **A regression suite is a decision somebody makes, and this is where they
+/// make it.** Nothing infers it: the same spec can be a one-off check this
+/// week and the thing guarding checkout for two years, and no property of the
+/// test tells those apart.
+#[tauri::command]
+pub async fn set_test_case_regression(
+    db: State<'_, AppDb>,
+    id: i64,
+    regression: bool,
+) -> Result<(), String> {
+    let conn = db.0.lock().await;
+    test_case::set_regression(&conn, id, regression)
+        .await
+        .map_err(to_message)
 }

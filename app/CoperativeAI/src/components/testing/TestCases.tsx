@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
+  setTestCaseRegression,
   createTestCase,
   deleteTestCase,
   implementTestCase,
@@ -21,7 +22,19 @@ import RunOutcome from "./RunOutcome";
 /** The Test area's test cases: plain-English scenarios QA designs, each
  *  optionally associated with a Deliverable or a Work Item, and markable as
  *  implemented with the path of the real test. */
-export default function TestCases({ productId }: { productId: number }) {
+export default function TestCases({
+  productId,
+  workItemId,
+}: {
+  productId: number;
+  /** Show only the scenarios linked to this work item, and link new ones to it.
+   *
+   *  **The same component, scoped.** QA looks at one work item at a time, and
+   *  the whole Product's scenarios on that screen would be everybody else's
+   *  tests as well — but a second component for "the same list, filtered" is
+   *  two places to fix a bug in how a scenario is run. */
+  workItemId?: number;
+}) {
   const [cases, setCases] = useState<TestCase[]>([]);
   const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
   const [items, setItems] = useState<WorkItem[]>([]);
@@ -81,7 +94,11 @@ export default function TestCases({ productId }: { productId: number }) {
   async function onAdd(e: FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
-    const { deliverableId, workItemId } = parseLink(link);
+    // On a work item's own screen the association is not a question: a scenario
+    // added there is about that item, so the picker's answer is not consulted.
+    const parsed = parseLink(link);
+    const deliverableId = workItemId === undefined ? parsed.deliverableId : null;
+    const linkedItem = workItemId ?? parsed.workItemId;
     // Optimistic: the new case shows immediately, then reconciles with the DB.
     const temp: TestCase = {
       id: -Date.now(),
@@ -91,11 +108,12 @@ export default function TestCases({ productId }: { productId: number }) {
       state: "designed",
       testPath: null,
       deliverableId,
-      workItemId,
+      workItemId: linkedItem,
       testNames: [],
       lastRunAt: null,
       lastRunOutcome: null,
       lastRunSummary: null,
+      regression: false,
     };
     setCases((cur) => [...cur, temp]);
     setTitle("");
@@ -107,12 +125,28 @@ export default function TestCases({ productId }: { productId: number }) {
         title: temp.title,
         scenario: temp.scenario,
         deliverableId,
-        workItemId,
+        workItemId: linkedItem,
       });
       await refresh();
     } catch (err) {
       setCases((cur) => cur.filter((c) => c.id !== temp.id)); // roll back
       setError(String(err));
+    }
+  }
+
+  /// Its own call rather than part of `commit`: putting a scenario in the suite
+  /// is a decision about what the test is *for*, and routing it through the
+  /// general update would restate a title and scenario nobody changed.
+  async function toggleRegression(testCase: TestCase, regression: boolean) {
+    setCases((cur) =>
+      cur.map((c) => (c.id === testCase.id ? { ...c, regression } : c)),
+    );
+    try {
+      await setTestCaseRegression(testCase.id, regression);
+      setError(null);
+    } catch (err) {
+      setError(String(err));
+      await refresh();
     }
   }
 
@@ -259,7 +293,9 @@ export default function TestCases({ productId }: { productId: number }) {
         <p>No test cases yet — add the first scenario above.</p>
       ) : (
         <ul className="test-case-list">
-          {cases.map((c) => (
+          {cases
+            .filter((c) => workItemId === undefined || c.workItemId === workItemId)
+            .map((c) => (
             <li key={c.id} className={`test-case state-${c.state}`} aria-label={c.title}>
               <div className="test-case-head">
                 <strong>{c.title}</strong>
@@ -267,6 +303,20 @@ export default function TestCases({ productId }: { productId: number }) {
               </div>
               {c.scenario && <p className="test-scenario">{c.scenario}</p>}
               <span className="test-link">{linkLabel(c)}</span>
+
+              {/* **The regression suite is a decision, so it is a press.** The
+                  same spec can be a one-off check this week and the thing
+                  guarding checkout for two years; nothing about the test can
+                  tell those apart, so somebody says which. */}
+              <label className="test-regression">
+                <input
+                  type="checkbox"
+                  aria-label={`Regression suite: ${c.title}`}
+                  checked={c.regression}
+                  onChange={(e) => void toggleRegression(c, e.target.checked)}
+                />
+                In the regression suite
+              </label>
 
               {/* Captions are spans, not <label>s: each control's accessible
                   name is its aria-label, which carries the case title so the

@@ -9140,3 +9140,13 @@ button.ready-action.link:hover {
 .hint.warn {
   color: var(--warn);
 }
+
+/* The regression tick sits with the scenario it is about, not in the row of
+   controls below: it is a statement about what the test is for, not a field. */
+.test-regression {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+}

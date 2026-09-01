@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import WorkItemLifecycle from "../planning/WorkItemLifecycle";
 import AiFeedbackPanel from "../ai/AiFeedbackPanel";
+import TestCases from "./TestCases";
 import {
   askProductQuestion,
   listWorkItems,
@@ -149,6 +150,14 @@ export default function TestWorkItems({ productId }: { productId: number }) {
               Ask Product
             </button>
           </div>
+
+          {/* **The scenarios for this item, in the component that already knows
+              how to run them.** Filtered rather than rebuilt: a second list
+              that could design, implement and run a test would be a second
+              place to fix any of those. Anything added here belongs to this
+              item without being asked, and the regression tick beside each is
+              what puts it in the suite. */}
+          <TestCases productId={productId} workItemId={chosen.id} />
 
           {/* What the AI has said about this item, read-only for QA's purposes
               — the same panel Develop reads, without a Product id so it shows

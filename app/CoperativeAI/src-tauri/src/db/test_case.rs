@@ -28,6 +28,13 @@ pub struct TestCase {
     pub test_path: Option<String>,
     pub deliverable_id: Option<i64>,
     pub work_item_id: Option<i64>,
+    /// Whether this scenario is part of the regression suite — the set that is
+    /// run to prove the product still works, rather than to prove one change.
+    ///
+    /// **Somebody says so; nothing infers it.** The same spec can be a one-off
+    /// check this week and the thing guarding checkout for two years, and no
+    /// property of the test can tell those apart.
+    pub regression: bool,
     /// The names of the tests in `test_path`, as their runner prints them.
     /// Recorded at generation so a scenario's own verdict can be found in a
     /// run that covers the whole suite. Empty for a hand-written test, and for
@@ -45,7 +52,7 @@ pub struct TestCase {
     pub updated_at: i64,
 }
 
-const SELECT: &str = "SELECT id, productId, title, scenario, state, testPath, deliverableId, workItemId, createdAt, updatedAt, testNames, lastRunAt, lastRunOutcome, lastRunSummary FROM test_cases";
+const SELECT: &str = "SELECT id, productId, title, scenario, state, testPath, deliverableId, workItemId, createdAt, updatedAt, testNames, lastRunAt, lastRunOutcome, lastRunSummary, regression FROM test_cases";
 
 pub async fn create_table(conn: &Connection) -> Result<()> {
     conn.execute(
@@ -83,12 +90,30 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
         ("lastRunAt", "INTEGER"),
         ("lastRunOutcome", "TEXT"),
         ("lastRunSummary", "TEXT"),
+        ("regression", "INTEGER NOT NULL DEFAULT 0"),
     ] {
         if !columns.iter().any(|c| c == name) {
             conn.execute(&format!("ALTER TABLE test_cases ADD COLUMN {name} {definition}"), ())
                 .await?;
         }
     }
+    Ok(())
+}
+
+/// Puts a scenario in the regression suite, or takes it out.
+///
+/// Its own call, like `set_implemented`: it is a decision about what the test
+/// is *for*, and routing it through the general update would mean restating a
+/// title and scenario nobody was changing — which is how they get overwritten.
+pub async fn set_regression(conn: &Connection, id: i64, regression: bool) -> Result<()> {
+    if find_by_id(conn, id).await?.is_none() {
+        return Err(DbError::Validation(format!("no test case with id {id}")));
+    }
+    conn.execute(
+        "UPDATE test_cases SET regression = ?1, updatedAt = ?2 WHERE id = ?3",
+        (if regression { 1_i64 } else { 0 }, now_millis(), id),
+    )
+    .await?;
     Ok(())
 }
 
@@ -294,6 +319,9 @@ fn row_to_test_case(row: turso::Row) -> Result<TestCase> {
         last_run_at: row.get(11)?,
         last_run_outcome: row.get(12)?,
         last_run_summary: row.get(13)?,
+        // A row written before the column existed reads 0 from its default,
+        // which is the right answer: nobody had put it in the suite.
+        regression: row.get::<i64>(14).unwrap_or(0) != 0,
     })
 }
 
@@ -513,4 +541,42 @@ mod tests {
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].title, "B");
     }
+    /// **A regression suite is a decision, not a property of the test.** The
+    /// same Playwright spec can be a one-off check this week and the thing that
+    /// guards checkout for the next two years; which it is, is somebody saying
+    /// so — so it is a flag a person sets, and it survives everything else being
+    /// edited.
+    #[tokio::test]
+    async fn a_case_can_be_put_in_the_regression_suite_and_taken_out() {
+        let (conn, product_id) = db_with_product().await;
+        let id = create(&conn, product_id, "Checkout still works", "pay with a card", None, None)
+            .await
+            .expect("create");
+
+        assert!(!find_by_id(&conn, id).await.expect("read").expect("case").regression);
+
+        set_regression(&conn, id, true).await.expect("in");
+        assert!(find_by_id(&conn, id).await.expect("read").expect("case").regression);
+
+        // Editing the scenario must not quietly take it back out.
+        update_case(
+            &conn,
+            id,
+            &TestCaseUpdate {
+                title: "Checkout still works",
+                scenario: "pay with a card, then refund it",
+                state: "designed",
+                test_path: None,
+                deliverable_id: None,
+                work_item_id: None,
+            },
+        )
+        .await
+        .expect("edit");
+        assert!(find_by_id(&conn, id).await.expect("read").expect("case").regression);
+
+        set_regression(&conn, id, false).await.expect("out");
+        assert!(!find_by_id(&conn, id).await.expect("read").expect("case").regression);
+    }
+
 }

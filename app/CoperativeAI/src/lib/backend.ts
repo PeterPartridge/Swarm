@@ -260,6 +260,9 @@ export interface TestCase {
   /** "passed" | "failed" | "skipped" | "errored", or null if never run. */
   lastRunOutcome: string | null;
   lastRunSummary: string | null;
+  /** Whether this scenario is in the regression suite — the set run to prove
+   *  the product still works, rather than to prove one change. */
+  regression: boolean;
 }
 
 /** The active user's effective permissions (full access when no active user). */
@@ -976,6 +979,14 @@ export const createTestCase = (args: {
   deliverableId: number | null;
   workItemId: number | null;
 }): Promise<number> => invoke("create_test_case", args);
+/** Puts a scenario in the regression suite, or takes it out. Nothing infers
+ *  this: the same spec can be a one-off check or the thing guarding checkout
+ *  for two years, and only a person can say which. */
+export const setTestCaseRegression = (
+  id: number,
+  regression: boolean,
+): Promise<void> => invoke("set_test_case_regression", { id, regression });
+
 export const updateTestCase = (args: {
   id: number;
   title: string;

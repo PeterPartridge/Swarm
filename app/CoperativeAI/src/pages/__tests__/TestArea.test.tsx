@@ -2,6 +2,7 @@
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import TestArea from "../TestArea";
+import TestCases from "../../components/testing/TestCases";
 import type { Deliverable, Product, TestCase, WorkItem } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {
@@ -25,6 +26,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     getStrategy: vi.fn(),
     saveStrategy: vi.fn(),
     listTestCases: vi.fn(),
+    setTestCaseRegression: vi.fn(),
     createTestCase: vi.fn(),
     updateTestCase: vi.fn(),
     deleteTestCase: vi.fn(),
@@ -80,11 +82,13 @@ const testCase: TestCase = {
   lastRunAt: null,
   lastRunOutcome: null,
   lastRunSummary: null,
+  regression: false,
 };
 
 describe("TestArea (Testing Strategy + test cases)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocked.setTestCaseRegression.mockResolvedValue(undefined);
     mocked.lifecycleGates.mockResolvedValue([]);
     mocked.listLifecycleSteps.mockResolvedValue([]);
     mocked.listWorkItemSteps.mockResolvedValue([]);
@@ -395,5 +399,34 @@ describe("TestArea (Testing Strategy + test cases)", () => {
     render(<TestArea />);
     expect(await screen.findByText(/create one in the Product tab/i)).toBeInTheDocument();
   });
+  /// **A regression suite is a decision, so it is a press.** The same spec can
+  /// be a one-off check this week and the thing guarding checkout for two
+  /// years, and nothing about the test itself can tell those apart.
+  it("puts a scenario in the regression suite", async () => {
+    const user = userEvent.setup();
+    mocked.listTestCases.mockResolvedValue([testCase]);
+    render(<TestArea />);
+
+    await user.click(
+      await screen.findByRole("checkbox", { name: /Regression suite: Login works/ }),
+    );
+    await waitFor(() =>
+      expect(mocked.setTestCaseRegression).toHaveBeenCalledWith(5, true),
+    );
+  });
+
+  /// QA looks at one work item at a time; the whole Product’s scenarios on
+  /// that screen would be everybody else’s tests as well.
+  it("shows only the scenarios linked to a work item when asked for one", async () => {
+    mocked.listTestCases.mockResolvedValue([
+      testCase,
+      { ...testCase, id: 6, title: "Search works", workItemId: 99 },
+    ]);
+    render(<TestCases productId={1} workItemId={20} />);
+
+    expect(await screen.findByText("Login works")).toBeInTheDocument();
+    expect(screen.queryByText("Search works")).not.toBeInTheDocument();
+  });
+
 });
 

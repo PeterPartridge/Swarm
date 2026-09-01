@@ -26,7 +26,8 @@ use std::process::Command;
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Suite {
-    /// "cargo" | "vitest" | "jest" | "npm" | "pytest" | "dotnet" | "go" | "custom"
+    /// "cargo" | "vitest" | "jest" | "npm" | "pytest" | "playwright" | "dotnet"
+    /// | "go" | "custom"
     pub kind: String,
     /// Directory relative to the Solution root ("." for the root itself).
     pub directory: String,
@@ -140,6 +141,25 @@ fn detect_in(dir: &Path, label: &str) -> Vec<Suite> {
             suite("npm", "npm test", "package.json")
         });
     }
+    // **Playwright is its own suite, beside the unit one rather than instead
+    // of it.** A project with Playwright almost always has vitest or jest too,
+    // and they answer different questions: one proves a function, the other
+    // proves the product still works in a browser. A regression suite is the
+    // second kind, so it has to be found and run separately from the first.
+    for marker in [
+        "playwright.config.ts",
+        "playwright.config.js",
+        "playwright.config.mjs",
+    ] {
+        if has(marker) {
+            found.push(suite(
+                "playwright",
+                "npx playwright test --reporter=json",
+                marker,
+            ));
+            break;
+        }
+    }
     for marker in ["pyproject.toml", "pytest.ini", "tox.ini", "setup.cfg"] {
         if has(marker) {
             found.push(suite("pytest", "python -m pytest -v", marker));
@@ -215,7 +235,12 @@ pub fn narrowed(suite: &Suite, test_path: &str, names: &[String]) -> Option<Suit
         })
     };
     match suite.kind.as_str() {
-        "vitest" | "jest" | "pytest" => narrowed_with(relative_to_suite(suite, test_path)),
+        // Playwright takes a path the same way: `npx playwright test the/spec.ts`
+        // runs that spec and nothing else, which is what a scenario's own
+        // verdict needs.
+        "vitest" | "jest" | "pytest" | "playwright" => {
+            narrowed_with(relative_to_suite(suite, test_path))
+        }
         "cargo" => match names {
             [only] => narrowed_with(only.clone()),
             _ => None,
@@ -370,6 +395,7 @@ pub fn parse(kind: &str, text: &str) -> Option<Parsed> {
         "cargo" => parse_cargo(text),
         "vitest" | "jest" => parse_jest_json(text),
         "pytest" => parse_pytest(text),
+        "playwright" => parse_playwright_json(text),
         "dotnet" => parse_dotnet(text),
         "go" => parse_go_json(text),
         _ => None,
@@ -462,6 +488,71 @@ fn parse_jest_json(text: &str) -> Option<Parsed> {
 }
 
 /// pytest's `-v` output: per-test `path::name PASSED`, then a summary line.
+/// Playwright's JSON reporter, which nests three deep: suites hold specs (and
+/// more suites), a spec holds tests, and a test holds one result per attempt.
+///
+/// **The last result is the verdict.** A flaky spec that failed and then passed
+/// on a retry is a pass, and reading the first attempt would report a failure
+/// nobody can reproduce. Nested suites are walked because Playwright groups by
+/// file and then by `describe`, and a scenario in a `describe` is still a test
+/// that ran.
+fn parse_playwright_json(text: &str) -> Option<Parsed> {
+    let value: serde_json::Value = serde_json::from_str(text.trim()).ok()?;
+    let suites = value.get("suites")?.as_array()?;
+
+    let mut parsed = Parsed { passed: 0, failed: 0, skipped: 0, tests: Vec::new() };
+    let mut queue: Vec<&serde_json::Value> = suites.iter().collect();
+    while let Some(suite) = queue.pop() {
+        if let Some(nested) = suite.get("suites").and_then(|s| s.as_array()) {
+            queue.extend(nested.iter());
+        }
+        let Some(specs) = suite.get("specs").and_then(|s| s.as_array()) else {
+            continue;
+        };
+        for spec in specs {
+            let name = spec.get("title").and_then(|t| t.as_str()).unwrap_or("").to_string();
+            // The last attempt of the last test entry: retries are appended, so
+            // the end of the list is what happened in the end.
+            let status = spec
+                .get("tests")
+                .and_then(|t| t.as_array())
+                .and_then(|tests| tests.last())
+                .and_then(|test| test.get("results"))
+                .and_then(|r| r.as_array())
+                .and_then(|results| results.last())
+                .and_then(|result| result.get("status"))
+                .and_then(|s| s.as_str())
+                .unwrap_or("");
+            let state = match status {
+                "passed" | "expected" => {
+                    parsed.passed += 1;
+                    "passed"
+                }
+                "skipped" => {
+                    parsed.skipped += 1;
+                    "skipped"
+                }
+                // Anything else — failed, timedOut, interrupted — is a failure.
+                // Guessing that an unknown status is fine is how a red suite
+                // gets reported green.
+                "" => continue,
+                _ => {
+                    parsed.failed += 1;
+                    "failed"
+                }
+            };
+            parsed.tests.push(TestOutcome { name, state: state.into() });
+        }
+    }
+
+    // Nothing recognised means this was not a Playwright report, whatever it
+    // parsed as — the same rule every parser here follows.
+    if parsed.tests.is_empty() {
+        return None;
+    }
+    Some(parsed)
+}
+
 fn parse_pytest(text: &str) -> Option<Parsed> {
     let mut parsed = Parsed { passed: 0, failed: 0, skipped: 0, tests: Vec::new() };
     let mut saw_summary = false;
@@ -557,6 +648,95 @@ mod tests {
             command_line: command_line.into(),
             found_by: "test".into(),
         }
+    }
+
+    /// **Playwright is a suite of its own, not the package manifest's.** A
+    /// project with Playwright almost always has vitest or jest as well, and
+    /// they answer different questions: one proves a function, the other proves
+    /// the product still works. A regression suite is the second kind, so it
+    /// has to be findable and runnable separately.
+    #[test]
+    fn a_playwright_project_is_its_own_suite() {
+        let dir = crate::testing::scratch("suites", "playwright");
+        std::fs::create_dir_all(&dir).expect("dir");
+        std::fs::write(dir.join("package.json"), "{\"devDependencies\":{\"vitest\":\"1\"}}")
+            .expect("manifest");
+        std::fs::write(dir.join("playwright.config.ts"), "export default {};").expect("config");
+
+        let found = detect(&dir);
+        let kinds: Vec<&str> = found.iter().map(|s| s.kind.as_str()).collect();
+        assert!(kinds.contains(&"playwright"), "got {kinds:?}");
+        // And the unit suite is still there: they are not alternatives.
+        assert!(kinds.contains(&"vitest"), "got {kinds:?}");
+
+        let play = found.iter().find(|s| s.kind == "playwright").expect("suite");
+        assert!(play.command_line.contains("playwright test"), "{}", play.command_line);
+        assert!(play.command_line.contains("json"), "machine-readable: {}", play.command_line);
+    }
+
+
+    /// **Playwright's JSON is nested three deep**, and the status that matters
+    /// is on the *result*, not the test: a spec that was retried and passed is
+    /// a pass, and reading the first attempt would call it a failure.
+    ///
+    /// Captured shape, trimmed to what the parser reads.
+    #[test]
+    fn a_playwright_run_is_counted_from_its_results() {
+        let captured = r#"{
+          "suites": [
+            {
+              "title": "checkout.spec.ts",
+              "specs": [
+                {
+                  "title": "pays with a card",
+                  "tests": [{ "results": [{ "status": "passed" }] }]
+                },
+                {
+                  "title": "refuses an empty basket",
+                  "tests": [{ "results": [{ "status": "failed" }, { "status": "passed" }] }]
+                }
+              ],
+              "suites": [
+                {
+                  "title": "signed in",
+                  "specs": [
+                    {
+                      "title": "sees the account menu",
+                      "tests": [{ "results": [{ "status": "skipped" }] }]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }"#;
+
+        let parsed = parse("playwright", captured).expect("read");
+        assert_eq!(parsed.passed, 2, "the retried one counts as a pass");
+        assert_eq!(parsed.failed, 0);
+        assert_eq!(parsed.skipped, 1);
+        // Named, so one scenario's verdict can be found in a whole-suite run.
+        let names: Vec<&str> = parsed.tests.iter().map(|t| t.name.as_str()).collect();
+        assert!(names.contains(&"pays with a card"), "got {names:?}");
+        assert!(names.contains(&"sees the account menu"), "nested suites too: {names:?}");
+    }
+
+    /// Anything that is not that shape reports by exit code instead — a count
+    /// the app invented would be worse than no count.
+    #[test]
+    fn playwright_output_that_is_not_json_is_not_counted() {
+        assert!(parse("playwright", "Running 3 tests using 1 worker").is_none());
+    }
+
+    /// A scenario has to be runnable on its own, or "did my test pass?" costs
+    /// the whole browser suite every time.
+    #[test]
+    fn a_playwright_spec_narrows_to_its_own_file() {
+        let suite = suite_at("playwright", "web", "npx playwright test --reporter=json");
+        assert_eq!(
+            narrowed(&suite, "web/tests/checkout.spec.ts", &[]).map(|s| s.command_line),
+            Some("npx playwright test --reporter=json tests/checkout.spec.ts".to_string()),
+        );
     }
 
     /// A Tauri Solution has two suites and a test belongs to exactly one of

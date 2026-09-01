@@ -233,6 +233,7 @@ fn main() {
             commands::test_cases::list_test_cases,
             commands::test_cases::create_test_case,
             commands::test_cases::update_test_case,
+            commands::test_cases::set_test_case_regression,
             commands::test_cases::delete_test_case,
             commands::test_cases::implement_test_case,
             commands::test_cases::run_test_case,
