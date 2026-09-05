@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { relativeTo } from "../../lib/breakpoints";
 import { debugEvaluate } from "../../lib/backend";
 import { reportFailure } from "../../lib/failures";
@@ -276,6 +276,24 @@ export default function AgentWorkspace({
       setReviewing(false);
     }
   }, [browsing, active]);
+
+  /// Which working copy has already been read, so it is read once.
+  ///
+  /// **A git call, not a render.** Reading a diff on arrival is what makes the
+  /// Changes pane show changes instead of an instruction to press a button —
+  /// but an effect that re-ran on every render would run git continuously, and
+  /// one that re-ran on its own failure would do it forever. The key is the
+  /// working copy being read, so switching agents reads the new one and coming
+  /// back does not read it again.
+  const readAlready = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (browsing === null) return;
+    const key = `${browsing}:${active?.run?.id ?? 0}`;
+    if (readAlready.current === key) return;
+    readAlready.current = key;
+    void onReview();
+  }, [browsing, active, onReview]);
 
   const onSettle = useCallback(
     async (state: "kept" | "discarded") => {

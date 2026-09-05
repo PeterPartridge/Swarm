@@ -84,6 +84,16 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     mocked.listArchitectureDocs.mockResolvedValue([]);
     mocked.listRepoLinks.mockResolvedValue([]);
     mocked.readSolutionTree.mockResolvedValue({ entries: [], truncated: false });
+    // The Build view reads what changed on arrival now, so this is called
+    // without anything pressing a button. Registered but never given a value,
+    // it returned undefined and the panes downstream read fields off it.
+    mocked.reviewSolutionChanges.mockResolvedValue({
+      changes: [],
+      report: { violations: [], notices: [], filesChanged: 0, addedLines: 0, removedLines: 0 },
+      noRules: false,
+      runId: null,
+      runState: "",
+    } as never);
     mocked.listWorkItems.mockResolvedValue([]);
     mocked.listSprints.mockResolvedValue([]);
     mocked.listTeamMembers.mockResolvedValue([]);

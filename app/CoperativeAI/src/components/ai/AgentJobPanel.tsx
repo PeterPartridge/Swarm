@@ -321,9 +321,17 @@ export default function AgentJobPanel({
             <div className="changes-files">
               {files.length === 0 ? (
                 <p className="hint">
-                  {review === null
-                    ? "Nothing read yet — press Review what changed in the rail."
-                    : "Nothing has changed in this working copy."}
+                  {/* **Not an instruction to press something.** This said
+                      "nothing read yet — press Review what changed in the
+                      rail", which is the app asking permission to do the thing
+                      you opened the pane to see. The diff is read on arrival
+                      now, so the only two states left are "still reading" and
+                      "nothing changed". */}
+                  {reviewing
+                    ? "Reading what changed…"
+                    : review === null
+                      ? "What changed could not be read — the rail says why."
+                      : "Nothing has changed in this working copy."}
                 </p>
               ) : (
                 files.map((f) => (

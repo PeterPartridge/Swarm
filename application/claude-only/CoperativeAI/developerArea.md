@@ -4299,3 +4299,78 @@ cargo 752/752 (23 ignored), Vitest 719/719, `tsc --noEmit`, clippy
 - Carried: no template-already-inserted warning; no locale-assertion guard; no
   "run the regression suite" action; the lifecycle checklist reports but does
   not enforce; no logging outside Develop; no Admin UI for the routing defaults.
+
+## Round 88 — the diff nobody should have to ask for twice
+
+### My Feedback
+
+> in changes can we just show what has changed and not require a button press
+>
+> Also after the job has completed I see no AI feedback did my hello world app
+> get any?
+
+### Implemented
+
+Opening an agent read "Nothing read yet — press Review what changed in the
+rail": the app asking permission to do the thing you opened the pane to see.
+Reading a diff costs nothing and changes nothing, so it is read on arrival.
+
+**Once per working copy, not once per render.** The read is a git call, so the
+effect is keyed on the working copy being read — switching agents reads the new
+one, coming back does not read it again, and a failure is reported rather than
+retried forever. That last part is not hypothetical: an effect that re-ran on
+its own failure is the shape of the loop this panel already hit once, when
+announcing a filing notified a signal the panel subscribed to.
+
+The button stays, and already named itself for what it would do — "Read it
+again" once something has been read. What changed is that nothing has to be
+pressed first. The pane's empty state now has only the two honest states left:
+still reading, and nothing has changed.
+
+### About the hello world app: no, and it could not have
+
+Checked on disk rather than guessed:
+
+- `hello/.coperativeai-worktrees/askforname/.coperativeai/` contains `briefs/`
+  and nothing else. There is no `feedback/` folder.
+- All four briefs end with the old closing section — "Leave the change
+  uncommitted" and nothing more. `grep -l "round record"` across them: zero.
+- Attempt 4 was written at 13:31 today. The brief that asks for a record
+  shipped minutes later, in round 83.
+
+So the agent was never asked for feedback and never wrote any. The panel showing
+nothing is the panel being honest. The same brief also still carries the two
+faults round 83 fixed — the browser line on a console app, and every developer
+rule printed twice — because it was written before that change.
+
+The next Execute writes a brief that asks, and round 84 files the debt it names
+as work items, and round 86 raises what it could not do as questions.
+
+### Tests
+
+cargo 752/752 (23 ignored), Vitest 721/721, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean.
+
+One suite had `reviewSolutionChanges` registered as a mock with no value, so it
+returned `undefined` — invisible while nothing called it, and a crash the moment
+something did without a press. The same trap as ever: a mock with no default is
+a mock waiting for a caller.
+
+### Your Feedback
+
+- **The read does not repeat when work changes.** An agent finishing does not
+  re-read the diff on its own; the button is how you ask for a fresh one. That
+  is deliberate for now — re-reading on every signal means running git on every
+  job event — but it means a finished agent's totals can be a minute stale.
+- The old briefs on disk cannot be improved retrospectively. If you want the
+  hello world item to produce a record, it needs another Execute.
+
+### Technical Debt
+
+- The change review is read once per working copy and not refreshed on the work
+  signal.
+- Carried: nothing distinguishes a scoring list from an enforcing one; a policy
+  tightened mid-run does not stop a running agent; no template-already-inserted
+  warning; no locale-assertion guard; no "run the regression suite" action; the
+  lifecycle checklist reports but does not enforce; no logging outside Develop;
+  no Admin UI for the routing defaults.

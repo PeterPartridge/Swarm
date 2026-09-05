@@ -407,16 +407,57 @@ describe("AgentWorkspace (the Build view)", () => {
     // Product — so picking the agent is what says which one.
     await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
     const rail = await screen.findByRole("complementary", { name: /Review and ship/ });
-    // Nothing has been read, so nothing claims to have passed — and there is no
-    // checkbox anywhere to claim it with.
-    expect(within(rail).queryByRole("checkbox")).not.toBeInTheDocument();
-    expect(rail).toHaveTextContent("Nothing read yet");
-
-    await user.click(within(rail).getByRole("button", { name: "Review what changed" }));
+    // Read on arrival, so the totals are there without a press.
     expect(await within(rail).findByText("+12 added")).toBeInTheDocument();
+    // Every line of it is read back from the run: there is no checkbox anywhere
+    // to claim a pass by hand.
+    expect(within(rail).queryByRole("checkbox")).not.toBeInTheDocument();
     expect(within(rail).getByText("−3 removed")).toBeInTheDocument();
     // Tests were never run here, so that line stays unknown rather than green.
     expect(rail).toHaveTextContent("not run");
+  });
+
+  /// **A diff nobody asked twice for.** Opening an agent and finding "nothing
+  /// read yet — press Review what changed" is the app asking permission to do
+  /// the thing you opened it to see. Reading a diff costs nothing and changes
+  /// nothing, so it is read on arrival and the button is left for re-reading.
+  it("reads what changed on arriving at an agent, without a press", async () => {
+    const user = userEvent.setup();
+    mocked.listRuns.mockResolvedValue([
+      run({ id: 42, state: "prepared", worktreePath: "C:/wt/checkout" }),
+    ]);
+    mocked.reviewSolutionChanges.mockResolvedValue(review({ runId: 42 }));
+    render(panel());
+
+    await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
+
+    await waitFor(() =>
+      expect(mocked.reviewSolutionChanges).toHaveBeenCalledWith(5, 42),
+    );
+    const rail = await screen.findByRole("complementary", { name: /Review and ship/ });
+    expect(await within(rail).findByText("+12 added")).toBeInTheDocument();
+    expect(rail).not.toHaveTextContent("Nothing read yet");
+  });
+
+  /// **Once, not once per render.** The read is a git call; an effect that
+  /// re-ran on every render would run git continuously, and one that re-ran on
+  /// its own failure would do it forever.
+  it("reads once for an agent, however many times the panel renders", async () => {
+    const user = userEvent.setup();
+    mocked.listRuns.mockResolvedValue([
+      run({ id: 42, state: "prepared", worktreePath: "C:/wt/checkout" }),
+    ]);
+    mocked.reviewSolutionChanges.mockRejectedValue("git is not installed");
+    render(panel());
+
+    await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
+    // A failure is reported, and not retried in a loop.
+    // Reported — in the panel and on the failure rail, which is two places by
+    // design — and then left alone.
+    expect((await screen.findAllByText(/git is not installed/)).length).toBeGreaterThan(0);
+    const calls = mocked.reviewSolutionChanges.mock.calls.length;
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mocked.reviewSolutionChanges.mock.calls.length).toBe(calls);
   });
 
   /// **The agent's own checkout, not the Solution's folder.** An agent works in
@@ -434,7 +475,7 @@ describe("AgentWorkspace (the Build view)", () => {
 
     await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
     const rail = await screen.findByRole("complementary", { name: /Review and ship/ });
-    await user.click(within(rail).getByRole("button", { name: "Review what changed" }));
+    await user.click(within(rail).getByRole("button", { name: /Read it again|Review what changed/ }));
 
     await waitFor(() =>
       expect(mocked.reviewSolutionChanges).toHaveBeenCalledWith(5, 42),
@@ -452,7 +493,7 @@ describe("AgentWorkspace (the Build view)", () => {
     // changed myself" case, and it still reads the folder on disk.
     await user.click(await screen.findByRole("tab", { name: /Shop API/ }));
     const rail = await screen.findByRole("complementary", { name: /Review and ship/ });
-    await user.click(within(rail).getByRole("button", { name: "Review what changed" }));
+    await user.click(within(rail).getByRole("button", { name: /Read it again|Review what changed/ }));
 
     await waitFor(() =>
       expect(mocked.reviewSolutionChanges).toHaveBeenCalledWith(5, undefined),
@@ -484,7 +525,7 @@ describe("AgentWorkspace (the Build view)", () => {
 
     await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
     const rail = await screen.findByRole("complementary", { name: /Review and ship/ });
-    await user.click(within(rail).getByRole("button", { name: "Review what changed" }));
+    await user.click(within(rail).getByRole("button", { name: /Read it again|Review what changed/ }));
 
     expect(await within(rail).findByText(/uses moment/)).toBeInTheDocument();
     await user.click(
@@ -564,7 +605,7 @@ describe("AgentWorkspace (the Build view)", () => {
 
     await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
     const rail = screen.getByRole("complementary", { name: /Review and ship/ });
-    await user.click(within(rail).getByRole("button", { name: "Review what changed" }));
+    await user.click(within(rail).getByRole("button", { name: /Read it again|Review what changed/ }));
 
     await user.click(await screen.findByLabelText("src/checkout.ts"));
     expect(await screen.findByText(/\+new line/)).toBeInTheDocument();
@@ -849,7 +890,7 @@ describe("AgentWorkspace (the Build view)", () => {
 
     await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
     const rail = screen.getByRole("complementary", { name: /Review and ship/ });
-    await user.click(within(rail).getByRole("button", { name: "Review what changed" }));
+    await user.click(within(rail).getByRole("button", { name: /Read it again|Review what changed/ }));
 
     const box = await within(rail).findByRole("alert");
     expect(box).toHaveTextContent("Review what changed failed");
