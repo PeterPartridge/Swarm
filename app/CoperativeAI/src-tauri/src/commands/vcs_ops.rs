@@ -30,8 +30,15 @@ pub async fn branch_history(
     db: State<'_, AppDb>,
     solution_id: i64,
     limit: Option<usize>,
+    // Which checkout's history. An agent works on its own branch in its own
+    // worktree, so the Solution's folder answers about the default branch —
+    // which is the wrong answer to "what has this agent committed?".
+    run_id: Option<i64>,
 ) -> Result<Vec<vcs::Commit>, String> {
-    let root = root_for(&db, solution_id).await?;
+    let root = {
+        let conn = db.0.lock().await;
+        crate::commands::workspace::root_for_run(&conn, solution_id, run_id).await?
+    };
     vcs::history(&root, limit.unwrap_or(120))
 }
 
@@ -77,6 +84,11 @@ pub struct SolutionGitDto {
 pub async fn solution_git_state(
     db: State<'_, AppDb>,
     solution_id: i64,
+    // The run to report on, when one is selected. **Its branch and its changes
+    // live in its own checkout**, so reading the Solution's folder said "on
+    // main, nothing changed" while an agent's work sat finished next door —
+    // the same mistake the review, the file reader and the tree each had.
+    run_id: Option<i64>,
 ) -> Result<SolutionGitDto, String> {
     let row = {
         let conn = db.0.lock().await;
@@ -85,7 +97,15 @@ pub async fn solution_git_state(
             .map_err(to_message)?
             .ok_or("that Solution no longer exists")?
     };
-    let local_path = row.local_path.filter(|p| !p.trim().is_empty());
+    let local_path = match run_id {
+        Some(_) => {
+            let conn = db.0.lock().await;
+            crate::commands::workspace::root_for_run(&conn, solution_id, run_id)
+                .await
+                .ok()
+        }
+        None => row.local_path.filter(|p| !p.trim().is_empty()),
+    };
     // A folder that has been deleted underneath us reads as "not a repository"
     // rather than as an error: the panel's job is to offer the fix, and the fix
     // for both is to point it somewhere real.

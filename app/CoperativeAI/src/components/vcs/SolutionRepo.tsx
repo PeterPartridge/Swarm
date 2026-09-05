@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
+  branchHistory,
   createSolutionRepo,
   githubStatus,
   initSolutionRepo,
   linkSolutionRepo,
   setSolutionPath,
   solutionGitState,
+  type Commit,
   type Solution,
   type SolutionGitState,
 } from "../../lib/backend";
@@ -31,9 +33,14 @@ import FolderField from "../common/FolderField";
 export default function SolutionRepo({
   solution,
   githubConnected,
+  runId,
   onChange,
 }: {
   solution: Solution;
+  /** The run being looked at, when one is. **Its branch and its commits are in
+   *  its own checkout** — reading the Solution's folder said "on main, nothing
+   *  changed" while an agent's work sat finished next door. */
+  runId?: number;
   /** Passed by screens that already read it; loaded here when they have not. */
   githubConnected?: boolean;
   onChange: () => void | Promise<void>;
@@ -46,6 +53,10 @@ export default function SolutionRepo({
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [state, setState] = useState<SolutionGitState | null>(null);
+  /// The last few commits, which this panel never showed. "The git section is
+  /// missing commit messages" — it was: it could say which repository and which
+  /// branch, and nothing about what had been done on it.
+  const [commits, setCommits] = useState<Commit[]>([]);
   const [connected, setConnected] = useState(githubConnected ?? false);
 
   const load = useCallback(async () => {
@@ -53,12 +64,20 @@ export default function SolutionRepo({
       // `?? null` rather than trusting the reply: this panel is mounted in five
       // places, and one of them handing it nothing must leave it saying "still
       // reading" rather than taking the screen down with it.
-      setState((await solutionGitState(solution.id)) ?? null);
+      setState((await solutionGitState(solution.id, runId)) ?? null);
       setError(null);
     } catch (e) {
       setError(String(e));
     }
-  }, [solution.id]);
+    // Separately and never fatally: a repository with no commits yet is the
+    // ordinary state of a folder somebody has just pointed at, and it must not
+    // take the panel down with it.
+    try {
+      setCommits(await branchHistory(solution.id, 8, runId));
+    } catch {
+      setCommits([]);
+    }
+  }, [solution.id, runId]);
 
   useEffect(() => {
     void load();
@@ -126,8 +145,19 @@ export default function SolutionRepo({
     // <section>, not <div>: an aria-label on a div names nothing a screen
     // reader can find, and this panel is looked up by name in four places.
     <section className="solution-repo" aria-label={`Repository for ${solution.name}`}>
-      {/* The folder first: a repository on GitHub is no use to a run that
+      {/* **Three questions, three groups.** This was one column of sentences,
+          fields, buttons and two forms — everything the panel could do, in the
+          order it had been written in, with no way to see at a glance which
+          parts were about the folder here and which about GitHub. It answers
+          three things, so it is in three parts: where the code is, what has
+          been done to it, and where it is published.
+
+          The folder comes first: a repository on GitHub is no use to a run that
           cannot make a worktree here. */}
+      <div className="repo-group">
+        <span className="palette-label">
+          {runId === undefined ? "Where the code is" : "This agent's checkout"}
+        </span>
       <span className="repo-local">
         {state === null ? (
           "Reading the folder…"
@@ -161,11 +191,15 @@ export default function SolutionRepo({
           and find the screen that could. This is that screen now. Offered while
           there is a folder too: pointing a Solution somewhere else is how a
           repository moved on disk gets reconnected. */}
-      <FolderField
-        label={state?.localPath ? "Move it to" : "Folder on this machine"}
-        value={state?.localPath ?? ""}
-        onChange={(path) => void run(() => setSolutionPath(solution.id, path))}
-      />
+      {/* Not offered for a run: a worktree's folder is made by the run and
+          moving it would be pointing the Solution at an agent's checkout. */}
+      {runId === undefined && (
+        <FolderField
+          label={state?.localPath ? "Move it to" : "Folder on this machine"}
+          value={state?.localPath ?? ""}
+          onChange={(path) => void run(() => setSolutionPath(solution.id, path))}
+        />
+      )}
 
       {state?.localPath && !(state.isRepo && state.hasCommit) && (
         <button
@@ -176,7 +210,42 @@ export default function SolutionRepo({
           {busy ? "Working…" : state.isRepo ? "Make the first commit" : "Make it a git repository"}
         </button>
       )}
+      </div>
 
+      {/* **What has been done to it.** The panel could say which repository and
+          which branch and nothing about the work on it — "the git section is
+          missing commit messages", and it was. */}
+      <div className="repo-group">
+        <span className="palette-label">Recent commits</span>
+        {commits.length === 0 ? (
+          <p className="hint">
+            {state?.isRepo === false
+              ? "Nothing to show until this folder is a repository."
+              : "No commits yet on this branch."}
+          </p>
+        ) : (
+          <ul className="repo-commits" aria-label={`Recent commits in ${solution.name}`}>
+            {commits.map((c) => (
+              <li key={c.id}>
+                <span className="commit-subject">{c.subject}</span>
+                <span className="commit-meta">
+                  <span className="card-mono">{c.shortId}</span>
+                  {" · "}
+                  {c.author}
+                  {" · "}
+                  {new Date(c.when * 1000).toLocaleDateString(undefined, {
+                    day: "numeric",
+                    month: "short",
+                  })}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="repo-group">
+        <span className="palette-label">On GitHub</span>
       {linked ? (
         <span className="repo-linked">
           Repo:{" "}
@@ -270,6 +339,7 @@ export default function SolutionRepo({
           </button>
         </form>
       )}
+      </div>
     </section>
   );
 }

@@ -9287,3 +9287,84 @@ button.ready-action.link:hover {
   color: var(--warn);
   line-height: 1.4;
 }
+
+/* The git section, in three parts: where the code is, what has been done to it,
+   where it is published. It was one column of sentences, fields, buttons and
+   two forms in the order they had been written, with nothing to say which parts
+   answered which question. */
+.repo-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.repo-group:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.repo-commits {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.repo-commits li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  line-height: 1.35;
+}
+
+.commit-subject {
+  overflow-wrap: anywhere;
+}
+
+.commit-meta {
+  color: var(--fg-muted);
+  font-size: 0.85em;
+}
+
+/* A schema, laid out as what it describes rather than as one block of text.
+   The generated ones arrive as a single line with their structure inside them
+   as punctuation; `readSchema` finds it and this is what it looks like. */
+.schema-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  line-height: 1.45;
+}
+
+.schema-body p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.schema-steps,
+.schema-rules {
+  margin: 0.2rem 0 0;
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.schema-rules {
+  list-style: disc;
+  color: var(--fg-muted);
+}
+
+.schema-steps > li {
+  overflow-wrap: anywhere;
+}
+
+/* Anything still shown as written wraps rather than running off the side. */
+.plan-schema pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

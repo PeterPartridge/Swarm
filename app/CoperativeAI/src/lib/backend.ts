@@ -704,8 +704,15 @@ export interface SolutionGitState {
   githubVisibility: string | null;
 }
 
-export const solutionGitState = (solutionId: number): Promise<SolutionGitState> =>
-  invoke("solution_git_state", { solutionId });
+/** Where a Solution's code is, and what git says about it.
+ *
+ *  With a run, that is the run's own checkout — its branch, and what it has
+ *  changed. Without one, the Solution's folder: the default branch. */
+export const solutionGitState = (
+  solutionId: number,
+  runId?: number,
+): Promise<SolutionGitState> =>
+  invoke("solution_git_state", { solutionId, runId });
 
 /** `git init` plus a first commit, so the folder is one a run can branch from.
  *  Returns what it found and did, in a sentence to show. */
@@ -2485,10 +2492,16 @@ export const listSolutionBranches = (
   solutionId: number,
 ): Promise<string[]> => invoke("list_solution_branches", { solutionId });
 
+/** Recent commits on the checkout being looked at.
+ *
+ *  **Give it the run when an agent is selected**: its commits are on its own
+ *  branch in its own worktree, and the Solution's folder answers about the
+ *  default branch instead. */
 export const branchHistory = (
   solutionId: number,
   limit?: number,
-): Promise<Commit[]> => invoke("branch_history", { solutionId, limit });
+  runId?: number,
+): Promise<Commit[]> => invoke("branch_history", { solutionId, limit, runId });
 export const commitSolution = (
   solutionId: number,
   message: string,

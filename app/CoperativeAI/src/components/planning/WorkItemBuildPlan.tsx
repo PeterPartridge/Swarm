@@ -53,6 +53,7 @@ export default function WorkItemBuildPlan({
   item,
   solutions,
   view: chosenView,
+  runId,
 }: {
   item: WorkItem;
   /** The Product's Solutions — the candidates this work can affect. */
@@ -64,6 +65,9 @@ export default function WorkItemBuildPlan({
    *  tabs about one work item. From Product, AI planning and Git are up there
    *  now; given a view, this shows it and draws no tab row of its own. */
   view?: string;
+  /** The run being looked at, so the Git view reports on its checkout rather
+   *  than on the default branch. */
+  runId?: number;
 }) {
   const [plans, setPlans] = useState<WorkItemPlan[]>([]);
   const [questions, setQuestions] = useState<AiFeedback[]>([]);
@@ -529,6 +533,7 @@ export default function WorkItemBuildPlan({
               return sol ? (
                 <SolutionRepo
                   key={p.id}
+                  runId={runId}
                   solution={sol}
                   onChange={() => void refresh()}
                 />

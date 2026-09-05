@@ -4736,3 +4736,103 @@ cargo 760/760 (23 ignored), Vitest 737/737, `tsc --noEmit`, clippy
   template-already-inserted warning; no locale-assertion guard; no "run the
   regression suite" action; the lifecycle checklist reports but does not
   enforce; no logging outside Develop; no Admin UI for the routing defaults.
+
+## Round 93 — the git section, and a schema you can read
+
+### My Feedback
+
+> Can we lay out the git section much better and also are we running tests when
+> the AI is finished I have no changes and the git section is also missing
+> commit messages
+>
+> can we also make Page schema much more user freindly its just a wall of text
+
+### "I have no changes" — the same mistake, a fourth time
+
+`solution_git_state` read the Solution's `local_path`. An agent works in a
+worktree, so the panel reported the default branch and nothing changed while the
+agent's work sat finished next door. That is the fourth place this has appeared:
+the review, the file reader, the tree, and now git — each found separately,
+each fixed separately.
+
+They all resolve the root the same way now (`root_for_run`), which is the actual
+fix: there is one answer to "which working copy is this about?" and everything
+asks it.
+
+### Commit messages
+
+The panel could say which repository and which branch and nothing about what had
+been done on it. `branch_history` existed and nothing showed it. The last eight
+commits are there now — subject, short id, author, date — for the checkout being
+looked at, which for an agent is its own branch.
+
+### The layout
+
+It was one column of sentences, fields, buttons and two forms, in the order they
+had been written. It answers three questions, so it is in three parts:
+
+- **Where the code is** (or *This agent's checkout*) — the folder, the branch,
+  the state, and the fix for each state it can be in.
+- **Recent commits** — what has been done.
+- **On GitHub** — where it is published, and the two ways to link it.
+
+The "move it to" field is not offered for a run: a worktree's folder is made by
+the run, and moving it would point the Solution at an agent's checkout.
+
+### The page schema
+
+A generated schema arrives as one long line with all of its structure inside it
+as punctuation — `"…: 1) Output … 2) On valid input … Validation rules: - Empty
+input → … - Special characters → …"` — and a `<pre>` preserved it exactly. A
+paragraph nobody reads to the end of.
+
+`readSchema` finds the structure that is already there: numbered markers make
+steps, dashes make rules, and a step carrying its own rules keeps them. **Two
+markers, not one** — a single `1)` is a sentence with a bracket in it and one
+`-` is a hyphen. `->` and `hyphens/apostrophes` are left alone, which the real
+schema needs on both counts.
+
+Nothing is invented and nothing is dropped: text with no markers stays text.
+
+### Are tests run when the AI finishes? No.
+
+Nothing runs them. The Tests pane runs a suite when somebody presses it, and
+that is the only thing that does.
+
+It is reachable — a run's terminal is backend-owned and already knows when its
+shell exits — but "the agent's shell exited" is not the same as "the agent
+finished well", and running a suite automatically raises questions worth
+answering on purpose: which suite, what happens to a failure nobody is watching,
+and whether a red result should block the ship rail. Flagged rather than
+guessed.
+
+### Tests
+
+Five for `readSchema`, written from the real page schema on the hello world
+item. cargo 760/760 (23 ignored), Vitest 742/742, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean.
+
+### Your Feedback
+
+- **Four places had the same bug and I fixed them one at a time.** Each was
+  reported separately and each looked like its own thing. The lesson is not
+  "add a fifth fix" — it is that anything reading a Solution's folder should be
+  asked whether it means a run, and there may be more.
+- The Git section still cannot commit an agent's work from the app: it shows the
+  commits, and making one is `commit_solution`, which is wired to the Solution's
+  folder. Worth doing next if you want to keep an agent's branch from the panel.
+
+### Technical Debt
+
+- Nothing runs tests when an agent finishes, and nothing notices that it has.
+- `commit_solution` and the auto-commit path still write to the Solution's
+  folder, not a run's.
+- Carried: no per-file diff; nothing advertises the right-click menu; no answer
+  to "should a new attempt start from a clean checkout?"; saving a file writes
+  to the Solution's folder; probe freshness is a number in the code; splitting
+  prose is guesswork; the review is not refreshed on the work signal; nothing
+  distinguishes a scoring list from an enforcing one; a policy tightened mid-run
+  does not stop a running agent; no template-already-inserted warning; no
+  locale-assertion guard; no "run the regression suite" action; the lifecycle
+  checklist reports but does not enforce; no logging outside Develop; no Admin
+  UI for the routing defaults.

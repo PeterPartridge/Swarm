@@ -310,7 +310,12 @@ export default function AgentJobPanel({
         )}
 
         {panel === "git" && (
-          <WorkItemBuildPlan item={item} solutions={solutions} view="git" />
+          <WorkItemBuildPlan
+            item={item}
+            solutions={solutions}
+            view="git"
+            runId={run?.id}
+          />
         )}
 
         {panel === "tests" && run !== null && (

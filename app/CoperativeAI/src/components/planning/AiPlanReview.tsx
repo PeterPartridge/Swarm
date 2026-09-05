@@ -7,6 +7,7 @@ import {
 } from "../../lib/backend";
 import BlockedNote from "../ai/BlockedNote";
 import { formatFiles, parseFiles, type PlannedFile } from "../../lib/plan";
+import { readSchema } from "../../lib/schema";
 
 /** What the AI planned, laid out to be read and argued with.
  *
@@ -226,6 +227,14 @@ export default function AiPlanReview({
                     </ul>
                   </>
                 )}
+                {/* **The structure is in the text; this shows it.** A generated
+                    schema arrives as one long line with its shape inside it as
+                    punctuation — "…: 1) Output … 2) On valid input … Validation
+                    rules: - Empty input → … - Special characters → …" — and a
+                    <pre> preserved it exactly, which made a paragraph nobody
+                    read to the end of. Nothing is invented and nothing is
+                    dropped; the markers the writer used are the markers used to
+                    lay it out. */}
                 {[
                   ["API schema", plan.apiSchema],
                   ["Page schema", plan.pageSchema],
@@ -234,7 +243,44 @@ export default function AiPlanReview({
                   .map(([heading, body]) => (
                     <div key={heading} className="plan-schema">
                       <span className="plan-generated-head">{heading}</span>
-                      <pre>{body}</pre>
+                      <div className="schema-body" aria-label={`${heading} for ${name}`}>
+                        {readSchema(body).map((block, i) => {
+                          if (block.kind === "text") {
+                            return <p key={i}>{block.text}</p>;
+                          }
+                          if (block.kind === "rules") {
+                            return (
+                              <div key={i}>
+                                {block.lead && <p>{block.lead}</p>}
+                                <ul className="schema-rules">
+                                  {block.items.map((rule, r) => (
+                                    <li key={r}>{rule}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            );
+                          }
+                          return (
+                            <div key={i}>
+                              {block.lead && <p>{block.lead}</p>}
+                              <ol className="schema-steps">
+                                {block.items.map((step, s) => (
+                                  <li key={s}>
+                                    {step.text}
+                                    {step.rules.length > 0 && (
+                                      <ul className="schema-rules">
+                                        {step.rules.map((rule, r) => (
+                                          <li key={r}>{rule}</li>
+                                        ))}
+                                      </ul>
+                                    )}
+                                  </li>
+                                ))}
+                              </ol>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   ))}
               </>
