@@ -223,7 +223,7 @@ pub async fn set_paid_api_allowed(db: State<'_, AppDb>, allowed: bool) -> Result
 /// asked that showed a working install right up until the first real turn
 /// failed. `claude auth status` answers directly, runs no model, and comes back
 /// in about a second.
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClaudeCodeStatus {
     pub installed: bool,
@@ -243,34 +243,81 @@ pub struct ClaudeCodeStatus {
     pub auth_method: String,
 }
 
+/// The last answer, and when it was given.
+///
+/// **Because asking costs two seconds.** Answering this runs the CLI twice —
+/// `--version`, then `auth status` — and each spawn of a 200 MB binary takes
+/// most of a second. The build plan asks on every refresh, and a refresh
+/// happens whenever anything about the work changes, so a panel that should
+/// appear at once was waiting on the same two questions being asked again.
+///
+/// Thirty seconds, not forever: an install can break between one look and the
+/// next — that has happened twice on this machine — and a cached "it is fine"
+/// outliving the truth is worse than a slow answer. Anything that needs the
+/// current state rather than the recent one passes `refresh`.
+static LAST_PROBE: std::sync::Mutex<Option<(String, std::time::Instant, ClaudeCodeStatus)>> =
+    std::sync::Mutex::new(None);
+
+/// How long an answer about the CLI stays good enough to reuse.
+const PROBE_FRESH: std::time::Duration = std::time::Duration::from_secs(30);
+
 #[tauri::command]
-pub async fn claude_code_status(executable: String) -> Result<ClaudeCodeStatus, String> {
-    match crate::ai::claude_code::discover(&executable).await {
+pub async fn claude_code_status(
+    executable: String,
+    // Ask again rather than reusing the recent answer. The setup panel's Test
+    // button means "find out now", and a cached refusal after somebody has just
+    // fixed their install is the confusing half of caching.
+    refresh: Option<bool>,
+) -> Result<ClaudeCodeStatus, String> {
+    if refresh != Some(true) {
+        if let Ok(held) = LAST_PROBE.lock() {
+            if let Some((exe, at, status)) = held.as_ref() {
+                if exe == &executable && at.elapsed() < PROBE_FRESH {
+                    return Ok(status.clone());
+                }
+            }
+        }
+    }
+
+    let status = probe(&executable).await;
+    if let Ok(mut held) = LAST_PROBE.lock() {
+        *held = Some((executable, std::time::Instant::now(), status.clone()));
+    }
+    Ok(status)
+}
+
+async fn probe(executable: &str) -> ClaudeCodeStatus {
+    match crate::ai::claude_code::discover(executable).await {
         Ok((path, version)) => {
             // Asked only once something is there to ask. A failure here is not
             // a failure of the panel: an older CLI may not know the subcommand,
             // and "installed, sign-in unknown" is still a useful answer.
-            let auth = crate::ai::claude_code::auth_status(&executable).await.ok();
-            Ok(ClaudeCodeStatus {
+            //
+            // Asked *at the copy already found*, rather than by searching for
+            // it again: discovery runs the binary, and running a 200 MB
+            // executable twice to answer one question is a second nobody gets
+            // back.
+            let auth = crate::ai::claude_code::auth_status_at(&path).await.ok();
+            ClaudeCodeStatus {
                 installed: true,
                 version,
                 path: path.display().to_string(),
                 problem: String::new(),
                 signed_in: auth.as_ref().is_some_and(|a| a.logged_in),
                 auth_method: auth.map(|a| a.auth_method).unwrap_or_default(),
-            })
+            }
         }
-        // Not an `Err`: "it is not installed" is the answer to this question,
+        // Not an error: "it is not installed" is the answer to this question,
         // not a failure to answer it. A thrown error would make the guide show
         // a red alert where it should be showing step one.
-        Err(problem) => Ok(ClaudeCodeStatus {
+        Err(problem) => ClaudeCodeStatus {
             installed: false,
             version: String::new(),
             path: String::new(),
             problem,
             signed_in: false,
             auth_method: String::new(),
-        }),
+        },
     }
 }
 

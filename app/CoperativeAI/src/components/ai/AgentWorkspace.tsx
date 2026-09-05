@@ -597,6 +597,7 @@ export default function AgentWorkspace({
             // default branch and no sign the agent had touched anything.
             // Closing out passes null and the branch comes back.
             runChanges={active?.run ? (review?.changes ?? []) : null}
+            runId={active?.run?.id}
             selectedPath={selectedFile}
             onSelectFile={(solutionId, path) => {
               setFileFrom(solutionId);

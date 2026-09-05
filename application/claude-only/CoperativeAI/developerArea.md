@@ -4559,3 +4559,102 @@ cargo 760/760 (23 ignored), Vitest 725/725, `tsc --noEmit`, clippy
   template-already-inserted warning; no locale-assertion guard; no "run the
   regression suite" action; the lifecycle checklist reports but does not
   enforce; no logging outside Develop; no Admin UI for the routing defaults.
+
+## Round 91 — a real tree, folded shut, and the two seconds nobody asked for
+
+### My Feedback
+
+> Can the files pane also show the folders not just the files changes. So I can
+> navigate .bin or .obj with all the folders paths and files in the correct
+> location
+>
+> Also their is a long pause for the display can we make this instant
+>
+> Can all the folders be closed please / not open by default
+
+### The tree
+
+Last round's flat list answered "what changed" and not "where", and `bin` and
+`obj` — which is where a .NET project's changes actually are — are on the
+backend's skip list, so those had nowhere to sit at all.
+
+Three things, in order:
+
+1. **The walk reads the run's checkout.** `read_solution_tree` takes the run,
+   through the same `root_for_run` the review and the file reader use. The files
+   an agent added exist there and nowhere else.
+2. **The changes are merged into that tree** by `withChanges`, which creates the
+   folders a changed path needs. `bin/Debug/net8.0/app.dll` arrives as
+   `bin` → `Debug` → `net8.0` → `app.dll`, where it really is. The rest of `bin`
+   stays unwalked, which is the point of skipping it.
+3. **The order is rebuilt, not patched.** Folders first, then names,
+   depth-first — the same rule the backend walk uses. Splicing rows into an
+   existing order would scatter a folder's contents around it.
+
+### Closed by default
+
+A tree that arrives expanded is a wall of paths: a .NET project opens on
+`bin/Debug/net8.0/…` before anything a person wrote. Folders start shut and open
+on a click.
+
+One exception, and it is the honest one: **"changed only" opens everything on
+the way to a change.** That view exists to show what changed; hiding those
+behind folders somebody opens one at a time would make it answer nothing.
+
+And a rule worth naming: a row is hidden only by folders that are *really rows*.
+A path whose parent is not in the tree — a walk cut short, a merged change — is
+reachable, because a folder that does not exist cannot be opened and hiding
+behind it would hide the file for good.
+
+### The pause, measured rather than guessed
+
+`claude --version` takes 0.59s on this machine. `claude auth status` takes
+1.26s — and it called `discover` first, which runs `--version` again. So
+answering "is the agent installed and signed in?" cost **~2.5 seconds**, and the
+build plan asked on every refresh, which is every time anything about the work
+changes.
+
+Two fixes:
+
+- **Ask the found copy.** `auth_status_at` takes the path discovery already
+  returned, instead of searching again. Half the cost, and the searching wrapper
+  is gone rather than left as a trap.
+- **Keep the answer for thirty seconds.** Not forever: an install can break
+  between one look and the next — that has happened twice on this machine — and
+  a cached "it is fine" outliving the truth is worse than a slow answer.
+  Anything that means "find out now" passes `refresh`.
+
+~2.5s on every refresh becomes ~1.3s once and ~0 after.
+
+### Tests
+
+Six for `withChanges`, three more for the pane (closed by default, opening a
+folder, and the changed-only exception). The Tauri boundary test caught the
+`refresh` argument missing from the wrapper the moment the command grew it,
+which is exactly the seam it exists for.
+
+cargo 760/760 (23 ignored), Vitest 734/734, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean.
+
+### Your Feedback
+
+- **The probe is cached, not fast.** The first look after thirty seconds still
+  waits about a second. Making it truly instant means asking in the background
+  and letting the panel say "checking…", which is a different shape of change.
+- I did not measure the pause on your screen — I measured what the panel calls.
+  If it still feels slow after this, say which screen and I will time that one.
+- The "Whole tree / Changed only" toggle now does something on an agent as well,
+  and defaults to whole tree.
+
+### Technical Debt
+
+- The probe's freshness is a number in the code, not a setting.
+- Nothing shows a "reading…" state while the first tree loads.
+- Carried: no answer to "should a new attempt start from a clean checkout?";
+  saving a file still writes to the Solution's folder; splitting prose is
+  guesswork; the review is not refreshed on the work signal; nothing
+  distinguishes a scoring list from an enforcing one; a policy tightened mid-run
+  does not stop a running agent; no template-already-inserted warning; no
+  locale-assertion guard; no "run the regression suite" action; the lifecycle
+  checklist reports but does not enforce; no logging outside Develop; no Admin
+  UI for the routing defaults.

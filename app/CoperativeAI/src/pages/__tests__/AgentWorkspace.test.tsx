@@ -608,6 +608,8 @@ describe("AgentWorkspace (the Build view)", () => {
     const rail = screen.getByRole("complementary", { name: /Review and ship/ });
     await user.click(within(rail).getByRole("button", { name: /Read it again|Review what changed/ }));
 
+    // Folders start closed, so the way to a file is through its folder.
+    await user.click(await screen.findByLabelText("Folder src"));
     await user.click(await screen.findByLabelText("src/checkout.ts"));
     expect(await screen.findByText(/\+new line/)).toBeInTheDocument();
   });
@@ -881,6 +883,7 @@ describe("AgentWorkspace (the Build view)", () => {
     );
 
     // Clicking a file shows the code, and the button follows the pane.
+    await user.click(await screen.findByLabelText("Folder src"));
     await user.click(await screen.findByLabelText("src/main.ts"));
     await user.click(
       await screen.findByLabelText("Open src/main.ts in its own window"),

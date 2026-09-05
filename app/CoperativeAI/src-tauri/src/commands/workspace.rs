@@ -42,10 +42,15 @@ pub async fn set_solution_path(
 pub async fn read_solution_tree(
     db: State<'_, AppDb>,
     solution_id: i64,
+    // The run whose checkout to walk. Without it this is the Solution's folder
+    // — the default branch — which is what the Files pane shows when no agent
+    // is selected. With one selected, the agent's own checkout is the tree
+    // worth showing: it is where the files it added actually are.
+    run_id: Option<i64>,
 ) -> Result<workspace::FileTree, String> {
     let root = {
         let conn = db.0.lock().await;
-        root_for(&conn, solution_id).await?
+        root_for_run(&conn, solution_id, run_id).await?
     };
     workspace::read_tree(&root)
 }

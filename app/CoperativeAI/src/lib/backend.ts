@@ -150,8 +150,15 @@ export const setSolutionPath = (
   solutionId: number,
   localPath: string | null,
 ): Promise<void> => invoke("set_solution_path", { solutionId, localPath });
-export const readSolutionTree = (solutionId: number): Promise<FileTree> =>
-  invoke("read_solution_tree", { solutionId });
+/** The file tree of a Solution — or of one run's own checkout.
+ *
+ *  **Give it the run when an agent is selected.** The files an agent added are
+ *  in its worktree and nowhere else, so the Solution's folder cannot show them
+ *  at all. */
+export const readSolutionTree = (
+  solutionId: number,
+  runId?: number,
+): Promise<FileTree> => invoke("read_solution_tree", { solutionId, runId });
 /** One file's contents.
  *
  *  **Give it the run when an agent is selected.** A run works in its own
@@ -1497,8 +1504,19 @@ export const getPaidApiAllowed = (): Promise<boolean> =>
 export const setPaidApiAllowed = (allowed: boolean): Promise<void> =>
   invoke("set_paid_api_allowed", { allowed });
 
-export const claudeCodeStatus = (executable = ""): Promise<ClaudeCodeStatus> =>
-  invoke("claude_code_status", { executable });
+/** Whether Claude Code is installed here, and signed in.
+ *
+ *  **Answered from a recent answer unless you ask for a fresh one.** Asking runs
+ *  the CLI, and running a 200 MB binary takes most of a second — twice over,
+ *  because installed and signed-in are two questions. The backend keeps the
+ *  answer for thirty seconds so a panel that refreshes does not wait for it
+ *  again; `refresh` is for the moments that mean "find out now", like a Test
+ *  button after somebody has just fixed their install. */
+export const claudeCodeStatus = (
+  executable = "",
+  refresh = false,
+): Promise<ClaudeCodeStatus> =>
+  invoke("claude_code_status", { executable, refresh });
 
 /** Opens a terminal and starts the Claude Code sign-in in it.
  *

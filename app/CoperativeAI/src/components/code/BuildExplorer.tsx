@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import FileIcon from "./FileIcon";
+import { ancestors, withChanges } from "../../lib/tree";
 import { hueFor, markFor } from "../ai/AgentLane";
 import {
   productChangedFiles,
@@ -17,11 +18,6 @@ interface Row {
 }
 
 /** Every folder above a path, so a row can ask whether its ancestors are open. */
-function ancestors(path: string): string[] {
-  const parts = path.split("/");
-  return parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join("/"));
-}
-
 /** The Build view's file tree: the whole Product, or one Solution.
  *
  *  **One pane, not two.** Picking a Solution to open and then browsing its files
@@ -41,6 +37,7 @@ export default function BuildExplorer({
   selectedPath,
   onSelectFile,
   runChanges = null,
+  runId,
 }: {
   productId: number;
   /** The Product's Solutions. All of them are shown when none is picked. */
@@ -59,6 +56,9 @@ export default function BuildExplorer({
    *  had touched anything. Given a run's changes it shows those instead, and
    *  `null` (nobody selected) puts the branch back. */
   runChanges?: FileChange[] | null;
+  /** The selected agent's run, so the walk reads its checkout rather than the
+   *  Solution's folder. Its added files are there and nowhere else. */
+  runId?: number;
 }) {
   const [trees, setTrees] = useState<Record<number, TreeEntry[]>>({});
   const [truncated, setTruncated] = useState<number[]>([]);
@@ -82,9 +82,6 @@ export default function BuildExplorer({
   );
 
   const loadTrees = useCallback(async () => {
-    // An agent's changes are the rows; reading the branch tree would be work
-    // nobody sees. Closing out flips this back and the tree loads again.
-    if (runChanges !== null) return;
     const found: Record<number, TreeEntry[]> = {};
     const cut: number[] = [];
     let failure: string | null = null;
@@ -93,7 +90,7 @@ export default function BuildExplorer({
         .filter((s) => s.localPath)
         .map(async (s) => {
           try {
-            const tree = await readSolutionTree(s.id);
+            const tree = await readSolutionTree(s.id, runId);
             found[s.id] = tree.entries;
             if (tree.truncated) cut.push(s.id);
           } catch (e) {
@@ -107,7 +104,7 @@ export default function BuildExplorer({
     setTrees(found);
     setTruncated(cut);
     setError(failure);
-  }, [scope, runChanges]);
+  }, [scope, runId]);
 
   useEffect(() => {
     void loadTrees();
@@ -133,28 +130,59 @@ export default function BuildExplorer({
     void loadChanges();
   }, [loadChanges]);
 
+  /** Whether every folder above a row has been opened.
+   *
+   *  **Closed by default.** A tree that arrives fully expanded is a wall of
+   *  paths: a .NET project opens on `bin/Debug/net8.0/…` before anything a
+   *  person wrote. Folders open on a click and stay open, which makes the shape
+   *  of the repository the first thing you see and the contents the second.
+   *
+   *  The exception is "changed only", where the whole point is the changed
+   *  files: hiding them behind folders somebody has to open one at a time would
+   *  make that view answer nothing. */
+  const reachable = useCallback(
+    (solutionId: number, path: string, changedOnlyView: boolean, folders: Set<string>) =>
+      changedOnlyView ||
+      // Only the folders that are really rows: a row whose parent is not in the
+      // tree has nothing to open, and hiding it would hide it for good.
+      ancestors(path)
+        .filter((a) => folders.has(a))
+        .every((a) => open[`${solutionId}:${a}`] === true),
+    [open],
+  );
+
   /** Every visible row, in Solution order. A root is a Solution when more than
    *  one is showing; with one, its files sit at the top level because a single
    *  root you can never fold away is just an indent. */
   const rows: Row[] = useMemo(() => {
     const out: Row[] = [];
-    // **An agent's changed files are the tree.** Not the branch's tree filtered
-    // by them: a file the agent *added* is not in the branch's tree at all, so
-    // filtering would hide exactly the files it most wants to show.
+    // **An agent's tree is its own checkout, with its changes in it.** A flat
+    // list of changed paths was the first cut and answered "what changed"
+    // without answering "where" — and a .NET project's changes live under
+    // `bin/` and `obj/`, which the walk skips, so those had nowhere to sit at
+    // all. `withChanges` puts them back under the folders they belong to.
     if (runChanges !== null) {
       const solution = scope[0];
       if (solution === undefined) return out;
-      for (const change of runChanges) {
-        out.push({
-          solution,
-          entry: {
-            path: change.path,
-            name: change.path.split("/").pop() ?? change.path,
-            isDir: false,
-            depth: 0,
-          },
-          change,
-        });
+      const byPath = new Map(runChanges.map((c) => [c.path, c]));
+      const merged = withChanges(
+        trees[solution.id] ?? [],
+        runChanges.map((c) => c.path),
+      );
+      const folders = new Set(merged.filter((e) => e.isDir).map((e) => e.path));
+      const changedDirs = new Set<string>();
+      if (changedOnly) {
+        for (const c of runChanges) for (const a of ancestors(c.path)) changedDirs.add(a);
+      }
+      for (const entry of merged) {
+        const change = byPath.get(entry.path) ?? null;
+        if (changedOnly && (entry.isDir ? !changedDirs.has(entry.path) : change === null)) {
+          continue;
+        }
+        if (!reachable(solution.id, entry.path, changedOnly, folders)) {
+          continue;
+        }
+        out.push({ solution, entry, change });
       }
       return out;
     }
@@ -164,6 +192,7 @@ export default function BuildExplorer({
       const mine = changes[solution.id] ?? [];
       const byPath = new Map(mine.map((c) => [c.path, c]));
       const entries = trees[solution.id] ?? [];
+      const folders = new Set(entries.filter((e) => e.isDir).map((e) => e.path));
 
       const changedDirs = new Set<string>();
       if (changedOnly) {
@@ -175,16 +204,16 @@ export default function BuildExplorer({
         if (changedOnly && (entry.isDir ? !changedDirs.has(entry.path) : change === null)) {
           continue;
         }
-        // A folded ancestor hides everything under it. Keyed by Solution so two
-        // repositories with the same folder name fold independently.
-        if (ancestors(entry.path).some((a) => open[`${solution.id}:${a}`] === false)) {
+        // Keyed by Solution so two repositories with the same folder name
+        // open and close independently.
+        if (!reachable(solution.id, entry.path, changedOnly, folders)) {
           continue;
         }
         out.push({ solution, entry, change });
       }
     }
     return out;
-  }, [scope, trees, changes, changedOnly, open, foldedRoots, runChanges]);
+  }, [scope, trees, changes, changedOnly, open, foldedRoots, runChanges, reachable]);
 
   const changedCount = scope.reduce((n, s) => n + (changes[s.id]?.length ?? 0), 0);
   const fileCount = scope.reduce(
@@ -202,18 +231,14 @@ export default function BuildExplorer({
             ? `${runChanges.length} changed by this agent`
             : `${changedCount} changed of ${fileCount}`}
         </span>
-        {/* Nothing to scope while an agent's own changes are the list — the
-            toggle would offer a whole tree this pane is not showing. */}
-        {runChanges === null && (
-          <button
-            type="button"
-            className="explorer-scope"
-            aria-pressed={changedOnly}
-            onClick={() => setChangedOnly((v) => !v)}
-          >
-            {changedOnly ? "Changed only" : "Whole tree"}
-          </button>
-        )}
+        <button
+          type="button"
+          className="explorer-scope"
+          aria-pressed={changedOnly}
+          onClick={() => setChangedOnly((v) => !v)}
+        >
+          {changedOnly ? "Changed only" : "Whole tree"}
+        </button>
       </header>
 
       {error && <p role="alert">{error}</p>}
@@ -273,7 +298,10 @@ export default function BuildExplorer({
               <ul>
                 {mine.map(({ entry, change }) => {
                   const key = `${solution.id}:${entry.path}`;
-                  const isOpen = open[key] !== false;
+                  // Closed until somebody opens it — except in the changed-only
+                  // view, where every folder on the way to a change is open
+                  // because that is the whole of what that view is for.
+                  const isOpen = open[key] === true || changedOnly;
                   const on = selectedPath === entry.path && solutionId === solution.id;
                   return (
                     <li key={key}>

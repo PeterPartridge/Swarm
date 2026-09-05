@@ -522,11 +522,16 @@ pub struct AuthState {
 /// **A non-zero exit is the signed-out answer, not a failure** — the JSON is
 /// printed either way, so it is read first and the exit status is not consulted
 /// at all.
-pub async fn auth_status(configured_exe: &str) -> Result<AuthState, String> {
-    let (exe, _) = discover(configured_exe).await?;
+/// Asked at a copy already found.
+///
+/// **Discovery runs the binary.** This used to take the configured name and
+/// discover the copy for itself, so answering "installed, and signed in?" ran a
+/// 200 MB executable twice over — and the second run only to find the path the
+/// first had already returned. The caller has it; it passes it.
+pub async fn auth_status_at(exe: &std::path::Path) -> Result<AuthState, String> {
     let output = tokio::time::timeout(
         Duration::from_secs(30),
-        tokio::process::Command::new(&exe)
+        tokio::process::Command::new(exe)
             .args(["auth", "status"])
             .stdin(Stdio::null())
             .output(),
@@ -988,7 +993,8 @@ mod tests {
             };
             assert!(!said.trim().is_empty(), "it answered --version happily");
 
-            let state = auth_status("")
+            let (exe, _) = discover("").await.expect("it was just found");
+            let state = auth_status_at(&exe)
                 .await
                 .expect("it should say whether it is signed in");
             eprintln!("--version said {said:?}; auth says {state:?}");
