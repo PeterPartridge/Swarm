@@ -786,14 +786,6 @@ export default function AgentWorkspace({
               run={active.run}
               solutions={solutions}
               onRunChanged={refresh}
-              review={review}
-              reviewing={reviewing}
-              onReview={onReview}
-              selectedPath={selectedFile}
-              onSelectFile={(solutionId, path) => {
-                setFileFrom(solutionId);
-                setSelectedFile(path);
-              }}
               onTests={setTests}
               onOpenWork={onOpenWork}
             />

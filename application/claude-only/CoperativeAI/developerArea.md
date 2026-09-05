@@ -4658,3 +4658,81 @@ cargo 760/760 (23 ignored), Vitest 734/734, `tsc --noEmit`, clippy
   locale-assertion guard; no "run the regression suite" action; the lifecycle
   checklist reports but does not enforce; no logging outside Develop; no Admin
   UI for the routing defaults.
+
+## Round 92 — the editor gets its space back
+
+### My Feedback
+
+> Can the code be area be much larger can we remove the lin below with explain
+> this and anything else with an ask and can we make this a right click option.
+> Along wiht options like refactor and format code
+>
+> can I also in dark mode have the code white text on black back ground
+>
+> Also in work item can we remove the changes tab and replace it with. From
+> Product, AI planning and Git from the Plan section
+
+### Implemented
+
+**The editor takes the room.** It was a fixed 24rem — about twenty lines — in a
+column with three times that, so reading a file meant scrolling a small window
+inside a large empty one. It fills what is left after the header now, with a
+floor for the small windows the pull-outs open in.
+
+**The ask bar is Monaco's own right-click menu.** A select, a text box and an
+Ask button sat under every editor: three controls and a permanent line of
+vertical space for something asked occasionally. Explain, Refactor, Document and
+Draft tests are menu items now, and **Format code** joins them — Monaco's own
+formatter, because it is instant, free and deterministic, and paying a model to
+indent code would be a strange thing to do. A language with no formatter loaded
+says so rather than doing nothing, which is what a broken menu item looks like.
+
+The instruction box went with the bar. It was the one thing lost rather than
+moved, and it was a field under every editor that people scrolled past.
+
+**Dark mode reaches the code.** Every other surface is themed by variables on
+`:root[data-theme]`; Monaco paints itself and takes a theme name, so it is the
+one surface that has to be told. `useThemeMode` watches the attribute the rest
+of the app already treats as the truth, so flipping the theme moves the editor
+with everything else rather than on next open.
+
+**One row of tabs about one work item.** The agent's work item panel had a
+Changes tab and the Plan panel inside it had four more, so choosing Plan
+revealed a second row of tabs. From Product, AI planning and Git are up in the
+outer row now; the Plan panel draws no tabs of its own when it is given a view.
+Changes has gone, because the changes are in the Files pane, and two places
+showing the same list disagreed about which working copy they meant.
+
+### Your Feedback
+
+- **The per-file diff has nowhere to live now.** The Changes tab was the only
+  thing that drew one; the Files pane shows *which* files changed and the editor
+  shows what a file says, but nothing shows the change itself. The obvious home
+  is a Diff/Code toggle on the file editor — say the word and it is a small
+  round.
+- Removing the ask bar removes its discoverability with it. Nothing on screen
+  says "right-click for Explain". A one-line hint in the editor's header would
+  fix that; I left it out rather than putting back a line you asked me to
+  remove.
+
+### Tests
+
+Three new for the menu (every action registered, formatting with and without a
+formatter loaded), and the Monaco stub grew a context menu a test can pick from.
+The work item's tab tests now name the hoisted tabs and assert Changes is gone.
+
+cargo 760/760 (23 ignored), Vitest 737/737, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean.
+
+### Technical Debt
+
+- No per-file diff anywhere in the app.
+- Nothing advertises the right-click menu.
+- Carried: no answer to "should a new attempt start from a clean checkout?";
+  saving a file still writes to the Solution's folder; probe freshness is a
+  number in the code; splitting prose is guesswork; the review is not refreshed
+  on the work signal; nothing distinguishes a scoring list from an enforcing
+  one; a policy tightened mid-run does not stop a running agent; no
+  template-already-inserted warning; no locale-assertion guard; no "run the
+  regression suite" action; the lifecycle checklist reports but does not
+  enforce; no logging outside Develop; no Admin UI for the routing defaults.

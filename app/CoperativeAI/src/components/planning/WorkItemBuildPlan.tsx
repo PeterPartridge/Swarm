@@ -52,10 +52,18 @@ import {
 export default function WorkItemBuildPlan({
   item,
   solutions,
+  view: chosenView,
 }: {
   item: WorkItem;
   /** The Product's Solutions — the candidates this work can affect. */
   solutions: Solution[];
+  /** Which of its four views to show, when something outside is choosing.
+   *
+   *  **The Build view hoists them.** Its work-item panel had a Changes tab and
+   *  this panel had four of its own, so an agent's screen carried two rows of
+   *  tabs about one work item. From Product, AI planning and Git are up there
+   *  now; given a view, this shows it and draws no tab row of its own. */
+  view?: string;
 }) {
   const [plans, setPlans] = useState<WorkItemPlan[]>([]);
   const [questions, setQuestions] = useState<AiFeedback[]>([]);
@@ -80,7 +88,8 @@ export default function WorkItemBuildPlan({
   const [agentCli, setAgentCli] = useState<{ ok: boolean; problem: string } | null>(null);
   /// Which side is showing. Develop first: this panel is opened from the
   /// Develop area, and what a developer came here to do is the default.
-  const [view, setView] = useState("develop");
+  const [ownView, setView] = useState("develop");
+  const view = chosenView ?? ownView;
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<NoticeValue | null>(null);
   /// Why the panel could not read itself. Cleared by the next successful read,
@@ -473,6 +482,7 @@ export default function WorkItemBuildPlan({
           Product's half is read-only here — a requirement reworded by the
           person implementing it stops being a requirement — and the questions
           are the way across the line. */}
+      {chosenView === undefined && (
       <SectionTabs
         label="Build plan view"
         as="buttons"
@@ -495,6 +505,7 @@ export default function WorkItemBuildPlan({
         active={view}
         onSelect={setView}
       />
+      )}
 
       {view === "product" && (
         <FromProduct

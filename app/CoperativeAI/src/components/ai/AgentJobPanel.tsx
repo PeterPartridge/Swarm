@@ -13,7 +13,6 @@ import {
   runSolutionTests,
   startRun,
   suggestDevCommand,
-  type ChangeReview,
   type Run,
   type Solution,
   type SolutionSuites,
@@ -25,7 +24,9 @@ import {
  *  the rest need a checkout, so they only appear once there is a run. */
 export type SubPanel =
   | "plan"
-  | "changes"
+  | "product"
+  | "aiPlanning"
+  | "git"
   | "tests"
   | "scope"
   | "questions"
@@ -41,23 +42,15 @@ interface Started {
 
 const LABELS: Record<SubPanel, string> = {
   plan: "Plan",
-  changes: "Changes",
+  product: "From Product",
+  aiPlanning: "AI planning",
+  git: "Git",
   tests: "Tests",
   scope: "Scope",
   questions: "AI feedback",
   preview: "Preview",
   terminal: "Run",
 };
-
-/** Which side of a diff a line is on. The `+++`/`---` headers name the file
- *  rather than changing it, so they are neither. */
-function diffLineClass(line: string): string {
-  if (line.startsWith("+++") || line.startsWith("---")) return "diff-header";
-  if (line.startsWith("@@")) return "diff-hunk";
-  if (line.startsWith("+")) return "diff-added";
-  if (line.startsWith("-")) return "diff-removed";
-  return "";
-}
 
 /** The workbench: everything about one agent, in sub-panels.
  *
@@ -76,11 +69,6 @@ export default function AgentJobPanel({
   run,
   solutions,
   onRunChanged,
-  review,
-  reviewing,
-  onReview,
-  selectedPath,
-  onSelectFile,
   onTests,
   onOpenWork,
 }: {
@@ -94,14 +82,6 @@ export default function AgentJobPanel({
   solutions: Solution[];
   /** Called after starting a run, so the lane's state catches up. */
   onRunChanged: () => void;
-  /** The change review, owned by the Build view so the workbench and the ship
-   *  rail read the same one rather than each running git for itself. */
-  review: ChangeReview | null;
-  reviewing: boolean;
-  onReview: () => void;
-  /** The file picked in the tree, whose diff opens first. */
-  selectedPath: string | null;
-  onSelectFile: (solutionId: number, path: string) => void;
   /** Reports what the tests said, so the ship rail can read it back. */
   onTests: (verdict: TestVerdict) => void;
   /** Opens a work item — the debt filed out of this agent's round record is
@@ -133,8 +113,18 @@ export default function AgentJobPanel({
   const available: SubPanel[] = useMemo(
     () =>
       prepared
-        ? ["plan", "changes", "tests", "preview", "terminal", "scope", "questions"]
-        : ["plan", "questions"],
+        ? [
+            "plan",
+            "product",
+            "aiPlanning",
+            "git",
+            "tests",
+            "preview",
+            "terminal",
+            "scope",
+            "questions",
+          ]
+        : ["plan", "product", "aiPlanning", "git", "questions"],
     [prepared],
   );
 
@@ -143,12 +133,6 @@ export default function AgentJobPanel({
   useEffect(() => {
     if (!available.includes(panel)) setPanel("plan");
   }, [available, panel]);
-
-  // Picking a file in the tree is a request to see its diff — that linkage is
-  // the reason the tree and the workbench sit side by side.
-  useEffect(() => {
-    if (selectedPath !== null && available.includes("changes")) setPanel("changes");
-  }, [selectedPath, available]);
 
   /// Read for the preview's port guess only — a wrong guess is corrected in the
   /// preview itself, so failing to read it is not worth an error.
@@ -258,9 +242,6 @@ export default function AgentJobPanel({
   const badge = agent ? status(agent) : null;
   const phase = agent ? phaseOf(agent) : 0;
   const hue = hueFor(run?.solutionId ?? null);
-  const files = review?.changes ?? [];
-  const activeFile =
-    files.find((f) => f.path === selectedPath) ?? files[0] ?? null;
 
   return (
     <section className="workbench" aria-label={`Agent for ${item.title}`}>
@@ -300,9 +281,6 @@ export default function AgentJobPanel({
             onClick={() => setPanel(p)}
           >
             {LABELS[p]}
-            {p === "changes" && review && (
-              <span className="tab-badge">{review.report.filesChanged}</span>
-            )}
             {p === "questions" && agent && agent.questions > 0 && (
               <span className="tab-badge">{agent.questions}</span>
             )}
@@ -314,66 +292,25 @@ export default function AgentJobPanel({
 
 
       <div className="workbench-panel">
-        {panel === "plan" && <WorkItemBuildPlan item={item} solutions={solutions} />}
+        {panel === "plan" && (
+          <WorkItemBuildPlan item={item} solutions={solutions} view="develop" />
+        )}
 
-        {panel === "changes" && (
-          <div className="changes-pane">
-            <div className="changes-files">
-              {files.length === 0 ? (
-                <p className="hint">
-                  {/* **Not an instruction to press something.** This said
-                      "nothing read yet — press Review what changed in the
-                      rail", which is the app asking permission to do the thing
-                      you opened the pane to see. The diff is read on arrival
-                      now, so the only two states left are "still reading" and
-                      "nothing changed". */}
-                  {reviewing
-                    ? "Reading what changed…"
-                    : review === null
-                      ? "What changed could not be read — the rail says why."
-                      : "Nothing has changed in this working copy."}
-                </p>
-              ) : (
-                files.map((f) => (
-                  <button
-                    key={f.path}
-                    type="button"
-                    className={`change-chip ${activeFile?.path === f.path ? "on" : ""}`}
-                    aria-pressed={activeFile?.path === f.path}
-                    onClick={() => run && onSelectFile(run.solutionId, f.path)}
-                  >
-                    <span className={`change-status ${f.status}`}>
-                      {f.status.charAt(0).toUpperCase()}
-                    </span>
-                    <span className="card-mono">{f.path.split("/").pop()}</span>
-                    <span className="ok">+{f.addedLines}</span>
-                    <span className="bad">−{f.removedLines}</span>
-                  </button>
-                ))
-              )}
-            </div>
+        {/* **From Product, AI planning and Git, hoisted.** They were tabs
+            inside the Plan panel underneath this row of tabs — two rows about
+            one work item, and the inner row invisible until you had already
+            chosen Plan. The Changes tab they replace is gone because the
+            changes are in the Files pane now, where the files are. */}
+        {panel === "product" && (
+          <WorkItemBuildPlan item={item} solutions={solutions} view="product" />
+        )}
 
-            {activeFile && (
-              <>
-                <p className="changes-path card-mono">{activeFile.path}</p>
-                {/* Coloured by line, not syntax-highlighted: what a reviewer
-                    needs first is which lines arrived and which left, and that
-                    is a per-line fact. */}
-                <pre className="change-diff">
-                  {activeFile.diff.split("\n").map((line, n) => (
-                    <span key={n} className={diffLineClass(line)}>
-                      {line}
-                      {"\n"}
-                    </span>
-                  ))}
-                </pre>
-              </>
-            )}
+        {panel === "aiPlanning" && (
+          <WorkItemBuildPlan item={item} solutions={solutions} view="ai" />
+        )}
 
-            <button type="button" onClick={onReview} disabled={reviewing || run === null}>
-              {reviewing ? "Reading…" : review === null ? "Review what changed" : "Read it again"}
-            </button>
-          </div>
+        {panel === "git" && (
+          <WorkItemBuildPlan item={item} solutions={solutions} view="git" />
         )}
 
         {panel === "tests" && run !== null && (
@@ -529,7 +466,7 @@ export default function AgentJobPanel({
       {run !== null && !prepared && (
         <div className="agent-not-started">
           <p className="hint">
-            Changes, tests, preview and a terminal appear once this run has its own
+            Tests, preview and a terminal appear once this run has its own
             checkout. Starting makes one on <code>{run.branch || "its branch"}</code>.
           </p>
           {planApproved === false && (

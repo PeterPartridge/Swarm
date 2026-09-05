@@ -7,6 +7,7 @@ import {
   type PalAnswer,
 } from "../../lib/backend";
 import BlockedNote from "../ai/BlockedNote";
+import { useThemeMode } from "../../lib/theme";
 
 const PAL_ACTIONS = Object.keys(PAL_ACTION_LABELS) as PalAction[];
 
@@ -14,6 +15,16 @@ const PAL_ACTIONS = Object.keys(PAL_ACTION_LABELS) as PalAction[];
  *  `EditorComponent`: it is loaded at runtime and stubbed in tests. */
 interface MonacoEditor {
   addCommand: (keybinding: number, handler: () => void) => void;
+  /** Puts an item in Monaco's own right-click menu. */
+  addAction?: (action: {
+    id: string;
+    label: string;
+    contextMenuGroupId: string;
+    contextMenuOrder: number;
+    run: () => void;
+  }) => void;
+  /** One of Monaco's built-in actions, when the language has it. */
+  getAction?: (id: string) => { run: () => Promise<void> } | null;
   onDidChangeCursorSelection?: (cb: (ev: { selection: unknown }) => void) => void;
   getModel?: () => MonacoModel | null;
   onMouseDown?: (cb: (ev: MonacoMouseEvent) => void) => void;
@@ -119,6 +130,7 @@ export default function CodeWindow({
    *  through Monaco on every pointer movement. */
   onHover?: (expression: string) => Promise<{ value: string; kind: string } | null>;
 }) {
+  const theme = useThemeMode();
   const [Editor, setEditor] = useState<EditorComponent | null>(null);
   /// The editor instance and its Monaco namespace, kept so the breakpoint
   /// decorations can be redrawn when the set changes rather than only on mount.
@@ -138,7 +150,6 @@ export default function CodeWindow({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [palAction, setPalAction] = useState<PalAction>("explain");
-  const [palInstruction, setPalInstruction] = useState("");
   const [palAnswer, setPalAnswer] = useState<PalAnswer | null>(null);
   const [palBusy, setPalBusy] = useState(false);
   /// What the developer has selected in the editor, kept as text so the pal
@@ -147,6 +158,10 @@ export default function CodeWindow({
   // Ctrl+S is registered once on mount; the ref keeps it pointing at the
   // current save rather than the closure from the first render.
   const saveRef = useRef<() => void>(() => {});
+  /// The same trick for the right-click menu: Monaco keeps the handler it was
+  /// given when the editor mounted, and a captured one would go on asking about
+  /// whichever file was open then.
+  const palRef = useRef<(action: PalAction) => void>(() => {});
 
   // A different file is a different set of problems: clear the last one's
   // error and pal answer rather than showing them over the new file.
@@ -174,6 +189,7 @@ export default function CodeWindow({
   }, []);
 
   const dirty = value !== saved;
+  palRef.current = (action) => void askPal(action);
 
   async function onSave() {
     setSaving(true);
@@ -189,7 +205,13 @@ export default function CodeWindow({
   }
   saveRef.current = () => void onSave();
 
-  async function onAskPal() {
+  /// Asks the pal, for the action the right-click menu chose.
+  ///
+  /// **In a ref, because Monaco keeps the first copy.** Actions are registered
+  /// once when the editor mounts, and a handler captured then would go on
+  /// asking about the file that was open at the time.
+  async function askPal(action: PalAction) {
+    setPalAction(action);
     setPalBusy(true);
     try {
       // The file itself is read from disk at the backend — unsaved edits are
@@ -200,8 +222,11 @@ export default function CodeWindow({
         await askCodingPal({
           solutionId,
           path,
-          action: palAction,
-          instruction: palInstruction,
+          action,
+          // No instruction box any more: the menu is the whole question, and a
+          // field asking "anything specific?" under every file was a line of
+          // furniture people scrolled past.
+          instruction: "",
           selection: selection.trim() === "" ? null : selection,
         }),
       );
@@ -320,6 +345,41 @@ export default function CodeWindow({
             editorRef.current = e;
             monacoRef.current = m;
             e.addCommand(m.KeyMod.CtrlCmd | m.KeyCode.KeyS, () => saveRef.current());
+
+            // **The menu people already right-click for.** These were a select,
+            // a text box and an Ask button under every editor — three controls
+            // and a line of vertical space, permanently, for something asked
+            // occasionally. Monaco has a context menu; this puts them in it.
+            for (const [index, action] of PAL_ACTIONS.entries()) {
+              e.addAction?.({
+                id: `pal-${action}`,
+                label: PAL_ACTION_LABELS[action],
+                contextMenuGroupId: "coperativeai",
+                contextMenuOrder: index,
+                run: () => void palRef.current(action),
+              });
+            }
+            // Formatting is Monaco's own, not the AI's: it is instant, free and
+            // deterministic, and paying a model to indent code would be a
+            // strange thing to do. Not every language has a formatter in this
+            // build, so a language without one says so rather than doing
+            // nothing at all.
+            e.addAction?.({
+              id: "format-document",
+              label: "Format code",
+              contextMenuGroupId: "coperativeai",
+              contextMenuOrder: PAL_ACTIONS.length,
+              run: () => {
+                const format = e.getAction?.("editor.action.formatDocument");
+                if (!format) {
+                  setError(
+                    "No formatter for this language is loaded in the editor — the file is unchanged.",
+                  );
+                  return;
+                }
+                void format.run();
+              },
+            });
             e.onDidChangeCursorSelection?.((ev) => {
               setSelection(e.getModel?.()?.getValueInRange?.(ev.selection) ?? "");
             });
@@ -359,8 +419,16 @@ export default function CodeWindow({
             }
             drawBreakpoints();
           }}
-          theme="vs"
-          height="24rem"
+          // **White code in a dark app glares.** Every other surface is themed
+          // by variables on `:root[data-theme]`; Monaco paints itself and takes
+          // a theme name, so it is the one surface that has to be told.
+          theme={theme === "dark" ? "vs-dark" : "vs"}
+          // **The editor is the point of this pane.** It was a fixed 24rem —
+          // about twenty lines — with a permanent ask-bar underneath, so
+          // reading a file meant scrolling a small window inside a large empty
+          // one. It now takes the height it is given, and the pane gives it
+          // what is left after the header.
+          height="100%"
           options={{
             minimap: { enabled: false },
             fontSize: 13,
@@ -375,32 +443,15 @@ export default function CodeWindow({
       )}
 
       <section className="coding-pal" aria-label={`Coding pal for ${path}`}>
-        <div className="pal-ask">
-          <select
-            aria-label="Pal action"
-            value={palAction}
-            onChange={(e) => setPalAction(e.target.value as PalAction)}
-          >
-            {PAL_ACTIONS.map((a) => (
-              <option key={a} value={a}>
-                {PAL_ACTION_LABELS[a]}
-              </option>
-            ))}
-          </select>
-          <input
-            aria-label="Pal instruction"
-            placeholder="anything specific? (optional)"
-            value={palInstruction}
-            onChange={(e) => setPalInstruction(e.target.value)}
-          />
-          <button aria-label={`Ask the pal about ${path}`} onClick={onAskPal} disabled={palBusy}>
-            {palBusy ? "Thinking…" : "Ask"}
-          </button>
-        </div>
-        {selection.trim() !== "" && (
+        {palBusy && (
           <p className="hint" role="status">
-            Asking about the selected code — clear the selection to ask about
-            the whole file.
+            {PAL_ACTION_LABELS[palAction]}: thinking…
+          </p>
+        )}
+        {!palBusy && selection.trim() !== "" && (
+          <p className="hint" role="status">
+            Right-click asks about the selected code — clear the selection to
+            ask about the whole file.
           </p>
         )}
 

@@ -2301,6 +2301,15 @@ code {
   background: var(--warn-tint);
 }
 
+/* Monaco measures itself against its container, so the container is what has
+   to grow. Without this the "100%" height it is given resolves to nothing. */
+.code-window > section:not(.coding-pal),
+.code-window > div[class*="monaco"],
+.code-window > :is(section, div):not(.code-window-head):not(.coding-pal) {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .coding-pal {
   border-top: 1px dashed var(--line);
   margin-top: 0.3rem;
@@ -2345,6 +2354,14 @@ code {
 }
 
 .code-window {
+  /* **As tall as the pane allows.** The editor was a fixed 24rem inside a
+     column with room for three times that, so a file was read through a
+     letterbox. It fills what is left after the header now, with a floor for
+     the small windows the pull-outs open in. */
+  display: flex;
+  flex-direction: column;
+  min-height: min(70vh, 40rem);
+  flex: 1 1 auto;
   border: 1px solid var(--line);
   border-radius: 4px;
   padding: 0.3rem;

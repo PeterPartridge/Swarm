@@ -297,7 +297,7 @@ describe("AgentWorkspace (the Build view)", () => {
 
   /// The panes are the other half of the request: one agent's plan, its diffs,
   /// its tests, a preview and its terminal, without leaving.
-  it("opens plan, changes, tests, preview and a terminal for a started run", async () => {
+  it("opens the work item's own tabs, tests, preview and a terminal for a started run", async () => {
     const user = userEvent.setup();
     mocked.listRuns.mockResolvedValue([
       run({ state: "prepared", worktreePath: "C:/wt/checkout" }),
@@ -308,11 +308,24 @@ describe("AgentWorkspace (the Build view)", () => {
     await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
     const tabs = await screen.findByRole("tablist", { name: "Agent sub-panels" });
     // "AI feedback", not "Questions": the panel shows what failed and what the
-    // AI could not do as well as what it asked.
-    for (const name of ["Plan", "Changes", "Tests", "Preview", "Run", "Scope", "AI feedback"]) {
+    // AI could not do as well as what it asked. From Product, AI planning and
+    // Git are here rather than inside the Plan panel — one row of tabs about
+    // one work item, instead of a row inside a row.
+    for (const name of [
+      "Plan",
+      "From Product",
+      "AI planning",
+      "Git",
+      "Tests",
+      "Preview",
+      "Run",
+      "Scope",
+      "AI feedback",
+    ]) {
       expect(within(tabs).getByRole("tab", { name: new RegExp(`^${name}`) })).toBeInTheDocument();
     }
 
+    expect(within(tabs).queryByRole("tab", { name: /^Changes/ })).not.toBeInTheDocument();
     expect(await screen.findByText("build plan for Add checkout")).toBeInTheDocument();
     await user.click(within(tabs).getByRole("tab", { name: /^Scope/ }));
     expect(await screen.findByText("the recorded scope")).toBeInTheDocument();
@@ -325,7 +338,7 @@ describe("AgentWorkspace (the Build view)", () => {
   /// Changes, tests, preview and a terminal all need a checkout. Offering panes
   /// that cannot work yet would be a worse answer than saying what is missing
   /// and how to get it.
-  it("offers only plan and questions until a run has a checkout, and says why", async () => {
+  it("offers only the planning tabs until a run has a checkout, and says why", async () => {
     const user = userEvent.setup();
     mocked.listRuns.mockResolvedValue([run()]); // notStarted, no worktree
     render(panel());
@@ -338,7 +351,7 @@ describe("AgentWorkspace (the Build view)", () => {
     expect(within(tabs).queryByRole("tab", { name: /^Preview/ })).not.toBeInTheDocument();
 
     expect(
-      screen.getByText(/Changes, tests, preview and a terminal appear once/),
+      screen.getByText(/Tests, preview and a terminal appear once/),
     ).toBeInTheDocument();
     expect(
       screen.getByLabelText("Start Add checkout on Shop API"),
@@ -589,10 +602,17 @@ describe("AgentWorkspace (the Build view)", () => {
 
   /// The tree and the workbench sit side by side for one reason: picking a file
   /// is a request to see what changed in it.
-  it("opens a file's diff when it is picked in the tree", async () => {
+  /// **A file picked in the tree opens from the agent's checkout.** It used to
+  /// open that file's *diff* in a Changes tab beside the plan; that tab has
+  /// gone, because the changes are in this tree now and two places showing the
+  /// same list disagreed about which working copy they meant.
+  ///
+  /// What goes with it is the per-file diff, and nothing replaces it yet —
+  /// noted here rather than papered over.
+  it("opens a picked file from the agent's own checkout", async () => {
     const user = userEvent.setup();
     mocked.listRuns.mockResolvedValue([
-      run({ state: "prepared", worktreePath: "C:/wt/checkout" }),
+      run({ id: 42, state: "prepared", worktreePath: "C:/wt/checkout" }),
     ]);
     mocked.readSolutionTree.mockResolvedValue({
       entries: [
@@ -601,17 +621,18 @@ describe("AgentWorkspace (the Build view)", () => {
       ],
       truncated: false,
     });
-    mocked.reviewSolutionChanges.mockResolvedValue(review());
+    mocked.reviewSolutionChanges.mockResolvedValue(review({ runId: 42 }));
+    mocked.readSolutionFile.mockResolvedValue("the agent's copy");
     render(panel());
 
     await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
-    const rail = screen.getByRole("complementary", { name: /Review and ship/ });
-    await user.click(within(rail).getByRole("button", { name: /Read it again|Review what changed/ }));
-
     // Folders start closed, so the way to a file is through its folder.
     await user.click(await screen.findByLabelText("Folder src"));
     await user.click(await screen.findByLabelText("src/checkout.ts"));
-    expect(await screen.findByText(/\+new line/)).toBeInTheDocument();
+
+    await waitFor(() =>
+      expect(mocked.readSolutionFile).toHaveBeenCalledWith(5, "src/checkout.ts", 42),
+    );
   });
 
   /// **The lane links, it does not launch.** Handing work to an agent means

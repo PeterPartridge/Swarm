@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 export type EnvironmentId = "product" | "develop" | "test" | "admin";
 
 export type TabColors = Record<EnvironmentId, string>;
@@ -62,4 +64,34 @@ export function saveThemeMode(mode: ThemeMode): void {
  *  overrides hang off it. Applied at startup and on every change. */
 export function applyThemeMode(mode: ThemeMode): void {
   document.documentElement.setAttribute("data-theme", mode);
+}
+
+/** The theme as it is now, and again whenever it changes.
+ *
+ *  **For the surfaces CSS cannot reach.** Every panel in this app is themed by
+ *  variables hanging off `:root[data-theme]`, so nothing else needs to know
+ *  which mode is on. The code editor is the exception: Monaco paints itself and
+ *  takes a theme name, so it has to be told — and a white editor in a dark app
+ *  is the one surface that glares.
+ *
+ *  Watches the attribute rather than the stored value, because the attribute is
+ *  what the rest of the app already treats as the truth. */
+export function useThemeMode(): ThemeMode {
+  const read = (): ThemeMode =>
+    document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+  const [mode, setMode] = useState<ThemeMode>(read);
+
+  useEffect(() => {
+    const watch = new MutationObserver(() => setMode(read()));
+    watch.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+    // The attribute may have been stamped between the first read and this
+    // subscription — a startup race that would leave one panel in the old mode.
+    setMode(read());
+    return () => watch.disconnect();
+  }, []);
+
+  return mode;
 }

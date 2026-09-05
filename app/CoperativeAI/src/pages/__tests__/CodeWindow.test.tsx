@@ -28,7 +28,18 @@ vi.mock("@monaco-editor/react", async () => {
       }
     | null = null;
   let disposed = false;
+  // The right-click menu, as Monaco holds it: actions registered on mount, run
+  // by id. A test picks one the way a person picks it off the menu.
+  const actions = new Map<string, () => void>();
+  const builtIn = new Map<string, () => Promise<void>>();
   return {
+    __menu: () => [...actions.keys()],
+    __pick: (id: string) => actions.get(id)?.(),
+    __offerFormatter: (has: boolean) => {
+      builtIn.clear();
+      if (has) builtIn.set("editor.action.formatDocument", async () => {});
+    },
+    __formatted: () => builtIn.has("__ran"),
     __fireSelection: (text: string) =>
       selectionListener?.({ selection: { __text: text } }),
     /// Acts as a pointer resting on a word. Null when nothing registered one.
@@ -50,6 +61,20 @@ vi.mock("@monaco-editor/react", async () => {
       props.onMount?.(
         {
           addCommand: () => {},
+          addAction: (a: { id: string; run: () => void }) => {
+            actions.set(a.id, a.run);
+          },
+          getAction: (id: string) => {
+            const found = builtIn.get(id);
+            return found
+              ? {
+                  run: async () => {
+                    builtIn.set("__ran", found);
+                    await found();
+                  },
+                }
+              : null;
+          },
           onDidChangeCursorSelection: (cb: (ev: { selection: unknown }) => void) => {
             selectionListener = cb;
           },
@@ -94,6 +119,22 @@ vi.mock("@monaco-editor/react", async () => {
 });
 
 import * as backend from "../../lib/backend";
+
+/** Picks an item off the editor's right-click menu, as a person would.
+ *
+ *  The ask used to be a select and a button under the editor, and the tests
+ *  clicked them. It is Monaco's own context menu now, so what a test can reach
+ *  is the action the editor registered — which is also the thing that would
+ *  break if the menu stopped being wired up. */
+async function pick(id: string): Promise<void> {
+  const { act } = await import("@testing-library/react");
+  const mod = (await import("@monaco-editor/react")) as unknown as {
+    __pick: (id: string) => void;
+  };
+  await act(async () => {
+    mod.__pick(id);
+  });
+}
 
 const mocked = vi.mocked(backend);
 
@@ -195,16 +236,18 @@ describe("CodeWindow", () => {
     );
 
     await screen.findByLabelText("Editor for src/main.rs");
-    await user.selectOptions(screen.getByLabelText("Pal action"), "refactor");
-    await user.type(screen.getByLabelText("Pal instruction"), "split this up");
-    await user.click(screen.getByLabelText("Ask the pal about src/main.rs"));
+
+    await pick("pal-refactor");
 
     await waitFor(() =>
       expect(mocked.askCodingPal).toHaveBeenCalledWith({
         solutionId: 3,
         path: "src/main.rs",
         action: "refactor",
-        instruction: "split this up",
+        // The menu item is the whole question. There was a text box beside the
+        // ask for anything more specific, and it went with the bar: a field
+        // under every editor, asked occasionally, scrolled past always.
+        instruction: "",
         selection: null,
       }),
     );
@@ -217,10 +260,61 @@ describe("CodeWindow", () => {
     expect(mocked.writeSolutionFile).not.toHaveBeenCalled();
   });
 
+/// **The menu is the feature now.** Every action that used to be in the
+  /// dropdown is an item people can right-click for, and formatting joins them
+  /// — Monaco's own, which is instant and free, rather than paying a model to
+  /// indent code.
+  it("offers every action, and formatting, on the editor's own menu", async () => {
+    render(<Harness path="src/main.rs" initial="fn main() {}" />);
+    await screen.findByLabelText("Editor for src/main.rs");
+
+    const mod = (await import("@monaco-editor/react")) as unknown as {
+      __menu: () => string[];
+    };
+    expect(mod.__menu()).toEqual([
+      "pal-explain",
+      "pal-refactor",
+      "pal-docs",
+      "pal-tests",
+      "format-document",
+    ]);
+    expect(mocked.askCodingPal).not.toHaveBeenCalled();
+  });
+
+  /// A language with no formatter loaded says so. Doing nothing at all looks
+  /// exactly like a menu item that is broken.
+  it("says so when the editor has no formatter for this language", async () => {
+    const mod = (await import("@monaco-editor/react")) as unknown as {
+      __offerFormatter: (has: boolean) => void;
+      __formatted: () => boolean;
+    };
+    mod.__offerFormatter(false);
+    render(<Harness path="src/main.rs" initial="fn main() {}" />);
+    await screen.findByLabelText("Editor for src/main.rs");
+
+    await pick("format-document");
+    expect(await screen.findByRole("alert")).toHaveTextContent(/No formatter/i);
+    expect(mod.__formatted()).toBe(false);
+  });
+
+  it("formats with the editor's own formatter when there is one", async () => {
+    const mod = (await import("@monaco-editor/react")) as unknown as {
+      __offerFormatter: (has: boolean) => void;
+      __formatted: () => boolean;
+    };
+    mod.__offerFormatter(true);
+    render(<Harness path="a.js" initial="const a=1" />);
+    await screen.findByLabelText("Editor for a.js");
+
+    await pick("format-document");
+    expect(mod.__formatted()).toBe(true);
+    // Formatting is not an AI question and must never become one.
+    expect(mocked.askCodingPal).not.toHaveBeenCalled();
+  });
+
   /// "Explain this bit" — a selection travels with the ask, and clearing it
   /// goes back to asking about the whole file.
   it("sends the selected code with the ask, and null once cleared", async () => {
-    const user = userEvent.setup();
     const { act } = await import("@testing-library/react");
     const mod = (await import("@monaco-editor/react")) as unknown as {
       __fireSelection: (text: string) => void;
@@ -240,9 +334,9 @@ describe("CodeWindow", () => {
     await screen.findByLabelText("Editor for src/main.rs");
 
     act(() => mod.__fireSelection("fn main"));
-    expect(await screen.findByText(/Asking about the selected code/)).toBeInTheDocument();
+    expect(await screen.findByText(/Right-click asks about the selected code/)).toBeInTheDocument();
 
-    await user.click(screen.getByLabelText("Ask the pal about src/main.rs"));
+    await pick("pal-refactor");
     await waitFor(() =>
       expect(mocked.askCodingPal).toHaveBeenCalledWith(
         expect.objectContaining({ selection: "fn main" }),
@@ -250,8 +344,8 @@ describe("CodeWindow", () => {
     );
 
     act(() => mod.__fireSelection(""));
-    expect(screen.queryByText(/Asking about the selected code/)).not.toBeInTheDocument();
-    await user.click(screen.getByLabelText("Ask the pal about src/main.rs"));
+    expect(screen.queryByText(/Right-click asks about the selected code/)).not.toBeInTheDocument();
+    await pick("pal-refactor");
     await waitFor(() =>
       expect(mocked.askCodingPal).toHaveBeenLastCalledWith(
         expect.objectContaining({ selection: null }),
@@ -261,7 +355,6 @@ describe("CodeWindow", () => {
 
   /// Violations are shown before apply, not discovered after save.
   it("names forbidden technology in a proposal before it can be applied", async () => {
-    const user = userEvent.setup();
     mocked.askCodingPal.mockResolvedValue({
       explanation: "Swapped to jQuery for brevity.",
       replacement: "import $ from 'jquery';",
@@ -274,7 +367,7 @@ describe("CodeWindow", () => {
     render(<Harness path="a.js" initial="x" />);
 
     await screen.findByLabelText("Editor for a.js");
-    await user.click(screen.getByLabelText("Ask the pal about a.js"));
+    await pick("pal-explain");
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("developer rules forbid");
@@ -284,7 +377,6 @@ describe("CodeWindow", () => {
   });
 
   it("shows a pal refusal as a question, not a failure", async () => {
-    const user = userEvent.setup();
     mocked.askCodingPal.mockResolvedValue({
       explanation: "",
       replacement: "",
@@ -297,7 +389,7 @@ describe("CodeWindow", () => {
     render(<Harness path="a.js" initial="x" />);
 
     await screen.findByLabelText("Editor for a.js");
-    await user.click(screen.getByLabelText("Ask the pal about a.js"));
+    await pick("pal-explain");
 
     expect(await screen.findByText(/stopped rather than guessing/)).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
