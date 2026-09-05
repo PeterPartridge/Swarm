@@ -152,10 +152,17 @@ export const setSolutionPath = (
 ): Promise<void> => invoke("set_solution_path", { solutionId, localPath });
 export const readSolutionTree = (solutionId: number): Promise<FileTree> =>
   invoke("read_solution_tree", { solutionId });
+/** One file's contents.
+ *
+ *  **Give it the run when an agent is selected.** A run works in its own
+ *  checkout, so the Solution's folder answers about the default branch — right
+ *  when nobody is asking about a run, and wrong the moment somebody is. For a
+ *  file the agent *added*, the Solution's folder has nothing to open at all. */
 export const readSolutionFile = (
   solutionId: number,
   path: string,
-): Promise<string> => invoke("read_solution_file", { solutionId, path });
+  runId?: number,
+): Promise<string> => invoke("read_solution_file", { solutionId, path, runId });
 /** Saves an edited file. Refused outside the Solution's folder or under
  *  `.git` — a write into `.git/config` would change what the repository is. */
 export const writeSolutionFile = (

@@ -115,7 +115,7 @@ describe("a Build pane pulled into its own window", () => {
     render(<StandaloneBuildPane pane="file" solutionId={3} path="src/main.rs" />);
 
     await waitFor(() =>
-      expect(mocked.readSolutionFile).toHaveBeenCalledWith(3, "src/main.rs"),
+      expect(mocked.readSolutionFile).toHaveBeenCalledWith(3, "src/main.rs", undefined),
     );
   });
 });

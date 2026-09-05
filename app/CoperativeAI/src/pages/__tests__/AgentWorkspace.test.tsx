@@ -580,7 +580,8 @@ describe("AgentWorkspace (the Build view)", () => {
     expect(
       await screen.findByRole("region", { name: "src/main.ts in Shop API" }),
     ).toBeInTheDocument();
-    expect(mocked.readSolutionFile).toHaveBeenCalledWith(5, "src/main.ts");
+    // No agent selected, so no run: the default branch's copy.
+    expect(mocked.readSolutionFile).toHaveBeenCalledWith(5, "src/main.ts", undefined);
     // Closing puts back whatever was showing before.
     await user.click(screen.getByLabelText("Close src/main.ts"));
     expect(await screen.findByText("the code editor")).toBeInTheDocument();
@@ -854,6 +855,21 @@ describe("AgentWorkspace (the Build view)", () => {
       entries: [{ path: "src/main.ts", name: "main.ts", isDir: false, depth: 0 }],
       truncated: false,
     });
+    // With an agent selected the Files pane shows what *it* changed, so the
+    // file clicked below comes from its checkout rather than the branch.
+    mocked.reviewSolutionChanges.mockResolvedValue(
+      review({
+        changes: [
+          {
+            path: "src/main.ts",
+            status: "modified",
+            addedLines: 1,
+            removedLines: 0,
+            diff: "",
+          },
+        ],
+      }),
+    );
     render(panel());
 
     await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));

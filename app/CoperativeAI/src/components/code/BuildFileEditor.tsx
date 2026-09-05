@@ -30,12 +30,16 @@ import { readSolutionFile, type Solution } from "../../lib/backend";
 export default function BuildFileEditor({
   solution,
   path,
+  runId,
   onClose,
   stoppedLine,
   onHover,
 }: {
   solution: Solution;
   path: string;
+  /** The run whose copy to open. Without it this is the default branch's — see
+   *  `readSolutionFile`. */
+  runId?: number;
   onClose: () => void;
   /** The line the debugger is stopped on, when the stop is in this file. */
   stoppedLine?: number | null;
@@ -54,7 +58,7 @@ export default function BuildFileEditor({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const contents = await readSolutionFile(solution.id, path);
+      const contents = await readSolutionFile(solution.id, path, runId);
       setSaved(contents);
       setValue(contents);
       setError(null);
@@ -63,7 +67,7 @@ export default function BuildFileEditor({
     } finally {
       setLoading(false);
     }
-  }, [solution.id, path]);
+  }, [solution.id, path, runId]);
 
   useEffect(() => {
     void load();

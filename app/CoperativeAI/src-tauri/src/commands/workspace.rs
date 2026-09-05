@@ -50,15 +50,49 @@ pub async fn read_solution_tree(
     workspace::read_tree(&root)
 }
 
+/// Which working copy to read: a run's own checkout, or the Solution's folder.
+///
+/// **A run's files are in the run's own checkout.** That is the point of giving
+/// each one a worktree, and reading the Solution's folder instead answers about
+/// the default branch — which is right when nobody is asking about a run, and
+/// wrong the moment somebody is. A run row that predates its checkout falls back
+/// rather than failing: the Solution's folder is still a truthful answer.
+pub(crate) async fn root_for_run(
+    conn: &turso::Connection,
+    solution_id: i64,
+    run_id: Option<i64>,
+) -> Result<String, String> {
+    match run_id {
+        Some(id) => {
+            let run = crate::db::change_run::find_by_id(conn, id)
+                .await
+                .map_err(to_message)?
+                .ok_or("that run no longer exists")?;
+            if run.worktree_path.trim().is_empty() {
+                root_for(conn, solution_id).await
+            } else {
+                Ok(run.worktree_path)
+            }
+        }
+        None => root_for(conn, solution_id).await,
+    }
+}
+
 #[tauri::command]
 pub async fn read_solution_file(
     db: State<'_, AppDb>,
     solution_id: i64,
     path: String,
+    // The run whose copy to read. Without it this is the Solution's folder —
+    // the default branch — which is what the Files pane shows when no agent is
+    // selected. With an agent selected the file it wrote is the one to open,
+    // and for a file it *added* the Solution's folder has nothing to open at
+    // all.
+    run_id: Option<i64>,
 ) -> Result<String, String> {
     let root = {
         let conn = db.0.lock().await;
-        root_for(&conn, solution_id).await?
+        root_for_run(&conn, solution_id, run_id).await?
     };
     // `workspace::read_file` refuses anything outside the root. The path comes
     // from the frontend and is treated as untrusted.
@@ -576,24 +610,7 @@ pub async fn review_solution_changes(
 ) -> Result<ChangeReviewDto, String> {
     let (root, rules) = {
         let conn = db.0.lock().await;
-        let root = match run_id {
-            Some(id) => {
-                let run = crate::db::change_run::find_by_id(&conn, id)
-                    .await
-                    .map_err(to_message)?
-                    .ok_or("that run no longer exists")?;
-                // A prepared run always has one; a run row that predates its
-                // checkout falls back rather than failing, because the
-                // Solution's folder is still a truthful answer to "what has
-                // changed here?".
-                if run.worktree_path.trim().is_empty() {
-                    root_for(&conn, solution_id).await?
-                } else {
-                    run.worktree_path
-                }
-            }
-            None => root_for(&conn, solution_id).await?,
-        };
+        let root = root_for_run(&conn, solution_id, run_id).await?;
         let Some(row) = solution::find_by_id(&conn, solution_id)
             .await
             .map_err(to_message)?

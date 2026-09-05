@@ -40,6 +40,7 @@ export default function BuildExplorer({
   solutionId,
   selectedPath,
   onSelectFile,
+  runChanges = null,
 }: {
   productId: number;
   /** The Product's Solutions. All of them are shown when none is picked. */
@@ -50,6 +51,14 @@ export default function BuildExplorer({
   selectedPath: string | null;
   /** Called with a repository-relative path. */
   onSelectFile: (solutionId: number, path: string) => void;
+  /** What the selected agent has changed, when one is selected.
+   *
+   *  **The agent's checkout, not the branch.** An agent works in a worktree of
+   *  its own, and the Product-wide change list reads each Solution's main
+   *  folder — so this pane showed the default branch and no sign that an agent
+   *  had touched anything. Given a run's changes it shows those instead, and
+   *  `null` (nobody selected) puts the branch back. */
+  runChanges?: FileChange[] | null;
 }) {
   const [trees, setTrees] = useState<Record<number, TreeEntry[]>>({});
   const [truncated, setTruncated] = useState<number[]>([]);
@@ -73,6 +82,9 @@ export default function BuildExplorer({
   );
 
   const loadTrees = useCallback(async () => {
+    // An agent's changes are the rows; reading the branch tree would be work
+    // nobody sees. Closing out flips this back and the tree loads again.
+    if (runChanges !== null) return;
     const found: Record<number, TreeEntry[]> = {};
     const cut: number[] = [];
     let failure: string | null = null;
@@ -95,7 +107,7 @@ export default function BuildExplorer({
     setTrees(found);
     setTruncated(cut);
     setError(failure);
-  }, [scope]);
+  }, [scope, runChanges]);
 
   useEffect(() => {
     void loadTrees();
@@ -126,6 +138,26 @@ export default function BuildExplorer({
    *  root you can never fold away is just an indent. */
   const rows: Row[] = useMemo(() => {
     const out: Row[] = [];
+    // **An agent's changed files are the tree.** Not the branch's tree filtered
+    // by them: a file the agent *added* is not in the branch's tree at all, so
+    // filtering would hide exactly the files it most wants to show.
+    if (runChanges !== null) {
+      const solution = scope[0];
+      if (solution === undefined) return out;
+      for (const change of runChanges) {
+        out.push({
+          solution,
+          entry: {
+            path: change.path,
+            name: change.path.split("/").pop() ?? change.path,
+            isDir: false,
+            depth: 0,
+          },
+          change,
+        });
+      }
+      return out;
+    }
     const multi = scope.length > 1;
     for (const solution of scope) {
       if (multi && foldedRoots.includes(solution.id)) continue;
@@ -152,7 +184,7 @@ export default function BuildExplorer({
       }
     }
     return out;
-  }, [scope, trees, changes, changedOnly, open, foldedRoots]);
+  }, [scope, trees, changes, changedOnly, open, foldedRoots, runChanges]);
 
   const changedCount = scope.reduce((n, s) => n + (changes[s.id]?.length ?? 0), 0);
   const fileCount = scope.reduce(
@@ -166,16 +198,22 @@ export default function BuildExplorer({
       <header className="explorer-head">
         <span className="explorer-title">Files</span>
         <span className="explorer-count">
-          {changedCount} changed of {fileCount}
+          {runChanges !== null
+            ? `${runChanges.length} changed by this agent`
+            : `${changedCount} changed of ${fileCount}`}
         </span>
-        <button
-          type="button"
-          className="explorer-scope"
-          aria-pressed={changedOnly}
-          onClick={() => setChangedOnly((v) => !v)}
-        >
-          {changedOnly ? "Changed only" : "Whole tree"}
-        </button>
+        {/* Nothing to scope while an agent's own changes are the list — the
+            toggle would offer a whole tree this pane is not showing. */}
+        {runChanges === null && (
+          <button
+            type="button"
+            className="explorer-scope"
+            aria-pressed={changedOnly}
+            onClick={() => setChangedOnly((v) => !v)}
+          >
+            {changedOnly ? "Changed only" : "Whole tree"}
+          </button>
+        )}
       </header>
 
       {error && <p role="alert">{error}</p>}
@@ -187,7 +225,15 @@ export default function BuildExplorer({
         </p>
       )}
 
-      {scope.length > 0 && fileCount === 0 && error === null && (
+      {runChanges !== null && runChanges.length === 0 && (
+        <p className="hint">
+          This agent has not changed anything yet. Its checkout exists and is
+          empty of edits — which is what a run looks like before its agent has
+          written anything.
+        </p>
+      )}
+
+      {runChanges === null && scope.length > 0 && fileCount === 0 && error === null && (
         <p className="hint">Nothing to show in these working copies.</p>
       )}
 

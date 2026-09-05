@@ -591,6 +591,12 @@ export default function AgentWorkspace({
             productId={productId}
             solutions={solutions}
             solutionId={browsing}
+            // **The selected agent's changes, in the pane that shows files.**
+            // An agent works in its own checkout, so the Product-wide change
+            // list — which reads each Solution's main folder — showed the
+            // default branch and no sign the agent had touched anything.
+            // Closing out passes null and the branch comes back.
+            runChanges={active?.run ? (review?.changes ?? []) : null}
             selectedPath={selectedFile}
             onSelectFile={(solutionId, path) => {
               setFileFrom(solutionId);
@@ -673,6 +679,9 @@ export default function AgentWorkspace({
             <BuildFileEditor
               solution={openFileSolution}
               path={selectedFile}
+              // The agent's copy while one is selected: for a file it added,
+              // the Solution's folder has nothing to open at all.
+              runId={active?.run?.id}
               stoppedLine={
                 stop && stop.solutionId === openFileSolution.id && stop.path === selectedFile
                   ? stop.frame.line
