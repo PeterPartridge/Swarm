@@ -12,10 +12,12 @@
 //! guessing. The guesses are made in one place, in the open, rather than twice
 //! in two commands:
 //!
-//! - **Bullets win.** An agent that wrote a list meant a list, and each bullet
-//!   is one thing to do. Indented continuations belong to the bullet above.
-//! - **Otherwise, paragraphs.** Prose separated by blank lines is the next best
-//!   evidence of "these are separate points".
+//! - **Paragraphs are the unit.** A blank line is the clearest thing an agent
+//!   writes: it means "and now something else".
+//! - **A paragraph of bullets is a list of points**, one each, with indented
+//!   continuations belonging to the bullet above.
+//! - **A paragraph of prose is one point** — unless it ends in a colon and a
+//!   list follows, which makes it that list's lead-in and not a point at all.
 //! - **"None" means none.** An agent that answered the question with "none" has
 //!   answered it; filing that as a task to do would be filing the absence of
 //!   work as work.
@@ -49,11 +51,7 @@ pub fn points(section: &str) -> Vec<Point> {
         return Vec::new();
     }
 
-    let blocks = if text.lines().any(|l| bullet_body(l).is_some()) {
-        by_bullet(text)
-    } else {
-        by_paragraph(text)
-    };
+    let blocks = split_blocks(text);
 
     blocks
         .into_iter()
@@ -124,13 +122,95 @@ fn bullet_body(line: &str) -> Option<&str> {
     None
 }
 
-fn by_bullet(text: &str) -> Vec<String> {
+/// Splits a section into the points it makes, paragraph by paragraph.
+///
+/// **Found by running one real round rather than by thinking harder.** The
+/// first version split the whole section wherever it found bullets and treated
+/// everything before the first one as a lead-in. A real agent wrote "I could
+/// not build, run, or test the change. Every invocation was refused." and
+/// *then* listed the specifics — so the sentence that mattered was thrown away
+/// and four fragments were raised in its place.
+fn split_blocks(text: &str) -> Vec<String> {
+    let paragraphs: Vec<&str> = text
+        .split("\n\n")
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .collect();
     let mut blocks: Vec<String> = Vec::new();
-    for line in text.lines() {
+    // Whether what comes next is detail of the point already open, because a
+    // lead-in said so.
+    let mut detail = false;
+
+    for (i, paragraph) in paragraphs.iter().enumerate() {
+        let next = paragraphs.get(i + 1).copied();
+        let listed = paragraph.lines().any(|l| bullet_body(l).is_some());
+
+        // A fenced block is never a point. "```" on a list of things for a
+        // person to answer is the app showing its own parsing.
+        if is_fence(paragraph) {
+            append(&mut blocks, paragraph);
+            continue;
+        }
+
+        if listed {
+            match (detail, blocks.last_mut()) {
+                // Introduced under something: these are that thing's specifics,
+                // not four more things to do.
+                (true, Some(open)) => {
+                    open.push_str("\n\n");
+                    open.push_str(paragraph);
+                }
+                // A list with nothing above it is a list of points.
+                _ => blocks.extend(bullets_of(paragraph)),
+            }
+            detail = false;
+            continue;
+        }
+
+        if is_lead_in(paragraph, next) {
+            // It introduces what follows, so it belongs to whatever it is
+            // introducing — appended to the open point, or dropped when there
+            // is none ("I took two shortcuts:" is not a shortcut).
+            if !blocks.is_empty() {
+                append(&mut blocks, paragraph);
+                detail = true;
+            }
+            continue;
+        }
+
+        blocks.push((*paragraph).to_string());
+        detail = false;
+    }
+    blocks
+}
+
+/// Adds a paragraph to the point already open, if there is one.
+fn append(blocks: &mut [String], paragraph: &str) {
+    if let Some(open) = blocks.last_mut() {
+        open.push_str("\n\n");
+        open.push_str(paragraph);
+    }
+}
+
+/// Whether a paragraph is a fenced code block.
+fn is_fence(paragraph: &str) -> bool {
+    paragraph.trim_start().starts_with("```")
+}
+
+/// Whether a paragraph introduces what follows rather than saying something of
+/// its own: it ends in a colon, and a list or a code block comes next. A
+/// paragraph that ends in a full stop is a statement, whatever follows it.
+fn is_lead_in(paragraph: &str, next: Option<&str>) -> bool {
+    paragraph.trim_end().ends_with(':')
+        && next.is_some_and(|n| n.lines().any(|l| bullet_body(l).is_some()) || is_fence(n))
+}
+
+/// One paragraph of bullets, as one string per bullet.
+fn bullets_of(paragraph: &str) -> Vec<String> {
+    let mut blocks: Vec<String> = Vec::new();
+    for line in paragraph.lines() {
         match bullet_body(line) {
             Some(body) => blocks.push(body.to_string()),
-            // Anything before the first bullet is a lead-in to the list, not an
-            // item — "I took three shortcuts:" is not a shortcut.
             None => {
                 if let Some(current) = blocks.last_mut() {
                     let trimmed = line.trim();
@@ -145,16 +225,19 @@ fn by_bullet(text: &str) -> Vec<String> {
     blocks
 }
 
-fn by_paragraph(text: &str) -> Vec<String> {
-    text.split("\n\n").map(str::to_string).collect()
-}
-
 /// A board-legible line for one item.
 ///
 /// The first sentence, cut at a word boundary if it runs long. Cutting mid-word
 /// makes a title that reads like a typo.
+///
+/// **Plain text, because a board is not a markdown renderer.** A real record
+/// opened each piece of debt with `**Nothing exercises Program.cs itself.**`
+/// and the asterisks went into the work item's title verbatim. The body keeps
+/// every mark the agent wrote — that is its account, and tidying it would be
+/// editing what it said.
 fn title_of(body: &str) -> String {
-    let first_line = body.lines().next().unwrap_or_default().trim();
+    let first_line = plain(body.lines().next().unwrap_or_default().trim());
+    let first_line = first_line.as_str();
     let sentence = match first_line.find(". ") {
         Some(at) => &first_line[..at + 1],
         None => first_line,
@@ -174,6 +257,25 @@ fn title_of(body: &str) -> String {
 /// promised to stay the same between Rust versions. This one is stored in the
 /// database and compared against on every read, so a value that quietly changed
 /// under an upgrade would re-file every piece of debt ever recorded.
+/// Markdown emphasis removed, so a title reads as a line rather than as source.
+///
+/// Only the marks that wrap words — `**`, `__`, and single `*`/`_` — and only
+/// where they are not carrying meaning: a backtick keeps its code, because
+/// `Program.cs` reads better as code than as prose.
+fn plain(line: &str) -> String {
+    let mut out = line.replace("**", "").replace("__", "");
+    // Single marks, left alone inside words (`snake_case` is not emphasis).
+    out = out
+        .split(' ')
+        .map(|word| {
+            let trimmed = word.trim_matches(['*', '_']);
+            if trimmed.is_empty() { word } else { trimmed }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    out.trim().to_string()
+}
+
 fn fingerprint(body: &str) -> String {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     // Whitespace-insensitive: a record reflowed by an editor is the same debt.
@@ -290,5 +392,85 @@ mod tests {
         let items = points("I took two shortcuts:\n\n- No integration test.\n- Naming is off.\n");
         assert_eq!(items.len(), 2);
         assert_eq!(items[0].title, "No integration test.");
+    }
+
+    /// **What a real agent wrote, and what this made of it.** Driving one round
+    /// end to end found this: the agent's "what I could not do" opened with the
+    /// paragraph that mattered — *every build was refused, so nothing was
+    /// verified* — and then listed the specifics as bullets. Splitting on
+    /// bullets threw the paragraph away as a lead-in and raised four sentence
+    /// fragments in its place.
+    ///
+    /// Paragraphs are the unit; a paragraph of bullets is a list of points, and
+    /// a paragraph of prose is a point.
+    #[test]
+    fn a_paragraph_before_a_list_is_kept_when_it_is_not_a_lead_in() {
+        let items = points(
+            "I could not build, run, or test the change. Every invocation was refused.\n\n\
+             - the two projects compile\n\
+             - the packages restore\n",
+        );
+        assert_eq!(items.len(), 3);
+        assert!(items[0].body.contains("could not build"));
+        assert!(items[1].body.contains("two projects compile"));
+    }
+
+    /// A lead-in is the short line that introduces the list — it ends in a
+    /// colon and the list follows it. That is not a thing to do, and filing it
+    /// would put "I took two shortcuts:" on somebody's board.
+    #[test]
+    fn a_colon_lead_in_is_still_dropped() {
+        let items = points("I took two shortcuts:\n\n- No integration test.\n- Naming is off.\n");
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].title, "No integration test.");
+    }
+
+    /// **A title is read on a board, not rendered as markdown.** The real
+    /// record opened each piece of debt with `**Nothing exercises Program.cs
+    /// itself.**`, and the asterisks went into the work item's title verbatim.
+    #[test]
+    fn a_title_is_plain_text() {
+        let items = points("- **Nothing exercises `Program.cs` itself.** The tests cover the rest.");
+        assert_eq!(items[0].title, "Nothing exercises `Program.cs` itself.");
+        // The body keeps what the agent wrote, marks and all — that is its
+        // account, and reformatting it would be editing what it said.
+        assert!(items[0].body.starts_with("**Nothing"));
+    }
+
+    /// **A fence is not a thing to do.** The real record ended "someone should
+    /// run:" and a fenced command, and the fence line became a question of its
+    /// own — three backticks, on a list of things for a person to answer.
+    #[test]
+    fn a_code_block_belongs_to_the_point_above_it() {
+        let items = points(
+            "The tests are written but unproven.\n\n\
+             Run them with:\n\n\
+             ```\ndotnet test\n```\n",
+        );
+        assert_eq!(items.len(), 1);
+        assert!(items[0].body.contains("dotnet test"));
+        assert!(!items[0].title.contains("```"));
+    }
+
+    /// **A list under a statement is that statement's detail.** The record said
+    /// "I could not build, run, or test the change", then "Concretely, these
+    /// remain unverified:", then four bullets — and the four became four
+    /// questions, each a sentence fragment, beside the one that mattered.
+    ///
+    /// A lead-in with something before it introduces *that* thing's detail. A
+    /// lead-in with nothing before it introduces a list of its own points,
+    /// which is the "I took two shortcuts:" case.
+    #[test]
+    fn a_list_introduced_under_a_statement_stays_with_it() {
+        let items = points(
+            "I could not build or test the change. Every invocation was refused.\n\n\
+             Concretely, these remain unverified:\n\n\
+             - that the projects compile\n\
+             - that the packages restore\n",
+        );
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].title, "I could not build or test the change.");
+        assert!(items[0].body.contains("that the projects compile"));
+        assert!(items[0].body.contains("that the packages restore"));
     }
 }

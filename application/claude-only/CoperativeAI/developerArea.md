@@ -4374,3 +4374,90 @@ a mock waiting for a caller.
   warning; no locale-assertion guard; no "run the regression suite" action; the
   lifecycle checklist reports but does not enforce; no logging outside Develop;
   no Admin UI for the routing defaults.
+
+## Round 89 — one real round, and the three things it found
+
+### My Feedback
+
+> run execute again on hello world and check the feedback
+
+### What I could and could not do
+
+I could not press Execute: the app is running (since 19:17) and holds the
+database, and a second process writing to it while the app has state in memory
+is not a thing to do to somebody's live workspace. So I drove the same backend
+function the button drives — `prepare_run` — against a scratch console app, ran
+a real agent on the brief it produced, and read the record back through the real
+parser and the real filing code.
+
+Also found on the way: **Claude Code is broken on this machine again.** A
+reinstall at 13:32 today left `bin/claude.exe` as the 500-byte placeholder,
+because `~/.npmrc` still says `os=linux` and npm skips the win32 native package.
+The working 217 MB binary from 31 August is still there in npm's staging folder.
+The app is right to refuse; the install is wrong. Not fixed here — it is their
+machine's npm config, and the fix is one command they can read first.
+
+### What the round produced
+
+The brief asked for the record, in the right words, and did **not** send a
+console app to the browser. The agent wrote all five sections, and wrote them
+well — including an honest "what I could not do" saying every `dotnet` command
+was refused by the permission layer, so nothing was verified.
+
+Then the app read it back, and **three defects showed up that no unit test had
+caught, because I wrote the unit tests and the agent wrote the record**:
+
+1. **The sentence that mattered was thrown away.** "What I could not do" opened
+   with a paragraph and then listed specifics as bullets. Splitting on bullets
+   treated everything before the first one as a lead-in, so "I could not build,
+   run, or test the change" was discarded and four sentence fragments — "that
+   the two projects compile," — were raised as questions in its place.
+2. **Titles carried their markdown.** Each piece of debt opened
+   `**Nothing exercises Program.cs itself.**`, asterisks and all, straight onto
+   the board.
+3. **A code fence became a question.** Three backticks, on a list of things for
+   a person to answer.
+
+### Implemented
+
+Paragraphs are the unit now, not bullets:
+
+- A paragraph of bullets is a list of points; a paragraph of prose is a point.
+- A paragraph ending in a colon introduces what follows: with something above
+  it, it and its list are that thing's detail; with nothing above it, the list
+  is the points ("I took two shortcuts:" is still not a shortcut).
+- A fenced block is never a point; it belongs to the point above it.
+- Titles are plain text — the body keeps every mark the agent wrote, because
+  that is its account and tidying it would be editing what it said.
+
+Same record, before and after: **8 questions and 3 debt items with markdown in
+their titles → 2 questions and 3 clean ones**, and the two questions are the
+two things the agent actually said.
+
+### Tests
+
+Three new cases in `agent::sections`, each written from what the real record
+did. cargo 757/757 (23 ignored), Vitest 721/721, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean.
+
+### Your Feedback
+
+- **This is the first round tested against something I did not write.** Every
+  earlier case was my own idea of what an agent writes; the real one broke three
+  of them in one file. Worth doing again for the brief itself.
+- The agent could not run `dotnet` because a headless `-p` session has no way to
+  approve a command. In the app's own flow the terminal is interactive, so this
+  does not apply — but it is a real constraint on any unattended run, and the
+  "never ask" mode exists for exactly that.
+- Nothing here touched the hello world item. Its next Execute — once the CLI is
+  fixed — will write a brief that asks for a record.
+
+### Technical Debt
+
+- Splitting prose is still guesswork, now guesswork informed by one sample.
+- Carried: the change review is not refreshed on the work signal; nothing
+  distinguishes a scoring list from an enforcing one; a policy tightened mid-run
+  does not stop a running agent; no template-already-inserted warning; no
+  locale-assertion guard; no "run the regression suite" action; the lifecycle
+  checklist reports but does not enforce; no logging outside Develop; no Admin
+  UI for the routing defaults.
