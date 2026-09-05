@@ -120,7 +120,10 @@ export default function SolutionRepo({
     // ordinary state of a folder somebody has just pointed at, and it must not
     // take the panel down with it.
     try {
-      setCommits(await branchHistory(solution.id, 8, runId));
+      // `?? []` for the same reason the state above uses `?? null`: this
+      // panel is mounted in five places and one of them handing it nothing
+      // must not take the screen down.
+      setCommits((await branchHistory(solution.id, 8, runId)) ?? []);
     } catch {
       setCommits([]);
     }

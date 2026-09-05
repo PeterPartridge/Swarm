@@ -51,10 +51,19 @@ const state = (over: Partial<SolutionGitState> = {}): SolutionGitState => ({
   ...over,
 });
 
+/** Opens the "On GitHub" line, where linking and creating live.
+ *
+ *  The panel is three lines now, each opening onto its own half — so reaching
+ *  the GitHub half is a click, which is the point of the three lines. */
+async function openGitHub(): Promise<void> {
+  await userEvent.click(await screen.findByRole("button", { name: /On GitHub/ }));
+}
+
 describe("the git panel on a Solution", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocked.solutionGitState.mockResolvedValue(state());
+    mocked.branchHistory.mockResolvedValue([]);
     mocked.githubStatus.mockResolvedValue({ connected: true });
     mocked.initSolutionRepo.mockResolvedValue("it is a git repository now");
     mocked.linkSolutionRepo.mockResolvedValue(undefined);
@@ -106,8 +115,9 @@ describe("the git panel on a Solution", () => {
     const onChange = vi.fn();
     render(<SolutionRepo solution={solution} onChange={onChange} />);
 
+    await openGitHub();
     await userEvent.click(
-      await screen.findByRole("button", { name: "Link a repo to hello-world" }),
+      screen.getByRole("button", { name: "Link a repo to hello-world" }),
     );
     await userEvent.type(
       screen.getByLabelText("Repository URL"),
@@ -127,8 +137,9 @@ describe("the git panel on a Solution", () => {
   it("creates one, public or private", async () => {
     render(<SolutionRepo solution={solution} onChange={vi.fn()} />);
 
+    await openGitHub();
     await userEvent.click(
-      await screen.findByRole("button", { name: "Create a repo for hello-world" }),
+      screen.getByRole("button", { name: "Create a repo for hello-world" }),
     );
     // Private by default — a repository nobody chose to publish should not be
     // published. The choice is offered as both options, not as a checkbox
@@ -152,7 +163,8 @@ describe("the git panel on a Solution", () => {
     mocked.githubStatus.mockResolvedValue({ connected: false });
     render(<SolutionRepo solution={solution} onChange={vi.fn()} />);
 
-    const create = await screen.findByRole("button", {
+    await openGitHub();
+    const create = screen.getByRole("button", {
       name: "Create a repo for hello-world",
     });
     expect(create).toBeDisabled();
@@ -167,7 +179,11 @@ describe("the git panel on a Solution", () => {
       <SolutionRepo solution={{ ...solution, localPath: null }} onChange={vi.fn()} />,
     );
 
-    expect(await screen.findByText(/no folder on this machine/i)).toBeInTheDocument();
+    // Said on the line and again in the sentence under it, which opens
+    // itself for a problem — so both are on screen.
+    expect(
+      await screen.findByRole("button", { name: /No folder on this machine yet/i }),
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Make hello-world a git repository" }),
     ).not.toBeInTheDocument();

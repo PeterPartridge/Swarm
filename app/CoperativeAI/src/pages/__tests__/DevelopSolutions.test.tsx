@@ -45,6 +45,13 @@ vi.mock("../../lib/backend", async (importOriginal) => {
 
 import * as backend from "../../lib/backend";
 
+/** Opens a Solution's "On GitHub" line. The repository panel is three lines
+ *  now — where the code is, recent commits, on GitHub — each opening onto its
+ *  own half. */
+async function openGitHub(user: ReturnType<typeof userEvent.setup>): Promise<void> {
+  await user.click(await screen.findByRole("button", { name: /On GitHub/ }));
+}
+
 const mocked = vi.mocked(backend);
 
 const product: Product = { id: 1, name: "Shop App", answers: "{}" };
@@ -492,9 +499,8 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     render(<DevelopSolutions />);
     await openSection(user, "Map");
 
-    await user.click(
-      await screen.findByRole("button", { name: "Link a repo to Shop API" }),
-    );
+    await openGitHub(user);
+    await user.click(screen.getByRole("button", { name: "Link a repo to Shop API" }));
     await user.type(
       screen.getByLabelText("Repository URL"),
       "https://github.com/me/shop-api",
@@ -513,8 +519,9 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     const user = userEvent.setup();
     render(<DevelopSolutions />);
     await openSection(user, "Map");
+    await openGitHub(user);
     expect(
-      await screen.findByRole("button", { name: "Create a repo for Shop API" }),
+      screen.getByRole("button", { name: "Create a repo for Shop API" }),
     ).toBeDisabled();
   });
 
@@ -525,9 +532,8 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     render(<DevelopSolutions />);
     await openSection(user, "Map");
 
-    await user.click(
-      await screen.findByRole("button", { name: "Create a repo for Shop API" }),
-    );
+    await openGitHub(user);
+    await user.click(screen.getByRole("button", { name: "Create a repo for Shop API" }));
     await user.click(screen.getByRole("button", { name: "Create" }));
 
     await waitFor(() =>
@@ -552,8 +558,16 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     ]);
     render(<DevelopSolutions />);
     await openSection(user, "Map");
+    // The line says where it is published without being opened; the link and
+    // how it got there are under it.
     expect(
-      await screen.findByRole("link", { name: "https://github.com/me/shop-api" }),
+      await screen.findByRole("button", {
+        name: /github\.com\/me\/shop-api \(private\)/,
+      }),
+    ).toBeInTheDocument();
+    await openGitHub(user);
+    expect(
+      screen.getByRole("link", { name: "https://github.com/me/shop-api" }),
     ).toBeInTheDocument();
     expect(screen.getByText(/imported/)).toBeInTheDocument();
   });
