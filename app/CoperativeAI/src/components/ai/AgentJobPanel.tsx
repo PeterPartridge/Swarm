@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AiFeedbackPanel from "./AiFeedbackPanel";
 import PreviewPanel from "../code/PreviewPanel";
 import RunTerminal from "../code/RunTerminal";
@@ -106,6 +106,9 @@ export default function AgentJobPanel({
   const [suiteRuns, setSuiteRuns] = useState<SuiteRun[] | null>(null);
   const [testing, setTesting] = useState(false);
   const [openSuite, setOpenSuite] = useState<string | null>(null);
+  /// Which run's tests have been started from here already, so arriving at an
+  /// agent runs them once and coming back does not run them again.
+  const ranFor = useRef<number | null>(null);
   /// The failed test whose reason is showing. One at a time: a list of every
   /// failure's stack at once is the raw output again, which is already below.
   const [openTest, setOpenTest] = useState<string | null>(null);
@@ -141,6 +144,26 @@ export default function AgentJobPanel({
   useEffect(() => {
     if (!available.includes(panel)) setPanel("plan");
   }, [available, panel]);
+
+  /// **Work finished, tests not run: run them.** Arriving at an agent that has
+  /// changed something and finding "Not run in this session" with a button is
+  /// the app asking permission to do the obvious next thing. Tests are the
+  /// evidence the change is worth keeping, and nothing about running them is
+  /// destructive.
+  ///
+  /// **Only once per run, and only with something to test.** A suite is a real
+  /// process — running it on every render, or on an agent that has changed
+  /// nothing yet, would be spending a machine's time on nobody's question.
+  useEffect(() => {
+    if (run === null || !prepared) return;
+    if ((run.filesChanged ?? 0) === 0) return;
+    if (ranFor.current === run.id) return;
+    ranFor.current = run.id;
+    void runTests();
+    // `runTests` is stable enough for this: it reads `run` from the same render
+    // this effect belongs to, and the guard above makes a second call a no-op.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [run, prepared]);
 
   /// Read for the preview's port guess only — a wrong guess is corrected in the
   /// preview itself, so failing to read it is not worth an error.

@@ -701,6 +701,42 @@ describe("AgentWorkspace (the Build view)", () => {
     );
   });
 
+/// **Work finished, tests not run: run them.** Arriving at an agent that has
+  /// changed something and finding "Not run in this session" beside a button is
+  /// the app asking permission to do the obvious next thing. Nothing about
+  /// running a suite is destructive, and the result is the evidence the change
+  /// is worth keeping.
+  it("runs the tests on arriving at an agent that has changed something", async () => {
+    const user = userEvent.setup();
+    mocked.listRuns.mockResolvedValue([
+      run({ id: 42, state: "prepared", worktreePath: "C:/wt/checkout", filesChanged: 3 }),
+    ]);
+    mocked.reviewSolutionChanges.mockResolvedValue(review({ runId: 42 }));
+    mocked.runSolutionTests.mockResolvedValue([] as never);
+    render(panel());
+
+    await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
+    await waitFor(() => expect(mocked.runSolutionTests).toHaveBeenCalledWith(5));
+    // Once. A suite is a real process, and an effect that re-ran would spend a
+    // machine's time on nobody's question.
+    expect(mocked.runSolutionTests).toHaveBeenCalledTimes(1);
+  });
+
+  /// An agent that has changed nothing has nothing to prove yet, and a suite
+  /// run against an untouched checkout answers a question nobody asked.
+  it("does not run them for an agent that has changed nothing", async () => {
+    const user = userEvent.setup();
+    mocked.listRuns.mockResolvedValue([
+      run({ id: 42, state: "prepared", worktreePath: "C:/wt/checkout", filesChanged: 0 }),
+    ]);
+    mocked.reviewSolutionChanges.mockResolvedValue(review({ runId: 42, changes: [] }));
+    render(panel());
+
+    await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
+    await screen.findByRole("tablist", { name: "Agent sub-panels" });
+    expect(mocked.runSolutionTests).not.toHaveBeenCalled();
+  });
+
   /// **The lane links, it does not launch.** Handing work to an agent means
   /// approving a plan and pressing Start, both of which are deliberate presses
   /// on the item's build plan — so this card opens the item in Work rather than

@@ -2379,13 +2379,14 @@ code {
 }
 
 .code-window {
-  /* **As tall as the pane allows.** The editor was a fixed 24rem inside a
-     column with room for three times that, so a file was read through a
-     letterbox. It fills what is left after the header now, with a floor for
-     the small windows the pull-outs open in. */
+  /* **As tall and wide as the pane allows.** The editor was a fixed 24rem
+     inside a column with room for three times that, so a file was read through
+     a letterbox. It fills the pane now; the floor is for the small windows the
+     pull-outs open in, where there is no pane to fill. */
   display: flex;
   flex-direction: column;
-  min-height: min(70vh, 40rem);
+  min-height: min(60vh, 32rem);
+  width: 100%;
   flex: 1 1 auto;
   border: 1px solid var(--line);
   border-radius: 4px;
@@ -5479,20 +5480,36 @@ code {
 
 /* ── The workbench ────────────────────────────────────────────────────────── */
 
+/* **The middle column is the code, and the code is why anybody is here.** It
+   scrolled as a page with the editor a fixed box inside it, so reading a file
+   meant scrolling twice — the page to reach the editor, the editor to reach the
+   line. It is a column now: the tabs at the top, the pane filling everything
+   under them, and the scrolling inside whatever is showing. */
 .build-main {
   flex: 1;
   min-width: 0;
   min-height: 0;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding: 0.75rem;
+}
+
+/* The pane that is showing takes the room the tabs do not. `min-height: 0` is
+   what lets a flex child scroll instead of pushing the column taller. */
+
+
+/* Everything else in this column keeps its own scrolling — the work item, the
+   overview, the debug board — rather than growing the column. */
+.build-main > div:not(.build-panes) {
+  min-height: 0;
+  overflow-y: auto;
 }
 
 /* Code / Work item / Debug output. Sticky, because the column scrolls and a
    way out of a long diff should not be at the top of it. */
 .build-panes {
-  position: sticky;
-  top: 0;
-  z-index: 2;
+  flex: 0 0 auto;
   background: var(--bg);
   padding-bottom: 0.4rem;
   margin-bottom: 0.4rem;
@@ -5514,6 +5531,10 @@ code {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  /* Fills the column under the tabs; `min-height: 0` is what lets it scroll
+     inside itself instead of pushing the column taller. */
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .workbench {
