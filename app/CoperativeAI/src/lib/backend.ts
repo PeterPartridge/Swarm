@@ -2756,6 +2756,26 @@ export const removeWorktreeAt = (solutionId: number, path: string): Promise<void
 export const listRunWorktrees = (solutionId: number): Promise<string[]> =>
   invoke("list_run_worktrees", { solutionId });
 
+/** One thing that has to be true before a run can start. */
+export interface RunGate {
+  /** Stable name for the check — what a list keys on and a test names. */
+  id: string;
+  /** What is being checked, in the affirmative, so a list of these reads as the
+   *  conditions for starting rather than as a list of complaints. */
+  label: string;
+  ok: boolean;
+  /** When it is not met: what is wrong and where to go. Empty when it is met,
+   *  because a met check has nothing to say. */
+  detail: string;
+}
+
+/** Everything that has to be true before an agent is handed this work.
+ *
+ *  The same list `prepare_run` walks, so this is exactly what starting a run
+ *  would refuse for — read before pressing rather than one at a time after. */
+export const runGates = (workItemId: number, solutionId: number): Promise<RunGate[]> =>
+  invoke("run_gates", { workItemId, solutionId });
+
 /** An agent's own account of a round: what it built, how it proved it, what it
  *  would say back, and the debt it left behind. Every section is optional —
  *  what the agent did not write is empty rather than invented. */
@@ -2788,6 +2808,9 @@ export interface CollectedRecord {
   /** How many were created by this call. Zero on every read after the first —
    *  which is how the caller knows not to announce it twice. */
   newlyFiled: number;
+  /** How many things the agent could not do were raised as questions by this
+   *  call — the same rule, and zero on every read after the first. */
+  newlyBlocked: number;
 }
 
 /** Reads the round record out of a run's own checkout, and files the debt it

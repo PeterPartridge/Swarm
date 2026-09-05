@@ -47,11 +47,24 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             aiUsageId INTEGER,
             resolved INTEGER NOT NULL DEFAULT 0,
             resolvedNote TEXT NOT NULL DEFAULT '',
+            source TEXT NOT NULL DEFAULT '',
             createdAt INTEGER NOT NULL
         )",
         (),
     )
     .await?;
+    // Where a row came from, when it was not raised by one of this app's own AI
+    // calls. Empty for all of those, which is nearly all of them — it exists so
+    // a blocker read out of an agent's round record can be recognised on the
+    // next read rather than raised again.
+    let columns = crate::db::table_columns(conn, "ai_feedback").await?;
+    if !columns.is_empty() && !columns.iter().any(|c| c == "source") {
+        conn.execute(
+            "ALTER TABLE ai_feedback ADD COLUMN source TEXT NOT NULL DEFAULT ''",
+            (),
+        )
+        .await?;
+    }
     Ok(())
 }
 
@@ -80,6 +93,28 @@ pub async fn record(
     )
     .await?;
     last_insert_id(conn).await
+}
+
+/// Records where a row came from, for the ones no AI call of this app's raised.
+///
+/// **The mark that stops the same blocker being raised twice.** What an agent
+/// could not do is read back out of its round record every time the panel
+/// opens, so "have I already raised this?" needs an exact answer — a fingerprint
+/// of the agent's own words, stored here.
+pub async fn set_source(conn: &Connection, id: i64, source: &str) -> Result<()> {
+    conn.execute("UPDATE ai_feedback SET source = ?1 WHERE id = ?2", (source, id)).await?;
+    Ok(())
+}
+
+/// Whether something has already been raised under this source.
+pub async fn exists_with_source(conn: &Connection, source: &str) -> Result<bool> {
+    if source.trim().is_empty() {
+        return Ok(false);
+    }
+    let mut rows = conn
+        .query("SELECT id FROM ai_feedback WHERE source = ?1", (source,))
+        .await?;
+    Ok(rows.next().await?.is_some())
 }
 
 pub async fn list_for_item(conn: &Connection, work_item_id: i64) -> Result<Vec<AiFeedback>> {

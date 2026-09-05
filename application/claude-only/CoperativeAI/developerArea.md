@@ -4135,3 +4135,75 @@ cargo 745/745 (23 ignored), Vitest 710/710, `tsc --noEmit`, clippy
   inserted warning; no locale-assertion guard; no "run the regression suite"
   action; the lifecycle checklist reports but does not enforce; no logging
   outside Develop; no Admin UI for the routing defaults.
+
+## Round 86 — the checklist before the press, and the other half of the record
+
+### My Feedback
+
+> do both, then merge and push to main
+
+### Implemented
+
+**The gates, in one list.** There were three — an approved plan, permission to
+edit, a folder with a repository in it — and each said its piece only when
+Execute was pressed and refused. The way to find out what was missing was to
+fail, one thing at a time. `run_gates` is now the single ordered list, and
+`prepare_run` walks it and refuses with the first unmet check's own words. The
+panel shows the same list. **They cannot disagree**, which is the whole point: a
+second copy of these conditions written for a screen would drift from the ones
+that actually refuse, and a panel that is confidently wrong is worse than none.
+
+A test pins the join — every gate met and the run starts; two taken away and the
+refusal is byte-for-byte the first unmet check's detail.
+
+**What is deliberately not a gate:** whether the coding agent is installed.
+Preparing a run makes a checkout and writes a brief, both useful with no agent
+anywhere; what needs the agent is the command that runs afterwards. Making it a
+gate would also have made the test suite depend on Claude Code being installed
+on whatever machine ran it — the locale lesson from round 82 in a different
+costume. It is shown beside the gates, marked as the separate thing it is.
+
+Met checks are shown as well as unmet ones. A list of only the problems cannot
+say what else was looked at, so "nothing wrong" reads the same as "not checked".
+
+**The other half of the round record.** What an agent could not do is now raised
+as `cantImplement` — the kind that already exists for exactly this, and which
+the panel already shows with a field for the developer's answer that travels
+into the next attempt. Same fingerprint rule as the debt, in a `source` column
+on `ai_feedback`, so reading the record on every refresh raises each thing once.
+
+What would unblock it is left blank on purpose: the agent said what stopped it,
+and inventing the answer on its behalf would put words in its mouth that the
+next attempt is then told it said.
+
+`agent::debt` is `agent::sections` now, with `points()` returning `Point`s. Both
+halves split prose the same way, and a module called "debt" doing it for
+blockers would have been a name that lied about half its callers.
+
+### Tests
+
+cargo 749/749 (23 ignored), Vitest 717/717, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean.
+
+Two traps hit on the way, both familiar: the build plan suite left `runGates`
+unmocked and it fell through to the real `invoke` — the trap that file has a
+comment about — and the interface field for `newlyBlocked` silently failed to
+apply through a CRLF-matching script while the tests still passed, because
+Vitest strips types without checking them. `tsc --noEmit` caught it.
+
+### Your Feedback
+
+- **The pre-flight list only appears once there is a plan.** Before that the
+  panel says what is missing to plan at all, which is a different list in a
+  different place. Two lists about readiness is one more than there should be.
+- Nothing re-checks the gates while an agent runs. A policy tightened or a plan
+  unapproved mid-flight does not reach the running agent — carried from 85.
+
+### Technical Debt
+
+- Two readiness lists: `whatIsMissing` (before planning) and the pre-flight
+  gates (before executing), which do not share a shape.
+- A policy tightened mid-run does not stop a running agent.
+- Carried: no template-already-inserted warning; no locale-assertion guard; no
+  "run the regression suite" action; the lifecycle checklist reports but does
+  not enforce; no logging outside Develop; no Admin UI for the routing defaults.

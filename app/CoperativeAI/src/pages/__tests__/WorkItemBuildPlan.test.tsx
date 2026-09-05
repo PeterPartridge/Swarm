@@ -42,6 +42,9 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     setWorkItemStep: vi.fn(),
     logEvent: vi.fn(),
     claudeCodeStatus: vi.fn(),
+    // The pre-flight list reads these. Left unmocked it falls through to the
+    // real invoke, which is the trap this file has been caught by before.
+    runGates: vi.fn(),
     listRuns: vi.fn(),
     listTerminals: vi.fn(),
     listWorkItemPlans: vi.fn(),
@@ -152,6 +155,7 @@ describe("WorkItemBuildPlan", () => {
     vi.clearAllMocks();
     mocked.logEvent.mockResolvedValue(undefined);
     mocked.listRuns.mockResolvedValue([]);
+    mocked.runGates.mockResolvedValue([]);
     mocked.listTerminals.mockResolvedValue([]);
     mocked.claudeCodeStatus.mockResolvedValue({
       installed: true,

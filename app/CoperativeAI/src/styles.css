@@ -9190,3 +9190,60 @@ button.ready-action.link:hover {
 .feedback-list.filed li {
   line-height: 1.35;
 }
+
+/* The pre-flight checks. A list somebody reads before pressing, so it is quiet
+   when everything is met and loud only where something is not. */
+.run-preflight {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 0.6rem 0;
+}
+
+.preflight-count {
+  color: var(--warn);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.preflight-list {
+  list-style: none;
+  margin: 0.2rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.preflight-list li {
+  display: grid;
+  grid-template-columns: 1.1rem 1fr;
+  gap: 0.1rem 0.4rem;
+  align-items: baseline;
+  line-height: 1.35;
+}
+
+.preflight-list li.met .preflight-mark {
+  color: var(--ok);
+}
+
+.preflight-list li.unmet .preflight-mark {
+  color: var(--warn);
+}
+
+.preflight-list li.met .preflight-label {
+  color: var(--fg-muted);
+}
+
+.preflight-detail {
+  grid-column: 2;
+  color: var(--fg-muted);
+  font-size: 0.88em;
+  overflow-wrap: anywhere;
+}
+
+.preflight-agent {
+  margin: 0;
+  color: var(--warn);
+  line-height: 1.4;
+}

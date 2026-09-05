@@ -9,6 +9,7 @@ import WorkItemLifecycle from "./WorkItemLifecycle";
 import SectionTabs from "../common/SectionTabs";
 import { reportFailure } from "../../lib/failures";
 import { claudeCodeStatus, logEvent } from "../../lib/backend";
+import RunPreflight from "./RunPreflight";
 import { adoptRunning } from "../../lib/agents";
 import { isPlanned } from "../../lib/plan";
 import { notifyWorkChanged, useWorkChanged } from "../../lib/workSignal";
@@ -660,6 +661,21 @@ export default function WorkItemBuildPlan({
       </p>
 
 
+
+      {/* **Read before pressing, not after failing.** Execute refuses for a
+          list of reasons and used to say them one at a time, in an error box,
+          after the press. This is that same list — the one `prepare_run` walks
+          — shown while there is still something to do about it. */}
+      {planned && (
+        <RunPreflight
+          workItemId={item.id}
+          solutions={plans
+            .map((p) => solutions.find((s) => s.id === p.solutionId))
+            .filter((s): s is Solution => s !== undefined)
+            .map((s) => ({ id: s.id, name: s.name }))}
+          agentProblem={agentProblem}
+        />
+      )}
 
       <div className="plan-generate">
         {/* **Two presses, and the second one is the approval.** `start_run`

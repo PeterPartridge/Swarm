@@ -1,14 +1,16 @@
-//! Turning the debt an agent wrote down into work items.
+//! Turning a section of an agent's round record into separate points.
 //!
-//! **A paragraph nobody can schedule is not a record of debt.** The round
-//! record brought the agent's own account of what it took a shortcut on back
-//! into the app, and it arrived as prose on a panel: true, readable, and
-//! invisible to the board where work is actually decided. Debt that is not on
-//! the board is debt that gets paid by surprise.
+//! **A paragraph nobody can act on is not a record of anything.** The round
+//! record brought the agent's own account back into the app, and it arrived as
+//! prose on a panel: true, readable, and invisible to the board where work is
+//! actually decided. Debt that is not on the board is debt that gets paid by
+//! surprise, and a blocker nobody was asked to answer stays unanswered.
 //!
-//! So each thing the agent listed becomes a work item of its own. That means
-//! splitting prose, which means guessing — and the guesses are made in one
-//! place, in the open, rather than scattered through a command:
+//! So each thing the agent listed becomes a row of its own — a work item for
+//! the debt it left behind, a question to answer for what it could not do. Both
+//! start here, because both are the same job: splitting prose, which means
+//! guessing. The guesses are made in one place, in the open, rather than twice
+//! in two commands:
 //!
 //! - **Bullets win.** An agent that wrote a list meant a list, and each bullet
 //!   is one thing to do. Indented continuations belong to the bullet above.
@@ -21,9 +23,9 @@
 //! What it never does is split a sentence. A wrong split makes two half-items
 //! that each read as nonsense, which is worse than one item holding two points.
 
-/// One thing the agent said it left behind.
+/// One point the agent made in a section.
 #[derive(Debug, Clone, PartialEq)]
-pub struct DebtItem {
+pub struct Point {
     /// A line that reads on a board.
     pub title: String,
     /// Everything the agent wrote about it, kept whole.
@@ -40,8 +42,8 @@ pub struct DebtItem {
 /// nothing.
 const TITLE_LIMIT: usize = 90;
 
-/// Splits a "Technical debt" section into the items it describes.
-pub fn split(section: &str) -> Vec<DebtItem> {
+/// Splits one section into the points it makes.
+pub fn points(section: &str) -> Vec<Point> {
     let text = section.trim();
     if text.is_empty() || is_nothing(text) {
         return Vec::new();
@@ -57,7 +59,7 @@ pub fn split(section: &str) -> Vec<DebtItem> {
         .into_iter()
         .map(|b| b.trim().to_string())
         .filter(|b| !b.is_empty() && !is_nothing(b))
-        .map(|body| DebtItem {
+        .map(|body| Point {
             title: title_of(&body),
             fingerprint: fingerprint(&body),
             body,
@@ -188,7 +190,7 @@ mod tests {
 
     #[test]
     fn each_bullet_is_its_own_item() {
-        let items = split(
+        let items = points(
             "- No integration test for the console entry point.\n\
              - The greeter takes a string and returns one; it should take a writer.\n",
         );
@@ -201,14 +203,14 @@ mod tests {
     /// do — splitting on it would file "half a day" as a piece of work.
     #[test]
     fn an_indented_line_belongs_to_the_bullet_above_it() {
-        let items = split("- No integration test.\n  - Half a day to add one.\n- Naming is off.\n");
+        let items = points("- No integration test.\n  - Half a day to add one.\n- Naming is off.\n");
         assert_eq!(items.len(), 2);
         assert!(items[0].body.contains("Half a day"));
     }
 
     #[test]
     fn numbered_lists_count_as_bullets() {
-        let items = split("1. First shortcut.\n2. Second shortcut.\n");
+        let items = points("1. First shortcut.\n2. Second shortcut.\n");
         assert_eq!(items.len(), 2);
         assert_eq!(items[1].title, "Second shortcut.");
     }
@@ -217,7 +219,7 @@ mod tests {
     /// the only honest evidence of where one ends.
     #[test]
     fn paragraphs_split_when_there_are_no_bullets() {
-        let items = split("The parser is quadratic.\n\nThe config is read twice.\n");
+        let items = points("The parser is quadratic.\n\nThe config is read twice.\n");
         assert_eq!(items.len(), 2);
         assert_eq!(items[0].title, "The parser is quadratic.");
     }
@@ -226,7 +228,7 @@ mod tests {
     /// worse than one item holding two points.
     #[test]
     fn a_wrapped_sentence_stays_one_item() {
-        let items = split("The parser is quadratic in the number of\nfields, which will bite.\n");
+        let items = points("The parser is quadratic in the number of\nfields, which will bite.\n");
         assert_eq!(items.len(), 1);
         assert!(items[0].body.contains("fields, which will bite"));
     }
@@ -237,7 +239,7 @@ mod tests {
     #[test]
     fn an_agent_reporting_no_debt_files_nothing() {
         for said in ["None.", "none", "Nothing to report", "N/A", "- None", "  \n"] {
-            assert!(split(said).is_empty(), "{said:?} should file nothing");
+            assert!(points(said).is_empty(), "{said:?} should file nothing");
         }
     }
 
@@ -245,7 +247,7 @@ mod tests {
     /// the word is a description of debt.
     #[test]
     fn none_inside_a_real_answer_is_still_debt() {
-        let items = split("None of these are urgent, but the config is read twice.");
+        let items = points("None of these are urgent, but the config is read twice.");
         assert_eq!(items.len(), 1);
     }
 
@@ -253,7 +255,7 @@ mod tests {
     fn a_long_item_gets_a_title_that_fits_and_a_body_that_does_not_lose_anything() {
         let long = "The retry loop backs off exponentially but has no ceiling, so a provider \
                     that is down for an hour leaves a job sleeping for most of it.";
-        let items = split(long);
+        let items = points(long);
         assert_eq!(items.len(), 1);
         assert!(items[0].title.chars().count() <= TITLE_LIMIT + 1);
         assert!(items[0].title.ends_with('…'));
@@ -265,7 +267,7 @@ mod tests {
     /// The first sentence is the title when there is one, ellipsis or not.
     #[test]
     fn the_title_is_the_first_sentence() {
-        let items = split("Config is read twice. Harmless now, expensive later.");
+        let items = points("Config is read twice. Harmless now, expensive later.");
         assert_eq!(items[0].title, "Config is read twice.");
         assert!(items[0].body.contains("expensive later"));
     }
@@ -275,9 +277,9 @@ mod tests {
     /// has to differ when the words do.
     #[test]
     fn the_fingerprint_survives_a_reflow_and_notices_a_rewrite() {
-        let one = split("- The parser is quadratic in the\n  number of fields.");
-        let same = split("- The parser is quadratic in the number of fields.");
-        let other = split("- The parser is quadratic in the number of columns.");
+        let one = points("- The parser is quadratic in the\n  number of fields.");
+        let same = points("- The parser is quadratic in the number of fields.");
+        let other = points("- The parser is quadratic in the number of columns.");
         assert_eq!(one[0].fingerprint, same[0].fingerprint);
         assert_ne!(one[0].fingerprint, other[0].fingerprint);
     }
@@ -285,7 +287,7 @@ mod tests {
     /// A lead-in sentence introduces the list; it is not an item in it.
     #[test]
     fn a_line_before_the_first_bullet_is_not_an_item() {
-        let items = split("I took two shortcuts:\n\n- No integration test.\n- Naming is off.\n");
+        let items = points("I took two shortcuts:\n\n- No integration test.\n- Naming is off.\n");
         assert_eq!(items.len(), 2);
         assert_eq!(items[0].title, "No integration test.");
     }

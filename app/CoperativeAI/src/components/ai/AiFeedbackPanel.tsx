@@ -87,15 +87,24 @@ export default function AiFeedbackPanel({
       // minutes ago — and the boards showing that work are told to catch up.
       if (
         loadedRecord !== null &&
-        loadedRecord.newlyFiled > 0 &&
+        loadedRecord.newlyFiled + loadedRecord.newlyBlocked > 0 &&
         runId !== undefined &&
         !announced.current.has(runId)
       ) {
         announced.current.add(runId);
-        const n = loadedRecord.newlyFiled;
-        setNotice(
-          `Filed ${n} piece${n === 1 ? "" : "s"} of technical debt from the agent's record as work item${n === 1 ? "" : "s"}.`,
-        );
+        const said: string[] = [];
+        const { newlyFiled: filedNow, newlyBlocked: blockedNow } = loadedRecord;
+        if (filedNow > 0) {
+          said.push(
+            `filed ${filedNow} piece${filedNow === 1 ? "" : "s"} of technical debt as work item${filedNow === 1 ? "" : "s"}`,
+          );
+        }
+        if (blockedNow > 0) {
+          said.push(
+            `raised ${blockedNow} thing${blockedNow === 1 ? "" : "s"} it could not do, for somebody to answer`,
+          );
+        }
+        setNotice(`From the agent's record: ${said.join(", and ")}.`);
         notifyWorkChanged();
       }
       setFeedback(loadedFeedback);

@@ -50,7 +50,7 @@ describe("the AI feedback panel", () => {
     mocked.listAiJobs.mockResolvedValue([]);
     mocked.resolveAiFeedback.mockResolvedValue(undefined);
     mocked.clearAiJobs.mockResolvedValue(0);
-    mocked.collectAgentRecord.mockResolvedValue({ record: null, debt: [], newlyFiled: 0 });
+    mocked.collectAgentRecord.mockResolvedValue({ record: null, debt: [], newlyFiled: 0, newlyBlocked: 0 });
   });
 
   /// **The round record, which the app used to have no way of seeing.** An
@@ -70,6 +70,7 @@ describe("the AI feedback panel", () => {
       },
       debt: [],
       newlyFiled: 0,
+      newlyBlocked: 0,
     });
     render(<AiFeedbackPanel workItemId={9} productId={7} runId={3} />);
 
@@ -97,6 +98,7 @@ describe("the AI feedback panel", () => {
       },
       debt: [],
       newlyFiled: 0,
+      newlyBlocked: 0,
     });
     render(<AiFeedbackPanel workItemId={9} productId={7} runId={3} />);
 
@@ -144,6 +146,7 @@ describe("the AI feedback panel", () => {
         { workItemId: 22, title: "Naming is off." },
       ],
       newlyFiled: 2,
+      newlyBlocked: 0,
     });
     const onOpenWork = vi.fn();
     render(
@@ -171,6 +174,7 @@ describe("the AI feedback panel", () => {
       },
       debt: [{ workItemId: 21, title: "No integration test." }],
       newlyFiled: 0,
+      newlyBlocked: 0,
     });
     render(<AiFeedbackPanel workItemId={9} productId={7} runId={3} />);
 
