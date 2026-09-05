@@ -473,4 +473,57 @@ mod tests {
         assert!(items[0].body.contains("that the projects compile"));
         assert!(items[0].body.contains("that the packages restore"));
     }
+
+    /// **A record a real agent really wrote**, kept as it arrived.
+    ///
+    /// Every other case in this file is my idea of what an agent writes, and
+    /// running one round for real broke three of them at once. This is the
+    /// guard against that happening quietly again: the actual output of the
+    /// actual loop, asserted on. It is not tidied — the paragraphs, the bold
+    /// leaders, the sub-lists and the closing caveat are exactly what came back.
+    const REAL_RECORD: &str = include_str!("testdata/hello-world-record.md");
+
+    #[test]
+    fn a_real_agents_debt_becomes_four_readable_items() {
+        let record = crate::agent::record::parse(REAL_RECORD);
+        let debt = points(&record.technical_debt);
+
+        assert_eq!(debt.len(), 4, "{:#?}", debt.iter().map(|p| &p.title).collect::<Vec<_>>());
+        assert_eq!(debt[0].title, "Build output is committed to the repository.");
+        assert_eq!(debt[1].title, "No solution file.");
+        assert_eq!(debt[2].title, "No CI.");
+        // The marks are gone from the titles and kept in the bodies.
+        assert!(debt.iter().all(|p| !p.title.contains('*')));
+        assert!(debt[0].body.starts_with("**Build output"));
+        // The whole paragraph travels, so the fix and its cost arrive with it.
+        assert!(debt[0].body.contains("git rm -r --cached bin obj"));
+    }
+
+    #[test]
+    fn a_real_agents_blockers_stay_whole() {
+        let record = crate::agent::record::parse(REAL_RECORD);
+        let blocked = points(&record.could_not_do);
+
+        // Four paragraphs, four points: nothing blocked, the two things it
+        // chose not to do, and the one it could not. No fragments, no fences.
+        assert!(blocked.iter().all(|p| !p.title.starts_with("```")));
+        assert!(blocked.iter().any(|p| p.title.contains("Nothing in the brief was blocked")));
+        assert!(blocked
+            .iter()
+            .any(|p| p.body.contains("did not run the app interactively")));
+    }
+
+    /// The record parses into all five sections — the headings the brief asks
+    /// for are the headings a real agent used.
+    #[test]
+    fn a_real_agent_answered_every_heading() {
+        let record = crate::agent::record::parse(REAL_RECORD);
+        assert!(record.what_i_built.contains("console app"));
+        assert!(record.tests.contains("15 tests"));
+        assert!(record.feedback.contains("developer rules"));
+        assert!(!record.technical_debt.is_empty());
+        assert!(!record.could_not_do.is_empty());
+        // Nothing landed in "also said": it used the headings it was given.
+        assert_eq!(record.other, "");
+    }
 }

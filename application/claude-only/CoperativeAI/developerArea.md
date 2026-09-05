@@ -4461,3 +4461,101 @@ did. cargo 757/757 (23 ignored), Vitest 721/721, `tsc --noEmit`, clippy
   locale-assertion guard; no "run the regression suite" action; the lifecycle
   checklist reports but does not enforce; no logging outside Develop; no Admin
   UI for the routing defaults.
+
+## Round 90 — the Files pane follows the agent, and hello world gets its record
+
+### My Feedback
+
+> can we move the changes to the files section when I click into the agent tree.
+> Then revert the files back to the default branch when I close out. fix the
+> claude install and run execute on hello world
+
+### The Files pane
+
+**Two things, not one.** The pane already had a "changed only" toggle, so the
+obvious fix was to flip it on selection — but the changes it filters by come
+from `product_changed_files`, which reads each Solution's *main folder*. An
+agent works in a worktree. So that toggle could never have shown an agent's work
+however it was driven, and this is the third place the same mistake has surfaced
+after the review and the file reader.
+
+The selected agent's changes are the rows now, not a filter over the branch's
+tree — because a file the agent **added** is not in that tree at all, so
+filtering would hide exactly the files worth showing. Closing out passes `null`
+and the branch comes back.
+
+Opening one reads the agent's copy: `read_solution_file` takes the run, through
+`root_for_run` — one resolution now, shared with the review, which had its own
+copy of the same seven lines.
+
+### The install
+
+`npm install -g @anthropic-ai/claude-code --os=win32`. The flag overrides the
+`os=linux` in `~/.npmrc` for that install without editing their npm config,
+which is theirs and not mine to rewrite. 2.1.261, 218 MB, and the app's probe
+passes again.
+
+### Execute on hello world
+
+Their app was running and holding the database, so the honest question was
+whether a second process could read it. It could: opened alongside the live app,
+all six gates green, and `prepare_run` wrote attempt 5 into the existing
+worktree. The agent then ran under their own "never ask" mode, which is why this
+round could build and test where the scratch round could not.
+
+**It wrote a real record and the parser handled it first time.** Four pieces of
+debt, whole and readable — build output tracked in git, no solution file, no CI,
+hard-coded wording — each with what it would cost. Four blockers kept whole,
+including "I did not run the app interactively at a real terminal", which is a
+true and useful thing for the app to be told.
+
+That record is now `agent/testdata/hello-world-record.md`, with three tests over
+it. Every other case in that file is my idea of what an agent writes, and round
+89 proved that idea wrong three times in one file. This is the guard: real
+output, kept as it arrived, asserted on.
+
+### Two things the round surfaced about the app
+
+- **Two old briefs show as modified in that worktree.** They are the attempt
+  numbering bug from round 83, still visible: `len()` instead of `len() + 1`
+  meant the first two attempts wrote to the same file and the second landed on
+  the first. Fixed since; the evidence is still on disk.
+- **The agent noticed the worktree is not reset between attempts.** Its own
+  words: "the work was already sitting in the worktree from attempt 4… if
+  attempts are meant to start clean, the worktree is not being reset between
+  them". That is a real design question the app has never answered out loud.
+
+### Implemented
+
+- `BuildExplorer` takes `runChanges`; the Build view passes the selected agent's.
+- `read_solution_file` takes a run; `root_for_run` is the one resolution.
+- The Claude Code install, fixed without touching `~/.npmrc`.
+- Run 5 on "Create a console app", with a record read back cleanly.
+
+### Tests
+
+Four new frontend cases for the pane, three Rust cases over the real record.
+cargo 760/760 (23 ignored), Vitest 725/725, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean.
+
+### Your Feedback
+
+- **Restart the app to see any of this.** The running build is from 19:17, before
+  the round record, the debt filing, the gates and this pane.
+- **The agent asked a product question**: should digits be rejected in a name?
+  `Dave2` currently fails, and some people have numerals in a preferred name.
+  That is Product's to answer, and it is sitting in the record waiting.
+- Nothing resets a worktree between attempts, so attempt 5 was a review of
+  attempt 4's work rather than a fresh build. Worth deciding on purpose.
+
+### Technical Debt
+
+- No answer to "should a new attempt start from a clean checkout?".
+- Writing a file still goes to the Solution's folder, not the run's — reading
+  follows the agent, saving does not.
+- Carried: splitting prose is guesswork; the change review is not refreshed on
+  the work signal; nothing distinguishes a scoring list from an enforcing one; a
+  policy tightened mid-run does not stop a running agent; no
+  template-already-inserted warning; no locale-assertion guard; no "run the
+  regression suite" action; the lifecycle checklist reports but does not
+  enforce; no logging outside Develop; no Admin UI for the routing defaults.
