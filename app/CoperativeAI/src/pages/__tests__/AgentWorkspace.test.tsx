@@ -419,6 +419,46 @@ describe("AgentWorkspace (the Build view)", () => {
     expect(rail).toHaveTextContent("not run");
   });
 
+  /// **The agent's own checkout, not the Solution's folder.** An agent works in
+  /// a worktree of its own; reviewing the Solution folder instead read the
+  /// clean main checkout and reported "nothing has changed" while the finished
+  /// work sat in a folder next door — the branch and the changes were both
+  /// there, and the app was looking in the wrong place.
+  it("reviews the selected agent's worktree rather than the Solution folder", async () => {
+    const user = userEvent.setup();
+    mocked.listRuns.mockResolvedValue([
+      run({ id: 42, state: "prepared", worktreePath: "C:/wt/checkout" }),
+    ]);
+    mocked.reviewSolutionChanges.mockResolvedValue(review({ runId: 42 }));
+    render(panel());
+
+    await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
+    const rail = await screen.findByRole("complementary", { name: /Review and ship/ });
+    await user.click(within(rail).getByRole("button", { name: "Review what changed" }));
+
+    await waitFor(() =>
+      expect(mocked.reviewSolutionChanges).toHaveBeenCalledWith(5, 42),
+    );
+  });
+
+  /// With no agent picked there is no worktree to read, and the workspace on
+  /// disk is a real thing to review — so it stays reviewable, as it always was.
+  it("reviews the workspace itself when no agent is selected", async () => {
+    const user = userEvent.setup();
+    mocked.reviewSolutionChanges.mockResolvedValue(review({ runId: null }));
+    render(panel());
+
+    // Picking the Solution rather than an agent: that is the "what have I
+    // changed myself" case, and it still reads the folder on disk.
+    await user.click(await screen.findByRole("tab", { name: /Shop API/ }));
+    const rail = await screen.findByRole("complementary", { name: /Review and ship/ });
+    await user.click(within(rail).getByRole("button", { name: "Review what changed" }));
+
+    await waitFor(() =>
+      expect(mocked.reviewSolutionChanges).toHaveBeenCalledWith(5, undefined),
+    );
+  });
+
   /// A broken rule is reported, and keeping the change anyway is still allowed —
   /// it is recorded as exactly that rather than laundered into a clean pass.
   it("names a broken rule and still allows the change to be kept", async () => {

@@ -243,13 +243,19 @@ pub(crate) async fn prepare_run(
             .await
             .map_err(to_message)?
             .ok_or("that work item no longer exists")?;
+        // **The run being prepared is the next one, not the last one.** This
+        // counted the runs already made, so the first two attempts both wrote
+        // the unnumbered brief and the second landed on the first. The other
+        // handover path already counted it this way.
         let attempt = change_run::list_for_item(conn, work_item_id)
             .await
             .map_err(to_message)?
-            .len();
-        // The brief is built by the existing assembler, unchanged — this round
-        // only changes *where* it is written.
-        let brief = super::workspace::build_handover_brief(conn, &item, solution_id).await?;
+            .len()
+            + 1;
+        // The brief is built by the existing assembler — it needs the attempt
+        // so the record it asks the agent for is numbered to match.
+        let brief =
+            super::workspace::build_handover_brief(conn, &item, solution_id, attempt).await?;
         let brief_path = handover::brief_path(&item.title, attempt);
         (root, plan.branch_name, plan.clone_from, brief, brief_path, attempt, run_start)
     };
@@ -284,6 +290,61 @@ pub(crate) async fn prepare_run(
         brief_path,
         run_start,
     })
+}
+
+/// What the agent wrote when it finished, if it wrote anything.
+///
+/// **The return leg of the handover.** The brief goes out with a file to write
+/// back to; this reads that file out of the run's own checkout and hands it to
+/// the panel. `None` means nothing is there — the agent is still working, or it
+/// finished without leaving a record, and those are both said plainly rather
+/// than dressed up as an error.
+///
+/// The path is derived from the brief the run was given rather than rebuilt
+/// from the title, so a record always pairs with the brief it answers even if
+/// the naming ever changes underneath.
+#[tauri::command]
+pub async fn read_agent_record(
+    db: State<'_, AppDb>,
+    run_id: i64,
+) -> Result<Option<crate::agent::record::AgentRecord>, String> {
+    let (worktree, brief_path) = {
+        let conn = db.0.lock().await;
+        let run = change_run::find_by_id(&conn, run_id)
+            .await
+            .map_err(to_message)?
+            .ok_or("that run no longer exists")?;
+        (run.worktree_path, run.brief_path)
+    };
+    if worktree.trim().is_empty() {
+        return Ok(None);
+    }
+    let rel = record_path_for(&brief_path);
+    let full = std::path::Path::new(&worktree).join(&rel);
+    match std::fs::read_to_string(&full) {
+        Ok(text) => {
+            let record = crate::agent::record::parse(&text);
+            Ok(if record.is_empty() { None } else { Some(record) })
+        }
+        // A record that is not there yet is the ordinary state for most of a
+        // run's life, and reads as "nothing back yet" rather than a failure.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("could not read {rel}: {e}")),
+    }
+}
+
+/// The record's path, from the path of the brief it answers.
+///
+/// The two live in sibling folders under `.coperativeai/` and share a filename,
+/// attempt number and all, so one is the other with the folder swapped.
+fn record_path_for(brief_path: &str) -> String {
+    let normalised = brief_path.replace('\\', "/");
+    match normalised.rsplit_once('/') {
+        Some((_, file)) => format!(".coperativeai/feedback/{file}"),
+        // A brief path with no folder should not happen, but guessing a folder
+        // for it would be worse than reading beside it.
+        None => format!(".coperativeai/feedback/{normalised}"),
+    }
 }
 
 /// The worktrees that exist for a Solution's repository, main checkout aside.

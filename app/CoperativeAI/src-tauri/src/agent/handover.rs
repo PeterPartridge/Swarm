@@ -46,6 +46,9 @@ pub struct HandoverInputs<'a> {
     /// How to keep a compiled backend refreshing on change. Empty when the start
     /// command already reloads — a front end needs no separate watcher.
     pub run_watch: Option<&'a str>,
+    /// Which try this is, so the record the agent is asked to write is named
+    /// after the same attempt as the brief it answers.
+    pub attempt: usize,
 }
 
 /// One Solution's slice of the work, as it reaches the agent.
@@ -154,16 +157,24 @@ pub fn brief(inputs: &HandoverInputs<'_>) -> String {
     // the same distinction the Run panel draws: start reloads a front end,
     // watch keeps a compiled backend refreshing.
     if let Some(start) = inputs.run_start.map(str::trim).filter(|v| !v.is_empty()) {
+        let watch = inputs.run_watch.map(str::trim).filter(|v| !v.is_empty());
         s.push_str("## Running it while you work\n\n");
-        s.push_str(&format!(
-            "Start it with:\n\n```\n{start}\n```\n\nA front-end dev server reloads itself on \
-             save; run this and check your change in the browser.\n\n"
-        ));
-        if let Some(watch) = inputs.run_watch.map(str::trim).filter(|v| !v.is_empty()) {
-            s.push_str(&format!(
-                "This backend does not reload on its own — keep it refreshing with:\n\n```\n{watch}\
-                 \n```\n\n"
-            ));
+        s.push_str(&format!("Start it with:\n\n```\n{start}\n```\n\n"));
+        // **Only a thing that serves pages is checked in a browser.** This said
+        // so of everything with a start command, so a console app was told to
+        // open a browser and, two lines later, that it does not reload on its
+        // own. Whether detection found a watcher is the evidence: a self-
+        // reloading dev server is the front end, and everything else is run and
+        // watched in the terminal it was started from.
+        match watch {
+            None => s.push_str(
+                "A dev server reloads itself on save; run it and check your change in the \
+                 browser.\n\n",
+            ),
+            Some(watch) => s.push_str(&format!(
+                "This does not reload on its own — keep it refreshing with:\n\n```\n{watch}\n```\
+                 \n\nRun it and watch your change actually work before you call it done.\n\n"
+            )),
         }
     }
 
@@ -190,14 +201,57 @@ pub fn brief(inputs: &HandoverInputs<'_>) -> String {
         ));
     }
 
-    s.push_str(
+    let record = record_path(inputs.work_item_title, inputs.attempt);
+    s.push_str(&format!(
         "## When you are done\n\n\
          Leave the change uncommitted. It will be reviewed against the developer rules \
          above before anything is kept.\n\n\
+         Write your round record to `{record}`, using exactly these headings:\n\n\
+         ```markdown\n\
+         {headings}\n\
+         ```\n\n\
+         Say it there rather than only in the terminal. The terminal is yours and closes \
+         with you; that file is read back into the app and shown to the people who asked \
+         for this work, which is the only way your feedback and the debt you left behind \
+         reach them. Be specific about the debt: what you took a shortcut on, and what it \
+         will cost to put right.\n\n\
          If this brief is too vague or contradictory to build well, stop and say so \
          rather than guessing. An unanswered question costs less than the wrong feature.\n",
-    );
+        headings = RECORD_HEADINGS
+            .iter()
+            .map(|h| format!("{h}\n"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    ));
     s
+}
+
+/// The sections an agent is asked to write when it finishes.
+///
+/// **Fixed wording, because something reads them back.** These are the headings
+/// the brief asks for and the headings the parser looks for; a record written
+/// in different words is a record the app cannot show. They are the framework's
+/// own round record, minus the halves only a person can write.
+pub const RECORD_HEADINGS: &[&str] = &[
+    "## What I built",
+    "## Tests",
+    "## Feedback",
+    "## Technical debt",
+    "## What I could not do",
+];
+
+/// Where the agent's account of the round goes, relative to the working copy.
+///
+/// Beside the brief it answers and numbered the same way: attempt three's
+/// record should not land on attempt two's, because comparing the two is how
+/// anybody works out what changed between tries.
+pub fn record_path(work_item_title: &str, attempt: usize) -> String {
+    let stem = crate::files::emit::safe_stem(work_item_title);
+    if attempt <= 1 {
+        format!(".coperativeai/feedback/{stem}.md")
+    } else {
+        format!(".coperativeai/feedback/{stem}-attempt-{attempt}.md")
+    }
 }
 
 /// Where the brief is written, relative to the working copy.
@@ -280,6 +334,7 @@ mod tests {
             solution_plans: &[],
             run_start: None,
             run_watch: None,
+            attempt: 1,
         }
     }
 
@@ -296,6 +351,51 @@ mod tests {
         assert!(brief.contains("## Running it while you work"));
         assert!(brief.contains("cargo run"));
         assert!(brief.contains("cargo watch -x run"));
+    }
+
+    /// **The half the framework was missing.** An agent finished a job, wrote a
+    /// careful account of what it built and what it left behind — and said it
+    /// into a terminal, because nothing ever asked it for one. The round record
+    /// is how feedback and technical debt get back to the people who asked for
+    /// the work, so the brief asks for it by name, in a file the app can read.
+    #[test]
+    fn the_brief_asks_for_a_round_record() {
+        let r = rules();
+        let i = inputs(&r);
+        let brief = brief(&i);
+
+        assert!(brief.contains(&record_path("Add checkout", 1)));
+        for heading in RECORD_HEADINGS {
+            assert!(brief.contains(heading), "the brief never asks for {heading}");
+        }
+    }
+
+    /// The record sits beside the brief it answers, attempt for attempt: a
+    /// second try that overwrote the first attempt's account would destroy the
+    /// one thing worth reading when a second try goes wrong.
+    #[test]
+    fn each_attempt_records_beside_its_own_brief() {
+        assert_eq!(record_path("Add checkout", 1), ".coperativeai/feedback/add-checkout.md");
+        assert_eq!(
+            record_path("Add checkout", 3),
+            ".coperativeai/feedback/add-checkout-attempt-3.md",
+        );
+    }
+
+    /// **Not everything runs in a browser.** A console app was told to "check
+    /// your change in the browser" and, two lines later, that it does not
+    /// reload on its own — a contradiction in the same section. What reloads
+    /// itself is what detection recognised, so that is what decides the wording.
+    #[test]
+    fn a_console_app_is_not_sent_to_the_browser() {
+        let r = rules();
+        let mut i = inputs(&r);
+        i.run_start = Some("dotnet run");
+        i.run_watch = Some("dotnet watch run");
+        let brief = brief(&i);
+
+        assert!(brief.contains("dotnet run"));
+        assert!(!brief.contains("browser"));
     }
 
     /// A front end reloads itself, so no watcher line is invented for it.

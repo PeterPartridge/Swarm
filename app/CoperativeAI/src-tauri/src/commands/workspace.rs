@@ -333,6 +333,7 @@ pub(crate) async fn build_handover_brief(
     conn: &turso::Connection,
     item: &crate::db::work_item::WorkItem,
     solution_id: i64,
+    attempt: usize,
 ) -> Result<String, String> {
     use crate::db::{
         ai_feedback, architecture_doc, product, solution_strategy, work_item, work_item_link,
@@ -461,6 +462,7 @@ pub(crate) async fn build_handover_brief(
         solution_plans: &solution_plans,
         run_start,
         run_watch,
+        attempt,
     }))
 }
 
@@ -488,14 +490,15 @@ pub async fn prepare_handover(
             ));
         };
         let root = root_for(&conn, solution_id).await?;
-        let brief = build_handover_brief(&conn, &item, solution_id).await?;
         // Attempt number from the run history, so a second handover writes a
-        // new file beside the first rather than over it.
+        // new file beside the first rather than over it — and so the record the
+        // agent is asked to write is numbered with the brief it answers.
         let attempt = crate::db::change_run::list_for_item(&conn, work_item_id)
             .await
             .map_err(to_message)?
             .len()
             + 1;
+        let brief = build_handover_brief(&conn, &item, solution_id, attempt).await?;
         let brief_path = handover::brief_path(&item.title, attempt);
         (brief, brief_path, root, solution_id)
     };
@@ -563,10 +566,34 @@ pub struct ChangeReviewDto {
 pub async fn review_solution_changes(
     db: State<'_, AppDb>,
     solution_id: i64,
+    // Which working copy to read. **A run's changes are in the run's own
+    // checkout, not in the Solution's folder** — that is the whole point of
+    // giving each one a worktree, and reviewing the Solution root instead
+    // reported "nothing has changed" while an agent's work sat finished in a
+    // folder next door. Absent means your own workspace, which is a real thing
+    // to review and the only thing this used to do.
+    run_id: Option<i64>,
 ) -> Result<ChangeReviewDto, String> {
     let (root, rules) = {
         let conn = db.0.lock().await;
-        let root = root_for(&conn, solution_id).await?;
+        let root = match run_id {
+            Some(id) => {
+                let run = crate::db::change_run::find_by_id(&conn, id)
+                    .await
+                    .map_err(to_message)?
+                    .ok_or("that run no longer exists")?;
+                // A prepared run always has one; a run row that predates its
+                // checkout falls back rather than failing, because the
+                // Solution's folder is still a truthful answer to "what has
+                // changed here?".
+                if run.worktree_path.trim().is_empty() {
+                    root_for(&conn, solution_id).await?
+                } else {
+                    run.worktree_path
+                }
+            }
+            None => root_for(&conn, solution_id).await?,
+        };
         let Some(row) = solution::find_by_id(&conn, solution_id)
             .await
             .map_err(to_message)?

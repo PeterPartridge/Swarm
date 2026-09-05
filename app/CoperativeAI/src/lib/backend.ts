@@ -199,9 +199,17 @@ export const askCodingPal = (args: {
   instruction: string;
   selection: string | null;
 }): Promise<PalAnswer> => invoke("ask_coding_pal", args);
+/** What has changed and how it reads against the rules.
+ *
+ *  **Give it the run when reviewing an agent.** A run works in its own
+ *  checkout, so reviewing the Solution's folder instead reports "nothing has
+ *  changed" while the work sits finished in a worktree next door. Without a run
+ *  it reviews your own workspace, which is a real thing to review. */
 export const reviewSolutionChanges = (
   solutionId: number,
-): Promise<ChangeReview> => invoke("review_solution_changes", { solutionId });
+  runId?: number,
+): Promise<ChangeReview> =>
+  invoke("review_solution_changes", { solutionId, runId });
 
 export interface TeamMember {
   id: number;
@@ -2747,6 +2755,28 @@ export const removeWorktreeAt = (solutionId: number, path: string): Promise<void
 
 export const listRunWorktrees = (solutionId: number): Promise<string[]> =>
   invoke("list_run_worktrees", { solutionId });
+
+/** An agent's own account of a round: what it built, how it proved it, what it
+ *  would say back, and the debt it left behind. Every section is optional —
+ *  what the agent did not write is empty rather than invented. */
+export interface AgentRecord {
+  whatIBuilt: string;
+  tests: string;
+  feedback: string;
+  technicalDebt: string;
+  couldNotDo: string;
+  /** Anything it wrote outside the headings it was asked for. Kept: an agent
+   *  that answered in its own shape still answered. */
+  other: string;
+}
+
+/** Reads the round record out of a run's own checkout.
+ *
+ *  `null` while there is nothing there — an agent still working, or one that
+ *  finished without leaving a record. That is the ordinary state for most of a
+ *  run's life, not a failure. */
+export const readAgentRecord = (runId: number): Promise<AgentRecord | null> =>
+  invoke("read_agent_record", { runId });
 
 /** One AI call, as the log shows it.
  *

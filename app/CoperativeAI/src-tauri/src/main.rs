@@ -147,6 +147,7 @@ fn main() {
             commands::runs::start_run,
             commands::runs::discard_run_worktree,
             commands::runs::list_run_worktrees,
+            commands::runs::read_agent_record,
             commands::runs::preview_run_merge,
             commands::runs::merge_run_branch,
             commands::runs::abort_run_merge,

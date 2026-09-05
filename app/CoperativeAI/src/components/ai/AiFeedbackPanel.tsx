@@ -3,7 +3,9 @@ import {
   clearAiJobs,
   listAiFeedback,
   listAiJobs,
+  readAgentRecord,
   resolveAiFeedback,
+  type AgentRecord,
   type AiFeedback,
   type AiJob,
 } from "../../lib/backend";
@@ -24,18 +26,28 @@ import { useWorkChanged } from "../../lib/workSignal";
  *    resolution and travels into the next attempt.
  *  - *Questions it asked* — `needsInformation` and the rest. A question wants an
  *    answer; a refusal wants a decision. Two lists, because they are two jobs.
+ *  - *What the agent reported* — the round record a coding agent writes when it
+ *    finishes: what it built, how it proved it, what it would say back, and the
+ *    debt it left behind. This is the half that used to be missing entirely.
+ *    The agent wrote its account into a terminal that closes with it, so a
+ *    panel called "AI feedback" sat empty while the feedback existed on the
+ *    other side of the glass.
  *
  *  Replaces `AiQuestions`, which showed only the middle third of this and
  *  called all of it "questions". */
 export default function AiFeedbackPanel({
   workItemId,
   productId,
+  runId,
   onResolved,
 }: {
   workItemId: number;
   /** The queue is per Product, so the failed attempts are read through it and
    *  filtered to this item. Without it the panel simply has no failures half. */
   productId?: number;
+  /** The run whose round record to read. A work item nobody has handed to an
+   *  agent has none, and then the panel says nothing about one at all. */
+  runId?: number;
   onResolved?: () => void;
 }) {
   const [feedback, setFeedback] = useState<AiFeedback[]>([]);
@@ -43,13 +55,19 @@ export default function AiFeedbackPanel({
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [record, setRecord] = useState<AgentRecord | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const [loadedFeedback, loadedJobs] = await Promise.all([
+      const [loadedFeedback, loadedJobs, loadedRecord] = await Promise.all([
         listAiFeedback(workItemId),
         productId === undefined ? Promise.resolve([]) : listAiJobs(productId),
+        // Not asked for at all without a run: there is no checkout to read one
+        // out of, and a panel that asked anyway would report an error about a
+        // file it had no reason to expect.
+        runId === undefined ? Promise.resolve(null) : readAgentRecord(runId),
       ]);
+      setRecord(loadedRecord);
       setFeedback(loadedFeedback);
       setJobs(
         loadedJobs
@@ -61,7 +79,7 @@ export default function AiFeedbackPanel({
     } catch (e) {
       setError(String(e));
     }
-  }, [workItemId, productId]);
+  }, [workItemId, productId, runId]);
 
   useEffect(() => {
     void refresh();
@@ -85,7 +103,10 @@ export default function AiFeedbackPanel({
 
   const cannot = feedback.filter((f) => f.kind === "cantImplement");
   const asked = feedback.filter((f) => f.kind !== "cantImplement");
-  const nothing = jobs.length === 0 && feedback.length === 0;
+  // With a run in view the record line below says where things stand, so this
+  // would be a second paragraph saying the same absence twice.
+  const nothing =
+    jobs.length === 0 && feedback.length === 0 && record === null && runId === undefined;
 
   /// Forgets the settled attempts. Only on a press: they are the record of
   /// what was tried, and an app that quietly pruned history would be deciding
@@ -111,6 +132,44 @@ export default function AiFeedbackPanel({
         <p className="hint">
           The AI has not reported anything on this item — no failed attempt, and
           nothing it could not do.
+        </p>
+      )}
+
+      {/* First, because it is the answer to "what happened?" — the rest of this
+          panel is about attempts that did not get this far. */}
+      {record !== null && (
+        <div className="feedback-group" role="region" aria-label="What the agent reported">
+          <span className="palette-label">What the agent reported</span>
+          <dl className="agent-record">
+            {(
+              [
+                ["What it built", record.whatIBuilt],
+                ["Tests", record.tests],
+                ["Feedback", record.feedback],
+                ["Technical debt", record.technicalDebt],
+                ["What it could not do", record.couldNotDo],
+                ["Also said", record.other],
+              ] as const
+            )
+              // A heading the agent left blank is left out. An empty "Technical
+              // debt" reads as "there is none", which is a claim the app has no
+              // business making on the agent's behalf.
+              .filter(([, body]) => body.trim() !== "")
+              .map(([heading, body]) => (
+                <div key={heading} className="agent-record-part">
+                  <dt>{heading}</dt>
+                  <dd>{body}</dd>
+                </div>
+              ))}
+          </dl>
+        </div>
+      )}
+
+      {runId !== undefined && record === null && (
+        <p className="hint">
+          The agent has not written its round record yet. It is asked for one when
+          it finishes — what it built, how it proved it, and the debt it left
+          behind.
         </p>
       )}
 

@@ -260,7 +260,12 @@ export default function AgentWorkspace({
     if (browsing === null) return;
     setReviewing(true);
     try {
-      setReview(await reviewSolutionChanges(browsing));
+      // **The selected agent's own checkout, when there is one.** A run works
+      // in its own worktree, so reviewing the Solution's folder instead
+      // reported "nothing has changed" while an agent's finished work sat in a
+      // folder next door. With no agent selected this is your own workspace,
+      // which is what it always was.
+      setReview(await reviewSolutionChanges(browsing, active?.run?.id));
       setSettled(null);
       setError(null);
     } catch (e) {
@@ -270,7 +275,7 @@ export default function AgentWorkspace({
     } finally {
       setReviewing(false);
     }
-  }, [browsing]);
+  }, [browsing, active]);
 
   const onSettle = useCallback(
     async (state: "kept" | "discarded") => {

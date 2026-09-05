@@ -11,6 +11,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     listAiJobs: vi.fn(),
     resolveAiFeedback: vi.fn(),
     clearAiJobs: vi.fn(),
+    readAgentRecord: vi.fn(),
   };
 });
 
@@ -49,6 +50,71 @@ describe("the AI feedback panel", () => {
     mocked.listAiJobs.mockResolvedValue([]);
     mocked.resolveAiFeedback.mockResolvedValue(undefined);
     mocked.clearAiJobs.mockResolvedValue(0);
+    mocked.readAgentRecord.mockResolvedValue(null);
+  });
+
+  /// **The round record, which the app used to have no way of seeing.** An
+  /// agent finished a job and wrote a careful account of what it built and what
+  /// it left behind — into its terminal, because the brief never asked for one
+  /// and nothing read one back. Both halves are fixed now, and this is the end
+  /// of that: what it said, on the panel about what the AI reported.
+  it("shows what the agent reported when it finished, debt and all", async () => {
+    mocked.readAgentRecord.mockResolvedValue({
+      whatIBuilt: "A NameGreeter class and the console entry point.",
+      tests: "15 passed, 0 failed.",
+      feedback: "The brief said the same rule twice.",
+      technicalDebt: "No integration test for the entry point. Half a day to add one.",
+      couldNotDo: "",
+      other: "",
+    });
+    render(<AiFeedbackPanel workItemId={9} productId={7} runId={3} />);
+
+    const reported = await screen.findByRole("region", {
+      name: "What the agent reported",
+    });
+    expect(reported).toHaveTextContent(/NameGreeter/);
+    expect(reported).toHaveTextContent(/15 passed/);
+    expect(reported).toHaveTextContent(/same rule twice/);
+    expect(reported).toHaveTextContent(/No integration test/);
+  });
+
+  /// A section the agent left blank is left out rather than shown as an empty
+  /// heading — an empty "Technical debt" reads as "there is none", which is a
+  /// claim the app has no business making on the agent's behalf.
+  it("leaves out the sections the agent did not write", async () => {
+    mocked.readAgentRecord.mockResolvedValue({
+      whatIBuilt: "The thing.",
+      tests: "",
+      feedback: "",
+      technicalDebt: "",
+      couldNotDo: "",
+      other: "",
+    });
+    render(<AiFeedbackPanel workItemId={9} productId={7} runId={3} />);
+
+    const reported = await screen.findByRole("region", {
+      name: "What the agent reported",
+    });
+    expect(reported).toHaveTextContent("The thing.");
+    expect(reported).not.toHaveTextContent("Technical debt");
+  });
+
+  /// Nothing back yet is the ordinary state for most of a run's life, and it is
+  /// not an error — so the panel says so and shows the rest as it always did.
+  it("says nothing has come back from the agent yet", async () => {
+    render(<AiFeedbackPanel workItemId={9} productId={7} runId={3} />);
+    expect(
+      await screen.findByText(/has not written its round record yet/i),
+    ).toBeInTheDocument();
+  });
+
+  /// Without a run there is no record to read, and no reason to say anything
+  /// about one — this panel is also shown on items no agent has touched.
+  it("says nothing about a record when there is no run", async () => {
+    render(<AiFeedbackPanel workItemId={9} productId={7} />);
+    await screen.findByText(/The AI has not reported anything on this item/i);
+    expect(mocked.readAgentRecord).not.toHaveBeenCalled();
+    expect(screen.queryByText(/round record/i)).not.toBeInTheDocument();
   });
 
   /// **What failed, in one place.** An attempt that failed lived only in the

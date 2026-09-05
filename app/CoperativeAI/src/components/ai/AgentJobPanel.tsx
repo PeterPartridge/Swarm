@@ -455,7 +455,13 @@ export default function AgentJobPanel({
 
         {panel === "questions" && (
           <div className="agent-questions">
-            <AiFeedbackPanel workItemId={item.id} productId={item.productId} />
+            {/* The run, so this shows the round record the agent wrote in its
+                own checkout — the account that used to stay in its terminal. */}
+            <AiFeedbackPanel
+              workItemId={item.id}
+              productId={item.productId}
+              runId={run?.id}
+            />
             <p className="hint">
               An answer is stored against this work item and travels with the next
               prompt for it, so the same question is not asked — or paid for —

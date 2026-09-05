@@ -9150,3 +9150,28 @@ button.ready-action.link:hover {
   font-size: 0.78rem;
   color: var(--fg-muted);
 }
+
+/* The agent's round record. Prose the agent wrote, so it is set as prose —
+   each heading small and quiet above the paragraph it names, and the paragraph
+   itself keeping the line breaks the agent typed. */
+.agent-record {
+  margin: 0.25rem 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.agent-record-part dt {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  margin-bottom: 0.15rem;
+}
+
+.agent-record-part dd {
+  margin: 0;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
