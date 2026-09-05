@@ -2,7 +2,6 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import WorkItemBuildPlan, {
-  whatIsMissing,
 } from "../../components/planning/WorkItemBuildPlan";
 import { isPlanned } from "../../lib/plan";
 import { notifyWorkChanged } from "../../lib/workSignal";
@@ -45,6 +44,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     // The pre-flight list reads these. Left unmocked it falls through to the
     // real invoke, which is the trap this file has been caught by before.
     runGates: vi.fn(),
+    planGates: vi.fn(),
     listRuns: vi.fn(),
     listTerminals: vi.fn(),
     listWorkItemPlans: vi.fn(),
@@ -68,6 +68,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     saveWorkItemPlan: vi.fn(),
     detachWorkItemPlan: vi.fn(),
     generateChangePlan: vi.fn(),
+    submitForPlanning: vi.fn(),
     listAiFeedback: vi.fn(),
     listAiJobs: vi.fn(),
     checkItemAiPermission: vi.fn(),
@@ -150,12 +151,26 @@ function plan(overrides: Partial<WorkItemPlan> = {}): WorkItemPlan {
 
 const solutions = [solution(3, "Shop API"), solution(4, "Shop Web")];
 
+/// The commonest reason a work item is not ready to plan, in the shape the
+/// backend sends it. The wording is the backend's own — this is the list
+/// `generate_change_plan` walks, not a second opinion held here.
+const notAttached = {
+  id: "solution",
+  label: "A Solution is attached",
+  ok: false,
+  detail:
+    'no Solution is attached — add one under "What this changes", or there is no repository for a plan to be about.',
+};
+
 describe("WorkItemBuildPlan", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocked.logEvent.mockResolvedValue(undefined);
     mocked.listRuns.mockResolvedValue([]);
     mocked.runGates.mockResolvedValue([]);
+    mocked.planGates.mockResolvedValue([]);
+    // The default is "ready": most tests here are about something else, and a
+    // panel refusing for a missing Solution would get in the way of all of them.
     mocked.listTerminals.mockResolvedValue([]);
     mocked.claudeCodeStatus.mockResolvedValue({
       installed: true,
@@ -261,6 +276,7 @@ describe("WorkItemBuildPlan", () => {
   /// clicked it and nothing happened" actually was.
   it("presses, and says why it will not run yet", async () => {
     const user = userEvent.setup();
+    mocked.planGates.mockResolvedValue([notAttached]);
     render(
       <>
         <WorkItemBuildPlan item={item} solutions={solutions} />
@@ -288,44 +304,43 @@ describe("WorkItemBuildPlan", () => {
   /// **Every reason, not just the first.** Discovering the next blocker each
   /// time you fix one is how a form makes somebody give up; listed together,
   /// they are fixed in a single pass.
-  it("lists everything missing, not only the first thing", () => {
-    const bare = { ...item, description: null };
-    const allowed = { allowed: true, reason: "", hasProvider: true };
-
-    // **Deny-by-default, said before the press.** The backend refuses an item
-    // nobody has permitted, which is the rule working — but learning that from
-    // a failed job in the queue is the long way round.
-    // **The refusal is the backend's own words**, asked of the same walk the
-    // gate uses — so the button and the backend cannot disagree about what is
-    // permitted, which is how a screen ends up blocking work the backend would
-    // have allowed.
-    expect(
-      whatIsMissing(item, [plan({ changesRequired: "x" })], {
-        allowed: false,
-        reason: "Nobody has said the AI may read this work.",
-        hasProvider: false,
-      }).join(" "),
-    ).toMatch(/Nobody has said/i);
-
-    // Permitted, but with nothing to send to.
-    expect(
-      whatIsMissing(item, [plan({ changesRequired: "x" })], {
-        ...allowed,
-        hasProvider: false,
-      }).join(" "),
-    ).toMatch(/no provider is named/i);
-
-    expect(whatIsMissing(bare, [], allowed)).toHaveLength(2);
-    expect(whatIsMissing(bare, [], allowed).join(" ")).toMatch(/described/i);
-    expect(whatIsMissing(bare, [], allowed).join(" ")).toMatch(/no Solution/i);
-
-    // A Solution attached, but nobody has said what changes in it.
-    expect(whatIsMissing(item, [plan({})], allowed)).toEqual([
-      expect.stringMatching(/nothing is written about what has to change/i),
+  ///
+  /// **The rules themselves are not tested here any more.** They were a pure
+  /// function in this component — testable, and a second opinion that had
+  /// drifted from what the backend refuses for. They live in `plan_gates` now,
+  /// beside the walk that enforces them, and are tested there. What is left for
+  /// this file is that the panel shows what it is told and refuses in those
+  /// same words.
+  it("lists everything missing, not only the first thing", async () => {
+    const user = userEvent.setup();
+    mocked.planGates.mockResolvedValue([
+      {
+        id: "described",
+        label: "Somebody has said what this is",
+        ok: false,
+        detail: "nobody has described what this is — Product writes that on the item.",
+      },
+      { id: "permission", label: "The AI is allowed to read this work", ok: true, detail: "" },
+      {
+        id: "solution",
+        label: "A Solution is attached",
+        ok: false,
+        detail: 'no Solution is attached — add one under "What this changes".',
+      },
     ]);
+    render(<WorkItemBuildPlan item={item} solutions={solutions} />);
 
-    // Described, attached, and written about: ready.
-    expect(whatIsMissing(item, [plan({ changesRequired: "Add POST /checkout" })], allowed)).toEqual([]);
+    const list = await screen.findByRole("list", { name: "Before planning" });
+    // Both of them, and the one that is fine as well: a list of only the
+    // problems cannot say what else was looked at.
+    expect(list).toHaveTextContent(/nobody has described what this is/i);
+    expect(list).toHaveTextContent(/no Solution is attached/i);
+    expect(list).toHaveTextContent(/The AI is allowed to read this work/i);
+
+    // Pressing anyway refuses in those same words rather than going quiet.
+    await user.click(screen.getByRole("button", { name: "Plan Add checkout" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/nobody has described/i);
+    expect(mocked.submitForPlanning).not.toHaveBeenCalled();
   });
 
   /// **The panel used to look identical before, during and after planning.**
@@ -506,6 +521,7 @@ describe("WorkItemBuildPlan", () => {
 
   /// Nothing to generate from is worth saying before it is worth paying for.
   it("will not generate before a Solution is affected", async () => {
+    mocked.planGates.mockResolvedValue([notAttached]);
     render(<WorkItemBuildPlan item={item} solutions={solutions} />);
     await userEvent.click(await screen.findByLabelText("Execute Add checkout"));
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -1015,7 +1031,7 @@ describe("the Git tab", () => {
 
     await user.click(await screen.findByRole("button", { name: "Git" }));
     expect(
-      await screen.findByText(/No Solution is attached/i),
+      await screen.findByText(/Nothing to set up yet/i),
     ).toBeInTheDocument();
   });
 });

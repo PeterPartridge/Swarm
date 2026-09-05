@@ -265,23 +265,18 @@ async fn run_change_plan_inner(
         else {
             return Err("that work item no longer exists".into());
         };
+        // **Every condition, in one place, before anything is sent.** The panel
+        // shows this same list, so what it says is missing is exactly what this
+        // refuses for — these checks used to live in the front end as a second
+        // opinion, and had drifted into refusing work the backend allowed.
+        if let Some(unmet) =
+            super::gates::first_unmet(super::gates::for_plan(&conn, work_item_id).await?)
+        {
+            return Err(unmet.detail);
+        }
         let plans = work_item_plan::list_for_item(&conn, work_item_id)
             .await
             .map_err(to_message)?;
-        if plans.is_empty() {
-            return Err(
-                "no Solutions are marked as affected yet — add at least one before generating schemas"
-                    .into(),
-            );
-        }
-        // Nothing written means nothing to design from; the escape hatch would
-        // catch it, but refusing here costs nothing at all.
-        if plans.iter().all(|p| p.changes_required.trim().is_empty()) {
-            return Err(
-                "none of the affected Solutions say what has to change yet — write that first, and the schemas follow from it"
-                    .into(),
-            );
-        }
 
         let product_id = item.product_id;
         let Some(product_row) = product::find_by_id(&conn, product_id)

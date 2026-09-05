@@ -15,6 +15,7 @@ pub mod github;
 pub mod inspectors;
 pub mod lifecycle;
 pub mod logging;
+pub mod gates;
 pub mod jobs;
 pub mod models;
 pub mod policies;

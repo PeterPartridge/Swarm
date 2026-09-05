@@ -4207,3 +4207,95 @@ Vitest strips types without checking them. `tsc --noEmit` caught it.
 - Carried: no template-already-inserted warning; no locale-assertion guard; no
   "run the regression suite" action; the lifecycle checklist reports but does
   not enforce; no logging outside Develop; no Admin UI for the routing defaults.
+
+## Round 87 — one shape for readiness, and a pane that would not hide
+
+### My Feedback
+
+> fix the two readiness lists so they share one shape
+>
+> Also in Develop and work can we seprate the code view and work item. The code
+> view still sits on top of the work item.
+
+### There were three, not two
+
+Looking for the second one found a third. `whatIsMissing` in the build plan
+component (before planning), `run_gates` in the backend (before executing), and
+`readinessOf` in `WorkReadiness` (how ready an item is at all) — three shapes
+for one idea: *here is a condition, whether it holds, and what to do when it
+does not*. `{label, met, missing}`, `{id, label, ok, detail}` and a bare
+`string[]`.
+
+They are one `Gate` now, rendered by one `GateList`.
+
+### The one that mattered more than its shape
+
+`whatIsMissing` was a **pure function in the front end**, which made it testable
+and also made it a second opinion — and it had drifted. It refused to plan an
+item nobody had described; the backend would have planned that item happily.
+A screen stricter than the thing it drives is a screen blocking work for reasons
+nothing enforces, and the comment beside it said the opposite: "so the button
+and the backend cannot disagree".
+
+So the rules moved to `gates::for_plan`, `generate_change_plan` walks them, and
+the panel shows them — the same arrangement the run gates already had. The
+description rule was kept and is now true of the path as well as the page.
+
+`readinessOf` stays in the front end deliberately: it scores many items from
+rows already loaded, and one backend call per row would be a call per card. It
+shares the shape and the renderer, not the source. Sharing a shape is not the
+same as sharing a home.
+
+### The pane that would not hide
+
+Not a layout problem — a cascade one. `hidden` is a *user-agent* style,
+`[hidden] { display: none }` at the bottom of the cascade, so any author rule
+setting `display` on the same element beats it. `.build-code { display: flex }`
+is such a rule. From the moment that pane got a layout the attribute did
+nothing, and the code editor sat on top of the work item whichever tab was
+chosen — which is exactly what was reported, twice.
+
+One rule fixes every instance: `[hidden] { display: none !important }`.
+`!important` rather than a more specific selector, because the point is that no
+class can beat it; any rule that could would be the same bug again.
+
+**jsdom applies no stylesheet**, so no rendering test could have caught this —
+every assertion about a hidden pane passed while the app showed both. The guard
+is a test that reads `styles.css` as text and requires the rule. Its first draft
+matched its own documentation: the comment above the rule quotes
+`[hidden] { display: none }` in prose, and the regex found that. It strips
+comments now, which is the same lesson as ever — a test that cannot fail is not
+a test.
+
+### Implemented
+
+- `commands::gates`: one `Gate`, `for_run`, `for_plan`, `first_unmet`, and the
+  two commands. Both presses walk their own list and refuse with its words.
+- `GateList` renders any of them; `RunPreflight` and the build plan both use it.
+- `whatIsMissing` deleted; `readinessOf` returns `Gate[]`.
+- The redundant `checkItemAiPermission` read is gone from the build plan — the
+  gate list carries it now.
+- `[hidden] { display: none !important }`, with the test that pins it.
+
+### Tests
+
+cargo 752/752 (23 ignored), Vitest 719/719, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean.
+
+### Your Feedback
+
+- **The Git tab test was reading another panel's words.** It asserted "No
+  Solution is attached" while sitting on the Git tab, which has its own message;
+  it passed because the readiness list happened to be on screen. It asserts the
+  Git tab's own words now. Worth knowing that one test was green for the wrong
+  reason.
+- `readinessOf` and the gates now look identical and are enforced differently —
+  one is a score, two are refusals. The shape does not say which is which.
+
+### Technical Debt
+
+- Nothing distinguishes a scoring list from an enforcing one at the type level.
+- A policy tightened mid-run still does not stop a running agent.
+- Carried: no template-already-inserted warning; no locale-assertion guard; no
+  "run the regression suite" action; the lifecycle checklist reports but does
+  not enforce; no logging outside Develop; no Admin UI for the routing defaults.

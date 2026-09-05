@@ -8,7 +8,8 @@ import SolutionRepo from "../vcs/SolutionRepo";
 import WorkItemLifecycle from "./WorkItemLifecycle";
 import SectionTabs from "../common/SectionTabs";
 import { reportFailure } from "../../lib/failures";
-import { claudeCodeStatus, logEvent } from "../../lib/backend";
+import { claudeCodeStatus, logEvent, planGates, type Gate } from "../../lib/backend";
+import GateList from "./GateList";
 import RunPreflight from "./RunPreflight";
 import { adoptRunning } from "../../lib/agents";
 import { isPlanned } from "../../lib/plan";
@@ -16,7 +17,6 @@ import { notifyWorkChanged, useWorkChanged } from "../../lib/workSignal";
 import {
   askProductQuestion,
   generateChangePlan,
-  checkItemAiPermission,
   submitForPlanning,
   listAiFeedback,
   listAiJobs,
@@ -30,54 +30,9 @@ import {
   type AiFeedback,
   type AiJob,
   type Solution,
-  type AiPermission,
   type WorkItem,
   type WorkItemPlan,
 } from "../../lib/backend";
-
-/** Everything an AI would need that nobody has written yet, in the order it
- *  should be fixed. Empty means both buttons can be pressed.
- *
- *  **A disabled button that says nothing looks exactly like a broken one** —
- *  which is what these were: they greyed out with no Solution attached and gave
- *  no reason, so pressing produced no plan, no error and no explanation. Every
- *  reason is listed rather than only the first, so somebody fixes them in one
- *  pass instead of discovering the next one each time.
- *
- *  Pure, so the rules are testable without rendering anything. */
-export function whatIsMissing(
-  item: WorkItem,
-  plans: WorkItemPlan[],
-  permission: AiPermission | null,
-): string[] {
-  const missing: string[] = [];
-  if ((item.description ?? "").trim() === "") {
-    missing.push(
-      "Nobody has described what this is — Product writes that on the item.",
-    );
-  }
-  // **Deny-by-default, said before the press rather than after it.** Asked of
-  // the same walk the backend gate uses — Solution override, then Product —
-  // so the button and the backend cannot disagree about what is permitted.
-  if (permission !== null && !permission.allowed) {
-    missing.push(permission.reason);
-  } else if (permission !== null && !permission.hasProvider) {
-    missing.push(
-      "The AI is permitted here but no provider is named to send to — name one on the policy that permits it, in Admin → AI.",
-    );
-  }
-  if (plans.length === 0) {
-    missing.push(
-      'No Solution is attached — add one under "What this changes", or there is no repository for a plan to be about.',
-    );
-  } else if (plans.every((p) => p.changesRequired.trim() === "")) {
-    missing.push(
-      "Nothing is written about what has to change, so an AI would be planning from the title alone.",
-    );
-  }
-  return missing;
-}
-
 
 /** How one work item is going to be built: the Solutions it touches and what
  *  each needs, the questions Product still owes an answer to, and the schemas
@@ -109,7 +64,11 @@ export default function WorkItemBuildPlan({
   const [jobs, setJobs] = useState<AiJob[]>([]);
   /// Whether the AI may touch this item at all — the same walk the backend
   /// gate uses, so the button cannot disagree with what would happen.
-  const [permission, setPermission] = useState<AiPermission | null>(null);
+  /// What has to be true before this can be planned, read from the same list
+  /// the plan itself walks. This was a pure function in this file — testable,
+  /// and a second opinion: it refused an item nobody had described while the
+  /// backend would have planned it happily.
+  const [planChecks, setPlanChecks] = useState<Gate[]>([]);
   /// Whether the agent this app hands work to can actually run here, and what
   /// is wrong when it cannot.
   ///
@@ -166,11 +125,10 @@ export default function WorkItemBuildPlan({
 
   const refresh = useCallback(async () => {
     try {
-      const [loadedPlans, loadedFeedback, loadedJobs, loadedPermission] = await Promise.all([
+      const [loadedPlans, loadedFeedback, loadedJobs] = await Promise.all([
         listWorkItemPlans(item.id),
         listAiFeedback(item.id),
         listAiJobs(item.productId),
-        checkItemAiPermission(item.id),
       ]);
       setPlans(loadedPlans);
       setQuestions(loadedFeedback);
@@ -180,7 +138,7 @@ export default function WorkItemBuildPlan({
           .filter((j) => j.workItemId === item.id)
           .sort((a, b) => b.submittedAt - a.submittedAt),
       );
-      setPermission(loadedPermission);
+      setPlanChecks(await planGates(item.id));
       setLoadError(null);
     } catch (e) {
       setLoadError(String(e));
@@ -295,7 +253,7 @@ export default function WorkItemBuildPlan({
     setActionError(null);
     void logEvent("plan", `pressed on work item ${item.id}`, item.title);
     if (nothingToPlan) {
-      const why = missing.join(" · ");
+      const why = missing.map((g) => g.detail).join(" · ");
       setActionError(why);
       reportFailure("Plan", why);
       void logEvent("plan", "refused before starting", why);
@@ -334,7 +292,7 @@ export default function WorkItemBuildPlan({
     // meant every time it has been reported. Now the press always lands and
     // the refusal is the answer.
     if (nothingToPlan) {
-      const why = missing.join(" · ");
+      const why = missing.map((g) => g.detail).join(" · ");
       setActionError(why);
       reportFailure("Execute", why);
       void logEvent("execute", "refused before starting", why);
@@ -449,7 +407,7 @@ export default function WorkItemBuildPlan({
   }
 
   const openQuestions = questions.filter((q) => !q.resolved);
-  const missing = whatIsMissing(item, plans, permission);
+  const missing = planChecks.filter((g) => !g.ok);
   /// **What Execute needs that planning does not: an agent that runs here.**
   /// Kept out of `whatIsMissing` because Plan does not need it — planning is an
   /// API call from this app, while Execute hands a command to a shell. Only
@@ -712,11 +670,7 @@ export default function WorkItemBuildPlan({
         {nothingToPlan ? (
           <div className="hint plan-missing" id="plan-blocked">
             <p>Not ready to plan yet:</p>
-            <ul>
-              {missing.map((reason) => (
-                <li key={reason}>{reason}</li>
-              ))}
-            </ul>
+            <GateList label="Before planning" gates={planChecks} />
           </div>
         ) : (
           <span className="hint">

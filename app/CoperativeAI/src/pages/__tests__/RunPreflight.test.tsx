@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import RunPreflight from "../../components/planning/RunPreflight";
-import type { RunGate } from "../../lib/backend";
+import type { Gate } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../lib/backend")>();
@@ -11,7 +11,7 @@ import * as backend from "../../lib/backend";
 
 const mocked = vi.mocked(backend);
 
-const gate = (over: Partial<RunGate> = {}): RunGate => ({
+const gate = (over: Partial<Gate> = {}): Gate => ({
   id: "approved",
   label: "The plan has been approved",
   ok: true,

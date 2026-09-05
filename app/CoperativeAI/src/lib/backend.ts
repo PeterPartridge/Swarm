@@ -2757,7 +2757,7 @@ export const listRunWorktrees = (solutionId: number): Promise<string[]> =>
   invoke("list_run_worktrees", { solutionId });
 
 /** One thing that has to be true before a run can start. */
-export interface RunGate {
+export interface Gate {
   /** Stable name for the check — what a list keys on and a test names. */
   id: string;
   /** What is being checked, in the affirmative, so a list of these reads as the
@@ -2773,8 +2773,17 @@ export interface RunGate {
  *
  *  The same list `prepare_run` walks, so this is exactly what starting a run
  *  would refuse for — read before pressing rather than one at a time after. */
-export const runGates = (workItemId: number, solutionId: number): Promise<RunGate[]> =>
+export const runGates = (workItemId: number, solutionId: number): Promise<Gate[]> =>
   invoke("run_gates", { workItemId, solutionId });
+
+/** Everything that has to be true before the AI is asked to plan this work.
+ *
+ *  The same list `generate_change_plan` walks. These rules used to live in the
+ *  build plan component as a pure function, which made them a second opinion —
+ *  and one that had drifted, refusing to plan an item nobody had described
+ *  while the backend would have planned it happily. */
+export const planGates = (workItemId: number): Promise<Gate[]> =>
+  invoke("plan_gates", { workItemId });
 
 /** An agent's own account of a round: what it built, how it proved it, what it
  *  would say back, and the debt it left behind. Every section is optional —

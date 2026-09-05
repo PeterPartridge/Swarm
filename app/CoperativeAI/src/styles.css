@@ -10,6 +10,22 @@
  * borders come from here, so the whole app moves together rather than one card
  * at a time.
  */
+/* **The `hidden` attribute, made to mean what it says.**
+
+   `hidden` is a user-agent style — `[hidden] { display: none }` at the very
+   bottom of the cascade — so any author rule setting `display` on the same
+   element beats it. The Build view switches between the code editor and the
+   agent's work item with that attribute, keeping both mounted so a half-typed
+   edit and a running dev server survive the switch; `.build-code` sets
+   `display: flex`, and from that moment the attribute did nothing. The code
+   pane sat permanently on top of the work item whichever tab was chosen.
+
+   `!important` rather than a more specific selector, because the point is that
+   nothing can beat it: any rule that could would be the same bug again. */
+[hidden] {
+  display: none !important;
+}
+
 :root {
   --tab-product: #7c3aed;
   --tab-develop: #2563eb;
@@ -9191,8 +9207,15 @@ button.ready-action.link:hover {
   line-height: 1.35;
 }
 
-/* The pre-flight checks. A list somebody reads before pressing, so it is quiet
-   when everything is met and loud only where something is not. */
+/* A list of conditions — before planning, before executing, or the readiness of
+   an item — read before pressing, so it is quiet when everything is met and loud
+   only where something is not. One shape, one set of rules. */
+.gate-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
 .run-preflight {
   display: flex;
   flex-direction: column;
@@ -9200,13 +9223,13 @@ button.ready-action.link:hover {
   margin: 0.6rem 0;
 }
 
-.preflight-count {
+.gate-count {
   color: var(--warn);
   text-transform: none;
   letter-spacing: normal;
 }
 
-.preflight-list {
+.gate-list {
   list-style: none;
   margin: 0.2rem 0 0;
   padding: 0;
@@ -9215,7 +9238,7 @@ button.ready-action.link:hover {
   gap: 0.3rem;
 }
 
-.preflight-list li {
+.gate-list li {
   display: grid;
   grid-template-columns: 1.1rem 1fr;
   gap: 0.1rem 0.4rem;
@@ -9223,19 +9246,19 @@ button.ready-action.link:hover {
   line-height: 1.35;
 }
 
-.preflight-list li.met .preflight-mark {
+.gate-list li.met .gate-mark {
   color: var(--ok);
 }
 
-.preflight-list li.unmet .preflight-mark {
+.gate-list li.unmet .gate-mark {
   color: var(--warn);
 }
 
-.preflight-list li.met .preflight-label {
+.gate-list li.met .gate-label {
   color: var(--fg-muted);
 }
 
-.preflight-detail {
+.gate-detail {
   grid-column: 2;
   color: var(--fg-muted);
   font-size: 0.88em;

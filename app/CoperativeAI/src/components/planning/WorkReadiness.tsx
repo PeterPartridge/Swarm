@@ -10,20 +10,13 @@ import {
   listWorkItemPlans,
   TYPE_LABELS,
   type AiFeedback,
+  type Gate,
   type AiProvider,
   type Run,
   type WorkItem,
   type WorkItemPlan,
   type WorkItemPolicy,
 } from "../../lib/backend";
-
-/** One thing a work item needs before an agent can be trusted with it. */
-export interface Ready {
-  label: string;
-  met: boolean;
-  /** What to write, or where, when it is not met. */
-  missing: string;
-}
 
 /** What a work item still needs, judged only on facts the Product can be asked
  *  for in one read each.
@@ -42,18 +35,20 @@ export function readinessOf(
   item: WorkItem,
   runs: Run[],
   openQuestions: number,
-): Ready[] {
+): Gate[] {
   const mine = runs.filter((r) => r.workItemId === item.id);
   return [
     {
+      id: "described",
       label: "what is asked for",
-      met: (item.description ?? "").trim() !== "",
-      missing: "The description is empty — an agent has nothing to build against.",
+      ok: (item.description ?? "").trim() !== "",
+      detail: "The description is empty — an agent has nothing to build against.",
     },
     {
+      id: "solution",
       label: "a Solution",
-      met: mine.length > 0,
-      missing: "No Solution is attached, so the work has no repository to land in.",
+      ok: mine.length > 0,
+      detail: "No Solution is attached, so the work has no repository to land in.",
     },
     // **No "how to build it" check.** It measured a work-item-wide notes box
     // removed on 2026-08-21, so keeping it would mark every item permanently
@@ -62,14 +57,16 @@ export function readinessOf(
     // only for the one being looked at, so it is checked in the briefing panel
     // rather than counted in this list.
     {
+      id: "blocking",
       label: "nothing blocking",
-      met: openQuestions === 0,
-      missing: `${openQuestions} question${openQuestions === 1 ? "" : "s"} unanswered.`,
+      ok: openQuestions === 0,
+      detail: `${openQuestions} question${openQuestions === 1 ? "" : "s"} unanswered.`,
     },
     {
+      id: "approved",
       label: "plan approved",
-      met: mine.length > 0 && mine.every((r) => r.planApproved),
-      missing: "A run refuses to start until somebody has read the plan and approved it.",
+      ok: mine.length > 0 && mine.every((r) => r.planApproved),
+      detail: "A run refuses to start until somebody has read the plan and approved it.",
     },
   ];
 }
@@ -165,7 +162,7 @@ export default function WorkReadiness({
         return {
           item,
           checks,
-          met: checks.filter((c) => c.met).length,
+          met: checks.filter((c) => c.ok).length,
           // A run past "notStarted" means an agent already has a checkout, which
           // is a different answer from "ready to hand over".
           working: mine.find((r) => r.state !== "notStarted") ?? null,
@@ -294,7 +291,7 @@ export default function WorkReadiness({
                     </span>
                     <span className="ready-dots">
                       {checks.map((c) => (
-                        <span key={c.label} className={c.met ? "dot met" : "dot"}>
+                        <span key={c.id} className={c.ok ? "dot met" : "dot"}>
                           <span className="dot-mark" aria-hidden="true" />
                           {c.label}
                         </span>
@@ -526,10 +523,10 @@ export default function WorkReadiness({
               ) : (
                 <ul className="briefing-lines missing">
                   {chosen.checks
-                    .filter((c) => !c.met)
+                    .filter((c) => !c.ok)
                     .map((c) => (
-                      <li key={c.label}>
-                        <span>{c.missing}</span>
+                      <li key={c.id}>
+                        <span>{c.detail}</span>
                       </li>
                     ))}
                 </ul>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { runGates, type RunGate } from "../../lib/backend";
+import { runGates, type Gate } from "../../lib/backend";
 import { useWorkChanged } from "../../lib/workSignal";
+import GateList from "./GateList";
 
 /** One Solution's name, for the heading over its checks. */
 export interface PreflightSolution {
@@ -40,7 +41,7 @@ export default function RunPreflight({
    *  components probing the same binary would run it twice for one screen. */
   agentProblem?: string | null;
 }) {
-  const [gates, setGates] = useState<Record<number, RunGate[]>>({});
+  const [gates, setGates] = useState<Record<number, Gate[]>>({});
   const [error, setError] = useState<string | null>(null);
 
   // Keyed by id and joined, so the effect re-runs when the Solutions change
@@ -81,37 +82,17 @@ export default function RunPreflight({
     <div className="run-preflight">
       {error && <p role="alert">{error}</p>}
 
-      {solutions.map((solution) => {
-        const checks = gates[solution.id] ?? [];
-        if (checks.length === 0) return null;
-        const unmet = checks.filter((c) => !c.ok).length;
-        return (
-          <div key={solution.id} className="preflight-group">
-            <span className="palette-label">
-              {solution.name}
-              {unmet > 0 && (
-                <span className="preflight-count"> · {unmet} outstanding</span>
-              )}
-            </span>
-            <ul
-              className="preflight-list"
-              aria-label={`Before Execute: ${solution.name}`}
-            >
-              {checks.map((check) => (
-                <li key={check.id} className={check.ok ? "met" : "unmet"}>
-                  <span className="preflight-mark" aria-hidden="true">
-                    {check.ok ? "✓" : "✗"}
-                  </span>
-                  <span className="preflight-label">{check.label}</span>
-                  {/* Only when it is unmet: a detail beside a green row reads as
-                      a warning about something that is fine. */}
-                  {!check.ok && <span className="preflight-detail">{check.detail}</span>}
-                </li>
-              ))}
-            </ul>
-          </div>
-        );
-      })}
+      {/* One list per Solution, because a run is per Solution: one plan may be
+          approved while another's is not, and a merged verdict would hide which
+          is holding things up. */}
+      {solutions.map((solution) => (
+        <GateList
+          key={solution.id}
+          heading={solution.name}
+          label={`Before Execute: ${solution.name}`}
+          gates={gates[solution.id] ?? []}
+        />
+      ))}
 
       {/* **Beside the gates, not among them.** Preparing a run makes a checkout
           and writes a brief, both of which are useful with no agent installed;

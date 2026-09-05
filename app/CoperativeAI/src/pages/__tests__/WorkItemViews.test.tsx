@@ -84,7 +84,7 @@ describe("readinessOf", () => {
     expect(checks).toHaveLength(4);
     // Only "nothing blocking" passes: an item nobody has asked a question about
     // is not blocked, which is true and slightly counter-intuitive.
-    expect(checks.filter((c) => c.met).map((c) => c.label)).toEqual(["nothing blocking"]);
+    expect(checks.filter((c) => c.ok).map((c) => c.label)).toEqual(["nothing blocking"]);
   });
 
   it("needs a description, a Solution and an approved plan", () => {
@@ -92,7 +92,7 @@ describe("readinessOf", () => {
       id: 1,
       description: "Take a card payment.",
     });
-    expect(readinessOf(full, [run()], 0).every((c) => c.met)).toBe(true);
+    expect(readinessOf(full, [run()], 0).every((c) => c.ok)).toBe(true);
   });
 
   /// Approval is per (work item, Solution): one unapproved plan means the item
@@ -100,20 +100,20 @@ describe("readinessOf", () => {
   it("fails approval when any one of an item's runs is unapproved", () => {
     const full = item({ id: 1, description: "x" });
     const checks = readinessOf(full, [run(), run({ id: 4, solutionId: 6, planApproved: false })], 0);
-    expect(checks.find((c) => c.label === "plan approved")?.met).toBe(false);
+    expect(checks.find((c) => c.id === "approved")?.ok).toBe(false);
   });
 
   /// Runs belonging to other work items must not lend this one a Solution.
   it("ignores runs that belong to another work item", () => {
     const checks = readinessOf(bare, [run({ workItemId: 99 })], 0);
-    expect(checks.find((c) => c.label === "a Solution")?.met).toBe(false);
+    expect(checks.find((c) => c.id === "solution")?.ok).toBe(false);
   });
 
   it("counts an unanswered question as blocking, and says how many", () => {
     const checks = readinessOf(bare, [], 2);
-    const blocking = checks.find((c) => c.label === "nothing blocking");
-    expect(blocking?.met).toBe(false);
-    expect(blocking?.missing).toContain("2 questions");
+    const blocking = checks.find((c) => c.id === "blocking");
+    expect(blocking?.ok).toBe(false);
+    expect(blocking?.detail).toContain("2 questions");
   });
 });
 

@@ -119,186 +119,6 @@ pub struct StartedRun {
     pub run_start: String,
 }
 
-/// One thing that has to be true before a run can start.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RunGate {
-    /// Stable name for the check, for the UI to key and test against.
-    pub id: String,
-    /// What is being checked, in the affirmative: a list of these reads as the
-    /// conditions for starting rather than as a list of complaints.
-    pub label: String,
-    pub ok: bool,
-    /// When it is not met: what is wrong and where to go. Empty when it is met,
-    /// because a met check has nothing to say.
-    pub detail: String,
-}
-
-/// Everything that has to be true before an agent is handed this work.
-///
-/// **One list, read by the panel and enforced by the press.** There were three
-/// gates — an approved plan, permission to edit, a folder with a repository in
-/// it — and each said its piece only when Execute was pressed and refused. You
-/// could not find out what was missing without failing. Worse, a second copy of
-/// these conditions written for a panel would drift from the ones that actually
-/// refuse, and then the panel would be confidently wrong.
-///
-/// So `prepare_run` walks this list and refuses with the first unmet check's own
-/// words, and the panel shows the same list. They cannot disagree.
-///
-/// **What is not here:** whether the coding agent is installed. That is a real
-/// requirement and the Execute button checks it, but it is not a reason this
-/// path refuses — preparing a run makes a checkout and writes a brief, both of
-/// which are useful with no agent anywhere. It belongs to the command that runs
-/// afterwards, and is shown beside these rather than counted among them.
-#[tauri::command]
-pub async fn run_gates(
-    db: State<'_, AppDb>,
-    work_item_id: i64,
-    solution_id: i64,
-) -> Result<Vec<RunGate>, String> {
-    let conn = db.0.lock().await;
-    gates(&conn, work_item_id, solution_id).await
-}
-
-pub(crate) async fn gates(
-    conn: &turso::Connection,
-    work_item_id: i64,
-    solution_id: i64,
-) -> Result<Vec<RunGate>, String> {
-    let met = |id: &str, label: &str| RunGate {
-        id: id.into(),
-        label: label.into(),
-        ok: true,
-        detail: String::new(),
-    };
-    let unmet = |id: &str, label: &str, detail: String| RunGate {
-        id: id.into(),
-        label: label.into(),
-        ok: false,
-        detail,
-    };
-
-    let mut out = Vec::new();
-    let plan = work_item_plan::list_for_item(conn, work_item_id)
-        .await
-        .map_err(to_message)?
-        .into_iter()
-        .find(|p| p.solution_id == solution_id);
-
-    let Some(plan) = plan else {
-        out.push(unmet(
-            "plan",
-            "This Solution is on the build plan",
-            "that Solution is not marked as affected by this work item — tick it on the build \
-             plan first"
-                .into(),
-        ));
-        return Ok(out);
-    };
-    out.push(met("plan", "This Solution is on the build plan"));
-
-    out.push(if plan.branch_name.trim().is_empty() {
-        unmet(
-            "branch",
-            "The run has a branch of its own",
-            "this run has no branch name. Set one on the build plan — a run needs its own \
-             branch, because that is what keeps it apart from the others."
-                .into(),
-        )
-    } else {
-        met("branch", "The run has a branch of its own")
-    });
-
-    // Editing or regenerating the plan sets `approved_at` back to 0, so this is
-    // consent to *this* version, not to some earlier one.
-    out.push(if plan.approved_at == 0 {
-        unmet(
-            "approved",
-            "The plan has been approved",
-            "this plan has not been approved yet. Read it and press Approve on the plan \
-             first — a run makes a checkout and hands an agent a brief, so it waits on \
-             somebody having agreed to what it says."
-                .into(),
-        )
-    } else {
-        met("approved", "The plan has been approved")
-    });
-
-    // **May the AI touch this code at all?** `Edit` rather than `Read`, because
-    // that is what a run is for; the walk already refuses `Edit` where reading
-    // is not allowed, so this is the whole question in one call.
-    let verdict = crate::db::ai_permission::verdict(
-        conn,
-        work_item_id,
-        crate::db::work_item_policy::AiUse::Edit,
-    )
-    .await
-    .map_err(to_message)?;
-    out.push(if verdict.allowed {
-        met("permission", "The AI is allowed to change this code")
-    } else {
-        unmet(
-            "permission",
-            "The AI is allowed to change this code",
-            crate::db::ai_permission::refusal(&verdict, crate::db::work_item_policy::AiUse::Edit),
-        )
-    });
-
-    let Some(row) = solution::find_by_id(conn, solution_id).await.map_err(to_message)? else {
-        out.push(unmet(
-            "folder",
-            "The Solution has a folder on this machine",
-            "that Solution no longer exists".into(),
-        ));
-        return Ok(out);
-    };
-    let Some(root) = row.local_path.clone().filter(|p| !p.trim().is_empty()) else {
-        out.push(unmet(
-            "folder",
-            "The Solution has a folder on this machine",
-            format!(
-                "'{}' has no folder on this machine, so there is nothing to make a worktree from",
-                row.name
-            ),
-        ));
-        return Ok(out);
-    };
-    out.push(met("folder", "The Solution has a folder on this machine"));
-
-    // **The way out named, not just the fault.** `add_worktree` refuses a folder
-    // that is not a repository, and one with no commit for a different reason
-    // ("invalid reference: HEAD") — two messages that say what is wrong and
-    // nothing about what to do.
-    out.push(match vcs::repo_state(&root) {
-        Ok(state) if !state.is_repo => unmet(
-            "repository",
-            "The folder is a git repository with a commit",
-            format!(
-                "'{}' is not a git repository, so there is no branch to cut a checkout from. \
-                 Open the Git tab on this work item and press \"Make it a git repository\".",
-                row.name
-            ),
-        ),
-        Ok(state) if !state.has_commit => unmet(
-            "repository",
-            "The folder is a git repository with a commit",
-            format!(
-                "'{}' is a git repository with nothing committed, and a checkout has to branch \
-                 from a commit. Open the Git tab on this work item and press \"Make the first \
-                 commit\".",
-                row.name
-            ),
-        ),
-        // A folder that has gone missing, or a git that will not run: the
-        // worktree call says so in git's own words, which is more than this
-        // check could add.
-        _ => met("repository", "The folder is a git repository with a commit"),
-    });
-
-    Ok(out)
-}
-
 /// Prepares one (work item, Solution) to run: its own checkout, its own branch,
 /// its own brief.
 ///
@@ -333,10 +153,8 @@ pub(crate) async fn prepare_run(
     // panel shows this same list, so what it says is missing is exactly what
     // this refuses for — a second copy of these conditions written for a screen
     // would drift from the ones that actually refuse.
-    if let Some(unmet) = gates(conn, work_item_id, solution_id)
-        .await?
-        .into_iter()
-        .find(|g| !g.ok)
+    if let Some(unmet) =
+        super::gates::first_unmet(super::gates::for_run(conn, work_item_id, solution_id).await?)
     {
         return Err(unmet.detail);
     }
@@ -1509,7 +1327,7 @@ mod tests {
             product_with_run(&conn, product_id, root, "Add checkout", "feature/9-checkout").await;
 
         // Everything in place: every gate met, and it starts.
-        let all = gates(&conn, item_id, solution_id).await.expect("gates");
+        let all = crate::commands::gates::for_run(&conn, item_id, solution_id).await.expect("gates");
         assert!(all.iter().all(|g| g.ok), "expected every gate met, got {all:?}");
         assert_eq!(
             all.iter().map(|g| g.id.as_str()).collect::<Vec<_>>(),
@@ -1524,7 +1342,7 @@ mod tests {
         .await
         .expect("read-only");
 
-        let shown = gates(&conn, item_id, solution_id).await.expect("gates");
+        let shown = crate::commands::gates::for_run(&conn, item_id, solution_id).await.expect("gates");
         let first_unmet = shown.iter().find(|g| !g.ok).expect("something must be unmet");
         assert_eq!(first_unmet.id, "approved");
         // Both are reported, so the panel lists everything outstanding rather
