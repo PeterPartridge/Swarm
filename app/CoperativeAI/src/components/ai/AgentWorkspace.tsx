@@ -788,6 +788,16 @@ export default function AgentWorkspace({
               onRunChanged={refresh}
               onTests={setTests}
               onOpenWork={onOpenWork}
+              // A failed test names its file; opening it is the next thing
+              // anybody does. The path is absolute or repo-relative depending
+              // on the runner, so only the tail is matched against the tree.
+              onOpenTestFile={(path) => {
+                const solutionId = active?.run?.solutionId ?? browsing;
+                if (solutionId === null) return;
+                setFileFrom(solutionId);
+                setSelectedFile(path.replace(/^.*?[\/](?=src[\/]|tests?[\/])/, ""));
+                setPane("code");
+              }}
             />
             </div>
           )}

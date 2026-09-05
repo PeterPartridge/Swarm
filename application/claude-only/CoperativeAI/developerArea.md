@@ -4836,3 +4836,96 @@ item. cargo 760/760 (23 ignored), Vitest 742/742, `tsc --noEmit`, clippy
   locale-assertion guard; no "run the regression suite" action; the lifecycle
   checklist reports but does not enforce; no logging outside Develop; no Admin
   UI for the routing defaults.
+
+## Round 94 — a conversation, a file list, and a red test you can open
+
+### My Feedback
+
+> can What Product asked for look more like a chat from dev and product with
+> chat bubbles. Also in AI planning can we clean up the Files expected change to
+> look cleaner and more user freindly
+>
+> Also in the tests section can we list all test and green if pass or red if
+> failed and when I click on a failed test I can see the failure and click a
+> button to go to the test code
+
+### The bubbles were there. The colours were not.
+
+`.chat-asked` and `.chat-answered` had backgrounds, borders and rounded corners
+already — in `var(--surface-2)` and `var(--border)`, **neither of which this
+stylesheet defines**. A declaration with an undefined variable is not an error,
+not a warning, and not a background: it is dropped, and the element renders as
+if the line had never been written. The conversation had been styled as bubbles
+for months and drawn as plain paragraphs the whole time.
+
+An audit found fourteen such declarations across two names — somebody wrote the
+tokens another design system uses, and nothing said no. They point at the
+palette now (`--line`, `--raised`), and a test reads the stylesheet and fails on
+any token used without a fallback and never defined. It caught these two the
+moment it was written.
+
+With colours that exist, the chat needed the rest of what makes it a chat: sides
+and speakers. Develop asks on the right, Product answers on the left, each turn
+saying whose words they are, and the answer box sitting where Product's answer
+will appear.
+
+### Files expected to change
+
+A path in code type with its reason run on after it, all one size and one
+colour. Now: the icon, the folder quietly, the name brightly, the reason under
+it, each file on its own surface — and the count beside the heading.
+
+### The tests section
+
+`TestOutcome` carried a name and a state. It now carries **why it failed** and
+**which file it is in**, both empty where the runner does not say — jest and
+vitest report both in their JSON, Playwright reports both, cargo reports
+neither, and pretending otherwise would be the app putting words in a runner's
+mouth.
+
+Every test is listed green, red or grey. A red one opens onto the runner's own
+words; a green one is inert rather than looking clickable and doing nothing. A
+failure that names a file offers to open it, which lands in the editor beside
+the list.
+
+### A crash that had been hiding
+
+Fixing the file list turned up an unhandled error in the build plan: the Execute
+loop built its agent record *inside* `setAgents`, and React runs a state updater
+during render — so a throw in one escapes the try/catch around the loop and
+takes the whole panel down. It had been reported as a warning under a passing
+test ("this might cause false positive tests") for some time. The values are
+read where a failure is still catchable now.
+
+### Tests
+
+Three Rust cases for the new fields, one for the pane's open-and-jump, one that
+reads the stylesheet for undefined tokens. cargo 763/763 (23 ignored), Vitest
+744/744, `tsc --noEmit`, clippy `-D warnings` and `npm run build` clean.
+
+### Your Feedback
+
+- **A stylesheet has no type checker, and it showed.** Fourteen dead
+  declarations, silently. The new test is the guard, and it is worth knowing it
+  can only catch *undefined* tokens — a colour that exists but is wrong still
+  looks fine to it.
+- The "open the test" button trims the path back to `src/` or `tests/` to match
+  the tree. A repository that nests its tests somewhere else will open nothing;
+  the honest fix is for the runner to give a repo-relative path, which most do.
+- cargo and dotnet failures still show no reason per test. The whole output is
+  under the suite, which is where it has always been.
+
+### Technical Debt
+
+- Per-test failure reasons for cargo, pytest, dotnet and go.
+- The test-file path is matched by convention, not resolved.
+- Carried: nothing runs tests when an agent finishes; `commit_solution` writes
+  to the Solution's folder; no per-file diff; nothing advertises the right-click
+  menu; no answer to "should a new attempt start from a clean checkout?";
+  saving a file writes to the Solution's folder; probe freshness is a number in
+  the code; splitting prose is guesswork; the review is not refreshed on the
+  work signal; nothing distinguishes a scoring list from an enforcing one; a
+  policy tightened mid-run does not stop a running agent; no
+  template-already-inserted warning; no locale-assertion guard; no "run the
+  regression suite" action; the lifecycle checklist reports but does not
+  enforce; no logging outside Develop; no Admin UI for the routing defaults.

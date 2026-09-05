@@ -169,6 +169,17 @@ describe("WorkItemBuildPlan", () => {
     mocked.listRuns.mockResolvedValue([]);
     mocked.runGates.mockResolvedValue([]);
     mocked.planGates.mockResolvedValue([]);
+    // A mock with no default is a mock waiting for a caller: Execute reaches
+    // this in any test where the plan is ready, and an undefined run took the
+    // panel down rather than failing the press.
+    mocked.startRun.mockResolvedValue({
+      runId: 1,
+      worktreePath: "C:/wt/checkout",
+      branch: "feature/9-checkout",
+      briefPath: ".coperativeai/briefs/add-checkout.md",
+      command: "claude \"Read it\"",
+      runStart: "npm run dev",
+    } as never);
     // The default is "ready": most tests here are about something else, and a
     // panel refusing for a missing Solution would get in the way of all of them.
     mocked.listTerminals.mockResolvedValue([]);
@@ -483,7 +494,10 @@ describe("WorkItemBuildPlan", () => {
       name: "AI plan for Shop API",
     });
     expect(within(schemas).getByText("POST /checkout -> 201")).toBeInTheDocument();
-    expect(within(schemas).getByText("src/api/checkout.rs")).toBeInTheDocument();
+    // The path is laid out now — the folder quiet, the name not — so it is two
+    // elements rather than one string.
+    expect(within(schemas).getByText("src/api/")).toBeInTheDocument();
+    expect(within(schemas).getByText("checkout.rs")).toBeInTheDocument();
     // an empty half is left out rather than shown as a blank block
     expect(within(schemas).queryByText("Page schema")).not.toBeInTheDocument();
   });

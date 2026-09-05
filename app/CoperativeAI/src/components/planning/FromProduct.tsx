@@ -102,11 +102,25 @@ export default function FromProduct({
         )}
         {questions.map((q) => (
           <div key={q.id} className="chat-exchange">
-            <p className="chat-asked">{q.message}</p>
+            {/* **Who said it, on the side they said it from.** These were two
+                paragraphs styled as bubbles by rules that did nothing — the
+                colours they named were never defined — so a conversation read
+                as a list of sentences with no sides and no speakers. Develop
+                asks on the right, Product answers on the left, and each says
+                whose words they are. */}
+            <div className="chat-turn from-develop">
+              <span className="chat-who">Develop asked</span>
+              <p className="chat-bubble chat-asked">{q.message}</p>
+            </div>
             {q.resolved ? (
-              <p className="chat-answered">{q.resolvedNote}</p>
+              <div className="chat-turn from-product">
+                <span className="chat-who">Product answered</span>
+                <p className="chat-bubble chat-answered">{q.resolvedNote}</p>
+              </div>
             ) : (
-              <div className="chat-reply">
+              <div className="chat-turn from-product">
+                <span className="chat-who">Waiting on Product</span>
+                <div className="chat-reply">
                 <input
                   aria-label={`Answer: ${q.message}`}
                   placeholder="Product's answer"
@@ -125,6 +139,7 @@ export default function FromProduct({
                 >
                   Answer
                 </button>
+                </div>
               </div>
             )}
           </div>
@@ -132,6 +147,7 @@ export default function FromProduct({
       </div>
 
       <div className="ask-product">
+        <span className="chat-who">Ask Product</span>
         <input
           aria-label={`Ask Product about ${item.title}`}
           placeholder="What should happen when payment fails?"

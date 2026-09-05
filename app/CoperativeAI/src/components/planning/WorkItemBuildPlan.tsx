@@ -370,17 +370,23 @@ export default function WorkItemBuildPlan({
         try {
           await setPlanApproval(item.id, p.solutionId, true);
           const run = await startRun(item.id, p.solutionId);
+          // **Read out here, not inside the updater.** React runs a state
+          // updater during render, so anything that throws in one escapes the
+          // try/catch around this loop and takes the whole panel down with it —
+          // a blank screen where a refusal should have been. The values are
+          // read where a failure is still catchable.
+          const agent = {
+            runId: run.runId,
+            solutionId: p.solutionId,
+            worktreePath: run.worktreePath,
+            command: run.command,
+            title: `${item.title} → ${p.solutionName}`,
+          };
           // Kept, and opened below: this is the half that turns a prepared
           // checkout into an agent actually working in it.
           setAgents((held) => [
-            ...held.filter((a) => a.runId !== run.runId),
-            {
-              runId: run.runId,
-              solutionId: p.solutionId,
-              worktreePath: run.worktreePath,
-              command: run.command,
-              title: `${item.title} → ${p.solutionName}`,
-            },
+            ...held.filter((a) => a.runId !== agent.runId),
+            agent,
           ]);
           void logEvent(
             "execute",

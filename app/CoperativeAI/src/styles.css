@@ -2041,13 +2041,38 @@ code {
 .plan-files > li {
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
-  border-left: 2px solid var(--line);
-  padding-left: 0.5rem;
+  gap: 0.2rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+  background: var(--sunken);
 }
 
-.plan-files code {
+/* The path: icon, then the folder quietly, then the name. A file list where
+   every part is the same weight reads as a paragraph. */
+.plan-file-path {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.plan-file-folder {
+  color: var(--fg-dim);
+}
+
+.plan-file-name {
+  color: var(--fg-bright);
+}
+
+.plan-file-count {
+  margin-left: 0.4rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--fg-muted);
+  font-size: 0.7rem;
 }
 
 /* The reason the file is in the plan — prose, so it wraps like prose. */
@@ -3662,7 +3687,7 @@ code {
   margin: 0.4rem 0;
   padding: 0.35rem 0.55rem;
   border-left: 3px solid var(--accent);
-  background: var(--surface-2);
+  background: var(--raised);
   border-radius: 0 0.375rem 0.375rem 0;
   font-size: 0.8rem;
 }
@@ -3696,7 +3721,7 @@ code {
 .from-product .product-said {
   margin: 0.2rem 0 0;
   padding-left: 0.6rem;
-  border-left: 2px solid var(--border);
+  border-left: 2px solid var(--line);
   white-space: pre-wrap;
 }
 
@@ -3718,35 +3743,62 @@ code {
 .chat-exchange {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0.45rem;
 }
 
-.chat-asked,
-.chat-answered {
-  margin: 0;
-  padding: 0.35rem 0.55rem;
-  border-radius: 0.5rem;
-  font-size: 0.82rem;
+/* One side each. Develop asks, Product answers, and the turn says which — a
+   conversation with no sides and no speakers is a list of sentences. */
+.chat-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
   max-width: 42rem;
 }
 
-.chat-asked {
-  align-self: flex-start;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-}
-
-.chat-answered {
+.chat-turn.from-develop {
   align-self: flex-end;
-  background: var(--accent-tint, var(--surface-2));
-  border: 1px solid var(--accent);
+  align-items: flex-end;
 }
 
+.chat-turn.from-product {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+.chat-who {
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+}
+
+.chat-bubble {
+  margin: 0;
+  padding: 0.45rem 0.7rem;
+  border-radius: 0.9rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+}
+
+/* Develop's own words, in the accent the app uses for "this is you". */
+.chat-asked {
+  background: color-mix(in srgb, var(--accent) 18%, var(--raised));
+  border-bottom-right-radius: 0.2rem;
+}
+
+/* Product's, on the raised surface — the other voice in the room. */
+.chat-answered {
+  background: var(--raised);
+  border-bottom-left-radius: 0.2rem;
+}
+
+/* The answer box sits where Product's answer will: same side, same width, so
+   the reply lands where the eye is already looking. */
 .chat-reply {
   display: flex;
   gap: 0.35rem;
-  align-self: flex-end;
-  max-width: 42rem;
   width: 100%;
 }
 
@@ -3762,7 +3814,7 @@ code {
   margin-top: 0.4rem;
   padding: 0.35rem 0.5rem;
   border-left: 3px solid var(--fg-muted);
-  background: var(--surface-2);
+  background: var(--raised);
   border-radius: 0 0.375rem 0.375rem 0;
   font-size: 0.78rem;
 }
@@ -8591,7 +8643,7 @@ button.ready-action.link:hover {
   gap: 0.4rem;
   padding: 0.5rem;
   margin-bottom: 0.5rem;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: 0.35rem;
   background: var(--raised);
 }
@@ -8615,7 +8667,7 @@ button.ready-action.link:hover {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: 0.3rem;
   padding: 0.4rem 0.5rem;
   margin: 0;
@@ -8688,7 +8740,7 @@ button.ready-action.link:hover {
   font-size: 0.72rem;
   padding: 0.1rem 0.4rem;
   border-radius: 0.75rem;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   background: var(--bg);
 }
 
@@ -8774,7 +8826,7 @@ button.ready-action.link:hover {
   flex-direction: column;
   gap: 0.35rem;
   padding: 0.5rem;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: 0.35rem;
   background: var(--raised);
   box-shadow: 0 0.4rem 1rem rgb(0 0 0 / 0.25);
@@ -8811,7 +8863,7 @@ button.ready-action.link:hover {
   flex-direction: column;
   gap: 0.35rem;
   padding: 0.5rem;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: 0.35rem;
   background: var(--raised);
   box-shadow: 0 0.4rem 1rem rgb(0 0 0 / 0.25);
@@ -8892,7 +8944,7 @@ button.ready-action.link:hover {
   display: flex;
   flex-direction: column;
   margin-top: 0.5rem;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: 0.35rem;
   background: var(--raised);
   overflow: hidden;
@@ -8915,7 +8967,7 @@ button.ready-action.link:hover {
   gap: 0.4rem;
   padding: 0.25rem 0.4rem;
   font-size: 0.75rem;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line);
   cursor: grab;
   user-select: none;
   touch-action: none;
@@ -9214,7 +9266,7 @@ button.ready-action.link:hover {
 .agent-record-filed {
   margin-top: 0.7rem;
   padding-top: 0.6rem;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
@@ -9367,4 +9419,49 @@ button.ready-action.link:hover {
 .plan-schema pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* The ask box, labelled like a turn in the conversation it joins. */
+.ask-product {
+  align-items: center;
+}
+
+/* A test row: the whole line is the control when there is something to open,
+   and inert when there is not — a row that looks clickable and does nothing is
+   worse than one that plainly cannot be. */
+.test-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.15rem 0;
+  background: none;
+  border: none;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.test-row:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.test-failure {
+  margin: 0.2rem 0 0.4rem 1.2rem;
+  padding: 0.4rem 0.6rem;
+  border-left: 2px solid var(--warn);
+  background: var(--sunken);
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.test-failure pre {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.75rem;
+  line-height: 1.35;
 }

@@ -71,6 +71,7 @@ export default function AgentJobPanel({
   onRunChanged,
   onTests,
   onOpenWork,
+  onOpenTestFile,
 }: {
   /** The lane row this workbench is showing, for the header. */
   agent: Agent | null;
@@ -87,6 +88,10 @@ export default function AgentJobPanel({
   /** Opens a work item — the debt filed out of this agent's round record is
    *  real work on the board, and reachable from where it was reported. */
   onOpenWork?: (workItemId: number) => void;
+  /** Opens a test's own file, when the runner named one. Reading the failure
+   *  and reading the test are one move apart; without this they are a hunt
+   *  through the tree. */
+  onOpenTestFile?: (path: string) => void;
 }) {
   const [panel, setPanel] = useState<SubPanel>("plan");
   const [started, setStarted] = useState<Started | null>(null);
@@ -101,6 +106,9 @@ export default function AgentJobPanel({
   const [suiteRuns, setSuiteRuns] = useState<SuiteRun[] | null>(null);
   const [testing, setTesting] = useState(false);
   const [openSuite, setOpenSuite] = useState<string | null>(null);
+  /// The failed test whose reason is showing. One at a time: a list of every
+  /// failure's stack at once is the raw output again, which is already below.
+  const [openTest, setOpenTest] = useState<string | null>(null);
 
   // `started` counts as prepared on its own, and not only because it is quicker
   // than a refresh: the run row this panel was handed is a snapshot from before
@@ -375,14 +383,60 @@ export default function AgentJobPanel({
                       <div className="suite-body">
                         {r.tests.length > 0 && (
                           <ul className="test-outcomes">
-                            {r.tests.map((t) => (
-                              <li key={t.name} className={t.state}>
-                                <span aria-hidden="true">
-                                  {t.state === "passed" ? "✓" : t.state === "failed" ? "✕" : "·"}
-                                </span>
-                                <span className="card-mono">{t.name}</span>
-                              </li>
-                            ))}
+                            {r.tests.map((t) => {
+                              const id = `${key}:${t.name}`;
+                              const showing = openTest === id;
+                              return (
+                                <li key={t.name} className={t.state}>
+                                  {/* **A red row you can open.** The list said
+                                      which tests failed and not why, so the
+                                      next move was to leave the app and run the
+                                      suite again in a terminal. A failure that
+                                      came with a reason opens to show it; one
+                                      that did not says so, rather than opening
+                                      onto nothing. */}
+                                  <button
+                                    type="button"
+                                    className="test-row"
+                                    aria-expanded={t.state === "failed" ? showing : undefined}
+                                    aria-label={`${t.name} — ${t.state}`}
+                                    disabled={t.state !== "failed"}
+                                    onClick={() => setOpenTest(showing ? null : id)}
+                                  >
+                                    <span aria-hidden="true">
+                                      {t.state === "passed"
+                                        ? "✓"
+                                        : t.state === "failed"
+                                          ? "✕"
+                                          : "·"}
+                                    </span>
+                                    <span className="card-mono">{t.name}</span>
+                                  </button>
+                                  {showing && (
+                                    <div className="test-failure">
+                                      {t.message ? (
+                                        <pre>{t.message}</pre>
+                                      ) : (
+                                        <p className="hint">
+                                          This runner does not report a reason
+                                          with its results — the whole output is
+                                          under the suite below.
+                                        </p>
+                                      )}
+                                      {t.file && onOpenTestFile && (
+                                        <button
+                                          type="button"
+                                          className="link-button"
+                                          onClick={() => onOpenTestFile(t.file)}
+                                        >
+                                          Open {t.file.split("/").pop()}
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
+                                </li>
+                              );
+                            })}
                           </ul>
                         )}
                         <pre className="suite-output">{r.output}</pre>

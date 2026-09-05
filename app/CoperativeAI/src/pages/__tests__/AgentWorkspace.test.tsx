@@ -635,6 +635,72 @@ describe("AgentWorkspace (the Build view)", () => {
     );
   });
 
+/// **A red test you can open, and get to.** The list said which tests failed
+  /// and not why, so the next move was to leave the app and run the suite again
+  /// in a terminal. A failure opens onto the runner's own words, and the file it
+  /// names opens in the editor beside it.
+  it("opens a failed test's reason, and the file it lives in", async () => {
+    const user = userEvent.setup();
+    mocked.listRuns.mockResolvedValue([
+      run({ id: 42, state: "prepared", worktreePath: "C:/wt/checkout" }),
+    ]);
+    mocked.reviewSolutionChanges.mockResolvedValue(review({ runId: 42 }));
+    mocked.listTestSuites.mockResolvedValue({
+      solutionId: 5,
+      name: "Shop API",
+      suites: [
+        { kind: "vitest", directory: ".", commandLine: "npx vitest run", foundBy: "package.json" },
+      ],
+      unavailable: null,
+    } as never);
+    mocked.runSolutionTests.mockResolvedValue([
+      {
+        suite: {
+          kind: "vitest",
+          directory: ".",
+          commandLine: "npx vitest run",
+          foundBy: "package.json",
+        },
+        passed: 1,
+        failed: 1,
+        skipped: 0,
+        counted: true,
+        exitOk: false,
+        durationMs: 12,
+        output: "the whole output",
+        tests: [
+          { name: "charges once", state: "passed", message: "", file: "" },
+          {
+            name: "refunds in full",
+            state: "failed",
+            message: "expected 0 to be 100",
+            file: "tests/refunds.test.ts",
+          },
+        ],
+      },
+    ] as never);
+    mocked.readSolutionFile.mockResolvedValue("test('refunds in full', () => {})");
+    render(panel());
+
+    await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
+    const tabs = await screen.findByRole("tablist", { name: "Agent sub-panels" });
+    await user.click(within(tabs).getByRole("tab", { name: /^Tests/ }));
+    await user.click(screen.getByRole("button", { name: "Run the tests" }));
+
+    // The suite, then the test inside it.
+    await user.click(await screen.findByRole("button", { name: /npx vitest run/ }));
+    // A test that passed has nothing to open.
+    expect(screen.getByRole("button", { name: "charges once — passed" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "refunds in full — failed" }));
+    expect(await screen.findByText("expected 0 to be 100")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Open refunds.test.ts/ }));
+    await waitFor(() =>
+      expect(mocked.readSolutionFile).toHaveBeenCalledWith(5, "tests/refunds.test.ts", 42),
+    );
+  });
+
   /// **The lane links, it does not launch.** Handing work to an agent means
   /// approving a plan and pressing Start, both of which are deliberate presses
   /// on the item's build plan — so this card opens the item in Work rather than

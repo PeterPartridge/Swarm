@@ -1772,6 +1772,13 @@ export interface TestSuite {
 export interface TestOutcome {
   name: string;
   state: "passed" | "failed" | "skipped";
+  /** Why it failed, in the runner's own words. Empty for a pass, and empty
+   *  where the format does not report one — saying nothing is honest, and
+   *  reading a reason out of the summary would put words in its mouth. */
+  message: string;
+  /** The file it lives in, when the runner names one, so the panel can offer to
+   *  open it. Empty otherwise, and then nothing is offered. */
+  file: string;
 }
 
 export interface SuiteRun {

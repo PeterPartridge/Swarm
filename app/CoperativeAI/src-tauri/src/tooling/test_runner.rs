@@ -44,6 +44,20 @@ pub struct TestOutcome {
     pub name: String,
     /// "passed" | "failed" | "skipped"
     pub state: String,
+    /// Why it failed, in the runner's own words. Empty for a test that passed,
+    /// and empty where the format does not say — reporting "no message" is
+    /// honest; inventing one from the summary would not be.
+    pub message: String,
+    /// The file it lives in, when the runner names one, so the panel can offer
+    /// to open it. Empty otherwise, and then nothing is offered.
+    pub file: String,
+}
+
+impl TestOutcome {
+    /// A result with nothing to add: most of them.
+    fn plain(name: impl Into<String>, state: &str) -> Self {
+        Self { name: name.into(), state: state.into(), message: String::new(), file: String::new() }
+    }
 }
 
 /// What came back from running one suite.
@@ -438,10 +452,7 @@ fn parse_cargo(text: &str) -> Option<Parsed> {
                     r if r.starts_with("ignored") => "skipped",
                     _ => continue,
                 };
-                parsed.tests.push(TestOutcome {
-                    name: name.trim().to_string(),
-                    state: state.into(),
-                });
+                parsed.tests.push(TestOutcome::plain(name.trim(), state));
             }
         }
     }
@@ -475,7 +486,28 @@ fn parse_jest_json(text: &str) -> Option<Parsed> {
                     Some("failed") => "failed",
                     _ => "skipped",
                 };
-                tests.push(TestOutcome { name: name.to_string(), state: state.into() });
+                let message = case
+                    .get("failureMessages")
+                    .and_then(|m| m.as_array())
+                    .map(|m| {
+                        m.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join("
+
+")
+                    })
+                    .unwrap_or_default();
+                tests.push(TestOutcome {
+                    name: name.to_string(),
+                    state: state.into(),
+                    message,
+                    // The file is on the run, not the case: one entry in
+                    // `testResults` is one file's worth of tests.
+                    file: file
+                        .get("name")
+                        .or_else(|| file.get("testFilePath"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .replace('\\', "/"),
+                });
             }
         }
     }
@@ -541,7 +573,25 @@ fn parse_playwright_json(text: &str) -> Option<Parsed> {
                     "failed"
                 }
             };
-            parsed.tests.push(TestOutcome { name, state: state.into() });
+            let message = spec
+                .get("tests")
+                .and_then(|t| t.as_array())
+                .and_then(|tests| tests.last())
+                .and_then(|test| test.get("results"))
+                .and_then(|r| r.as_array())
+                .and_then(|results| results.last())
+                .and_then(|result| result.get("error"))
+                .and_then(|e| e.get("message"))
+                .and_then(|m| m.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let file = spec
+                .get("file")
+                .or_else(|| suite.get("file"))
+                .and_then(|f| f.as_str())
+                .unwrap_or_default()
+                .replace('\\', "/");
+            parsed.tests.push(TestOutcome { name, state: state.into(), message, file });
         }
     }
 
@@ -575,11 +625,11 @@ fn parse_pytest(text: &str) -> Option<Parsed> {
             }
         } else if let Some((name, rest)) = line.split_once(" PASSED") {
             let _ = rest;
-            parsed.tests.push(TestOutcome { name: name.trim().into(), state: "passed".into() });
+            parsed.tests.push(TestOutcome::plain(name.trim(), "passed"));
         } else if let Some((name, _)) = line.split_once(" FAILED") {
-            parsed.tests.push(TestOutcome { name: name.trim().into(), state: "failed".into() });
+            parsed.tests.push(TestOutcome::plain(name.trim(), "failed"));
         } else if let Some((name, _)) = line.split_once(" SKIPPED") {
-            parsed.tests.push(TestOutcome { name: name.trim().into(), state: "skipped".into() });
+            parsed.tests.push(TestOutcome::plain(name.trim(), "skipped"));
         }
     }
     saw_summary.then_some(parsed)
@@ -632,7 +682,7 @@ fn parse_go_json(text: &str) -> Option<Parsed> {
             "failed" => parsed.failed += 1,
             _ => parsed.skipped += 1,
         }
-        parsed.tests.push(TestOutcome { name: name.to_string(), state: state.into() });
+        parsed.tests.push(TestOutcome::plain(name, state));
     }
     saw_any.then_some(parsed)
 }
@@ -835,9 +885,9 @@ mod tests {
             counted: true,
             exit_ok: false,
             tests: vec![
-                TestOutcome { name: "db::product::tests::name_is_required".into(), state: "passed".into() },
-                TestOutcome { name: "commands::login::tests::a_wrong_password_is_rejected".into(), state: "failed".into() },
-                TestOutcome { name: "db::x::tests::unrelated".into(), state: "passed".into() },
+                TestOutcome::plain("db::product::tests::name_is_required", "passed"),
+                TestOutcome::plain("commands::login::tests::a_wrong_password_is_rejected", "failed"),
+                TestOutcome::plain("db::x::tests::unrelated", "passed"),
             ],
             output: String::new(),
             duration_ms: 1,
@@ -872,8 +922,8 @@ mod tests {
             counted: true,
             exit_ok: false,
             tests: vec![
-                TestOutcome { name: "rejects a wrong password".into(), state: "failed".into() },
-                TestOutcome { name: "accepts the right one".into(), state: "passed".into() },
+                TestOutcome::plain("rejects a wrong password", "failed"),
+                TestOutcome::plain("accepts the right one", "passed"),
             ],
             output: String::new(),
             duration_ms: 1,
@@ -1064,5 +1114,79 @@ Passed!  - Failed:     0, Passed:    12, Skipped:     1, Total:    13, Duration:
         assert!(run.exit_ok);
         assert!(run.output.contains("hello from the suite"), "got: {}", run.output);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **A red test with nothing to say is a dead end.** The panel could list
+    /// which tests failed and not why, so the next move was to leave the app and
+    /// run the suite again in a terminal. Both runners that report a reason in
+    /// their JSON now carry it, and the file with it, so the panel can offer to
+    /// open the test.
+    #[test]
+    fn a_jest_failure_carries_its_message_and_its_file() {
+        let json = r#"{
+          "numPassedTests": 1,
+          "numFailedTests": 1,
+          "testResults": [
+            {
+              "name": "C:\\repo\\src\\pages\\__tests__\\login.test.tsx",
+              "assertionResults": [
+                { "fullName": "accepts the right one", "status": "passed" },
+                {
+                  "fullName": "rejects a wrong password",
+                  "status": "failed",
+                  "failureMessages": ["expected 401 to be 200"]
+                }
+              ]
+            }
+          ]
+        }"#;
+
+        let parsed = parse_jest_json(json).expect("jest json");
+        let failed = parsed.tests.iter().find(|t| t.state == "failed").expect("a failure");
+        assert_eq!(failed.message, "expected 401 to be 200");
+        // Slashes one way, so a path from a Windows runner opens like any other.
+        assert_eq!(failed.file, "C:/repo/src/pages/__tests__/login.test.tsx");
+
+        // A test that passed has nothing to add, and says nothing.
+        let passed = parsed.tests.iter().find(|t| t.state == "passed").expect("a pass");
+        assert_eq!(passed.message, "");
+    }
+
+    #[test]
+    fn a_playwright_failure_carries_its_message_and_its_file() {
+        let json = r#"{
+          "suites": [
+            {
+              "title": "checkout.spec.ts",
+              "file": "tests/checkout.spec.ts",
+              "specs": [
+                {
+                  "title": "pays with a card",
+                  "file": "tests/checkout.spec.ts",
+                  "tests": [
+                    { "results": [ { "status": "failed", "error": { "message": "locator not found" } } ] }
+                  ]
+                }
+              ]
+            }
+          ]
+        }"#;
+
+        let parsed = parse_playwright_json(json).expect("playwright json");
+        assert_eq!(parsed.tests.len(), 1);
+        assert_eq!(parsed.tests[0].message, "locator not found");
+        assert_eq!(parsed.tests[0].file, "tests/checkout.spec.ts");
+    }
+
+    /// The formats that do not report a reason report no reason. Reading one out
+    /// of the summary would be the app putting words in the runner's mouth.
+    #[test]
+    fn a_format_that_says_nothing_says_nothing() {
+        let parsed = parse_cargo(
+            "test db::x::works ... ok\ntest db::y::fails ... FAILED\n\
+             test result: FAILED. 1 passed; 1 failed; 0 ignored",
+        )
+        .expect("cargo");
+        assert!(parsed.tests.iter().all(|t| t.message.is_empty() && t.file.is_empty()));
     }
 }

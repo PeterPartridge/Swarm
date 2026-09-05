@@ -114,8 +114,13 @@ describe("TestExplorer", () => {
         failed: 1,
         exitOk: false,
         tests: [
-          { name: "charges once", state: "passed" },
-          { name: "refunds in full", state: "failed" },
+          { name: "charges once", state: "passed", message: "", file: "" },
+          {
+            name: "refunds in full",
+            state: "failed",
+            message: "expected 0 to be 100",
+            file: "tests/refunds.test.ts",
+          },
         ],
       }),
     ]);

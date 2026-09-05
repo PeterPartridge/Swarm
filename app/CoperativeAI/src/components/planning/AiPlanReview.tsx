@@ -8,6 +8,7 @@ import {
 import BlockedNote from "../ai/BlockedNote";
 import { formatFiles, parseFiles, type PlannedFile } from "../../lib/plan";
 import { readSchema } from "../../lib/schema";
+import FileIcon from "../code/FileIcon";
 
 /** What the AI planned, laid out to be read and argued with.
  *
@@ -216,14 +217,31 @@ export default function AiPlanReview({
                   <>
                     <span className="plan-generated-head">
                       Files expected to change
+                      <span className="plan-file-count">{files.length}</span>
                     </span>
+                    {/* **A file, then why.** These were a path in code type with
+                        its reason run on after it, all one size, one colour and
+                        one line — a list of files that read as a paragraph. The
+                        folder is quiet, the name is not, and the reason sits
+                        under it in a sentence. */}
                     <ul className="plan-files">
-                      {files.map((file, i) => (
-                        <li key={`${file.path}-${i}`}>
-                          <code>{file.path}</code>
-                          {file.note && <span className="plan-file-note">{file.note}</span>}
-                        </li>
-                      ))}
+                      {files.map((file, i) => {
+                        const cut = file.path.lastIndexOf("/");
+                        const folder = cut < 0 ? "" : file.path.slice(0, cut + 1);
+                        const name = cut < 0 ? file.path : file.path.slice(cut + 1);
+                        return (
+                          <li key={`${file.path}-${i}`}>
+                            <span className="plan-file-path">
+                              <FileIcon name={name} isDir={false} />
+                              {folder && <span className="plan-file-folder">{folder}</span>}
+                              <span className="plan-file-name">{name}</span>
+                            </span>
+                            {file.note && (
+                              <span className="plan-file-note">{file.note}</span>
+                            )}
+                          </li>
+                        );
+                      })}
                     </ul>
                   </>
                 )}
