@@ -4014,3 +4014,124 @@ cargo 728/728 (23 ignored), Vitest 708/708, `tsc --noEmit`, clippy
 - Carried: no guard against locale-dependent assertions; no "run the regression
   suite" action; the lifecycle checklist reports but does not enforce; no
   logging outside Develop; no Admin UI for the routing defaults.
+
+## Round 84 — debt on the board
+
+### My Feedback
+
+> file the debt as work items automatically
+
+### Implemented
+
+`agent::debt::split` turns the record's "Technical debt" section into items,
+and `collect_agent_record` files each as a task.
+
+**The guesses are made in one place, in the open.** Bullets win — an agent that
+wrote a list meant a list, and an indented line is detail about the bullet above
+it rather than a fifth thing to do. With no bullets, blank-line paragraphs are
+the next best evidence. A sentence is never split: two half-items that each read
+as nonsense are worse than one item holding two points. And "None." files
+nothing, because an agent that answered the question has answered it — filing
+that as a task would put the absence of work on somebody's board.
+
+**Filed once, however often the panel reads.** The panel re-reads on every open
+and on every work-changed signal, so each item carries an FNV-1a fingerprint of
+the agent's own words, stored in a new `source` column, and is looked up before
+it is created. FNV rather than the standard library's hasher, whose output is
+not promised to stay stable between Rust versions — a value that changed under
+an upgrade would re-file every piece of debt ever recorded. The fingerprint
+ignores whitespace, so a record reflowed by an editor is the same debt; it is
+scoped by run, so a second attempt's copy of the same shortcut is its own item,
+which is right — that attempt left its own.
+
+**Tasks, related rather than nested.** `task` is the deepest rung of every
+planning hierarchy, so debt found while building a task could not sit beneath
+it. `relatesTo` says what is true anyway, and debt that blocked its own source
+would be a dependency nobody could ever clear.
+
+**A loop I wrote and then had to break.** Announcing a filing notifies the
+work-changed signal so the boards catch up — and this panel subscribes to that
+signal, so it refreshed, announced, and refreshed again until the test worker
+ran out of heap. The backend files each piece once and reports zero after that,
+which breaks the cycle in practice; a ref of runs already announced breaks it
+here, where it should not depend on what a backend returns.
+
+`read_agent_record` is now `collect_agent_record`: it writes, and a name that
+said "read" would be lying about that.
+
+### Tests
+
+cargo 745/745 (23 ignored), Vitest 710/710, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean.
+
+### Your Feedback
+
+- **The other half of the record is still only shown.** "What I could not do"
+  could become the `cantImplement` rows the panel already knows how to answer,
+  which would close that loop the same way.
+- Filed debt has no due date, sprint or assignee — it lands in the backlog,
+  which is where debt should land, but nothing prompts anybody to schedule it.
+
+### Technical Debt
+
+- "What I could not do" is displayed but not filed.
+- No warning when a rule template's text is already in the field it would be
+  appended to.
+- Carried: no locale-assertion guard; no "run the regression suite" action; the
+  lifecycle checklist reports but does not enforce; no logging outside Develop;
+  no Admin UI for the routing defaults.
+
+## Round 85 — the permission nobody asked on the path that mattered
+
+### My Feedback
+
+> Also do we need to do permission checks before the AI starts any work?
+
+### What was true
+
+Yes, and there was one — on the wrong path. `ai_permission::verdict` walks
+Solution override → Product → deny-by-default, and every AI call the *app*
+makes goes through it: planning, reading, generating tests. `prepare_run` — the
+one path that makes a checkout, writes a brief and hands a coding agent write
+access to a repository — checked that the plan was approved and that the agent's
+CLI was installed, and never asked the permission question at all.
+
+So a Product set to read-only would refuse to let the AI summarise its code and
+still let an agent rewrite it. The gate that mattered least was enforced and the
+gate that mattered most was not.
+
+### Implemented
+
+- `prepare_run` asks `AiUse::Edit` first, before a checkout or a brief exists,
+  and returns the walk's own refusal. `Edit` rather than `Read` because that is
+  what a run is for, and the walk already refuses `Edit` where reading is not
+  allowed — one call is the whole question.
+- The run fixture now sets a permitting policy, because a Product without one is
+  a Product the app is right to refuse.
+
+### Tests
+
+The four existing run tests failed the moment the gate went in, all with the
+deny-by-default refusal — which is the gate working: their fixture had built a
+Product nobody had permitted. New test walks it: read-only refuses and leaves no
+checkout behind, edit-allowed starts.
+
+cargo 745/745 (23 ignored), Vitest 710/710, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean.
+
+### Your Feedback
+
+- **Three gates now, and they are not shown together anywhere.** A run needs an
+  approved plan, permission to edit, and a working agent CLI. Each says its own
+  piece on being pressed; nothing lists them before you press.
+- The permission is asked per run. Nothing re-asks it if the policy is tightened
+  while an agent is mid-flight — the checkout and the agent carry on.
+
+### Technical Debt
+
+- No single place that says why Execute would refuse before it is pressed.
+- A policy tightened mid-run does not stop a running agent.
+- Carried: "what I could not do" is displayed but not filed; no template-already-
+  inserted warning; no locale-assertion guard; no "run the regression suite"
+  action; the lifecycle checklist reports but does not enforce; no logging
+  outside Develop; no Admin UI for the routing defaults.

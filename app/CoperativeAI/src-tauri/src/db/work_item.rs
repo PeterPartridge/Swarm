@@ -93,6 +93,7 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             customerCoverPct REAL,
             risk TEXT NOT NULL DEFAULT '',
             solutionId INTEGER,
+            source TEXT NOT NULL DEFAULT '',
             createdAt INTEGER NOT NULL,
             updatedAt INTEGER NOT NULL
         )",
@@ -107,6 +108,9 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
     for (name, ddl) in [
         ("risk", "ALTER TABLE work_items ADD COLUMN risk TEXT NOT NULL DEFAULT ''"),
         ("solutionId", "ALTER TABLE work_items ADD COLUMN solutionId INTEGER"),
+        // Where an item came from, when it was not typed by a person. Empty for
+        // everything anybody made themselves, which is nearly all of them.
+        ("source", "ALTER TABLE work_items ADD COLUMN source TEXT NOT NULL DEFAULT ''"),
     ] {
         if has_table && !stale && !columns.iter().any(|c| c == name) {
             conn.execute(ddl, ()).await?;
@@ -334,6 +338,38 @@ pub async fn find_by_id(conn: &Connection, id: i64) -> Result<Option<WorkItem>> 
     }
 }
 
+/// Records where an item came from, for the ones nobody typed.
+///
+/// **The mark that stops a thing being filed twice.** Debt read out of an
+/// agent's round record is filed automatically, and the record is read every
+/// time somebody opens the panel — so "have I already filed this?" has to have
+/// an exact answer. A fingerprint of the agent's own words, stored here, is it.
+///
+/// Free text rather than an enum: whatever else grows a way of creating work
+/// items should be able to say so without a migration.
+pub async fn set_source(conn: &Connection, id: i64, source: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE work_items SET source = ?1, updatedAt = ?2 WHERE id = ?3",
+        (source, now_millis(), id),
+    )
+    .await?;
+    Ok(())
+}
+
+/// The item filed under this source, if one already was.
+pub async fn find_by_source(conn: &Connection, source: &str) -> Result<Option<WorkItem>> {
+    if source.trim().is_empty() {
+        return Ok(None);
+    }
+    let mut rows = conn
+        .query(&format!("{SELECT_COLUMNS} FROM work_items WHERE source = ?1"), (source,))
+        .await?;
+    match rows.next().await? {
+        Some(row) => Ok(Some(row_to_item(row)?)),
+        None => Ok(None),
+    }
+}
+
 /// Deletes a work item with the rows that belong to it (policy + feature design).
 pub async fn delete(conn: &Connection, id: i64) -> Result<()> {
     conn.execute("DELETE FROM work_item_policies WHERE workItemId = ?1", (id,)).await?;
@@ -396,6 +432,27 @@ pub(crate) mod tests {
         let feature = create(&conn, "Feature", "feature", product_id, Some(epic), None).await.expect("feature");
         create(&conn, "Story", "userStory", product_id, Some(feature), None).await.expect("story");
         assert!(create(&conn, "Epic 2", "epic", product_id, Some(feature), None).await.is_err());
+    }
+
+    /// **What stops the same debt being filed on every refresh.** The panel
+    /// re-reads an agent's record whenever it opens, so the mark saying "this
+    /// one is already on the board" has to be found by an exact lookup rather
+    /// than by matching titles, which people rename.
+    #[tokio::test]
+    async fn an_item_can_be_found_again_by_where_it_came_from() {
+        let (conn, product_id) = db_with_product().await;
+        let id = create(&conn, "No integration test", "task", product_id, None, None)
+            .await
+            .expect("task");
+        set_source(&conn, id, "agentDebt:7:abc123").await.expect("source");
+
+        let found = find_by_source(&conn, "agentDebt:7:abc123").await.expect("find");
+        assert_eq!(found.map(|i| i.id), Some(id));
+        assert!(find_by_source(&conn, "agentDebt:7:other").await.expect("find").is_none());
+        // An item nobody marked is not found by an empty source — otherwise the
+        // first hand-typed item would answer for every unfiled thing.
+        create(&conn, "Typed by a person", "task", product_id, None, None).await.expect("task");
+        assert!(find_by_source(&conn, "").await.expect("find").is_none());
     }
 
     #[tokio::test]

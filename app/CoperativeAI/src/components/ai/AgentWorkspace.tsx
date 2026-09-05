@@ -767,6 +767,7 @@ export default function AgentWorkspace({
                 setSelectedFile(path);
               }}
               onTests={setTests}
+              onOpenWork={onOpenWork}
             />
             </div>
           )}

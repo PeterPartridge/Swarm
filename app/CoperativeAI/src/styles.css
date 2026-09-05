@@ -9175,3 +9175,18 @@ button.ready-action.link:hover {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* Where the debt went. Set apart from the agent's own words above it: that is
+   an account, this is a list of work now on somebody's board. */
+.agent-record-filed {
+  margin-top: 0.7rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.feedback-list.filed li {
+  line-height: 1.35;
+}

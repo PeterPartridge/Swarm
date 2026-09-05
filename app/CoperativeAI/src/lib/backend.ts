@@ -2770,13 +2770,35 @@ export interface AgentRecord {
   other: string;
 }
 
-/** Reads the round record out of a run's own checkout.
+/** One piece of the agent's debt, on the board. */
+export interface FiledDebt {
+  workItemId: number;
+  title: string;
+}
+
+/** A round record and what filing it produced. */
+export interface CollectedRecord {
+  /** What the agent wrote. `null` while there is nothing there — an agent
+   *  still working, or one that finished without leaving a record. That is the
+   *  ordinary state for most of a run's life, not a failure. */
+  record: AgentRecord | null;
+  /** The work items this record's debt is on the board as: the ones filed just
+   *  now and the ones an earlier read filed, which look the same from here. */
+  debt: FiledDebt[];
+  /** How many were created by this call. Zero on every read after the first —
+   *  which is how the caller knows not to announce it twice. */
+  newlyFiled: number;
+}
+
+/** Reads the round record out of a run's own checkout, and files the debt it
+ *  names as work items.
  *
- *  `null` while there is nothing there — an agent still working, or one that
- *  finished without leaving a record. That is the ordinary state for most of a
- *  run's life, not a failure. */
-export const readAgentRecord = (runId: number): Promise<AgentRecord | null> =>
-  invoke("read_agent_record", { runId });
+ *  **"Collect", not "read", because it writes.** Debt that stays a paragraph on
+ *  a panel is invisible to the board where work is decided, so each thing the
+ *  agent owned up to becomes a task. Filing is by fingerprint of the agent's
+ *  own words, so calling this on every refresh files each piece once. */
+export const collectAgentRecord = (runId: number): Promise<CollectedRecord> =>
+  invoke("collect_agent_record", { runId });
 
 /** One AI call, as the log shows it.
  *

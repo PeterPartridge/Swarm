@@ -11,7 +11,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     listAiJobs: vi.fn(),
     resolveAiFeedback: vi.fn(),
     clearAiJobs: vi.fn(),
-    readAgentRecord: vi.fn(),
+    collectAgentRecord: vi.fn(),
   };
 });
 
@@ -50,7 +50,7 @@ describe("the AI feedback panel", () => {
     mocked.listAiJobs.mockResolvedValue([]);
     mocked.resolveAiFeedback.mockResolvedValue(undefined);
     mocked.clearAiJobs.mockResolvedValue(0);
-    mocked.readAgentRecord.mockResolvedValue(null);
+    mocked.collectAgentRecord.mockResolvedValue({ record: null, debt: [], newlyFiled: 0 });
   });
 
   /// **The round record, which the app used to have no way of seeing.** An
@@ -59,13 +59,17 @@ describe("the AI feedback panel", () => {
   /// and nothing read one back. Both halves are fixed now, and this is the end
   /// of that: what it said, on the panel about what the AI reported.
   it("shows what the agent reported when it finished, debt and all", async () => {
-    mocked.readAgentRecord.mockResolvedValue({
-      whatIBuilt: "A NameGreeter class and the console entry point.",
-      tests: "15 passed, 0 failed.",
-      feedback: "The brief said the same rule twice.",
-      technicalDebt: "No integration test for the entry point. Half a day to add one.",
-      couldNotDo: "",
-      other: "",
+    mocked.collectAgentRecord.mockResolvedValue({
+      record: {
+        whatIBuilt: "A NameGreeter class and the console entry point.",
+        tests: "15 passed, 0 failed.",
+        feedback: "The brief said the same rule twice.",
+        technicalDebt: "No integration test for the entry point. Half a day to add one.",
+        couldNotDo: "",
+        other: "",
+      },
+      debt: [],
+      newlyFiled: 0,
     });
     render(<AiFeedbackPanel workItemId={9} productId={7} runId={3} />);
 
@@ -82,13 +86,17 @@ describe("the AI feedback panel", () => {
   /// heading — an empty "Technical debt" reads as "there is none", which is a
   /// claim the app has no business making on the agent's behalf.
   it("leaves out the sections the agent did not write", async () => {
-    mocked.readAgentRecord.mockResolvedValue({
-      whatIBuilt: "The thing.",
-      tests: "",
-      feedback: "",
-      technicalDebt: "",
-      couldNotDo: "",
-      other: "",
+    mocked.collectAgentRecord.mockResolvedValue({
+      record: {
+        whatIBuilt: "The thing.",
+        tests: "",
+        feedback: "",
+        technicalDebt: "",
+        couldNotDo: "",
+        other: "",
+      },
+      debt: [],
+      newlyFiled: 0,
     });
     render(<AiFeedbackPanel workItemId={9} productId={7} runId={3} />);
 
@@ -113,8 +121,61 @@ describe("the AI feedback panel", () => {
   it("says nothing about a record when there is no run", async () => {
     render(<AiFeedbackPanel workItemId={9} productId={7} />);
     await screen.findByText(/The AI has not reported anything on this item/i);
-    expect(mocked.readAgentRecord).not.toHaveBeenCalled();
+    expect(mocked.collectAgentRecord).not.toHaveBeenCalled();
     expect(screen.queryByText(/round record/i)).not.toBeInTheDocument();
+  });
+
+/// **Debt on the board, not in a paragraph.** The agent's account is read
+  /// back and each shortcut it owned up to is filed as a work item — so the
+  /// panel says where they went, by name, rather than leaving somebody to
+  /// wonder whether anything happened.
+  it("says which work items the debt was filed as", async () => {
+    mocked.collectAgentRecord.mockResolvedValue({
+      record: {
+        whatIBuilt: "The thing.",
+        tests: "",
+        feedback: "",
+        technicalDebt: "- No integration test.\n- Naming is off.",
+        couldNotDo: "",
+        other: "",
+      },
+      debt: [
+        { workItemId: 21, title: "No integration test." },
+        { workItemId: 22, title: "Naming is off." },
+      ],
+      newlyFiled: 2,
+    });
+    const onOpenWork = vi.fn();
+    render(
+      <AiFeedbackPanel workItemId={9} productId={7} runId={3} onOpenWork={onOpenWork} />,
+    );
+
+    const filed = await screen.findByRole("list", { name: "Filed as work items" });
+    expect(within(filed).getAllByRole("listitem")).toHaveLength(2);
+    await userEvent.click(within(filed).getByRole("button", { name: /Naming is off/ }));
+    expect(onOpenWork).toHaveBeenCalledWith(22);
+  });
+
+  /// Debt filed by an earlier read is still shown — it is where this record's
+  /// debt lives — but nothing is announced a second time, because nothing
+  /// happened a second time.
+  it("announces the filing once, not on every refresh", async () => {
+    mocked.collectAgentRecord.mockResolvedValue({
+      record: {
+        whatIBuilt: "The thing.",
+        tests: "",
+        feedback: "",
+        technicalDebt: "- No integration test.",
+        couldNotDo: "",
+        other: "",
+      },
+      debt: [{ workItemId: 21, title: "No integration test." }],
+      newlyFiled: 0,
+    });
+    render(<AiFeedbackPanel workItemId={9} productId={7} runId={3} />);
+
+    expect(await screen.findByRole("list", { name: "Filed as work items" })).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   /// **What failed, in one place.** An attempt that failed lived only in the

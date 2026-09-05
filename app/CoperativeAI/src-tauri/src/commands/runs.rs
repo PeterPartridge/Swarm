@@ -149,6 +149,30 @@ pub(crate) async fn prepare_run(
 ) -> Result<StartedRun, String> {
     use crate::agent::handover;
 
+    // **May the AI touch this code at all?** Asked first, before a checkout or
+    // a brief exists. The deny-by-default walk gated the app's own AI calls —
+    // planning, reading, generating tests — and this path, which hands a coding
+    // agent write access to a repository, asked nobody: a Product set to
+    // read-only would refuse to let the AI summarise its code and still let an
+    // agent rewrite it.
+    //
+    // `Edit` rather than `Read`, because that is what a run is for. The walk
+    // already refuses `Edit` where reading is not allowed, so this is the whole
+    // question in one call.
+    let verdict = crate::db::ai_permission::verdict(
+        conn,
+        work_item_id,
+        crate::db::work_item_policy::AiUse::Edit,
+    )
+    .await
+    .map_err(to_message)?;
+    if !verdict.allowed {
+        return Err(crate::db::ai_permission::refusal(
+            &verdict,
+            crate::db::work_item_policy::AiUse::Edit,
+        ));
+    }
+
     // How much the agent stops to ask, read once here: the command is built
     // below and the setting is one place, so a run cannot disagree with what
     // Admin says.
@@ -292,45 +316,159 @@ pub(crate) async fn prepare_run(
     })
 }
 
-/// What the agent wrote when it finished, if it wrote anything.
+/// One piece of debt, on the board.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FiledDebt {
+    pub work_item_id: i64,
+    pub title: String,
+}
+
+/// A round record, and what filing it produced.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CollectedRecord {
+    /// What the agent wrote. `None` when there is nothing there yet.
+    pub record: Option<crate::agent::record::AgentRecord>,
+    /// The work items this record's debt is on the board as — the ones filed
+    /// just now and the ones filed by an earlier read, which look the same from
+    /// here and should.
+    pub debt: Vec<FiledDebt>,
+    /// How many of those were created by this call. Zero on every read after
+    /// the first, which is how the caller knows not to announce it again.
+    pub newly_filed: usize,
+}
+
+/// What the agent wrote when it finished — and its debt, put on the board.
 ///
 /// **The return leg of the handover.** The brief goes out with a file to write
-/// back to; this reads that file out of the run's own checkout and hands it to
-/// the panel. `None` means nothing is there — the agent is still working, or it
-/// finished without leaving a record, and those are both said plainly rather
+/// back to; this reads that file out of the run's own checkout. Nothing there
+/// is the ordinary state for most of a run's life and is said plainly rather
 /// than dressed up as an error.
 ///
-/// The path is derived from the brief the run was given rather than rebuilt
-/// from the title, so a record always pairs with the brief it answers even if
-/// the naming ever changes underneath.
+/// **Called "collect" because it does not only read.** The debt an agent owns
+/// up to was a paragraph on a panel: true, and invisible to the board where
+/// work is actually decided. Each thing it listed is filed as a task here, so a
+/// shortcut it took is scheduled like any other work rather than found later by
+/// whoever trips over it.
+///
+/// **Filed once, however often this is called.** The panel re-reads on every
+/// open and on every work-changed signal, so each piece of debt carries a
+/// fingerprint of the agent's own words and is looked up before it is created.
+/// A record read ten times files its debt once.
+///
+/// The record path is derived from the brief the run was given rather than
+/// rebuilt from the title, so a record always pairs with the brief it answers.
 #[tauri::command]
-pub async fn read_agent_record(
+pub async fn collect_agent_record(
     db: State<'_, AppDb>,
     run_id: i64,
-) -> Result<Option<crate::agent::record::AgentRecord>, String> {
-    let (worktree, brief_path) = {
+) -> Result<CollectedRecord, String> {
+    let (worktree, brief_path, work_item_id, solution_id) = {
         let conn = db.0.lock().await;
         let run = change_run::find_by_id(&conn, run_id)
             .await
             .map_err(to_message)?
             .ok_or("that run no longer exists")?;
-        (run.worktree_path, run.brief_path)
+        (run.worktree_path, run.brief_path, run.work_item_id, run.solution_id)
     };
     if worktree.trim().is_empty() {
-        return Ok(None);
+        return Ok(CollectedRecord::default());
     }
     let rel = record_path_for(&brief_path);
     let full = std::path::Path::new(&worktree).join(&rel);
-    match std::fs::read_to_string(&full) {
-        Ok(text) => {
-            let record = crate::agent::record::parse(&text);
-            Ok(if record.is_empty() { None } else { Some(record) })
+    let text = match std::fs::read_to_string(&full) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(CollectedRecord::default())
         }
-        // A record that is not there yet is the ordinary state for most of a
-        // run's life, and reads as "nothing back yet" rather than a failure.
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(format!("could not read {rel}: {e}")),
+        Err(e) => return Err(format!("could not read {rel}: {e}")),
+    };
+    let record = crate::agent::record::parse(&text);
+    if record.is_empty() {
+        return Ok(CollectedRecord::default());
     }
+
+    let conn = db.0.lock().await;
+    let (debt, newly_filed) =
+        file_debt(&conn, run_id, work_item_id, solution_id, &record.technical_debt).await?;
+    Ok(CollectedRecord { record: Some(record), debt, newly_filed })
+}
+
+/// Puts each thing the agent listed on the board, once.
+///
+/// The items are plain tasks with no parent, related to the work they came out
+/// of rather than nested under it: `task` is the deepest rung of every planning
+/// hierarchy, so debt found while building a task could not sit beneath it —
+/// and a relationship says what is true anyway, which is that this came out of
+/// that.
+async fn file_debt(
+    conn: &turso::Connection,
+    run_id: i64,
+    work_item_id: i64,
+    solution_id: i64,
+    section: &str,
+) -> Result<(Vec<FiledDebt>, usize), String> {
+    let items = crate::agent::debt::split(section);
+    if items.is_empty() {
+        return Ok((Vec::new(), 0));
+    }
+    // The work item is gone: the record is still worth showing, and there is
+    // nothing sensible to file it against.
+    let Some(parent) = work_item::find_by_id(conn, work_item_id).await.map_err(to_message)? else {
+        return Ok((Vec::new(), 0));
+    };
+
+    let mut filed = Vec::new();
+    let mut created = 0usize;
+    for item in items {
+        let source = format!("agentDebt:{run_id}:{}", item.fingerprint);
+        if let Some(existing) =
+            work_item::find_by_source(conn, &source).await.map_err(to_message)?
+        {
+            filed.push(FiledDebt { work_item_id: existing.id, title: existing.title });
+            continue;
+        }
+        // Where it came from, written into the item itself: somebody opening
+        // this on the board a month from now should not have to work out why a
+        // task nobody typed is in their sprint.
+        let description = format!(
+            "{}\n\n_Left behind by the AI agent while building \"{}\", and taken from the round \
+             record it wrote when it finished._",
+            item.body.trim(),
+            parent.title,
+        );
+        let id = work_item::create(
+            conn,
+            &item.title,
+            "task",
+            parent.product_id,
+            None,
+            Some(&description),
+        )
+        .await
+        .map_err(to_message)?;
+        work_item::set_source(conn, id, &source).await.map_err(to_message)?;
+        // The debt lands in the same repository the work did.
+        work_item::update_item(
+            conn,
+            id,
+            crate::db::work_item::WorkItemFields {
+                solution_id: Some(solution_id),
+                ..Default::default()
+            },
+        )
+        .await
+        .map_err(to_message)?;
+        // Related, not blocking: the work it came out of is finished, and debt
+        // that blocked its own source would be a dependency nobody can clear.
+        crate::db::work_item_link::link(conn, work_item_id, id, "relatesTo")
+            .await
+            .map_err(to_message)?;
+        filed.push(FiledDebt { work_item_id: id, title: item.title });
+        created += 1;
+    }
+    Ok((filed, created))
 }
 
 /// The record's path, from the path of the brief it answers.
@@ -675,6 +813,13 @@ mod tests {
         work_item_plan::approve(conn, item_id, solution_id)
             .await
             .expect("approve the plan");
+        // And somebody has said the AI may change this Product's code. Part of
+        // the fixture because it is part of an ordinary Product: without it
+        // every run here would be refused for the right reason but the wrong
+        // one, and these tests are about the rest of the loop.
+        crate::db::product_policy::set_policy(conn, product_id, true, true, true, false, None, "low")
+            .await
+            .expect("permit the AI to edit");
         (item_id, solution_id)
     }
 
@@ -891,5 +1036,175 @@ mod tests {
         assert!(preview.conflicts.iter().any(|f| f.contains("shared.rs")));
 
         let _ = std::fs::remove_dir_all(dir.parent().unwrap_or(&dir));
+    }
+
+    /// **Debt on the board, not in a paragraph.** The round record brought the
+    /// agent's account back into the app; this is the half that makes it
+    /// actionable. Each thing it owned up to is a task somebody can schedule.
+    #[tokio::test]
+    async fn each_piece_of_debt_becomes_a_work_item_related_to_the_work_it_came_from() {
+        let (conn, product_id) = db_with_product().await;
+        let solution_id = solution::create(&conn, "Shop API", product_id, "api", "{}")
+            .await
+            .expect("solution");
+        let item_id = work_item::create(&conn, "Add checkout", "feature", product_id, None, None)
+            .await
+            .expect("work item");
+
+        let (filed, created) = file_debt(
+            &conn,
+            7,
+            item_id,
+            solution_id,
+            "- No integration test for the entry point.\n- The greeter should take a writer.\n",
+        )
+        .await
+        .expect("file");
+
+        assert_eq!(created, 2);
+        assert_eq!(filed.len(), 2);
+        assert_eq!(filed[0].title, "No integration test for the entry point.");
+
+        let filed_item = work_item::find_by_id(&conn, filed[0].work_item_id)
+            .await
+            .expect("read")
+            .expect("exists");
+        // A task, in the same Product and the same repository as the work it
+        // came out of — otherwise it lands on a board nobody is looking at.
+        assert_eq!(filed_item.item_type, "task");
+        assert_eq!(filed_item.product_id, product_id);
+        assert_eq!(filed_item.solution_id, Some(solution_id));
+        // And it says where it came from, for whoever opens it a month later.
+        let description = filed_item.description.unwrap_or_default();
+        assert!(description.contains("No integration test"));
+        assert!(description.contains("Add checkout"), "got: {description}");
+
+        // Related to the work it came out of, not blocking it: that work is
+        // finished, and debt blocking its own source is a dependency nobody
+        // could ever clear.
+        let links = crate::db::work_item_link::list_for_item(&conn, item_id)
+            .await
+            .expect("links");
+        assert!(links
+            .iter()
+            .any(|l| l.to_work_item_id == filed[0].work_item_id && l.kind == "relatesTo"));
+    }
+
+    /// **Read ten times, filed once.** The panel re-reads the record every time
+    /// it opens and on every work-changed signal — without this the board would
+    /// fill with copies of the same shortcut.
+    #[tokio::test]
+    async fn reading_the_same_record_again_files_nothing_new() {
+        let (conn, product_id) = db_with_product().await;
+        let solution_id = solution::create(&conn, "Shop API", product_id, "api", "{}")
+            .await
+            .expect("solution");
+        let item_id = work_item::create(&conn, "Add checkout", "feature", product_id, None, None)
+            .await
+            .expect("work item");
+        let section = "- No integration test for the entry point.\n";
+
+        let (first, created_first) =
+            file_debt(&conn, 7, item_id, solution_id, section).await.expect("file");
+        let (again, created_again) =
+            file_debt(&conn, 7, item_id, solution_id, section).await.expect("file again");
+
+        assert_eq!(created_first, 1);
+        assert_eq!(created_again, 0, "the second read must file nothing");
+        // Still reported, because the panel shows where the debt went whether
+        // this call filed it or an earlier one did.
+        assert_eq!(first[0].work_item_id, again[0].work_item_id);
+        let all = work_item::list_by_product(&conn, product_id).await.expect("items");
+        assert_eq!(all.len(), 2, "one work item and one piece of debt, not three");
+    }
+
+    /// An agent that reported no debt has answered the question. Filing "None."
+    /// as a task would put the absence of work on somebody's board.
+    #[tokio::test]
+    async fn an_agent_with_no_debt_files_nothing() {
+        let (conn, product_id) = db_with_product().await;
+        let solution_id = solution::create(&conn, "Shop API", product_id, "api", "{}")
+            .await
+            .expect("solution");
+        let item_id = work_item::create(&conn, "Add checkout", "feature", product_id, None, None)
+            .await
+            .expect("work item");
+
+        for said in ["None.", "", "   "] {
+            let (filed, created) =
+                file_debt(&conn, 7, item_id, solution_id, said).await.expect("file");
+            assert!(filed.is_empty(), "{said:?} filed something");
+            assert_eq!(created, 0);
+        }
+        let all = work_item::list_by_product(&conn, product_id).await.expect("items");
+        assert_eq!(all.len(), 1);
+    }
+
+    /// The same shortcut reported by a second attempt is a second piece of
+    /// debt — that attempt left its own, and the run it belongs to is how they
+    /// are told apart.
+    #[tokio::test]
+    async fn a_later_attempt_files_its_own_copy() {
+        let (conn, product_id) = db_with_product().await;
+        let solution_id = solution::create(&conn, "Shop API", product_id, "api", "{}")
+            .await
+            .expect("solution");
+        let item_id = work_item::create(&conn, "Add checkout", "feature", product_id, None, None)
+            .await
+            .expect("work item");
+        let section = "- No integration test for the entry point.\n";
+
+        let (_, first) = file_debt(&conn, 7, item_id, solution_id, section).await.expect("file");
+        let (_, second) = file_debt(&conn, 8, item_id, solution_id, section).await.expect("file");
+        assert_eq!((first, second), (1, 1));
+    }
+
+    /// **The permission that was never asked on the path that matters.** The
+    /// deny-by-default walk gated the app's own AI calls — planning, reading,
+    /// generating tests — while a run, which makes a checkout and hands a coding
+    /// agent write access to the repository, asked nobody. A Product set to
+    /// read-only would refuse to let the AI *summarise* its code and still let
+    /// an agent rewrite it.
+    #[tokio::test]
+    async fn a_run_will_not_start_unless_the_ai_is_allowed_to_edit() {
+        let Some(dir) = temp_repo("unpermitted") else {
+            eprintln!("skipped: git is not usable here");
+            return;
+        };
+        let root = dir.to_str().expect("utf-8");
+        let (conn, product_id) = db_with_product().await;
+        let (item_id, solution_id) =
+            product_with_run(&conn, product_id, root, "Add checkout", "feature/9-checkout").await;
+
+        // Reading allowed, editing not: still a no, because a run edits.
+        crate::db::product_policy::set_policy(
+            &conn, product_id, true, true, false, false, None, "low",
+        )
+        .await
+        .expect("read-only policy");
+
+        let err = prepare_run(&conn, item_id, solution_id)
+            .await
+            .map(|s| s.branch)
+            .expect_err("read-only must refuse");
+        assert!(err.contains("edit") || err.contains("change"), "got: {err}");
+
+        // Nothing was made on the way to refusing — a half-prepared run would
+        // leave a checkout the policy said could not exist.
+        let runs = change_run::list_for_product(&conn, product_id).await.expect("runs");
+        assert!(runs.iter().all(|r| r.worktree_path.is_empty()));
+
+        // Allowed to edit, and it starts. (A Product with no policy row at all
+        // is refused too — that is the walk's deny-by-default, tested where the
+        // walk lives.)
+        crate::db::product_policy::set_policy(
+            &conn, product_id, true, true, true, false, None, "low",
+        )
+        .await
+        .expect("policy");
+        prepare_run(&conn, item_id, solution_id)
+            .await
+            .map(|s| s.branch)
+            .expect("starts once the AI is allowed to edit");
     }
 }

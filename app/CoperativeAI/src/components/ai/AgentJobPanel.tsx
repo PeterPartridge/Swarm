@@ -82,6 +82,7 @@ export default function AgentJobPanel({
   selectedPath,
   onSelectFile,
   onTests,
+  onOpenWork,
 }: {
   /** The lane row this workbench is showing, for the header. */
   agent: Agent | null;
@@ -103,6 +104,9 @@ export default function AgentJobPanel({
   onSelectFile: (solutionId: number, path: string) => void;
   /** Reports what the tests said, so the ship rail can read it back. */
   onTests: (verdict: TestVerdict) => void;
+  /** Opens a work item — the debt filed out of this agent's round record is
+   *  real work on the board, and reachable from where it was reported. */
+  onOpenWork?: (workItemId: number) => void;
 }) {
   const [panel, setPanel] = useState<SubPanel>("plan");
   const [started, setStarted] = useState<Started | null>(null);
@@ -461,6 +465,7 @@ export default function AgentJobPanel({
               workItemId={item.id}
               productId={item.productId}
               runId={run?.id}
+              onOpenWork={onOpenWork}
             />
             <p className="hint">
               An answer is stored against this work item and travels with the next

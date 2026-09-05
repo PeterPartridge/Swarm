@@ -1,16 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   clearAiJobs,
   listAiFeedback,
   listAiJobs,
-  readAgentRecord,
+  collectAgentRecord,
   resolveAiFeedback,
-  type AgentRecord,
+  type CollectedRecord,
   type AiFeedback,
   type AiJob,
 } from "../../lib/backend";
 import { groupFailures } from "../../lib/when";
-import { useWorkChanged } from "../../lib/workSignal";
+import { notifyWorkChanged, useWorkChanged } from "../../lib/workSignal";
 
 /** Everything the AI has said about one work item, and what it was told back.
  *
@@ -39,6 +39,7 @@ export default function AiFeedbackPanel({
   workItemId,
   productId,
   runId,
+  onOpenWork,
   onResolved,
 }: {
   workItemId: number;
@@ -48,6 +49,10 @@ export default function AiFeedbackPanel({
   /** The run whose round record to read. A work item nobody has handed to an
    *  agent has none, and then the panel says nothing about one at all. */
   runId?: number;
+  /** Opens one of the work items the debt was filed as. Without it the filed
+   *  items are still listed — knowing they exist is most of the point — but
+   *  there is nowhere to go from here. */
+  onOpenWork?: (workItemId: number) => void;
   onResolved?: () => void;
 }) {
   const [feedback, setFeedback] = useState<AiFeedback[]>([]);
@@ -55,7 +60,16 @@ export default function AiFeedbackPanel({
   const [answers, setAnswers] = useState<Record<number, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [record, setRecord] = useState<AgentRecord | null>(null);
+  const [collected, setCollected] = useState<CollectedRecord | null>(null);
+  /// Which runs' filing has already been announced from here.
+  ///
+  /// **Because this panel listens to the signal it sends.** Announcing a filing
+  /// notifies the work-changed signal so the boards catch up, and this panel is
+  /// one of that signal's subscribers — so an announcement that repeated would
+  /// refresh, announce, and refresh again forever. The backend files each piece
+  /// once and reports zero after that, which breaks the cycle in practice; this
+  /// breaks it here, where it cannot depend on what a backend returns.
+  const announced = useRef<Set<number>>(new Set());
 
   const refresh = useCallback(async () => {
     try {
@@ -65,9 +79,25 @@ export default function AiFeedbackPanel({
         // Not asked for at all without a run: there is no checkout to read one
         // out of, and a panel that asked anyway would report an error about a
         // file it had no reason to expect.
-        runId === undefined ? Promise.resolve(null) : readAgentRecord(runId),
+        runId === undefined ? Promise.resolve(null) : collectAgentRecord(runId),
       ]);
-      setRecord(loadedRecord);
+      setCollected(loadedRecord);
+      // Said once, by the call that did it. `newlyFiled` is zero on every read
+      // after the first, so a refresh does not re-announce work that was filed
+      // minutes ago — and the boards showing that work are told to catch up.
+      if (
+        loadedRecord !== null &&
+        loadedRecord.newlyFiled > 0 &&
+        runId !== undefined &&
+        !announced.current.has(runId)
+      ) {
+        announced.current.add(runId);
+        const n = loadedRecord.newlyFiled;
+        setNotice(
+          `Filed ${n} piece${n === 1 ? "" : "s"} of technical debt from the agent's record as work item${n === 1 ? "" : "s"}.`,
+        );
+        notifyWorkChanged();
+      }
       setFeedback(loadedFeedback);
       setJobs(
         loadedJobs
@@ -105,6 +135,8 @@ export default function AiFeedbackPanel({
   const asked = feedback.filter((f) => f.kind !== "cantImplement");
   // With a run in view the record line below says where things stand, so this
   // would be a second paragraph saying the same absence twice.
+  const record = collected?.record ?? null;
+  const filed = collected?.debt ?? [];
   const nothing =
     jobs.length === 0 && feedback.length === 0 && record === null && runId === undefined;
 
@@ -162,6 +194,27 @@ export default function AiFeedbackPanel({
                 </div>
               ))}
           </dl>
+          {/* Where the debt went. The paragraph above is the agent's account;
+              these are the work items it became, which is the half somebody can
+              actually schedule. */}
+          {filed.length > 0 && (
+            <div className="agent-record-filed">
+              <span className="palette-label">Filed as work items</span>
+              <ul className="feedback-list filed" aria-label="Filed as work items">
+                {filed.map((d) => (
+                  <li key={d.workItemId}>
+                    {onOpenWork ? (
+                      <button className="link-button" onClick={() => onOpenWork(d.workItemId)}>
+                        {d.title}
+                      </button>
+                    ) : (
+                      <span className="feedback-message">{d.title}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 
