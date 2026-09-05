@@ -13,6 +13,53 @@ import {
 } from "../../lib/backend";
 import FolderField from "../common/FolderField";
 
+/** One of the three questions this panel answers: a line, and what is under it.
+ *
+ *  **Three lines, not three stacked blocks.** Everything the panel can do was
+ *  visible at once — a folder field, an init button, a commit list, two forms —
+ *  which is a lot of screen for something usually glanced at. Each question is
+ *  a line carrying its own answer, and opens when it is the one being asked.
+ *
+ *  The summary is on the line itself, so the ordinary reason for looking — what
+ *  branch am I on, has anything been committed, is this on GitHub — is answered
+ *  without opening anything. */
+function RepoGroup({
+  title,
+  summary,
+  tone,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string;
+  summary: string;
+  /** "warn" when the summary is a problem, so the line reads as one. */
+  tone?: "warn";
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="repo-group">
+      <button
+        type="button"
+        className="repo-group-line"
+        aria-expanded={open}
+        onClick={onToggle}
+      >
+        <span className="repo-caret" aria-hidden="true">
+          {open ? "▾" : "▸"}
+        </span>
+        <span className="palette-label">{title}</span>
+        <span className={tone === "warn" ? "repo-summary warn" : "repo-summary"}>
+          {summary}
+        </span>
+      </button>
+      {open && <div className="repo-group-body">{children}</div>}
+    </div>
+  );
+}
+
 /** One Solution's git situation, and every way out of it.
  *
  *  **Two questions, not one.** Where the code lives on this machine and what is
@@ -141,6 +188,43 @@ export default function SolutionRepo({
   const linked = state?.githubUrl ?? solution.githubUrl;
   const visibility = state?.githubVisibility ?? solution.githubVisibility;
 
+  /// What is wrong with the checkout, if anything. Drives both the summary on
+  /// the line and whether it opens itself: a folder that is not a repository is
+  /// the one state where the fix should be in front of somebody rather than
+  /// behind a click.
+  const trouble =
+    state === null
+      ? null
+      : state.localPath === null
+        ? "No folder on this machine yet"
+        : !state.isRepo
+          ? "Not a git repository"
+          : !state.hasCommit
+            ? "Nothing committed yet"
+            : null;
+
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const toggle = (id: string) => setOpen((o) => ({ ...o, [id]: !o[id] }));
+  // Opened for a problem, closed otherwise — unless somebody has said
+  // otherwise, which their own click does.
+  const isOpen = (id: string, fallback = false) => open[id] ?? fallback;
+
+  const checkoutSummary =
+    state === null
+      ? "Reading…"
+      : trouble !== null
+        ? trouble
+        : `on ${state.branch || "an unnamed branch"} · ${state.localPath}`;
+
+  const commitSummary =
+    commits.length === 0
+      ? "No commits yet"
+      : `${commits.length} shown · ${commits[0].subject}`;
+
+  const githubSummary = linked
+    ? `${linked.replace(/^https?:\/\/(www\.)?/, "")}${visibility ? ` (${visibility})` : ""}`
+    : "Not linked";
+
   return (
     // <section>, not <div>: an aria-label on a div names nothing a screen
     // reader can find, and this panel is looked up by name in four places.
@@ -154,10 +238,15 @@ export default function SolutionRepo({
 
           The folder comes first: a repository on GitHub is no use to a run that
           cannot make a worktree here. */}
-      <div className="repo-group">
-        <span className="palette-label">
-          {runId === undefined ? "Where the code is" : "This agent's checkout"}
-        </span>
+      <RepoGroup
+        title={runId === undefined ? "Where the code is" : "This agent's checkout"}
+        summary={checkoutSummary}
+        tone={trouble === null ? undefined : "warn"}
+        // A problem opens itself: the fix belongs in front of somebody, not
+        // behind a click. Everything else is a line until it is asked for.
+        open={isOpen("checkout", trouble !== null)}
+        onToggle={() => toggle("checkout")}
+      >
       <span className="repo-local">
         {state === null ? (
           "Reading the folder…"
@@ -210,13 +299,17 @@ export default function SolutionRepo({
           {busy ? "Working…" : state.isRepo ? "Make the first commit" : "Make it a git repository"}
         </button>
       )}
-      </div>
+      </RepoGroup>
 
       {/* **What has been done to it.** The panel could say which repository and
           which branch and nothing about the work on it — "the git section is
           missing commit messages", and it was. */}
-      <div className="repo-group">
-        <span className="palette-label">Recent commits</span>
+      <RepoGroup
+        title="Recent commits"
+        summary={commitSummary}
+        open={isOpen("commits")}
+        onToggle={() => toggle("commits")}
+      >
         {commits.length === 0 ? (
           <p className="hint">
             {state?.isRepo === false
@@ -242,10 +335,14 @@ export default function SolutionRepo({
             ))}
           </ul>
         )}
-      </div>
+      </RepoGroup>
 
-      <div className="repo-group">
-        <span className="palette-label">On GitHub</span>
+      <RepoGroup
+        title="On GitHub"
+        summary={githubSummary}
+        open={isOpen("github")}
+        onToggle={() => toggle("github")}
+      >
       {linked ? (
         <span className="repo-linked">
           Repo:{" "}
@@ -339,7 +436,7 @@ export default function SolutionRepo({
           </button>
         </form>
       )}
-      </div>
+      </RepoGroup>
     </section>
   );
 }

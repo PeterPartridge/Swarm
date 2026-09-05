@@ -8,6 +8,9 @@ vi.mock("../../lib/backend", async (importOriginal) => {
   return {
     ...original,
     solutionGitState: vi.fn(),
+    // The panel reads the last few commits now. A mock with no default falls
+    // through to the real invoke.
+    branchHistory: vi.fn(),
     setSolutionPath: vi.fn(),
     pickFolder: vi.fn(),
     initSolutionRepo: vi.fn(),
@@ -64,7 +67,10 @@ describe("the git panel on a Solution", () => {
   it("says the folder is not a git repository, and offers to make it one", async () => {
     render(<SolutionRepo solution={solution} onChange={vi.fn()} />);
 
-    expect(await screen.findByText(/not a git repository/i)).toBeInTheDocument();
+    // The line says the state; the sentence under it says what that means.
+    expect(
+      await screen.findByRole("button", { name: /Not a git repository/i }),
+    ).toBeInTheDocument();
     await userEvent.click(
       screen.getByRole("button", { name: "Make hello-world a git repository" }),
     );
@@ -78,7 +84,9 @@ describe("the git panel on a Solution", () => {
     mocked.solutionGitState.mockResolvedValue(state({ isRepo: true }));
     render(<SolutionRepo solution={solution} onChange={vi.fn()} />);
 
-    expect(await screen.findByText(/nothing committed/i)).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /Nothing committed yet/i }),
+    ).toBeInTheDocument();
   });
 
   it("says nothing is wrong when the folder is a working repository", async () => {
@@ -87,7 +95,8 @@ describe("the git panel on a Solution", () => {
     );
     render(<SolutionRepo solution={solution} onChange={vi.fn()} />);
 
-    expect(await screen.findByText(/on main/)).toBeInTheDocument();
+    // A working repository is one line: the branch and where it is.
+    expect(await screen.findByRole("button", { name: /on main/ })).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Make hello-world a git repository" }),
     ).not.toBeInTheDocument();
