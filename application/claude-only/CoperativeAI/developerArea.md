@@ -4929,3 +4929,95 @@ reads the stylesheet for undefined tokens. cargo 763/763 (23 ignored), Vitest
   template-already-inserted warning; no locale-assertion guard; no "run the
   regression suite" action; the lifecycle checklist reports but does not
   enforce; no logging outside Develop; no Admin UI for the routing defaults.
+
+## Round 95 — three lines, tests that run themselves, and the code taking the room
+
+### My Feedback
+
+> git still need to be more user friendly like This agent's checkout one line,
+> Recent commits another line, On GitHub another line
+>
+> also when going into an agent if the work is complete but tests not run auto
+> run tests not wait for me to click a button
+>
+> Also code section should by hight and width take the full section up this is
+> the most important part when reading code
+
+### Three lines
+
+Everything the git panel could do was on screen at once — a folder field, an
+init button, a commit list, two forms — which is a lot of room for something
+usually glanced at. Each question is a line now, and the answer is *on* the
+line: the branch and path, the newest commit's subject, the repository and its
+visibility. Opening one is for acting on it.
+
+**A problem opens itself.** A folder that is not a repository, or has nothing
+committed, is the one state where the fix belongs in front of somebody rather
+than behind a click — so that line arrives open, and the summary is in the warn
+colour either way.
+
+### Tests, on arrival
+
+Arriving at an agent that has changed something and finding "Not run in this
+session" beside a button was the app asking permission to do the obvious next
+thing. Nothing about running a suite is destructive and the result is the
+evidence the change is worth keeping, so it runs.
+
+**Once, and only with something to test.** Keyed on the run, so coming back does
+not run them again, and skipped entirely for an agent that has changed nothing —
+a suite is a real process, and running it against an untouched checkout answers
+a question nobody asked.
+
+That is also the answer to round 93's open question, decided the way the user
+asked for it: on arrival, not on the agent's exit, which the app cannot read as
+"finished well" anyway.
+
+### The code, taking the room
+
+The middle column scrolled as a page with the editor a fixed box inside it, so
+reading a file meant scrolling twice — the page to reach the editor, the editor
+to reach the line. The column is a column now: tabs at the top, the pane filling
+everything under them, scrolling inside whatever is showing. The editor fills
+the pane in both directions; its minimum height is for the pull-out windows,
+where there is no pane to fill.
+
+Two rules for `.build-code` had accumulated, in different parts of the file, and
+had to be read together to know what the pane did. One now.
+
+### Tests
+
+Two for the automatic run — that it happens once on arrival, and not at all for
+an agent with nothing changed. The git panel's tests learned that reaching the
+GitHub half is a click, which is the point of the three lines.
+
+cargo 763/763 (23 ignored), Vitest 746/746, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean.
+
+### Your Feedback
+
+- **Auto-running tests spends time on your machine without asking.** It is one
+  suite per agent per visit, and it is the thing you asked for — but if a suite
+  is slow enough to be in the way, the honest fix is a setting rather than me
+  guessing a threshold.
+- The tests run on the *Solution*, not on the run's checkout: `run_solution_tests`
+  takes a solution id. So an agent's work is tested where the Solution points,
+  which for a worktree run is the wrong folder — the same mistake as the review,
+  the tree and git, now found in a fifth place. Worth fixing next, and I have
+  not, because it is a change to what "run the tests" means rather than a
+  rename.
+
+### Technical Debt
+
+- **`run_solution_tests` reads the Solution's folder, not the run's checkout.**
+- Auto-running tests has no setting and no size limit.
+- Carried: per-test reasons for cargo, pytest, dotnet and go; the test-file path
+  is matched by convention; nothing notices an agent has finished;
+  `commit_solution` writes to the Solution's folder; no per-file diff; nothing
+  advertises the right-click menu; no answer to "should a new attempt start from
+  a clean checkout?"; saving a file writes to the Solution's folder; probe
+  freshness is a number in the code; splitting prose is guesswork; the review is
+  not refreshed on the work signal; nothing distinguishes a scoring list from an
+  enforcing one; a policy tightened mid-run does not stop a running agent; no
+  template-already-inserted warning; no locale-assertion guard; no "run the
+  regression suite" action; the lifecycle checklist reports but does not
+  enforce; no logging outside Develop; no Admin UI for the routing defaults.
