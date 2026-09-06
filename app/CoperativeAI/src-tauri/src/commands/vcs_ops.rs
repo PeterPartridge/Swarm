@@ -267,21 +267,30 @@ pub async fn checkout_changes(
 /// Typed words win. Somebody who wrote a description meant it, and replacing it
 /// with the agent's would be the app deciding it knows better; the record is
 /// what fills a description nobody wrote.
-fn pull_request_body(typed: &str, record: Option<String>) -> String {
+fn pull_request_body(typed: &str, record: Option<String>, work_item: Option<(i64, &str)>) -> String {
+    // Which work this answers, first and on its own line. A reviewer landing on
+    // a branch called `feature/9-checkout` should not have to go and look up
+    // what was asked for, and the app is the only thing that knows.
+    let asked = work_item
+        .map(|(id, title)| format!("**Work item #{id}: {title}**
+
+"))
+        .unwrap_or_default();
+
     if !typed.trim().is_empty() {
-        return typed.trim().to_string();
+        return format!("{asked}{}", typed.trim());
     }
     match record {
         Some(said) => format!(
-            "_Written by the coding agent that made this branch, from its round record._
+            "{asked}_Written by the coding agent that made this branch, from its round              record._
 
 {}",
             said.trim()
         ),
-        // Nothing to say rather than something invented. A description made up
-        // of the branch name and a date tells a reviewer nothing they cannot
-        // already see.
-        None => String::new(),
+        // Nothing more than the work item rather than something invented: a
+        // description made of the branch name and a date tells a reviewer
+        // nothing they cannot already see.
+        None => asked.trim_end().to_string(),
     }
 }
 
@@ -303,7 +312,7 @@ pub async fn open_pull_request(
     body: String,
     base: String,
 ) -> Result<String, String> {
-    let (root, repo_url, brief_path) = {
+    let (root, repo_url, brief_path, work_item) = {
         let conn = db.0.lock().await;
         let Some(row) = solution::find_by_id(&conn, solution_id).await.map_err(to_message)? else {
             return Err("that Solution no longer exists".into());
@@ -322,10 +331,26 @@ pub async fn open_pull_request(
                 .unwrap_or_default(),
             None => String::new(),
         };
+        // The work this run answers, for the title and the first line of the
+        // body. A run with no row any more simply names nothing.
+        let item = match run_id {
+            Some(id) => match crate::db::change_run::find_by_id(&conn, id)
+                .await
+                .map_err(to_message)?
+            {
+                Some(r) => crate::db::work_item::find_by_id(&conn, r.work_item_id)
+                    .await
+                    .map_err(to_message)?
+                    .map(|i| (i.id, i.title)),
+                None => None,
+            },
+            None => None,
+        };
         (
             crate::commands::workspace::root_for_run(&conn, solution_id, run_id).await?,
             url,
             brief,
+            item,
         )
     };
 
@@ -348,16 +373,43 @@ pub async fn open_pull_request(
     vcs::push(&root).map_err(|e| format!("could not push {} first: {e}", state.branch))?;
 
     let token = crate::git::github::get_token()?;
-    let said = pull_request_body(&body, crate::agent::record::read_in(&root, &brief_path));
-    crate::git::github::create_pull_request(
+    let said = pull_request_body(
+        &body,
+        crate::agent::record::read_in(&root, &brief_path),
+        work_item.as_ref().map(|(id, title)| (*id, title.as_str())),
+    );
+    // The work item's own words when nobody typed a title: a request called
+    // "hello-world: AskForName" says which branch and nothing about what it is
+    // for, which is the half a reviewer needs.
+    let named = if title.trim().is_empty() {
+        work_item
+            .as_ref()
+            .map(|(_, t)| t.clone())
+            .unwrap_or_else(|| state.branch.clone())
+    } else {
+        title.trim().to_string()
+    };
+
+    let url = crate::git::github::create_pull_request(
         &token,
         &repo_url,
         &state.branch,
         &base,
-        title.trim(),
+        &named,
         &said,
     )
-    .await
+    .await?;
+
+    // **Kept, so the link survives the press.** Opening one said its URL once,
+    // in a notice that goes when the panel reloads — and then the only way back
+    // to a review of your own work was to find it on GitHub.
+    if let Some(id) = run_id {
+        let conn = db.0.lock().await;
+        crate::db::change_run::set_pull_request(&conn, id, &url)
+            .await
+            .map_err(to_message)?;
+    }
+    Ok(url)
 }
 
 #[derive(Serialize)]
@@ -605,6 +657,7 @@ mod pull_request_body_tests {
         let said = pull_request_body(
             "",
             Some("## What I built\nA greeter.\n\n## Technical debt\nNo CI.".into()),
+            None,
         );
         assert!(said.contains("A greeter."));
         assert!(said.contains("No CI."));
@@ -617,15 +670,46 @@ mod pull_request_body_tests {
     /// would be the app deciding it knows better.
     #[test]
     fn what_somebody_typed_wins() {
-        let said = pull_request_body("  Adds the greeter.  ", Some("## What I built\nX".into()));
+        let said = pull_request_body(
+            "  Adds the greeter.  ",
+            Some("## What I built\nX".into()),
+            None,
+        );
         assert_eq!(said, "Adds the greeter.");
+    }
+
+    /// **Which work this answers, first.** A reviewer landing on a branch
+    /// called `feature/9-checkout` should not have to go and look up what was
+    /// asked for, and the app is the only thing that knows.
+    #[test]
+    fn the_work_item_is_named_first_whatever_else_the_body_says() {
+        let with_record = pull_request_body(
+            "",
+            Some("## What I built
+A greeter.".into()),
+            Some((9, "Ask for a name and greet it")),
+        );
+        assert!(with_record.starts_with("**Work item #9: Ask for a name and greet it**"));
+        assert!(with_record.contains("A greeter."));
+
+        // Typed words still win, and still come after what they are about.
+        let typed = pull_request_body("Adds the greeter.", None, Some((9, "Ask for a name")));
+        assert!(typed.starts_with("**Work item #9: Ask for a name**"));
+        assert!(typed.ends_with("Adds the greeter."));
+
+        // And with nothing else to say, the work item is the whole body rather
+        // than a heading over emptiness.
+        assert_eq!(
+            pull_request_body("", None, Some((9, "Ask for a name"))),
+            "**Work item #9: Ask for a name**",
+        );
     }
 
     /// Nothing to say rather than something invented: a description made of the
     /// branch name and a date tells a reviewer nothing they cannot already see.
     #[test]
     fn no_record_and_no_words_is_an_empty_description() {
-        assert_eq!(pull_request_body("", None), "");
-        assert_eq!(pull_request_body("   ", None), "");
+        assert_eq!(pull_request_body("", None, None), "");
+        assert_eq!(pull_request_body("   ", None, None), "");
     }
 }

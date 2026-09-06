@@ -40,9 +40,16 @@ export default function SolutionRepo({
   solution,
   githubConnected,
   runId,
+  pullRequestUrl,
   onChange,
 }: {
   solution: Solution;
+  /** The pull request already opened from this run's branch, when there is one.
+   *
+   *  **Passed in rather than read here.** The run row carries it, and the panel
+   *  that knows about the run is the one that has it — a second read for a
+   *  string somebody already holds is a round trip for nothing. */
+  pullRequestUrl?: string;
   /** The run being looked at, when one is. **Its branch and its commits are in
    *  its own checkout** — reading the Solution's folder said "on main, nothing
    *  changed" while an agent's work sat finished next door. */
@@ -428,6 +435,18 @@ export default function SolutionRepo({
         open={isOpen("github")}
         onToggle={() => toggle("github")}
       >
+      {linked && pullRequestUrl && (
+        <p className="repo-pr-open">
+          {/* **The link outlives the notice.** Opening one said its URL once, in
+              a message that goes when the panel reloads — and then the only way
+              back to a review of your own work was to find it on GitHub. */}
+          Pull request open:{" "}
+          <a href={pullRequestUrl} target="_blank" rel="noreferrer">
+            {pullRequestUrl.replace(/^https?:\/\/(www\.)?github\.com\//, "")}
+          </a>
+        </p>
+      )}
+
       {linked && (
         <div className="repo-pr">
           {/* **The last step of a run, which used to leave the app.** An agent's

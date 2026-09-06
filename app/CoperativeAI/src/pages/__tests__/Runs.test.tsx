@@ -50,6 +50,8 @@ const job = (over: Partial<AiJob> = {}): AiJob => ({
 });
 
 const run = (over: Partial<Run> = {}): Run => ({
+  // No pull request until something opens one, which is every run at first.
+  pullRequestUrl: "",
   id: 0,
   workItemId: 9,
   workItemTitle: "Add checkout",

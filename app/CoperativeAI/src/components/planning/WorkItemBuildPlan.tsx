@@ -54,6 +54,7 @@ export default function WorkItemBuildPlan({
   solutions,
   view: chosenView,
   runId,
+  pullRequestUrl,
 }: {
   item: WorkItem;
   /** The Product's Solutions — the candidates this work can affect. */
@@ -68,6 +69,9 @@ export default function WorkItemBuildPlan({
   /** The run being looked at, so the Git view reports on its checkout rather
    *  than on the default branch. */
   runId?: number;
+  /** The pull request already opened from that run, so the Git view can show
+   *  it rather than only the notice that announced it. */
+  pullRequestUrl?: string;
 }) {
   const [plans, setPlans] = useState<WorkItemPlan[]>([]);
   const [questions, setQuestions] = useState<AiFeedback[]>([]);
@@ -540,6 +544,7 @@ export default function WorkItemBuildPlan({
                 <SolutionRepo
                   key={p.id}
                   runId={runId}
+                  pullRequestUrl={pullRequestUrl}
                   solution={sol}
                   onChange={() => void refresh()}
                 />

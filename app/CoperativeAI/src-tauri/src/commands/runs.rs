@@ -29,6 +29,9 @@ pub struct RunDto {
     pub terminal_id: String,
     pub brief_path: String,
     pub files_changed: i64,
+    /// The pull request opened from this run's branch, if one has been. Carried
+    /// on the row so the link outlives the notice that announced it.
+    pub pull_request_url: String,
     /// Whether this pair's plan has been approved. Carried on the run rather
     /// than looked up per row by the panel, so "Start all (n)" can count what
     /// would actually start instead of offering a number that starts nothing.
@@ -95,6 +98,9 @@ pub async fn list_runs(db: State<'_, AppDb>, product_id: i64) -> Result<Vec<RunD
                 terminal_id: existing.map(|r| r.terminal_id.clone()).unwrap_or_default(),
                 brief_path: existing.map(|r| r.brief_path.clone()).unwrap_or_default(),
                 files_changed: existing.map(|r| r.files_changed).unwrap_or(0),
+                pull_request_url: existing
+                    .map(|r| r.pull_request_url.clone())
+                    .unwrap_or_default(),
                 plan_approved: plan.approved_at > 0,
             });
         }

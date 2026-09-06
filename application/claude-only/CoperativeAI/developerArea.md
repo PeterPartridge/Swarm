@@ -5426,3 +5426,73 @@ cargo 768/768 (23 ignored), Vitest 760/760, `tsc --noEmit`, clippy
   checklist reports but does not enforce; no logging outside Develop; no Admin
   UI for the routing defaults; no way to reset the pane sizes; the ship rail is
   not resizable.
+
+## Round 101 — the request knows what it is for
+
+### My Feedback
+
+> link the pull request to the work item
+
+### Implemented
+
+**Both directions, because a link with one end is a note.**
+
+Towards the work item: the request opens with `**Work item #9: Ask for a name
+and greet it**`, before whatever else the body says. A reviewer landing on a
+branch called `feature/9-checkout` should not have to go and look up what was
+asked for, and the app is the only thing that knows. The title defaults to the
+work item's own words too — "hello-world: AskForName" says which branch and
+nothing about what it is for, which is the half a reviewer needs.
+
+Towards the request: the URL is kept on the run and shown in the Git panel. It
+was said once, in a notice that goes when the panel reloads, and after that the
+only way back to a review of your own work was to find it on GitHub.
+
+**On the run, not the work item.** A work item can be built more than once —
+attempt three of the same story is its own branch and its own request — and one
+URL hung off the item would have the second attempt overwrite the first's link
+to a review that may still be open.
+
+### Tests
+
+The body is a pure function of three things, so the fourth case joins the other
+three: the work item is named first whatever else the body says, typed words
+still win and still come after what they are about, and with nothing else to say
+the work item *is* the body rather than a heading over emptiness.
+
+cargo 769/769 (23 ignored), Vitest 760/760, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean.
+
+### Your Feedback
+
+- **A test flaked.** `SprintManager > lists sprints with their dates` failed
+  once in a full run and passed on the next two, with nothing between. I have
+  not chased it and I am not going to pretend I did — a suite with one
+  intermittent failure is a suite people learn to re-run, which is how a real
+  failure gets ignored. Worth a look on its own.
+- The link is one-way in the database: the run knows its request, and nothing
+  asks GitHub whether that request is still open, merged or closed. The panel
+  will say "Pull request open" about a request somebody merged a week ago.
+- Nothing puts the request on the ship rail, where "is this shipped?" is
+  actually being asked.
+
+### Technical Debt
+
+- `SprintManager > lists sprints with their dates` is intermittent.
+- The stored pull request has no state — open, merged and closed all read the
+  same.
+- The ship rail does not mention the request.
+- Carried: the whole record goes into the description with no trimming; sync
+  always rebases with no shared-branch warning; the conflict commands still read
+  the Solution's folder; auto-running tests has no setting; per-test reasons for
+  cargo, pytest, dotnet and go; the test-file path is matched by convention;
+  nothing notices an agent has finished; `write_solution_file` saves to the
+  Solution's folder; no per-file diff; nothing advertises the right-click menu;
+  no answer to "should a new attempt start from a clean checkout?"; probe
+  freshness is a number in the code; splitting prose is guesswork; the review is
+  not refreshed on the work signal; nothing distinguishes a scoring list from an
+  enforcing one; a policy tightened mid-run does not stop a running agent; no
+  template-already-inserted warning; no locale-assertion guard; no "run the
+  regression suite" action; the lifecycle checklist reports but does not
+  enforce; no logging outside Develop; no Admin UI for the routing defaults; no
+  way to reset the pane sizes; the ship rail is not resizable.

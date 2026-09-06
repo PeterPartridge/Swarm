@@ -2786,6 +2786,9 @@ export interface Run {
   terminalId: string;
   briefPath: string;
   filesChanged: number;
+  /** The pull request opened from this run's branch, if one has been — kept on
+   *  the run so the link outlives the notice that announced it. */
+  pullRequestUrl: string;
   /** Whether this pair's plan has been approved. A run refuses to start
    *  without it, so "Start all" counts only these. */
   planApproved: boolean;

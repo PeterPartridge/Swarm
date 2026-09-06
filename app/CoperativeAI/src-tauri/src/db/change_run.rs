@@ -30,11 +30,18 @@ pub struct ChangeRun {
     pub worktree_path: String,
     /// The terminal it is running in, so its output can be found again.
     pub terminal_id: String,
+    /// The pull request opened from this run's branch, once one has been.
+    ///
+    /// **On the run rather than on the work item.** A work item can be built
+    /// more than once — attempt three of the same story is its own branch and
+    /// its own request — and hanging one URL off the item would have the second
+    /// attempt overwrite the first's link to a review that may still be open.
+    pub pull_request_url: String,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
-const SELECT: &str = "SELECT id, workItemId, solutionId, state, briefPath, findings, filesChanged, worktreePath, terminalId, createdAt, updatedAt FROM change_runs";
+const SELECT: &str = "SELECT id, workItemId, solutionId, state, briefPath, findings, filesChanged, worktreePath, terminalId, pullRequestUrl, createdAt, updatedAt FROM change_runs";
 
 pub async fn create_table(conn: &Connection) -> Result<()> {
     conn.execute(
@@ -48,6 +55,7 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             filesChanged INTEGER NOT NULL DEFAULT 0,
             worktreePath TEXT NOT NULL DEFAULT '',
             terminalId TEXT NOT NULL DEFAULT '',
+            pullRequestUrl TEXT NOT NULL DEFAULT '',
             createdAt INTEGER NOT NULL,
             updatedAt INTEGER NOT NULL
         )",
@@ -67,11 +75,29 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             "terminalId",
             "ALTER TABLE change_runs ADD COLUMN terminalId TEXT NOT NULL DEFAULT ''",
         ),
+        (
+            "pullRequestUrl",
+            "ALTER TABLE change_runs ADD COLUMN pullRequestUrl TEXT NOT NULL DEFAULT ''",
+        ),
     ] {
         if has_table && !columns.iter().any(|c| c == name) {
             conn.execute(ddl, ()).await?;
         }
     }
+    Ok(())
+}
+
+/// Records the pull request opened from this run's branch.
+///
+/// **So the link survives the press.** Opening a request said its URL once, in
+/// a notice that goes when the panel reloads — and then the only way back to a
+/// review of your own work was to go and find it on GitHub.
+pub async fn set_pull_request(conn: &Connection, id: i64, url: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE change_runs SET pullRequestUrl = ?1, updatedAt = ?2 WHERE id = ?3",
+        (url, now_millis(), id),
+    )
+    .await?;
     Ok(())
 }
 
@@ -278,8 +304,9 @@ fn row_to_run(row: turso::Row) -> Result<ChangeRun> {
         files_changed: row.get(6)?,
         worktree_path: row.get(7)?,
         terminal_id: row.get(8)?,
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
+        pull_request_url: row.get(9)?,
+        created_at: row.get(10)?,
+        updated_at: row.get(11)?,
     })
 }
 

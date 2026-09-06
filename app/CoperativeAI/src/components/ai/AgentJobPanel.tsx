@@ -344,6 +344,7 @@ export default function AgentJobPanel({
             solutions={solutions}
             view="git"
             runId={run?.id}
+            pullRequestUrl={run?.pullRequestUrl}
           />
         )}
 

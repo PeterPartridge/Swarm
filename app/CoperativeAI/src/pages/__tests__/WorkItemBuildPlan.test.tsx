@@ -824,6 +824,7 @@ describe("once there is a plan", () => {
     mocked.listWorkItemPlans.mockResolvedValue([planned]);
     mocked.listRuns.mockResolvedValue([
       {
+      pullRequestUrl: "",
         id: 4,
         workItemId: 12,
         workItemTitle: "Add checkout",
