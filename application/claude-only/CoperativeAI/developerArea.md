@@ -5496,3 +5496,87 @@ cargo 769/769 (23 ignored), Vitest 760/760, `tsc --noEmit`, clippy
   regression suite" action; the lifecycle checklist reports but does not
   enforce; no logging outside Develop; no Admin UI for the routing defaults; no
   way to reset the pane sizes; the ship rail is not resizable.
+
+## Round 102 — one card, and a tab strip that is not the odd one out
+
+### My Feedback
+
+You asked whether the work area follows the style of the AI assistant and the
+right-hand tab. It did not, and the measurement said so more sharply than an
+opinion could: the rail wrote `.ship-card`, the Work area's briefing wrote
+`.briefing-block`, and the two rules were the same raised surface, the same
+border token, the same head with a value pushed to the right — differing by a
+padding of 0.05rem and a radius of one pixel. That is not two styles. It is one
+style and a typo's worth of drift, which is exactly why the two areas looked
+*almost* alike in a way nobody could name.
+
+You chose card everywhere, collapsible only where it earns it, and that is what
+this is. `Card` is a component now, with a title, the answer to its own question
+on the right, and a tone that colours the answer — "3 files", "written", "not
+planned". Ten blocks moved onto it: four on the ship rail, six in the Work
+area's readiness. `Group`, the collapsible line, stays where a panel holds long
+lists somebody scrolls past — the AI feedback panel's four, the git panel's
+four. A card holds one short answer, and hiding two words behind a press is a
+cost with nothing bought.
+
+Two smaller things fell out of the same look. Nine stylesheet rules each set
+`h3` to the same size and the same margin; there is one rule now, with four
+deliberate overrides where a heading sits flush. And the headings stay `<h3>`
+rather than becoming styled spans, because a heading is real document structure
+and a screen reader navigates by it — looking alike and being alike are
+different questions.
+
+The rail's tab strip was the last hand-rolled one in the app: two buttons with
+their own `role="tab"`, their own selected class, their own stylesheet, while
+Develop, Admin, the build plan and the Work views all used `SectionTabs`. The
+odd one out was the rail, not the Work area. It uses the shared strip now, and
+inherits what the shared strip already knows — that below 52rem a row of tabs
+wraps onto three lines and should become a select.
+
+That last move broke something quietly, which is the part worth keeping. The
+stylesheet still spoke about `.ship-tab` and `.ship-tab.on` — classes the rail
+used to write for itself and no longer renders. Nothing errors when a selector
+matches nothing; the strip would have gone on rendering, unstyled, and the only
+sign would have been that it looked wrong. The rules point at what `SectionTabs`
+actually renders now, as two-class selectors so they beat plain `.section-tabs`
+wherever it happens to sit in the file — a rule that only worked because it came
+later would break the day somebody moved it. A test reads the stylesheet and
+holds that.
+
+cargo 769/769 (23 ignored), Vitest 764/764, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean.
+
+### Your Feedback
+
+- **56 class selectors in the stylesheet match nothing I can find.** I counted
+  while chasing `.ship-tab`. Some are false alarms — `state-blocked`,
+  `kind-folder`, `run-passed` and friends are built from template literals, so a
+  plain search cannot see them — but not 56 of them are. I have not deleted any,
+  because deleting a class that is really built at runtime breaks a screen
+  silently, and telling the two apart needs a pass over each one rather than a
+  regex.
+- The same style question applies to the buttons. Cards are shared now;
+  `button.primary`, `.ghost` and the several hand-written button rules are not,
+  and that is the next place a difference nobody can name will show up.
+
+### Technical Debt
+
+- 56 stylesheet class selectors have no matching source; some are runtime-built
+  and some are dead, and nothing yet distinguishes them.
+- Buttons have not had the pass cards just had.
+- Carried: `SprintManager > lists sprints with their dates` is intermittent; the
+  stored pull request has no state; the ship rail does not mention the request;
+  the whole record goes into the description with no trimming; sync always
+  rebases with no shared-branch warning; the conflict commands still read the
+  Solution's folder; auto-running tests has no setting; per-test reasons for
+  cargo, pytest, dotnet and go; the test-file path is matched by convention;
+  nothing notices an agent has finished; `write_solution_file` saves to the
+  Solution's folder; no per-file diff; nothing advertises the right-click menu;
+  no answer to "should a new attempt start from a clean checkout?"; probe
+  freshness is a number in the code; splitting prose is guesswork; the review is
+  not refreshed on the work signal; nothing distinguishes a scoring list from an
+  enforcing one; a policy tightened mid-run does not stop a running agent; no
+  template-already-inserted warning; no locale-assertion guard; no "run the
+  regression suite" action; the lifecycle checklist reports but does not
+  enforce; no logging outside Develop; no Admin UI for the routing defaults; no
+  way to reset the pane sizes; the ship rail is not resizable.

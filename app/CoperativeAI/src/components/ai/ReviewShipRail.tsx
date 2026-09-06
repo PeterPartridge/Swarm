@@ -1,4 +1,6 @@
 import { useState } from "react";
+import Card from "../common/Card";
+import SectionTabs from "../common/SectionTabs";
 import type { ChangeReview, FileChange, Run, Solution } from "../../lib/backend";
 import { clearFailure, useLastFailure } from "../../lib/failures";
 
@@ -129,26 +131,21 @@ export default function ReviewShipRail({
         </div>
       )}
 
-      <div className="ship-tabs" role="tablist" aria-label="Rail panels">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "ship"}
-          className={tab === "ship" ? "ship-tab on" : "ship-tab"}
-          onClick={() => setTab("ship")}
-        >
-          Review &amp; ship
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "inspect"}
-          className={tab === "inspect" ? "ship-tab on" : "ship-tab"}
-          onClick={() => setTab("inspect")}
-        >
-          Inspect
-        </button>
-      </div>
+      {/* **The shared strip, like every other tab row in the app.** This was
+          hand-rolled — two buttons with their own `role="tab"`, their own
+          selected class and their own stylesheet — while Develop, Admin, the
+          build plan and the Work views all used `SectionTabs`. The odd one out
+          was the rail, not the Work area. */}
+      <SectionTabs
+        label="Rail panels"
+        className="ship-tabs"
+        options={[
+          { id: "ship", label: "Review & ship" },
+          { id: "inspect", label: "Inspect" },
+        ]}
+        active={tab}
+        onSelect={(id) => setTab(id as "ship" | "inspect")}
+      />
 
       {tab === "ship" && (
         <div className="ship-body">
@@ -193,13 +190,14 @@ export default function ReviewShipRail({
             ))}
           </ul>
 
-          <div className="ship-card">
-            <div className="ship-card-head">
-              <span>Diff summary</span>
+          <Card
+            title="Diff summary"
+            aside={
               <span className="card-mono">
                 {report ? `${report.filesChanged} files` : "—"}
               </span>
-            </div>
+            }
+          >
             <div className="diff-bar" aria-hidden="true">
               <span
                 className="diff-add"
@@ -217,7 +215,7 @@ export default function ReviewShipRail({
             <button type="button" onClick={onReview} disabled={reviewing || solution === null}>
               {reviewing ? "Reading…" : review === null ? "Review what changed" : "Read it again"}
             </button>
-          </div>
+          </Card>
 
           {violations.length > 0 && (
             <div className="ship-blocker" role="status">
@@ -241,10 +239,7 @@ export default function ReviewShipRail({
             </p>
           )}
 
-          <div className="ship-card">
-            <div className="ship-card-head">
-              <span>Where it lands</span>
-            </div>
+          <Card title="Where it lands">
             <p className="ship-branch">
               <span className="card-mono hue">{run?.branch || "no branch"}</span>
               <span aria-hidden="true">→</span>
@@ -254,7 +249,7 @@ export default function ReviewShipRail({
               The app records your decision against the handover. Files stay as
               they are — use Git to actually merge or revert.
             </p>
-          </div>
+          </Card>
 
           {/* Never gated on the checks: keeping a change over a broken rule is
               a decision somebody is allowed to make, and it is recorded as
@@ -299,7 +294,9 @@ export default function ReviewShipRail({
             <p className="hint">Pick a file in the tree to see what is known about it.</p>
           ) : (
             <>
-              <div className="ship-card">
+              {/* No title: the body is the file's own name, and "File" above it
+                  would be a label saying what is already obvious. */}
+              <Card>
                 <strong className="inspect-name">{selectedPath.split("/").pop()}</strong>
                 <p className="card-mono inspect-path">{selectedPath}</p>
                 <div className="inspect-chips">
@@ -308,12 +305,9 @@ export default function ReviewShipRail({
                     {selectedChange ? selectedChange.status : "unchanged"}
                   </span>
                 </div>
-              </div>
+              </Card>
 
-              <div className="ship-card">
-                <div className="ship-card-head">
-                  <span>Working copy</span>
-                </div>
+              <Card title="Working copy">
                 <dl className="inspect-rows">
                   <div>
                     <dt>Status</dt>
@@ -338,7 +332,7 @@ export default function ReviewShipRail({
                     <dd className="card-mono">{solution?.localPath ?? "not set"}</dd>
                   </div>
                 </dl>
-              </div>
+              </Card>
 
               {/* Deliberately no size, coverage or owner: the app does not read
                   any of the three, and inventing them here would put four

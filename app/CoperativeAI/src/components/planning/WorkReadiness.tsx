@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Card from "../common/Card";
 import { isPlanned, parseFiles } from "../../lib/plan";
 import { useWorkChanged } from "../../lib/workSignal";
 import {
@@ -358,13 +359,11 @@ export default function WorkReadiness({
               </span>
             </div>
 
-            <div className="briefing-block">
-              <div className="briefing-block-head">
-                <span>What is asked for</span>
-                <span className={chosen.item.description ? "ok" : "warn"}>
-                  {chosen.item.description ? "written" : "missing"}
-                </span>
-              </div>
+            <Card
+              title="What is asked for"
+              tone={chosen.item.description ? "ok" : "warn"}
+              aside={chosen.item.description ? "written" : "missing"}
+            >
               {chosen.item.description ? (
                 <p className="briefing-text">{chosen.item.description}</p>
               ) : (
@@ -373,15 +372,13 @@ export default function WorkReadiness({
                   Product.
                 </p>
               )}
-            </div>
+            </Card>
 
-            <div className="briefing-block">
-              <div className="briefing-block-head">
-                <span>Solutions affected</span>
-                <span className={plans.length > 0 ? "ok" : "warn"}>
-                  {plans.length > 0 ? `${plans.length}` : "none"}
-                </span>
-              </div>
+            <Card
+              title="Solutions affected"
+              tone={plans.length > 0 ? "ok" : "warn"}
+              aside={plans.length > 0 ? `${plans.length}` : "none"}
+            >
               {plans.length === 0 ? (
                 <p className="hint">
                   No Solution attached, so nothing says which repository this
@@ -403,7 +400,7 @@ export default function WorkReadiness({
                   ))}
                 </ul>
               )}
-            </div>
+            </Card>
 
             {/* **What the AI planned, on the screen that claims to show what
                 an agent is handed.** The briefing listed the branch, the tests
@@ -411,13 +408,11 @@ export default function WorkReadiness({
                 one view whose whole job is "here is what would go" was the one
                 place the plan could not be read. Same parser as the planning
                 tab, so the two cannot disagree about what the plan says. */}
-            <div className="briefing-block">
-              <div className="briefing-block-head">
-                <span>What the AI planned</span>
-                <span className={isPlanned(plans) ? "ok" : "warn"}>
-                  {isPlanned(plans) ? "planned" : "not planned"}
-                </span>
-              </div>
+            <Card
+              title="What the AI planned"
+              tone={isPlanned(plans) ? "ok" : "warn"}
+              aside={isPlanned(plans) ? "planned" : "not planned"}
+            >
               {plans.filter((p) => p.filesToChange.trim() !== "").length === 0 ? (
                 <p className="hint">
                   The AI has not planned this yet. Open the build plan and press
@@ -445,15 +440,13 @@ export default function WorkReadiness({
                     </div>
                   ))
               )}
-            </div>
+            </Card>
 
-            <div className="briefing-block">
-              <div className="briefing-block-head">
-                <span>Test plan</span>
-                <span className={plans.some((p) => p.unitTests.trim()) ? "ok" : "warn"}>
-                  {plans.some((p) => p.unitTests.trim()) ? "written" : "missing"}
-                </span>
-              </div>
+            <Card
+              title="Test plan"
+              tone={plans.some((p) => p.unitTests.trim()) ? "ok" : "warn"}
+              aside={plans.some((p) => p.unitTests.trim()) ? "written" : "missing"}
+            >
               {plans.some((p) => p.unitTests.trim()) ? (
                 <ul className="briefing-lines">
                   {plans.flatMap((p) =>
@@ -470,17 +463,17 @@ export default function WorkReadiness({
                   is what you would hold it to.
                 </p>
               )}
-            </div>
+            </Card>
 
-            <div className="briefing-block">
-              <div className="briefing-block-head">
-                <span>Context</span>
-                <span className={unresolved.length === 0 ? "ok" : "warn"}>
-                  {unresolved.length === 0
-                    ? "nothing blocking"
-                    : `${unresolved.length} open`}
-                </span>
-              </div>
+            <Card
+              title="Context"
+              tone={unresolved.length === 0 ? "ok" : "warn"}
+              aside={
+                unresolved.length === 0
+                  ? "nothing blocking"
+                  : `${unresolved.length} open`
+              }
+            >
               {/* What has to change, per Solution — the item-wide notes box it
                   used to read went on 2026-08-21. */}
               {plans
@@ -507,15 +500,13 @@ export default function WorkReadiness({
                     working from the description alone.
                   </p>
                 )}
-            </div>
+            </Card>
 
-            <div className="briefing-block">
-              <div className="briefing-block-head">
-                <span>Still needed</span>
-                <span className={chosen.met === chosen.checks.length ? "ok" : "warn"}>
-                  {chosen.met} of {chosen.checks.length}
-                </span>
-              </div>
+            <Card
+              title="Still needed"
+              tone={chosen.met === chosen.checks.length ? "ok" : "warn"}
+              aside={`${chosen.met} of ${chosen.checks.length}`}
+            >
               {chosen.met === chosen.checks.length ? (
                 <p className="hint">
                   Nothing. Open the build plan to approve and start it.
@@ -531,7 +522,7 @@ export default function WorkReadiness({
                     ))}
                 </ul>
               )}
-            </div>
+            </Card>
 
             {/* Not a model picker. Which model and how hard it tries is the work
                 item's policy, set once in its policy editor — offering a second

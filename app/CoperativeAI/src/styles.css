@@ -26,6 +26,29 @@
   display: none !important;
 }
 
+/* **A panel's own heading, said once.** Nine rules across this file gave `h3`
+   the same two properties — five with a margin under it, four flush — because
+   each panel that wanted a heading wrote the rule again rather than finding the
+   one before it. The panels that genuinely differ (the merge head's monospace,
+   the ready head's larger one) still override this; the nine that did not, do
+   not need to.
+
+   It stays an `h3` rather than becoming a styled span: a heading is real
+   document structure and a screen reader navigates by it, which a label cannot
+   do. Looking alike and being alike are different questions. */
+h3 {
+  margin: 0 0 0.3rem;
+  font-size: 0.85rem;
+}
+
+/* Flush where the panel puts its own space under the head. */
+.figma-link h3,
+.strategy-head h3,
+.budget-panel h3,
+.product-ai-policy h3 {
+  margin: 0;
+}
+
 :root {
   --tab-product: #7c3aed;
   --tab-develop: #2563eb;
@@ -1874,10 +1897,6 @@ code {
   font-size: 0.8rem;
 }
 
-.solution-box h3 {
-  margin: 0 0 0.3rem;
-  font-size: 0.85rem;
-}
 
 /* A reviewer needs which lines arrived and which left before anything else. */
 .diff-added {
@@ -2499,10 +2518,6 @@ code {
   margin-bottom: 0.75rem;
 }
 
-.sprint-manager h3 {
-  margin: 0 0 0.3rem;
-  font-size: 0.85rem;
-}
 
 .sprint-list {
   list-style: none;
@@ -2531,10 +2546,6 @@ code {
   gap: 0.75rem;
 }
 
-.developer-planning h3 {
-  margin: 0 0 0.3rem;
-  font-size: 0.85rem;
-}
 
 .developer-planning .field {
   display: flex;
@@ -2657,10 +2668,6 @@ code {
   gap: 0.4rem;
 }
 
-.figma-link h3 {
-  margin: 0;
-  font-size: 0.85rem;
-}
 
 .figma-link .field {
   display: flex;
@@ -3272,10 +3279,6 @@ code {
   gap: 0.5rem;
 }
 
-.strategy-head h3 {
-  margin: 0;
-  font-size: 0.85rem;
-}
 
 .strategy-text {
   white-space: pre-wrap;
@@ -3452,10 +3455,6 @@ code {
   font-size: 0.8rem;
 }
 
-.budget-panel h3 {
-  margin: 0;
-  font-size: 0.85rem;
-}
 
 .budget-panel form {
   display: flex;
@@ -3547,10 +3546,6 @@ code {
   font-size: 0.8rem;
 }
 
-.product-ai-policy h3 {
-  margin: 0;
-  font-size: 0.85rem;
-}
 
 .product-ai-policy label {
   display: flex;
@@ -4204,10 +4199,6 @@ code {
   padding-top: 0.5rem;
   font-size: 0.8rem;
 }
-.ai-panel h3 {
-  margin: 0 0 0.3rem;
-  font-size: 0.85rem;
-}
 
 .ai-choice {
   display: flex;
@@ -4241,10 +4232,6 @@ code {
   margin-top: 0.5rem;
   padding-top: 0.5rem;
   font-size: 0.8rem;
-}
-.dev-server-panel h3 {
-  margin: 0 0 0.3rem;
-  font-size: 0.85rem;
 }
 .dev-command {
   display: flex;
@@ -5901,16 +5888,26 @@ code {
   border-left: 1px solid var(--line-soft);
 }
 
-.ship-tabs {
-  display: flex;
+/* The rail's tab row is a segmented control rather than a plain row of tabs:
+   two equal halves in a tinted trough, because the rail is 18rem wide and two
+   labels want the whole of it.
+
+   `SectionTabs` renders the markup now, so these select what it renders rather
+   than a `.ship-tab` class the rail used to write itself. Both are two-class
+   selectors so they beat plain `.section-tabs` wherever it happens to sit in
+   this file — a rule that only worked because it came later would break the
+   day somebody moved it. Neither matches the narrow-window form, which is a
+   select and has no business in a trough. */
+.section-tabs.ship-tabs {
   gap: 0.15rem;
   flex: none;
+  flex-wrap: nowrap;
   padding: 0.15rem;
   background: color-mix(in srgb, var(--fg) 7%, transparent);
   border-radius: 8px;
 }
 
-.ship-tab {
+.section-tabs.ship-tabs button {
   flex: 1;
   padding: 0.35rem 0;
   background: transparent;
@@ -5922,7 +5919,7 @@ code {
   cursor: pointer;
 }
 
-.ship-tab.on {
+.section-tabs.ship-tabs .view-active {
   background: var(--info-tint);
   color: var(--fg-bright);
 }
@@ -6056,18 +6053,24 @@ code {
   color: var(--fg-dim);
 }
 
-.ship-card {
+/* A titled block of a panel. This was written twice — `.ship-card` on the ship
+   rail and `.briefing-block` in the Work area's briefing — as the same raised
+   surface with the same border, differing by 0.05rem of padding and one pixel
+   of radius. Two areas looked *almost* alike in a way nobody could name. */
+.panel-card {
   padding: 0.6rem 0.65rem;
   background: var(--raised);
   border: 1px solid var(--line-soft);
   border-radius: 10px;
 }
 
-.ship-card > * + * {
+.panel-card > * + * {
   margin-top: 0.5rem;
 }
 
-.ship-card-head {
+/* The head: what the card is about, and the answer to that on the right — which
+   is what makes a column of these readable without reading any of the bodies. */
+.panel-card-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -6077,6 +6080,11 @@ code {
   letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--fg-muted);
+}
+
+/* The answer on the right is read as words, not as a label. */
+.panel-card-head > span:last-child {
+  letter-spacing: 0.03em;
 }
 
 .diff-bar {
@@ -7060,31 +7068,7 @@ button.ready-action.link:hover {
   line-height: 1.3;
 }
 
-.briefing-block {
-  padding: 0.55rem 0.6rem;
-  background: var(--raised);
-  border: 1px solid var(--line-soft);
-  border-radius: 9px;
-}
-
-.briefing-block-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin-bottom: 0.4rem;
-  font-size: 0.62rem;
-  font-weight: 800;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--fg-muted);
-}
-
-.briefing-block-head > span:last-child {
-  letter-spacing: 0.03em;
-}
-
-.briefing-block .hint {
+.panel-card .hint {
   margin: 0;
 }
 

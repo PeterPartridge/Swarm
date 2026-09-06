@@ -40,3 +40,28 @@ describe("the stylesheet's colour tokens", () => {
     expect([...missing]).toEqual([]);
   });
 });
+
+/** **Styling a shared component means styling what it renders.**
+ *
+ *  The ship rail used to hand-roll its own tab strip, so its stylesheet spoke
+ *  about `.ship-tab` and `.ship-tab.on` — classes the rail itself wrote. Moving
+ *  the strip onto `SectionTabs` changed the markup to `button` and
+ *  `.view-active` and left those two rules matching nothing at all. The strip
+ *  would have gone on rendering, unstyled, with no error anywhere: dead CSS is
+ *  as quiet as an undefined token.
+ *
+ *  So a `className` handed to a shared component may only decorate that
+ *  component's own markup. */
+describe("styles for shared components", () => {
+  const css = readFileSync(join(process.cwd(), "src/styles.css"), "utf8").replace(
+    /\/\*[\s\S]*?\*\//g,
+    "",
+  );
+
+  it("styles the rail's tab strip through what SectionTabs renders", () => {
+    expect(css).toContain(".section-tabs.ship-tabs button");
+    expect(css).toContain(".section-tabs.ship-tabs .view-active");
+    // The classes the rail used to write for itself.
+    expect(css).not.toMatch(/\.ship-tab[\s.,{]/);
+  });
+});
