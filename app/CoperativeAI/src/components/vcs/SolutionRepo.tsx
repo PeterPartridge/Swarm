@@ -1,64 +1,23 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   branchHistory,
+  checkoutChanges,
+  commitSolution,
   createSolutionRepo,
   githubStatus,
   initSolutionRepo,
   linkSolutionRepo,
+  openPullRequest,
   setSolutionPath,
   solutionGitState,
+  syncSolution,
   type Commit,
+  type FileChange,
   type Solution,
   type SolutionGitState,
 } from "../../lib/backend";
 import FolderField from "../common/FolderField";
-
-/** One of the three questions this panel answers: a line, and what is under it.
- *
- *  **Three lines, not three stacked blocks.** Everything the panel can do was
- *  visible at once — a folder field, an init button, a commit list, two forms —
- *  which is a lot of screen for something usually glanced at. Each question is
- *  a line carrying its own answer, and opens when it is the one being asked.
- *
- *  The summary is on the line itself, so the ordinary reason for looking — what
- *  branch am I on, has anything been committed, is this on GitHub — is answered
- *  without opening anything. */
-function RepoGroup({
-  title,
-  summary,
-  tone,
-  open,
-  onToggle,
-  children,
-}: {
-  title: string;
-  summary: string;
-  /** "warn" when the summary is a problem, so the line reads as one. */
-  tone?: "warn";
-  open: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="repo-group">
-      <button
-        type="button"
-        className="repo-group-line"
-        aria-expanded={open}
-        onClick={onToggle}
-      >
-        <span className="repo-caret" aria-hidden="true">
-          {open ? "▾" : "▸"}
-        </span>
-        <span className="palette-label">{title}</span>
-        <span className={tone === "warn" ? "repo-summary warn" : "repo-summary"}>
-          {summary}
-        </span>
-      </button>
-      {open && <div className="repo-group-body">{children}</div>}
-    </div>
-  );
-}
+import Group from "../common/Group";
 
 /** One Solution's git situation, and every way out of it.
  *
@@ -105,6 +64,14 @@ export default function SolutionRepo({
   /// branch, and nothing about what had been done on it.
   const [commits, setCommits] = useState<Commit[]>([]);
   const [connected, setConnected] = useState(githubConnected ?? false);
+  /// What is sitting uncommitted — "work to commit", which the panel could not
+  /// say. It could name the branch and list what had been committed, and said
+  /// nothing about the thing somebody is actually deciding about.
+  const [waiting, setWaiting] = useState<FileChange[]>([]);
+  const [message, setMessage] = useState("");
+  const [pushToo, setPushToo] = useState(false);
+  const [prTitle, setPrTitle] = useState("");
+  const [prBase, setPrBase] = useState("main");
 
   const load = useCallback(async () => {
     try {
@@ -126,6 +93,13 @@ export default function SolutionRepo({
       setCommits((await branchHistory(solution.id, 8, runId)) ?? []);
     } catch {
       setCommits([]);
+    }
+    try {
+      setWaiting((await checkoutChanges(solution.id, runId)) ?? []);
+    } catch {
+      // A folder that is not a repository has no changes to read, which the
+      // line above already says in words.
+      setWaiting([]);
     }
   }, [solution.id, runId]);
 
@@ -182,6 +156,40 @@ export default function SolutionRepo({
     );
   }
 
+  /// Commits everything in this checkout. The message is optional: `commit_all`
+  /// writes the file list when there is none, which is the honest default for
+  /// "keep this" and better than a form that refuses until somebody invents a
+  /// sentence.
+  async function onCommit() {
+    await run(async () => {
+      const result = await commitSolution(solution.id, message.trim(), pushToo, runId);
+      setMessage("");
+      setNotice(
+        result.committed
+          ? `Committed ${result.files.length} file${result.files.length === 1 ? "" : "s"}: ${result.message}`
+          : "Nothing to commit — this checkout is clean.",
+      );
+    });
+  }
+
+  async function onSync() {
+    await run(async () => setNotice(await syncSolution(solution.id, runId)));
+  }
+
+  async function onPullRequest() {
+    await run(async () =>
+      setNotice(
+        await openPullRequest({
+          solutionId: solution.id,
+          runId,
+          title: prTitle.trim() || `${solution.name}: ${state?.branch ?? "this branch"}`,
+          body: "",
+          base: prBase.trim(),
+        }),
+      ),
+    );
+  }
+
   async function onInit() {
     // Its own words, kept: "nothing was committed: Author identity unknown" is
     // the one failure people cannot guess their way out of.
@@ -219,6 +227,11 @@ export default function SolutionRepo({
         ? trouble
         : `on ${state.branch || "an unnamed branch"} · ${state.localPath}`;
 
+  const waitingSummary =
+    waiting.length === 0
+      ? "Nothing waiting — this checkout is clean"
+      : `${waiting.length} file${waiting.length === 1 ? "" : "s"} to commit`;
+
   const commitSummary =
     commits.length === 0
       ? "No commits yet"
@@ -232,6 +245,14 @@ export default function SolutionRepo({
     // <section>, not <div>: an aria-label on a div names nothing a screen
     // reader can find, and this panel is looked up by name in four places.
     <section className="solution-repo" aria-label={`Repository for ${solution.name}`}>
+      {/* **Above the groups, not inside one.** These sat where the GitHub form
+          used to be, which became the inside of a collapsed box — so a sync
+          started from another group reported into a section nobody could see.
+          What an action did belongs where the action's panel is, not where its
+          buttons happen to live. */}
+      {error && <p role="alert">{error}</p>}
+      {notice && <p className="note" role="status">{notice}</p>}
+
       {/* **Three questions, three groups.** This was one column of sentences,
           fields, buttons and two forms — everything the panel could do, in the
           order it had been written in, with no way to see at a glance which
@@ -241,7 +262,7 @@ export default function SolutionRepo({
 
           The folder comes first: a repository on GitHub is no use to a run that
           cannot make a worktree here. */}
-      <RepoGroup
+      <Group
         title={runId === undefined ? "Where the code is" : "This agent's checkout"}
         summary={checkoutSummary}
         tone={trouble === null ? undefined : "warn"}
@@ -302,12 +323,73 @@ export default function SolutionRepo({
           {busy ? "Working…" : state.isRepo ? "Make the first commit" : "Make it a git repository"}
         </button>
       )}
-      </RepoGroup>
+      </Group>
 
       {/* **What has been done to it.** The panel could say which repository and
           which branch and nothing about the work on it — "the git section is
           missing commit messages", and it was. */}
-      <RepoGroup
+      <Group
+        title="Work to commit"
+        summary={waitingSummary}
+        tone={waiting.length > 0 ? "warn" : undefined}
+        open={isOpen("waiting")}
+        onToggle={() => toggle("waiting")}
+      >
+        {waiting.length > 0 && (
+          <ul className="repo-waiting" aria-label={`Waiting to be committed in ${solution.name}`}>
+            {waiting.map((f) => (
+              <li key={f.path}>
+                <span className={`tree-status ${f.status}`}>
+                  {f.status.charAt(0).toUpperCase()}
+                </span>
+                <span className="card-mono">{f.path}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {/* **Optional on purpose.** `commit_all` writes the file list when there
+            is no message, which is the honest default for "keep this" — better
+            than a form that refuses until somebody invents a sentence. */}
+        <label className="field">
+          <span>Commit message</span>
+          <input
+            aria-label={`Commit message for ${solution.name}`}
+            placeholder="what this change does (optional)"
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+          />
+        </label>
+        <label className="repo-check">
+          <input
+            type="checkbox"
+            checked={pushToo}
+            onChange={(e) => setPushToo(e.target.checked)}
+          />
+          Push it as well
+        </label>
+        <div className="row-actions">
+          <button
+            aria-label={`Commit ${solution.name}`}
+            disabled={busy}
+            onClick={() => void onCommit()}
+          >
+            {busy ? "Working…" : "Commit"}
+          </button>
+          {/* Sync rather than pull and push as two presses: what people mean by
+              "catch up with everyone else" is both, in that order. */}
+          <button
+            aria-label={`Sync ${solution.name}`}
+            disabled={busy}
+            title="Pulls what is on the remote, rebasing, then pushes"
+            onClick={() => void onSync()}
+          >
+            Sync
+          </button>
+        </div>
+      </Group>
+
+      <Group
         title="Recent commits"
         summary={commitSummary}
         open={isOpen("commits")}
@@ -338,14 +420,48 @@ export default function SolutionRepo({
             ))}
           </ul>
         )}
-      </RepoGroup>
+      </Group>
 
-      <RepoGroup
+      <Group
         title="On GitHub"
         summary={githubSummary}
         open={isOpen("github")}
         onToggle={() => toggle("github")}
       >
+      {linked && (
+        <div className="repo-pr">
+          {/* **The last step of a run, which used to leave the app.** An agent's
+              work ends as a branch; turning it into something a person reviews
+              meant going to a browser and finding the button GitHub offers. The
+              branch is this checkout's — not a field, because which branch a
+              request comes *from* is not a thing to get wrong. */}
+          <label className="field">
+            <span>Pull request title</span>
+            <input
+              aria-label={`Pull request title for ${solution.name}`}
+              placeholder={`${solution.name}: ${state?.branch ?? "this branch"}`}
+              value={prTitle}
+              onChange={(e) => setPrTitle(e.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>Merging into</span>
+            <input
+              aria-label={`Pull request base for ${solution.name}`}
+              value={prBase}
+              onChange={(e) => setPrBase(e.target.value)}
+            />
+          </label>
+          <button
+            aria-label={`Open a pull request for ${solution.name}`}
+            disabled={busy}
+            onClick={() => void onPullRequest()}
+          >
+            {busy ? "Working…" : "Open a pull request"}
+          </button>
+        </div>
+      )}
+
       {linked ? (
         <span className="repo-linked">
           Repo:{" "}
@@ -382,9 +498,6 @@ export default function SolutionRepo({
           URL does not.
         </span>
       )}
-
-      {error && <p role="alert">{error}</p>}
-      {notice && <p className="note" role="status">{notice}</p>}
 
       {mode === "link" && (
         <form onSubmit={onLink} aria-label={`Link repository for ${solution.name}`}>
@@ -439,7 +552,7 @@ export default function SolutionRepo({
           </button>
         </form>
       )}
-      </RepoGroup>
+      </Group>
     </section>
   );
 }

@@ -473,8 +473,11 @@ describe("PlanningBoard", () => {
     mocked.resolveAiFeedback.mockResolvedValue(undefined);
     render(<PlanningBoard productId={7} />);
 
+    // The AI feedback panel is collapsible boxes now, in the shape the rest of
+    // Develop uses — so the questions list opens when it is asked for.
+    await user.click(await screen.findByRole("button", { name: /Questions the AI asked/ }));
     await user.type(
-      await screen.findByLabelText("Answer AI question 9"),
+      screen.getByLabelText("Answer AI question 9"),
       "Use Stripe.",
     );
     await user.click(screen.getByRole("button", { name: "Save answer to AI question 9" }));

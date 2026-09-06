@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import SolutionRepo from "../../components/vcs/SolutionRepo";
 import type { Solution, SolutionGitState } from "../../lib/backend";
@@ -11,6 +11,10 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     // The panel reads the last few commits now. A mock with no default falls
     // through to the real invoke.
     branchHistory: vi.fn(),
+    commitSolution: vi.fn(),
+    checkoutChanges: vi.fn(),
+    syncSolution: vi.fn(),
+    openPullRequest: vi.fn(),
     setSolutionPath: vi.fn(),
     pickFolder: vi.fn(),
     initSolutionRepo: vi.fn(),
@@ -64,6 +68,15 @@ describe("the git panel on a Solution", () => {
     vi.clearAllMocks();
     mocked.solutionGitState.mockResolvedValue(state());
     mocked.branchHistory.mockResolvedValue([]);
+    mocked.checkoutChanges.mockResolvedValue([]);
+    mocked.syncSolution.mockResolvedValue("AskForName is level with origin.");
+    mocked.openPullRequest.mockResolvedValue("https://github.com/me/hello-world/pull/1");
+    mocked.commitSolution.mockResolvedValue({
+      committed: true,
+      message: "Add the greeter",
+      files: ["Greeting.cs"],
+      pushed: null,
+    });
     mocked.githubStatus.mockResolvedValue({ connected: true });
     mocked.initSolutionRepo.mockResolvedValue("it is a git repository now");
     mocked.linkSolutionRepo.mockResolvedValue(undefined);
@@ -108,6 +121,130 @@ describe("the git panel on a Solution", () => {
     expect(await screen.findByRole("button", { name: /on main/ })).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Make hello-world a git repository" }),
+    ).not.toBeInTheDocument();
+  });
+
+/// **The panel that shows an agent's commits could not make one.** Committing
+  /// wrote to the Solution's folder, so keeping an agent's work from here would
+  /// have committed the default branch — whatever was uncommitted on it, which
+  /// is usually nothing — and left the agent's work exactly where it was.
+  it("commits the agent's checkout, from the panel showing it", async () => {
+    const user = userEvent.setup();
+    mocked.solutionGitState.mockResolvedValue(
+      state({ isRepo: true, hasCommit: true, branch: "AskForName" }),
+    );
+    render(<SolutionRepo solution={solution} runId={42} onChange={vi.fn()} />);
+
+    await user.click(await screen.findByRole("button", { name: /Work to commit/ }));
+    await userEvent.type(
+      screen.getByLabelText("Commit message for hello-world"),
+      "Add the greeter",
+    );
+    await user.click(screen.getByRole("button", { name: "Commit hello-world" }));
+
+    await waitFor(() =>
+      expect(mocked.commitSolution).toHaveBeenCalledWith(3, "Add the greeter", false, 42),
+    );
+  });
+
+  /// Without a run there is no agent's work to keep, and the editor's own git
+  /// panel is where committing your own workspace lives. Two commit boxes for
+  /// one folder would be two answers to one question.
+  it("offers no commit box when no run is being looked at", async () => {
+    const user = userEvent.setup();
+    mocked.solutionGitState.mockResolvedValue(
+      state({ isRepo: true, hasCommit: true, branch: "main" }),
+    );
+    render(<SolutionRepo solution={solution} onChange={vi.fn()} />);
+
+    await user.click(await screen.findByRole("button", { name: /Work to commit/ }));
+    await userEvent.type(
+      screen.getByLabelText("Commit message for hello-world"),
+      "Tidy up",
+    );
+    await user.click(screen.getByRole("button", { name: "Commit hello-world" }));
+
+    // No run: this is your own workspace, and the run argument is absent rather
+    // than guessed at.
+    await waitFor(() =>
+      expect(mocked.commitSolution).toHaveBeenCalledWith(3, "Tidy up", false, undefined),
+    );
+  });
+
+  /// **"Work to commit" is the question the panel could not answer.** It could
+  /// name the branch and list what had been committed, and said nothing about
+  /// what was sitting there waiting — which is the thing somebody opening it is
+  /// deciding about.
+  it("lists what is waiting to be committed, and says so on the line", async () => {
+    const user = userEvent.setup();
+    mocked.checkoutChanges.mockResolvedValue([
+      { path: "Greeting.cs", status: "added", addedLines: 20, removedLines: 0, diff: "" },
+      { path: "Program.cs", status: "modified", addedLines: 2, removedLines: 1, diff: "" },
+    ]);
+    render(<SolutionRepo solution={solution} runId={42} onChange={vi.fn()} />);
+
+    const line = await screen.findByRole("button", { name: /2 files to commit/ });
+    await user.click(line);
+    const list = screen.getByRole("list", {
+      name: "Waiting to be committed in hello-world",
+    });
+    expect(within(list).getByText("Greeting.cs")).toBeInTheDocument();
+    expect(within(list).getByText("Program.cs")).toBeInTheDocument();
+  });
+
+  /// Sync is one press because "catch up with everyone else" is a pull and a
+  /// push in that order, and nobody means only half of it.
+  it("syncs the checkout being looked at", async () => {
+    const user = userEvent.setup();
+    render(<SolutionRepo solution={solution} runId={42} onChange={vi.fn()} />);
+
+    await user.click(await screen.findByRole("button", { name: /Work to commit/ }));
+    await user.click(screen.getByRole("button", { name: "Sync hello-world" }));
+
+    await waitFor(() => expect(mocked.syncSolution).toHaveBeenCalledWith(3, 42));
+    expect(await screen.findByText(/level with origin/)).toBeInTheDocument();
+  });
+
+  /// **The last step of a run, which used to leave the app.** Opening one is
+  /// offered only where there is a repository to open it on.
+  it("opens a pull request from this checkout's branch", async () => {
+    const user = userEvent.setup();
+    mocked.solutionGitState.mockResolvedValue(
+      state({
+        isRepo: true,
+        hasCommit: true,
+        branch: "AskForName",
+        githubUrl: "https://github.com/me/hello-world",
+      }),
+    );
+    render(<SolutionRepo solution={solution} runId={42} onChange={vi.fn()} />);
+
+    await user.click(await screen.findByRole("button", { name: /On GitHub/ }));
+    await userEvent.type(
+      screen.getByLabelText("Pull request title for hello-world"),
+      "Ask for a name",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Open a pull request for hello-world" }),
+    );
+
+    await waitFor(() =>
+      expect(mocked.openPullRequest).toHaveBeenCalledWith({
+        solutionId: 3,
+        runId: 42,
+        title: "Ask for a name",
+        body: "",
+        base: "main",
+      }),
+    );
+  });
+
+  it("offers no pull request where there is no repository to open one on", async () => {
+    const user = userEvent.setup();
+    render(<SolutionRepo solution={solution} runId={42} onChange={vi.fn()} />);
+    await user.click(await screen.findByRole("button", { name: /On GitHub/ }));
+    expect(
+      screen.queryByRole("button", { name: "Open a pull request for hello-world" }),
     ).not.toBeInTheDocument();
   });
 

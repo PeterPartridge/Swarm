@@ -2534,19 +2534,56 @@ export const branchHistory = (
   limit?: number,
   runId?: number,
 ): Promise<Commit[]> => invoke("branch_history", { solutionId, limit, runId });
+/** Commits everything in a checkout.
+ *
+ *  **With a run, the run's own.** An agent's work is on its own branch in its
+ *  own worktree; committing in the Solution's folder would commit whatever is
+ *  uncommitted on the default branch and leave the agent's work where it was. */
 export const commitSolution = (
   solutionId: number,
   message: string,
   push: boolean,
-): Promise<CommitResult> => invoke("commit_solution", { solutionId, message, push });
+  runId?: number,
+): Promise<CommitResult> =>
+  invoke("commit_solution", { solutionId, message, push, runId });
+
 /** The automatic commit. Refuses unless the policy is on, so a stray timer
  *  cannot commit for someone who turned it off. */
 export const autoCommitSolution = (
   solutionId: number,
   trigger: "save" | "timer",
-): Promise<CommitResult> => invoke("auto_commit_solution", { solutionId, trigger });
-export const pushSolution = (solutionId: number): Promise<string> =>
-  invoke("push_solution", { solutionId });
+  runId?: number,
+): Promise<CommitResult> =>
+  invoke("auto_commit_solution", { solutionId, trigger, runId });
+
+/** Pushes the checkout being looked at — a run's branch is the thing a reviewer
+ *  pulls, and the Solution's folder is the default branch. */
+export const pushSolution = (solutionId: number, runId?: number): Promise<string> =>
+  invoke("push_solution", { solutionId, runId });
+/** Pulls what is on the remote and pushes what is not, on the checkout being
+ *  looked at. Rebase rather than merge: a merge commit whose only content is "I
+ *  pressed sync" is noise in a history somebody reviews. */
+export const syncSolution = (solutionId: number, runId?: number): Promise<string> =>
+  invoke("sync_solution", { solutionId, runId });
+
+/** What is uncommitted in this checkout — the work waiting to be committed. */
+export const checkoutChanges = (
+  solutionId: number,
+  runId?: number,
+): Promise<FileChange[]> => invoke("checkout_changes", { solutionId, runId });
+
+/** Opens a pull request from this checkout's branch, and returns its URL.
+ *
+ *  The branch is read from the checkout rather than passed: which branch a
+ *  request comes *from* is not something a form should let anybody get wrong. */
+export const openPullRequest = (args: {
+  solutionId: number;
+  runId?: number;
+  title: string;
+  body: string;
+  base: string;
+}): Promise<string> => invoke("open_pull_request", args);
+
 export const getCommitPolicy = (solutionId: number): Promise<CommitPolicy> =>
   invoke("get_commit_policy", { solutionId });
 export const setCommitPolicy = (

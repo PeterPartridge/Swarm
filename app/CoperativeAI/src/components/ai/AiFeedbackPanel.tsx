@@ -9,6 +9,7 @@ import {
   type AiFeedback,
   type AiJob,
 } from "../../lib/backend";
+import Group from "../common/Group";
 import { groupFailures } from "../../lib/when";
 import { notifyWorkChanged, useWorkChanged } from "../../lib/workSignal";
 
@@ -146,6 +147,11 @@ export default function AiFeedbackPanel({
   // would be a second paragraph saying the same absence twice.
   const record = collected?.record ?? null;
   const filed = collected?.debt ?? [];
+  /// Which of the four sections are open. **The same shape the rest of Develop
+  /// uses**: four lists stacked full-height meant scrolling past three to reach
+  /// the one being looked for, and each of them answers a different question.
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  const toggle = (id: string) => setOpen((o) => ({ ...o, [id]: !o[id] }));
   const nothing =
     jobs.length === 0 && feedback.length === 0 && record === null && runId === undefined;
 
@@ -179,8 +185,19 @@ export default function AiFeedbackPanel({
       {/* First, because it is the answer to "what happened?" — the rest of this
           panel is about attempts that did not get this far. */}
       {record !== null && (
-        <div className="feedback-group" role="region" aria-label="What the agent reported">
-          <span className="palette-label">What the agent reported</span>
+        <Group
+          title="What the agent reported"
+          summary={
+            record.technicalDebt.trim() !== ""
+              ? "built it, and said what it left behind"
+              : "its account of the round"
+          }
+          // Open by default: it is the answer to "what happened?", and the rest
+          // of this panel is about attempts that did not get this far.
+          open={open.record ?? true}
+          onToggle={() => setOpen((o) => ({ ...o, record: !(o.record ?? true) }))}
+        >
+          <div role="region" aria-label="What the agent reported">
           <dl className="agent-record">
             {(
               [
@@ -224,7 +241,8 @@ export default function AiFeedbackPanel({
               </ul>
             </div>
           )}
-        </div>
+          </div>
+        </Group>
       )}
 
       {runId !== undefined && record === null && (
@@ -236,9 +254,14 @@ export default function AiFeedbackPanel({
       )}
 
       {jobs.length > 0 && (
-        <div className="feedback-group">
+        <Group
+          title="Attempts that failed"
+          summary={`${groupFailures(jobs).length} · newest ${groupFailures(jobs)[0]?.when ?? ""}`}
+          tone="warn"
+          open={open.failed ?? false}
+          onToggle={() => toggle("failed")}
+        >
           <div className="feedback-group-head">
-            <span className="palette-label">Attempts that failed</span>
             {/* **Only a person clears history.** Nothing prunes these on its
                 own — they are what was tried, and an app that tidied them away
                 would be deciding which failures mattered. */}
@@ -265,12 +288,17 @@ export default function AiFeedbackPanel({
               </li>
             ))}
           </ul>
-        </div>
+        </Group>
       )}
 
       {cannot.length > 0 && (
-        <div className="feedback-group">
-          <span className="palette-label">What the AI could not do</span>
+        <Group
+          title="What the AI could not do"
+          summary={`${cannot.filter((f) => !f.resolved).length} unanswered of ${cannot.length}`}
+          tone={cannot.some((f) => !f.resolved) ? "warn" : undefined}
+          open={open.cannot ?? false}
+          onToggle={() => toggle("cannot")}
+        >
           <ul className="feedback-list cannot" aria-label="What the AI could not do">
             {cannot.map((f) => (
               <li key={f.id}>
@@ -307,12 +335,17 @@ export default function AiFeedbackPanel({
               </li>
             ))}
           </ul>
-        </div>
+        </Group>
       )}
 
       {asked.length > 0 && (
-        <div className="feedback-group">
-          <span className="palette-label">Questions the AI asked</span>
+        <Group
+          title="Questions the AI asked"
+          summary={`${asked.filter((f) => !f.resolved).length} waiting on an answer`}
+          tone={asked.some((f) => !f.resolved) ? "warn" : undefined}
+          open={open.asked ?? false}
+          onToggle={() => toggle("asked")}
+        >
           <ul className="feedback-list" aria-label="Questions the AI asked">
             {asked.map((f) => (
               <li key={f.id}>
@@ -346,7 +379,7 @@ export default function AiFeedbackPanel({
               </li>
             ))}
           </ul>
-        </div>
+        </Group>
       )}
     </section>
   );

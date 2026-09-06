@@ -121,6 +121,68 @@ pub async fn create_repo(
     Ok(repo.html_url)
 }
 
+
+/// Opens a pull request for a branch.
+///
+/// **The last step of a run, and the one that left the app.** An agent's work
+/// ends as a branch pushed to GitHub, and turning that into something a person
+/// reviews meant going to a browser, finding the repository and pressing the
+/// button GitHub offers. This is that button.
+pub async fn create_pull_request(
+    token: &str,
+    repo_url: &str,
+    head: &str,
+    base: &str,
+    title: &str,
+    body: &str,
+) -> Result<String, String> {
+    let slug = owner_and_repo(repo_url)?;
+    let resp = client()?
+        .post(format!("{API}/repos/{slug}/pulls"))
+        .header("authorization", format!("Bearer {token}"))
+        .header("accept", "application/vnd.github+json")
+        .header("x-github-api-version", "2022-11-28")
+        .json(&serde_json::json!({
+            "title": title,
+            "body": body,
+            "head": head,
+            "base": base,
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("could not reach GitHub: {e}"))?;
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        return Err(github_message(status, &text));
+    }
+    let made: GithubRepo = serde_json::from_str(&text)
+        .map_err(|e| format!("unexpected GitHub response: {e}"))?;
+    Ok(made.html_url)
+}
+
+/// `owner/repo`, from whatever shape the stored URL is in.
+///
+/// Both forms are stored in practice — the browser URL GitHub shows and the
+/// clone URL it offers — and a trailing `.git` or slash is common in both.
+pub fn owner_and_repo(url: &str) -> Result<String, String> {
+    let trimmed = url
+        .trim()
+        .trim_end_matches('/')
+        .trim_end_matches(".git")
+        .replace("git@github.com:", "https://github.com/");
+    let after = trimmed
+        .split("github.com")
+        .nth(1)
+        .ok_or("that repository URL is not a github.com one")?
+        .trim_start_matches(['/', ':']);
+    let mut parts = after.split('/').filter(|p| !p.is_empty());
+    match (parts.next(), parts.next()) {
+        (Some(owner), Some(repo)) => Ok(format!("{owner}/{repo}")),
+        _ => Err(format!("could not read an owner and repository out of {url}")),
+    }
+}
+
 fn github_message(status: reqwest::StatusCode, body: &str) -> String {
     let detail = serde_json::from_str::<GithubError>(body)
         .map(|e| e.message)
@@ -145,5 +207,38 @@ mod tests {
     fn public_repo_body_sets_private_false() {
         let body = repo_create_body("open-repo", false, "");
         assert_eq!(body["private"], false);
+    }
+}
+
+#[cfg(test)]
+mod pull_request_tests {
+    use super::owner_and_repo;
+
+    /// **Both shapes are stored in practice.** The browser URL GitHub shows and
+    /// the clone URL it offers are both what people paste, and a trailing
+    /// `.git` or slash comes with them. Getting this wrong means a pull request
+    /// posted at a URL that 404s, which reads as "GitHub refused" rather than
+    /// as "we asked the wrong address".
+    #[test]
+    fn an_owner_and_repository_are_read_out_of_every_shape_people_paste() {
+        for url in [
+            "https://github.com/me/hello-world",
+            "https://github.com/me/hello-world/",
+            "https://github.com/me/hello-world.git",
+            "http://github.com/me/hello-world",
+            "git@github.com:me/hello-world.git",
+            "  https://github.com/me/hello-world  ",
+        ] {
+            assert_eq!(owner_and_repo(url).as_deref(), Ok("me/hello-world"), "for {url}");
+        }
+    }
+
+    /// Somewhere else, or not a repository: said as itself rather than guessed
+    /// at, because a guess here posts to a stranger's repository.
+    #[test]
+    fn anything_that_is_not_a_github_repository_is_refused() {
+        assert!(owner_and_repo("https://gitlab.com/me/hello").is_err());
+        assert!(owner_and_repo("https://github.com/me").is_err());
+        assert!(owner_and_repo("").is_err());
     }
 }

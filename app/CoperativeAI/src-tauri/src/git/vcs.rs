@@ -897,6 +897,70 @@ fn git(root: &Path, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
+
+/// Brings a checkout level with its remote: pull what is there, push what is
+/// not.
+///
+/// **Rebase, not merge.** A branch an agent worked on is a line of work, and a
+/// merge commit whose only content is "I pressed sync" is noise in the history
+/// somebody reviews. A rebase that cannot proceed stops and says so, which is
+/// the honest failure — the alternative is a half-merged working copy nobody
+/// asked for.
+///
+/// **A repository with no remote is not a failure.** Plenty of work is local
+/// until somebody decides otherwise, so this says that plainly rather than
+/// reporting git's "'origin' does not appear to be a git repository".
+pub fn sync(root: &str) -> Result<String, String> {
+    let root_path = canonical(root)?;
+    let (had_remote, remote, _) = git_allowing_failure(&root_path, &["remote", "get-url", "origin"])?;
+    if !had_remote || remote.trim().is_empty() {
+        return Err(
+            "this repository has no remote yet, so there is nothing to sync with. Link or create \
+             one first."
+                .into(),
+        );
+    }
+
+    let branch = current_branch(&root_path)?;
+    let (pulled, pull_out, pull_err) =
+        git_allowing_failure(&root_path, &["pull", "--rebase", "origin", &branch])?;
+    if !pulled {
+        // A branch that has never been pushed has nothing to pull, and git says
+        // so in a way that reads like a failure. Push it and be done.
+        let missing = pull_err.contains("couldn't find remote ref")
+            || pull_out.contains("couldn't find remote ref");
+        if !missing {
+            return Err(format!("could not pull: {}", first_line(&pull_err, &pull_out)));
+        }
+    }
+
+    let pushed = git(&root_path, &["push", "-u", "origin", "HEAD"])?;
+    Ok(format!(
+        "{branch} is level with origin.{}",
+        if pushed.trim().is_empty() { String::new() } else { format!(" {}", pushed.trim()) }
+    ))
+}
+
+/// The branch a checkout is on.
+fn current_branch(root: &std::path::Path) -> Result<String, String> {
+    let said = git(root, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+    let branch = said.trim().to_string();
+    if branch.is_empty() || branch == "HEAD" {
+        return Err("this checkout is not on a branch, so there is nothing to sync".into());
+    }
+    Ok(branch)
+}
+
+/// The first line worth showing out of git's two streams.
+fn first_line(err: &str, out: &str) -> String {
+    err.lines()
+        .chain(out.lines())
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("git said nothing")
+        .to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

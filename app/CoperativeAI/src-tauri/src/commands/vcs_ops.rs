@@ -142,14 +142,25 @@ pub async fn init_solution_repo(
 }
 
 /// Commits, with the message someone typed or the file list when they did not.
+///
+/// **Which checkout is the whole question.** An agent's work is in its own
+/// worktree on its own branch; committing in the Solution's folder would commit
+/// whatever happens to be uncommitted on the default branch — somebody else's
+/// half-finished edit, or nothing at all — and leave the agent's work exactly
+/// where it was. Without a run this is your own workspace, which is what it
+/// always was and what the editor's git panel means.
 #[tauri::command]
 pub async fn commit_solution(
     db: State<'_, AppDb>,
     solution_id: i64,
     message: String,
     push: bool,
+    run_id: Option<i64>,
 ) -> Result<vcs::CommitResult, String> {
-    let root = root_for(&db, solution_id).await?;
+    let root = {
+        let conn = db.0.lock().await;
+        crate::commands::workspace::root_for_run(&conn, solution_id, run_id).await?
+    };
     vcs::commit_all(&root, &message, push)
 }
 
@@ -165,6 +176,7 @@ pub async fn auto_commit_solution(
     db: State<'_, AppDb>,
     solution_id: i64,
     trigger: String,
+    run_id: Option<i64>,
 ) -> Result<vcs::CommitResult, String> {
     let policy = {
         let conn = db.0.lock().await;
@@ -183,16 +195,120 @@ pub async fn auto_commit_solution(
             pushed: None,
         });
     }
-    let root = root_for(&db, solution_id).await?;
+    let root = {
+        let conn = db.0.lock().await;
+        crate::commands::workspace::root_for_run(&conn, solution_id, run_id).await?
+    };
     // Empty message on purpose: `commit_all` fills in the file list, which is
     // the whole point of an automatic commit.
     vcs::commit_all(&root, "", policy.push)
 }
 
+/// Pushes the checkout being looked at.
+///
+/// **A run's branch is the thing worth pushing.** It is what a reviewer pulls
+/// and what a pull request is opened from; pushing the Solution's folder pushes
+/// the default branch and leaves the agent's work on this machine.
 #[tauri::command]
-pub async fn push_solution(db: State<'_, AppDb>, solution_id: i64) -> Result<String, String> {
-    let root = root_for(&db, solution_id).await?;
+pub async fn push_solution(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+    run_id: Option<i64>,
+) -> Result<String, String> {
+    let root = {
+        let conn = db.0.lock().await;
+        crate::commands::workspace::root_for_run(&conn, solution_id, run_id).await?
+    };
     vcs::push(&root)
+}
+
+
+/// Pulls what is on the remote and pushes what is not.
+#[tauri::command]
+pub async fn sync_solution(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+    run_id: Option<i64>,
+) -> Result<String, String> {
+    let root = {
+        let conn = db.0.lock().await;
+        crate::commands::workspace::root_for_run(&conn, solution_id, run_id).await?
+    };
+    vcs::sync(&root)
+}
+
+/// What is uncommitted in the checkout being looked at.
+///
+/// **"Work to commit", as its own question.** The panel could say which branch
+/// and what had been committed, and nothing about what was sitting there
+/// waiting — which is the thing somebody is deciding about when they open it.
+#[tauri::command]
+pub async fn checkout_changes(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+    run_id: Option<i64>,
+) -> Result<Vec<crate::files::workspace::FileChange>, String> {
+    let root = {
+        let conn = db.0.lock().await;
+        crate::commands::workspace::root_for_run(&conn, solution_id, run_id).await?
+    };
+    crate::files::workspace::read_changes(&root)
+}
+
+/// Opens a pull request from this checkout's branch.
+///
+/// **The last step of a run, which used to leave the app.** An agent's work ends
+/// as a branch; turning it into something a person reviews meant going to a
+/// browser and finding the button GitHub offers.
+///
+/// The branch is read from the checkout rather than passed in, because the
+/// branch a pull request is *from* is not a thing anybody should be able to get
+/// wrong from a form.
+#[tauri::command]
+pub async fn open_pull_request(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+    run_id: Option<i64>,
+    title: String,
+    body: String,
+    base: String,
+) -> Result<String, String> {
+    let (root, repo_url) = {
+        let conn = db.0.lock().await;
+        let Some(row) = solution::find_by_id(&conn, solution_id).await.map_err(to_message)? else {
+            return Err("that Solution no longer exists".into());
+        };
+        let url = row.github_url.clone().filter(|u| !u.trim().is_empty()).ok_or(
+            "this Solution is not linked to a repository on GitHub, so there is nowhere to open a \
+             pull request. Link or create one on the Git tab first.",
+        )?;
+        (
+            crate::commands::workspace::root_for_run(&conn, solution_id, run_id).await?,
+            url,
+        )
+    };
+
+    let state = vcs::repo_state(&root)?;
+    if state.branch.trim().is_empty() {
+        return Err("this checkout is not on a branch, so there is nothing to open a request for".into());
+    }
+    let base = if base.trim().is_empty() { "main".to_string() } else { base };
+    if base == state.branch {
+        return Err(format!(
+            "this checkout is on {}, which is also what it would be merged into — a pull request \
+             needs two different branches.",
+            state.branch
+        ));
+    }
+
+    // Pushed first, and said plainly if that is what failed: GitHub cannot open
+    // a request for a branch it has never seen, and "no commits between" is a
+    // confusing way to learn that the push did not happen.
+    vcs::push(&root).map_err(|e| format!("could not push {} first: {e}", state.branch))?;
+
+    let token = crate::git::github::get_token()?;
+    crate::git::github::create_pull_request(&token, &repo_url, &state.branch, &base, title.trim(), body.trim())
+        .await
 }
 
 #[derive(Serialize)]

@@ -43,6 +43,17 @@ const job = (over: Partial<AiJob>): AiJob => ({
   ...over,
 });
 
+/** Opens one of the panel's boxes.
+ *
+ *  **Four lists stacked full-height meant scrolling past three to reach the one
+ *  you wanted**, so each is a line that says how it stands and opens when it is
+ *  the one being asked about — the shape the rest of Develop uses. The agent's
+ *  own record is the exception: it opens itself, because it is the answer to
+ *  "what happened?". */
+async function openBox(name: string | RegExp): Promise<void> {
+  await userEvent.click(await screen.findByRole("button", { name }));
+}
+
 describe("the AI feedback panel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -193,6 +204,7 @@ describe("the AI feedback panel", () => {
     ]);
     render(<AiFeedbackPanel workItemId={9} productId={7} />);
 
+    await openBox(/Attempts that failed/);
     const failures = await screen.findByRole("list", { name: "Attempts that failed" });
     expect(within(failures).getByText(/no folder on this machine/)).toBeInTheDocument();
     // Not the ones that worked, and not another item's.
@@ -207,6 +219,7 @@ describe("the AI feedback panel", () => {
     mocked.listAiFeedback.mockResolvedValue([feedback({})]);
     render(<AiFeedbackPanel workItemId={9} productId={7} />);
 
+    await openBox(/What the AI could not do/);
     const list = await screen.findByRole("list", { name: "What the AI could not do" });
     const row = within(list).getByRole("listitem");
     expect(row).toHaveTextContent(/payment provider's SDK/);
@@ -227,6 +240,7 @@ describe("the AI feedback panel", () => {
     const onResolved = vi.fn();
     render(<AiFeedbackPanel workItemId={9} productId={7} onResolved={onResolved} />);
 
+    await openBox(/What the AI could not do/);
     await userEvent.type(
       await screen.findByLabelText("How to solve: The payment provider's SDK is not in this repository."),
       "Use the Stripe SDK, it is in the shared package",
@@ -252,6 +266,7 @@ describe("the AI feedback panel", () => {
     ]);
     render(<AiFeedbackPanel workItemId={9} productId={7} />);
 
+    await openBox(/What the AI could not do/);
     const list = await screen.findByRole("list", { name: "What the AI could not do" });
     expect(list).toHaveTextContent(/payment provider's SDK/);
     expect(list).toHaveTextContent(/Use the shared Stripe package/);
@@ -266,8 +281,10 @@ describe("the AI feedback panel", () => {
     ]);
     render(<AiFeedbackPanel workItemId={9} productId={7} />);
 
+    await openBox(/What the AI could not do/);
     const cannot = await screen.findByRole("list", { name: "What the AI could not do" });
     expect(cannot).not.toHaveTextContent(/Which currency/);
+    await openBox(/Questions the AI asked/);
     const asked = screen.getByRole("list", { name: "Questions the AI asked" });
     expect(asked).toHaveTextContent(/Which currency/);
   });
@@ -291,6 +308,7 @@ describe("the AI feedback panel", () => {
     ]);
     render(<AiFeedbackPanel workItemId={9} productId={7} />);
 
+    await openBox(/Attempts that failed/);
     const failures = await screen.findByRole("list", { name: "Attempts that failed" });
     expect(within(failures).getAllByRole("listitem")).toHaveLength(2);
     expect(within(failures).getByText("3 times")).toBeInTheDocument();
@@ -312,6 +330,7 @@ describe("the AI feedback panel", () => {
     // it.
     const short = at.toLocaleDateString(undefined, { day: "numeric", month: "short" });
     expect(short).not.toBe("—");
+    await openBox(/Attempts that failed/);
     const failures = await screen.findByRole("list", { name: "Attempts that failed" });
     expect(failures).toHaveTextContent(short);
   });
@@ -325,8 +344,9 @@ describe("the AI feedback panel", () => {
     mocked.clearAiJobs.mockResolvedValue(2);
     render(<AiFeedbackPanel workItemId={9} productId={7} />);
 
+    await openBox(/Attempts that failed/);
     await userEvent.click(
-      await screen.findByRole("button", { name: "Clear the failed attempts" }),
+      screen.getByRole("button", { name: "Clear the failed attempts" }),
     );
 
     await waitFor(() => expect(mocked.clearAiJobs).toHaveBeenCalledWith(9));

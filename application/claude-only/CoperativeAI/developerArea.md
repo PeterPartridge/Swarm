@@ -5254,3 +5254,102 @@ ignored), Vitest 754/754, `tsc --noEmit`, clippy `-D warnings` and
   checklist reports but does not enforce; no logging outside Develop; no Admin
   UI for the routing defaults; no way to reset the pane sizes; the ship rail is
   not resizable.
+
+## Round 99 — commit where the work is, and the box that became a shape
+
+### My Feedback
+
+> fix commit_solution to use the run's checkout
+>
+> In the develop, work can we make the git more user freindly also adding create
+> upp requet and sync options also commit options and work to commit. Can we mak
+> the UI look more like the rest of the develop area?
+>
+> Can the AI feedback also be collapasable boxes and in the same style as the
+> rest of the develop area
+
+### Committing where the work is
+
+`commit_solution`, `auto_commit_solution` and `push_solution` all take the run
+and resolve through `root_for_run`. Committing in the Solution's folder would
+have committed whatever was uncommitted on the default branch — usually
+nothing — and left the agent's work exactly where it was. Pushing is the same
+thought one step on: a run's branch is what a reviewer pulls, and pushing the
+Solution's folder pushes the default branch.
+
+### The git panel, finished
+
+- **Work to commit.** The panel could name the branch and list what had been
+  committed and say nothing about what was *waiting*, which is the thing
+  somebody opening it is deciding about. It is a group of its own, with the
+  files and the commit box in it.
+- **Commit**, with an optional message: `commit_all` writes the file list when
+  there is none, which is the honest default for "keep this" and better than a
+  form that refuses until somebody invents a sentence.
+- **Sync**, one press, because "catch up with everyone else" is a pull and a
+  push in that order and nobody means only half of it. Rebase rather than merge:
+  a merge commit whose only content is "I pressed sync" is noise in a history
+  somebody reviews.
+- **Open a pull request**, which is the last step of a run and used to leave the
+  app. The branch is read from the checkout rather than typed: which branch a
+  request comes *from* is not a thing a form should let anybody get wrong. It
+  pushes first and says so if that is what failed, because "no commits between"
+  is a confusing way to learn the push did not happen.
+
+A found bug on the way: the panel's error and notice lines sat where the GitHub
+form used to be, which had become the inside of a collapsed box — so a sync
+started from another group reported into a section nobody could see. They are
+above the groups now.
+
+### One box, two panels
+
+The collapsible line the git panel grew is what the AI feedback panel wanted
+too: four lists stacked full-height meant scrolling past three to reach the one
+being looked for. It is `common/Group` now, used by both, and the CSS moved with
+it rather than being copied — which is what "the same style as the rest of the
+Develop area" has to mean if it is to stay true.
+
+Each line carries its own summary: how many failures and when the newest was,
+how many refusals are unanswered, how many questions are waiting. **A collapsed
+box that says only its own title makes somebody open all of them to find the one
+they wanted.** The agent's own record opens itself, because it is the answer to
+"what happened?" and the rest of that panel is about attempts that did not get
+that far.
+
+### Tests
+
+Five for the git panel — commit with and without a run, work to commit, sync,
+pull request, and none offered where there is no repository — plus two for
+reading `owner/repo` out of every URL shape people paste, because a wrong slug
+posts a pull request at an address that 404s and reads as "GitHub refused".
+
+cargo 765/765 (23 ignored), Vitest 760/760, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean.
+
+### Your Feedback
+
+- **The pull request has no body.** It sends the title and an empty description;
+  the round record the agent wrote is sitting right there and would make a far
+  better one. That is the obvious next round.
+- Sync rebases, which is right for a branch nobody else is on and wrong for one
+  two people share. Nothing warns about that yet.
+- `read_conflict_sides` and `mark_conflict_resolved` still read the Solution's
+  folder — the last two on the list from round 98.
+
+### Technical Debt
+
+- The pull request body is empty when a written record exists.
+- Sync always rebases, with no warning on a shared branch.
+- The conflict commands still read the Solution's folder.
+- Carried: auto-running tests has no setting; per-test reasons for cargo,
+  pytest, dotnet and go; the test-file path is matched by convention; nothing
+  notices an agent has finished; `write_solution_file` saves to the Solution's
+  folder; no per-file diff; nothing advertises the right-click menu; no answer
+  to "should a new attempt start from a clean checkout?"; probe freshness is a
+  number in the code; splitting prose is guesswork; the review is not refreshed
+  on the work signal; nothing distinguishes a scoring list from an enforcing
+  one; a policy tightened mid-run does not stop a running agent; no
+  template-already-inserted warning; no locale-assertion guard; no "run the
+  regression suite" action; the lifecycle checklist reports but does not
+  enforce; no logging outside Develop; no Admin UI for the routing defaults; no
+  way to reset the pane sizes; the ship rail is not resizable.

@@ -9401,7 +9401,11 @@ button.ready-action.link:hover {
    where it is published. It was one column of sentences, fields, buttons and
    two forms in the order they had been written, with nothing to say which parts
    answered which question. */
-.repo-group {
+/* One of several things about a panel: a line, and what is under it. Shared by
+   the git panel and the AI feedback panel, which had the same problem — four
+   lists stacked full-height, so reaching the one you wanted meant scrolling
+   past three that you did not. */
+.group-box {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
@@ -9409,7 +9413,7 @@ button.ready-action.link:hover {
   border-top: 1px solid var(--line);
 }
 
-.repo-group:first-of-type {
+.group-box:first-of-type {
   border-top: none;
   padding-top: 0;
 }
@@ -9523,8 +9527,8 @@ button.ready-action.link:hover {
   line-height: 1.35;
 }
 
-/* The three git lines: a caret, what it is, and what it says — on one row. */
-.repo-group-line {
+/* The line: a caret, what it is, and what it says — on one row. */
+.group-line {
   display: flex;
   align-items: baseline;
   gap: 0.4rem;
@@ -9538,23 +9542,57 @@ button.ready-action.link:hover {
   cursor: pointer;
 }
 
-.repo-caret {
+.group-caret {
   color: var(--fg-dim);
   width: 0.8rem;
 }
 
-.repo-summary {
+.group-summary {
   color: var(--fg-muted);
   overflow-wrap: anywhere;
 }
 
-.repo-summary.warn {
+.group-summary.warn {
   color: var(--warn);
 }
 
-.repo-group-body {
+.group-body {
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
   padding: 0.2rem 0 0.5rem 1.2rem;
+}
+
+/* Work waiting to be committed: the status letter, then the path. */
+.repo-waiting {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.repo-waiting li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  overflow-wrap: anywhere;
+}
+
+.repo-check {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--fg-muted);
+}
+
+/* The pull request, under the repository it would be opened on. */
+.repo-pr {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-bottom: 0.4rem;
+  margin-bottom: 0.4rem;
+  border-bottom: 1px dashed var(--line);
 }
