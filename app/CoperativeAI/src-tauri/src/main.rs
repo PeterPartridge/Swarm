@@ -270,6 +270,7 @@ fn main() {
             commands::inspectors::mark_conflict_resolved,
             commands::inspectors::list_test_suites,
             commands::inspectors::run_solution_tests,
+            commands::inspectors::list_solution_test_suites,
             commands::inspectors::run_test_suite,
             commands::inspectors::set_solution_test_command,
             commands::inspectors::suggest_dev_command,

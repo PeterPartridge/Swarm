@@ -136,6 +136,56 @@ pub struct SolutionSuites {
     pub unavailable: Option<String>,
 }
 
+/// The test suites in one run's own checkout.
+///
+/// **A suite the agent wrote exists nowhere else.** Detection walks a folder for
+/// the files that give a framework away, and an agent that added
+/// `tests/Greeter.Tests/` added it in its worktree — so asking the Solution's
+/// folder returns the suites that were there before the work started, and the
+/// panel offers to run everything except what the agent actually wrote.
+#[tauri::command]
+pub async fn list_solution_test_suites(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+    run_id: Option<i64>,
+) -> Result<SolutionSuites, String> {
+    let (name, root, custom) = {
+        let conn = db.0.lock().await;
+        let Some(row) = solution::find_by_id(&conn, solution_id).await.map_err(to_message)? else {
+            return Err("that Solution no longer exists".into());
+        };
+        let custom = row.test_command.clone().filter(|c| !c.trim().is_empty());
+        let root = match run_id {
+            Some(_) => crate::commands::workspace::root_for_run(&conn, solution_id, run_id)
+                .await
+                .ok(),
+            None => row.local_path.clone().filter(|p| !p.trim().is_empty()),
+        };
+        (row.name, root, custom)
+    };
+
+    let Some(root) = root else {
+        return Ok(SolutionSuites {
+            solution_id,
+            name,
+            suites: Vec::new(),
+            custom_command: custom,
+            unavailable: Some("no folder on this machine yet".into()),
+        });
+    };
+    let suites = match &custom {
+        Some(command) => vec![test_runner::custom_suite(command)],
+        None => test_runner::detect(std::path::Path::new(&root)),
+    };
+    Ok(SolutionSuites {
+        solution_id,
+        name,
+        suites,
+        custom_command: custom,
+        unavailable: None,
+    })
+}
+
 /// Every test suite across a Product's Solutions.
 #[tauri::command]
 pub async fn list_test_suites(
@@ -191,6 +241,13 @@ pub async fn list_test_suites(
 pub async fn run_solution_tests(
     db: State<'_, AppDb>,
     solution_id: i64,
+    // **Which checkout to test.** An agent works in its own worktree, so
+    // running in the Solution's folder tests the default branch — the code the
+    // agent has *not* changed. Worse, a test project the agent added exists
+    // only in its checkout, so detection in the Solution's folder cannot even
+    // find the suite it wrote. Without a run this is your own workspace, which
+    // is what it always was.
+    run_id: Option<i64>,
 ) -> Result<Vec<test_runner::SuiteRun>, String> {
     let (root, custom) = {
         let conn = db.0.lock().await;
@@ -200,10 +257,16 @@ pub async fn run_solution_tests(
         else {
             return Err("that Solution no longer exists".into());
         };
-        let root = row.local_path.filter(|p| !p.trim().is_empty()).ok_or_else(|| {
-            format!("'{}' has no folder on this machine to run tests in", row.name)
-        })?;
-        (root, row.test_command.filter(|c| !c.trim().is_empty()))
+        // The Solution's own command still wins, whichever checkout it runs in:
+        // it is a fact about the project, not about the folder.
+        let custom = row.test_command.clone().filter(|c| !c.trim().is_empty());
+        let root = match run_id {
+            Some(_) => crate::commands::workspace::root_for_run(&conn, solution_id, run_id).await?,
+            None => row.local_path.filter(|p| !p.trim().is_empty()).ok_or_else(|| {
+                format!("'{}' has no folder on this machine to run tests in", row.name)
+            })?,
+        };
+        (root, custom)
     };
 
     let path = std::path::Path::new(&root);
@@ -228,8 +291,14 @@ pub async fn run_test_suite(
     kind: String,
     directory: String,
     command_line: String,
+    // The same rule as running them all: a run's suite lives in the run's own
+    // checkout, and re-running it anywhere else answers about other code.
+    run_id: Option<i64>,
 ) -> Result<test_runner::SuiteRun, String> {
-    let root = root_for(&db, solution_id).await?;
+    let root = {
+        let conn = db.0.lock().await;
+        crate::commands::workspace::root_for_run(&conn, solution_id, run_id).await?
+    };
     let suite = test_runner::Suite {
         kind,
         directory,

@@ -7,7 +7,7 @@ import { hueFor, markFor, PHASES, phaseOf, status, type Agent } from "./AgentLan
 import type { TestVerdict } from "./ReviewShipRail";
 import { notifyWorkChanged, useWorkChanged } from "../../lib/workSignal";
 import {
-  listTestSuites,
+  listSolutionTestSuites,
   listWorkItemPlans,
   runSolutionTests,
   startRun,
@@ -206,8 +206,10 @@ export default function AgentJobPanel({
   const loadSuites = useCallback(async () => {
     if (run === null) return;
     try {
-      const groups = await listTestSuites(item.productId);
-      setSuites(groups.find((g) => g.solutionId === run.solutionId) ?? null);
+      // **This run's checkout, not the Solution's folder.** The suites the
+      // agent wrote are in its worktree and nowhere else, so a Product-wide
+      // list offered to run everything except what it had actually written.
+      setSuites(await listSolutionTestSuites(run.solutionId, run.id));
     } catch {
       setSuites(null);
     }
@@ -244,7 +246,7 @@ export default function AgentJobPanel({
     if (run === null) return;
     setTesting(true);
     try {
-      const results = await runSolutionTests(run.solutionId);
+      const results = await runSolutionTests(run.solutionId, run.id);
       setSuiteRuns(results);
       setError(null);
       // Counts only when they were read. A run known solely by its exit code

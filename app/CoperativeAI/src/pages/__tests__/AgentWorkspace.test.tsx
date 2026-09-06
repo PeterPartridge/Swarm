@@ -45,6 +45,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     reviewSolutionChanges: vi.fn(),
     settleChangeRun: vi.fn(),
     listTestSuites: vi.fn(),
+    listSolutionTestSuites: vi.fn(),
     runSolutionTests: vi.fn(),
     productGitOverview: vi.fn(),
     listAiCalls: vi.fn(),
@@ -202,6 +203,13 @@ describe("AgentWorkspace (the Build view)", () => {
     mocked.readSolutionTree.mockResolvedValue({ entries: [], truncated: false });
     mocked.productChangedFiles.mockResolvedValue([]);
     mocked.listTestSuites.mockResolvedValue([]);
+    mocked.listSolutionTestSuites.mockResolvedValue({
+      solutionId: 5,
+      name: "Shop API",
+      suites: [],
+      customCommand: null,
+      unavailable: null,
+    } as never);
     mocked.productGitOverview.mockResolvedValue([]);
     mocked.listAiCalls.mockResolvedValue({ totals: null, calls: [] } as never);
     mocked.readSolutionFile.mockResolvedValue("");
@@ -717,7 +725,7 @@ describe("AgentWorkspace (the Build view)", () => {
     render(panel());
 
     await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
-    await waitFor(() => expect(mocked.runSolutionTests).toHaveBeenCalledWith(5));
+    await waitFor(() => expect(mocked.runSolutionTests).toHaveBeenCalledWith(5, 42));
     // Once. A suite is a real process, and an effect that re-ran would spend a
     // machine's time on nobody's question.
     expect(mocked.runSolutionTests).toHaveBeenCalledTimes(1);
@@ -802,6 +810,34 @@ describe("AgentWorkspace (the Build view)", () => {
     fireEvent.dragEnd(out);
     await waitFor(() => expect(mocked.openFileWindow).toHaveBeenCalledWith(5, "src/main.ts"));
     expect(screen.getByLabelText(/src\/main\.ts in Shop API/)).toBeInTheDocument();
+  });
+
+/// **The tests belong to the checkout the work is in.** Running them in the
+  /// Solution's folder tests the default branch — the code the agent has *not*
+  /// changed — and detection there cannot even find a test project the agent
+  /// added, because that exists only in its worktree. Fifth place this same
+  /// mistake has turned up.
+  it("runs the tests in the agent's own checkout", async () => {
+    const user = userEvent.setup();
+    mocked.listRuns.mockResolvedValue([
+      run({ id: 42, state: "prepared", worktreePath: "C:/wt/checkout", filesChanged: 2 }),
+    ]);
+    mocked.reviewSolutionChanges.mockResolvedValue(review({ runId: 42 }));
+    mocked.runSolutionTests.mockResolvedValue([] as never);
+    render(panel());
+
+    await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
+
+    // Where they run: on arrival, without anything being pressed.
+    await waitFor(() => expect(mocked.runSolutionTests).toHaveBeenCalledWith(5, 42));
+
+    // And what suites exist, read when the Tests panel is opened — the same
+    // checkout, because a suite the agent wrote is in no other one.
+    const tabs = await screen.findByRole("tablist", { name: "Agent sub-panels" });
+    await user.click(within(tabs).getByRole("tab", { name: /^Tests/ }));
+    await waitFor(() =>
+      expect(mocked.listSolutionTestSuites).toHaveBeenCalledWith(5, 42),
+    );
   });
 
   /// **The lane links, it does not launch.** Handing work to an agent means

@@ -5166,3 +5166,91 @@ cargo 763/763 (23 ignored), Vitest 753/753, `tsc --noEmit`, clippy
   no locale-assertion guard; no "run the regression suite" action; the lifecycle
   checklist reports but does not enforce; no logging outside Develop; no Admin
   UI for the routing defaults.
+
+## Round 98 — the tests run where the work is
+
+### My Feedback
+
+> fix the test runner to use the run's checkout
+
+### Implemented
+
+The fifth place, and it had two halves rather than one:
+
+- **Running them.** `run_solution_tests` and `run_test_suite` take the run and
+  resolve through `root_for_run`. Running in the Solution's folder tested the
+  default branch — the code the agent has *not* changed — and reported it as the
+  agent's result.
+- **Finding them.** Detection walks a folder for the files that give a framework
+  away, so a test project the agent *added* exists only in its worktree. Asking
+  the Solution's folder listed the suites that were there before the work
+  started: the panel offered to run everything except what the agent had
+  actually written. `list_solution_test_suites` reads the run's checkout.
+
+That second half is not hypothetical. The hello world round wrote
+`tests/HelloWorld.Tests/` in its worktree, and nothing in the Solution's folder
+knows that directory exists.
+
+The Solution's own test command still wins wherever it runs: it is a fact about
+the project, not about the folder.
+
+I named the new command `run_test_suites` first, which is a lie — it lists them,
+and it sat one line from `run_solution_tests` and `run_test_suite`. Renamed
+before it spread.
+
+### What is left reading the Solution's folder
+
+Asked properly this time rather than waiting for a sixth report. Everything that
+takes a `solution_id` and resolves a root:
+
+- **Right as they are:** `init_solution_repo`, `push_solution`,
+  `list_solution_branches`, the starter and folder-setting commands — these are
+  about the repository itself, not about anybody's working copy of it.
+- **Wrong, and next:** `commit_solution` and the auto-commit path. The git panel
+  shows an agent's commits now and cannot make one — committing writes to the
+  Solution's folder, so keeping an agent's work from the panel commits the wrong
+  checkout.
+- **Wrong, and smaller:** `read_conflict_sides` and `mark_conflict_resolved`. A
+  merge conflict from a run's branch is resolved in the checkout the merge was
+  run in.
+- **Deliberate:** `write_solution_file`. Reading follows the agent; saving does
+  not, and that asymmetry is now the oldest one on the list.
+
+### Tests
+
+One that pins both halves: arriving at an agent runs the tests with the run, and
+opening the Tests panel lists the suites with the run. cargo 763/763 (23
+ignored), Vitest 754/754, `tsc --noEmit`, clippy `-D warnings` and
+`npm run build` clean.
+
+### Your Feedback
+
+- **Five fixes and one audit is the wrong ratio.** The audit above took two
+  greps; I should have run it when the review was fixed rather than after the
+  fifth report. What would stop a sixth is a rule at the boundary — a command
+  taking `solution_id` and resolving a root either takes `run_id` or says in a
+  comment why it cannot — and that is a lint nobody has written.
+- Auto-running now runs the agent's own suites, which is what you asked for and
+  also means the first arrival at an agent with a new test project pays for a
+  restore or a compile. That is the right cost in the right place, but it is a
+  cost.
+
+### Technical Debt
+
+- `commit_solution` and auto-commit write to the Solution's folder.
+- `read_conflict_sides` and `mark_conflict_resolved` read the Solution's folder.
+- `write_solution_file` saves to the Solution's folder while reading follows the
+  agent.
+- No rule or lint that a root-resolving command must answer "which checkout?".
+- Carried: auto-running tests has no setting; per-test reasons for cargo,
+  pytest, dotnet and go; the test-file path is matched by convention; nothing
+  notices an agent has finished; no per-file diff; nothing advertises the
+  right-click menu; no answer to "should a new attempt start from a clean
+  checkout?"; probe freshness is a number in the code; splitting prose is
+  guesswork; the review is not refreshed on the work signal; nothing
+  distinguishes a scoring list from an enforcing one; a policy tightened mid-run
+  does not stop a running agent; no template-already-inserted warning; no
+  locale-assertion guard; no "run the regression suite" action; the lifecycle
+  checklist reports but does not enforce; no logging outside Develop; no Admin
+  UI for the routing defaults; no way to reset the pane sizes; the ship rail is
+  not resizable.

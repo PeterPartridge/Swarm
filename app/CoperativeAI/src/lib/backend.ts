@@ -1819,17 +1819,42 @@ export const markConflictResolved = (solutionId: number, path: string): Promise<
 
 export const listTestSuites = (productId: number): Promise<SolutionSuites[]> =>
   invoke("list_test_suites", { productId });
-/** Runs every suite in one Solution. Called per Solution so results appear as
- *  each finishes rather than after the slowest one in the Product. */
-export const runSolutionTests = (solutionId: number): Promise<SuiteRun[]> =>
-  invoke("run_solution_tests", { solutionId });
+
+/** The suites in one checkout — a run's own, when a run is given.
+ *
+ *  **A suite the agent wrote exists nowhere else.** Detection walks a folder for
+ *  the files that give a framework away, and a test project the agent added is
+ *  in its worktree; asking the Solution's folder lists the suites that were
+ *  there before the work started. */
+export const listSolutionTestSuites = (
+  solutionId: number,
+  runId?: number,
+): Promise<SolutionSuites> =>
+  invoke("list_solution_test_suites", { solutionId, runId });
+
+/** Runs every suite in one Solution — or in one run's checkout.
+ *
+ *  Called per Solution so results appear as each finishes rather than after the
+ *  slowest one in the Product. **With a run, the tests run where the work is**:
+ *  running in the Solution's folder tests the default branch, which is the code
+ *  the agent has not changed. */
+export const runSolutionTests = (
+  solutionId: number,
+  runId?: number,
+): Promise<SuiteRun[]> => invoke("run_solution_tests", { solutionId, runId });
+/** Re-runs one named suite, so a single failing suite can be run alone.
+ *
+ *  Takes the run for the same reason the others do: a suite belonging to a run
+ *  lives in that run's checkout, and re-running it anywhere else answers about
+ *  other code. */
 export const runTestSuite = (
   solutionId: number,
   kind: string,
   directory: string,
   commandLine: string,
+  runId?: number,
 ): Promise<SuiteRun> =>
-  invoke("run_test_suite", { solutionId, kind, directory, commandLine });
+  invoke("run_test_suite", { solutionId, kind, directory, commandLine, runId });
 /** Replaces detection for this Solution. Blank clears it, so a command that
  *  did not work is never permanent. */
 export const setSolutionTestCommand = (
