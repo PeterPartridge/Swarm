@@ -364,7 +364,7 @@ pub async fn collect_agent_record(
     if worktree.trim().is_empty() {
         return Ok(CollectedRecord::default());
     }
-    let rel = record_path_for(&brief_path);
+    let rel = crate::agent::record::path_for_brief(&brief_path);
     let full = std::path::Path::new(&worktree).join(&rel);
     let text = match std::fs::read_to_string(&full) {
         Ok(text) => text,
@@ -502,20 +502,6 @@ async fn file_debt(
         created += 1;
     }
     Ok((filed, created))
-}
-
-/// The record's path, from the path of the brief it answers.
-///
-/// The two live in sibling folders under `.coperativeai/` and share a filename,
-/// attempt number and all, so one is the other with the folder swapped.
-fn record_path_for(brief_path: &str) -> String {
-    let normalised = brief_path.replace('\\', "/");
-    match normalised.rsplit_once('/') {
-        Some((_, file)) => format!(".coperativeai/feedback/{file}"),
-        // A brief path with no folder should not happen, but guessing a folder
-        // for it would be worse than reading beside it.
-        None => format!(".coperativeai/feedback/{normalised}"),
-    }
 }
 
 /// The worktrees that exist for a Solution's repository, main checkout aside.

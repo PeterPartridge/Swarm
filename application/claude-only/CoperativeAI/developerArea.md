@@ -5353,3 +5353,76 @@ cargo 765/765 (23 ignored), Vitest 760/760, `tsc --noEmit`, clippy
   regression suite" action; the lifecycle checklist reports but does not
   enforce; no logging outside Develop; no Admin UI for the routing defaults; no
   way to reset the pane sizes; the ship rail is not resizable.
+
+## Round 100 — the record becomes the pull request
+
+### My Feedback
+
+> use the agent's round record as the pull request body
+
+### Implemented
+
+A pull request opened from a run now carries the agent's own account: what it
+built, how it proved it, what it left behind and what it could not do. That is
+exactly what a reviewer opens a request to find out, and it was being read into
+the app and then not used in the one place it fits best.
+
+**Typed words win.** Somebody who wrote a description meant it; the record fills
+a description nobody wrote. Replacing what a person typed would be the app
+deciding it knows better.
+
+**It says whose words they are.** The body opens with a line naming the agent,
+because a reviewer reading a description should know whether a person wrote it.
+
+**Nothing invented when there is nothing.** No record and no words is an empty
+description — one made of the branch name and a date tells a reviewer nothing
+they cannot already see.
+
+The panel says this before the press, because a description that appears from
+nowhere is a surprise and because anybody who wants their own words should know
+theirs win.
+
+### Where the record path lives now
+
+`record_path_for` was private to `runs.rs`, and the pull request wanted the same
+answer. It is `agent::record::path_for_brief` with `read_in` beside it — the
+module that knows what a record is now also knows where one lives, which is
+where the second caller would have looked first.
+
+### Tests
+
+Three on the pure choice — the record fills an empty description, typed words
+win, nothing invented from nothing — because that is the whole of the decision
+and it needs no GitHub to check.
+
+cargo 768/768 (23 ignored), Vitest 760/760, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean.
+
+### Your Feedback
+
+- **The record is sent whole.** For the hello world round that is about 120
+  lines, which is a long pull request description — honest, and more than some
+  reviewers want. Trimming it to "what I built" and "technical debt" would read
+  better and would also be the app deciding which half of an agent's account
+  matters. I have left it whole; say if you would rather it were shorter.
+- Nothing links the request back to the work item, or the work item to the
+  request. That is the obvious next join.
+
+### Technical Debt
+
+- The whole record goes into the description with no summary and no trimming.
+- No link between a pull request and the work item it came from.
+- Carried: sync always rebases with no shared-branch warning; the conflict
+  commands still read the Solution's folder; auto-running tests has no setting;
+  per-test reasons for cargo, pytest, dotnet and go; the test-file path is
+  matched by convention; nothing notices an agent has finished;
+  `write_solution_file` saves to the Solution's folder; no per-file diff;
+  nothing advertises the right-click menu; no answer to "should a new attempt
+  start from a clean checkout?"; probe freshness is a number in the code;
+  splitting prose is guesswork; the review is not refreshed on the work signal;
+  nothing distinguishes a scoring list from an enforcing one; a policy tightened
+  mid-run does not stop a running agent; no template-already-inserted warning;
+  no locale-assertion guard; no "run the regression suite" action; the lifecycle
+  checklist reports but does not enforce; no logging outside Develop; no Admin
+  UI for the routing defaults; no way to reset the pane sizes; the ship rail is
+  not resizable.

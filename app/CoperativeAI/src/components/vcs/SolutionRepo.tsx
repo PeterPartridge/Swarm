@@ -452,6 +452,17 @@ export default function SolutionRepo({
               onChange={(e) => setPrBase(e.target.value)}
             />
           </label>
+          {/* **The description writes itself when an agent wrote one.** Its
+              round record is what a reviewer opens a request to find out — what
+              was built, how it was proved, what was left behind. Said here
+              because a description that appears from nowhere is a surprise, and
+              because anybody who wants their own words should know theirs win. */}
+          {runId !== undefined && (
+            <p className="hint">
+              The description will be the agent's round record, if it wrote one.
+              Anything typed above replaces it.
+            </p>
+          )}
           <button
             aria-label={`Open a pull request for ${solution.name}`}
             disabled={busy}

@@ -19,6 +19,36 @@
 
 use super::handover::RECORD_HEADINGS;
 
+/// Where a run's record sits, given the brief it answers.
+///
+/// **Derived from the brief rather than rebuilt from the title.** The two live
+/// in sibling folders under `.coperativeai/` and share a filename, attempt
+/// number and all, so one is the other with the folder swapped — and a record
+/// always pairs with the brief it answers even if the naming changes.
+pub fn path_for_brief(brief_path: &str) -> String {
+    let normalised = brief_path.replace('\\', "/");
+    match normalised.rsplit_once('/') {
+        Some((_, file)) => format!(".coperativeai/feedback/{file}"),
+        // A brief path with no folder should not happen, but guessing a folder
+        // for it would be worse than reading beside it.
+        None => format!(".coperativeai/feedback/{normalised}"),
+    }
+}
+
+/// The record an agent wrote in this checkout, if it wrote one.
+///
+/// `None` covers every ordinary absence — no checkout, no file, an empty file —
+/// because none of them is a failure: most of a run's life is spent before the
+/// record exists.
+pub fn read_in(worktree: &str, brief_path: &str) -> Option<String> {
+    if worktree.trim().is_empty() {
+        return None;
+    }
+    let full = std::path::Path::new(worktree).join(path_for_brief(brief_path));
+    let text = std::fs::read_to_string(full).ok()?;
+    (!text.trim().is_empty()).then_some(text)
+}
+
 /// An agent's account of one round.
 ///
 /// Every section is optional: an agent that left no debt should write nothing

@@ -255,6 +255,36 @@ pub async fn checkout_changes(
     crate::files::workspace::read_changes(&root)
 }
 
+/// What a pull request says, given what the caller typed and what the agent
+/// wrote when it finished.
+///
+/// **The description was empty while the account of the work sat beside it.**
+/// An agent's round record is exactly what a reviewer opens a pull request to
+/// find out — what was built, how it was proved, what was left behind and what
+/// could not be done — and it was being read into the app and then not used for
+/// the one place it fits best.
+///
+/// Typed words win. Somebody who wrote a description meant it, and replacing it
+/// with the agent's would be the app deciding it knows better; the record is
+/// what fills a description nobody wrote.
+fn pull_request_body(typed: &str, record: Option<String>) -> String {
+    if !typed.trim().is_empty() {
+        return typed.trim().to_string();
+    }
+    match record {
+        Some(said) => format!(
+            "_Written by the coding agent that made this branch, from its round record._
+
+{}",
+            said.trim()
+        ),
+        // Nothing to say rather than something invented. A description made up
+        // of the branch name and a date tells a reviewer nothing they cannot
+        // already see.
+        None => String::new(),
+    }
+}
+
 /// Opens a pull request from this checkout's branch.
 ///
 /// **The last step of a run, which used to leave the app.** An agent's work ends
@@ -273,7 +303,7 @@ pub async fn open_pull_request(
     body: String,
     base: String,
 ) -> Result<String, String> {
-    let (root, repo_url) = {
+    let (root, repo_url, brief_path) = {
         let conn = db.0.lock().await;
         let Some(row) = solution::find_by_id(&conn, solution_id).await.map_err(to_message)? else {
             return Err("that Solution no longer exists".into());
@@ -282,9 +312,20 @@ pub async fn open_pull_request(
             "this Solution is not linked to a repository on GitHub, so there is nowhere to open a \
              pull request. Link or create one on the Git tab first.",
         )?;
+        // The brief names where the record sits beside it; a run with no row
+        // any more simply has no record to find.
+        let brief = match run_id {
+            Some(id) => crate::db::change_run::find_by_id(&conn, id)
+                .await
+                .map_err(to_message)?
+                .map(|r| r.brief_path)
+                .unwrap_or_default(),
+            None => String::new(),
+        };
         (
             crate::commands::workspace::root_for_run(&conn, solution_id, run_id).await?,
             url,
+            brief,
         )
     };
 
@@ -307,8 +348,16 @@ pub async fn open_pull_request(
     vcs::push(&root).map_err(|e| format!("could not push {} first: {e}", state.branch))?;
 
     let token = crate::git::github::get_token()?;
-    crate::git::github::create_pull_request(&token, &repo_url, &state.branch, &base, title.trim(), body.trim())
-        .await
+    let said = pull_request_body(&body, crate::agent::record::read_in(&root, &brief_path));
+    crate::git::github::create_pull_request(
+        &token,
+        &repo_url,
+        &state.branch,
+        &base,
+        title.trim(),
+        &said,
+    )
+    .await
 }
 
 #[derive(Serialize)]
@@ -541,4 +590,42 @@ pub async fn diagram_from_solutions(
 
     let (nodes, edges) = drawio::from_solutions(&solutions, &links);
     Ok(DraftedDiagram { nodes, edges })
+}
+
+#[cfg(test)]
+mod pull_request_body_tests {
+    use super::pull_request_body;
+
+    /// **The description was empty while the account of the work sat beside
+    /// it.** A round record is exactly what a reviewer opens a pull request to
+    /// find out, and it was being read into the app and then not used in the
+    /// one place it fits best.
+    #[test]
+    fn the_agents_record_fills_a_description_nobody_wrote() {
+        let said = pull_request_body(
+            "",
+            Some("## What I built\nA greeter.\n\n## Technical debt\nNo CI.".into()),
+        );
+        assert!(said.contains("A greeter."));
+        assert!(said.contains("No CI."));
+        // And it says whose words they are, because a reviewer reading a
+        // description should know whether a person wrote it.
+        assert!(said.starts_with("_Written by the coding agent"));
+    }
+
+    /// Somebody who wrote a description meant it. Replacing it with the agent's
+    /// would be the app deciding it knows better.
+    #[test]
+    fn what_somebody_typed_wins() {
+        let said = pull_request_body("  Adds the greeter.  ", Some("## What I built\nX".into()));
+        assert_eq!(said, "Adds the greeter.");
+    }
+
+    /// Nothing to say rather than something invented: a description made of the
+    /// branch name and a date tells a reviewer nothing they cannot already see.
+    #[test]
+    fn no_record_and_no_words_is_an_empty_description() {
+        assert_eq!(pull_request_body("", None), "");
+        assert_eq!(pull_request_body("   ", None), "");
+    }
 }
