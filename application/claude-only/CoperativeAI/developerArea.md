@@ -5081,3 +5081,88 @@ clippy `-D warnings` and `npm run build` clean.
   template-already-inserted warning; no locale-assertion guard; no "run the
   regression suite" action; the lifecycle checklist reports but does not
   enforce; no logging outside Develop; no Admin UI for the routing defaults.
+
+## Round 97 — the panes are the reader's to size
+
+### My Feedback
+
+> Also can we make the code window resizable up and down left and right. Also
+> can the code windows be fully pulled out with click and drag and tests to make
+> sure code still shows
+
+### Implemented
+
+**Three dividers.** The lane was 17.5rem, the tree 13.5rem and the code whatever
+was left — fine on the screen those numbers were chosen on and wrong on every
+other. `Splitter` sits between the lane and the tree, between the tree and the
+code, and under the whole view, so the code gets room from either side and from
+below.
+
+**Pointer events, not mouse events**, so a trackpad, a pen and a touchscreen all
+work; and the drag is tracked on the window rather than on the divider, because
+a two-pixel target is not something anybody's pointer stays inside. The size is
+measured as "where it started, plus how far the pointer moved" — reading the
+pointer's position directly would jump the pane to the cursor the moment it was
+grabbed.
+
+**Arrow keys move it too**, and the divider is a `separator` carrying its value.
+A divider that only answers to a drag cannot be moved by somebody who cannot
+drag — and it is what made this testable in jsdom at all.
+
+**Remembered per machine**, in `localStorage`: a fact about this monitor, not
+about the work, and a second machine with a different screen should not inherit
+it. Anything unreadable falls back to the shipped numbers, so a layout
+preference can never be the reason a view fails to open.
+
+**Pull out by dragging it.** The button stays — a gesture nobody is told about
+is a gesture nobody finds, and a drag is not available to everybody — and now a
+drag off the button does the same thing. Tearing a window off a tab strip is a
+gesture people already have.
+
+### Tests
+
+The dividers have their own file: dragging moves by the distance moved, a second
+move measures from the start rather than creeping, the limits hold, arrows work,
+and the horizontal one reads the other axis.
+
+And the three the user asked for by name: the code is still on screen after a
+width drag, after a height drag, and after the pane is dragged out — that last
+one because a pull-out opens a *second* view of the file rather than moving it,
+and a pane that emptied itself would be the opposite of what the gesture is for.
+
+**jsdom has no `PointerEvent`**, so `fireEvent.pointerMove(el, { clientX })`
+builds an event with no coordinate and the pane moves by `NaN`. The tests
+dispatch a `MouseEvent` of the same type, which carries real coordinates and
+reaches listeners registered by type.
+
+cargo 763/763 (23 ignored), Vitest 753/753, `tsc --noEmit`, clippy
+`-D warnings` and `npm run build` clean.
+
+### Your Feedback
+
+- **The height divider makes the view taller, not the window.** Dragging it past
+  the bottom of the screen gives a page that scrolls, which is right for reading
+  a long file and wrong if what you wanted was a taller window. Say which.
+- Nothing resets the sizes. If a drag leaves the layout somewhere unusable the
+  only way back is clearing site data — a "reset the panes" item belongs
+  somewhere, probably beside the theme setting.
+- The ship rail on the right is still fixed. It divides the same row and could
+  take a fourth divider; I left it because you named the code window.
+
+### Technical Debt
+
+- No way to reset the pane sizes.
+- The right-hand rail is not resizable.
+- Carried, unchanged: `run_solution_tests` reads the Solution's folder rather
+  than the run's checkout; auto-running tests has no setting; per-test reasons
+  for cargo, pytest, dotnet and go; the test-file path is matched by convention;
+  nothing notices an agent has finished; `commit_solution` writes to the
+  Solution's folder; no per-file diff; nothing advertises the right-click menu;
+  no answer to "should a new attempt start from a clean checkout?"; saving a
+  file writes to the Solution's folder; probe freshness is a number in the code;
+  splitting prose is guesswork; the review is not refreshed on the work signal;
+  nothing distinguishes a scoring list from an enforcing one; a policy tightened
+  mid-run does not stop a running agent; no template-already-inserted warning;
+  no locale-assertion guard; no "run the regression suite" action; the lifecycle
+  checklist reports but does not enforce; no logging outside Develop; no Admin
+  UI for the routing defaults.

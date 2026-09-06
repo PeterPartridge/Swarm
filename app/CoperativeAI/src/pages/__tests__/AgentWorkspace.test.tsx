@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AgentWorkspace from "../../components/ai/AgentWorkspace";
@@ -187,6 +187,9 @@ describe("AgentWorkspace (the Build view)", () => {
     });
     mocked.closeMySpace.mockResolvedValue(undefined);
     vi.clearAllMocks();
+    // The pane widths are remembered per machine, so one test dragging a
+    // divider must not decide what the next one starts from.
+    localStorage.clear();
     mocked.lifecycleGates.mockResolvedValue([]);
     mocked.listLifecycleSteps.mockResolvedValue([]);
     mocked.listWorkItemSteps.mockResolvedValue([]);
@@ -733,6 +736,72 @@ describe("AgentWorkspace (the Build view)", () => {
     await user.click(await screen.findByLabelText("Agent for Add checkout on Shop API"));
     await screen.findByRole("tablist", { name: "Agent sub-panels" });
     expect(mocked.runSolutionTests).not.toHaveBeenCalled();
+  });
+
+/// **Resizing must not cost you the thing you were reading.** The panes are
+  /// dragged to give the code more room, so a drag that unmounted the editor —
+  /// or a remembered width that arrived before it — would defeat the point of
+  /// dragging at all.
+  it("keeps the code on screen while the panes are resized", async () => {
+    const user = userEvent.setup();
+    render(panel());
+    expect(await screen.findByText("the code editor")).toBeInTheDocument();
+
+    const lane = screen.getByRole("separator", { name: "Resize the agent lane" });
+    lane.focus();
+    await user.keyboard("{ArrowRight}{ArrowRight}");
+    expect(screen.getByText("the code editor")).toBeInTheDocument();
+
+    const view = screen.getByRole("region", { name: "Build" });
+    expect(view).toHaveStyle({ "--lane-w": "328px" });
+
+    // And the other axis: taller view, same editor.
+    const bottom = screen.getByRole("separator", { name: "Resize the Build view" });
+    bottom.focus();
+    await user.keyboard("{ArrowDown}");
+    expect(screen.getByText("the code editor")).toBeInTheDocument();
+  });
+
+  /// **A size the reader chose is a size that should still be there tomorrow.**
+  /// A divider that has to be dragged on every visit is dragged once.
+  it("remembers the widths for this machine", async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(panel());
+    await screen.findByText("the code editor");
+
+    const tree = screen.getByRole("separator", { name: "Resize the file tree" });
+    tree.focus();
+    await user.keyboard("{ArrowLeft}");
+    unmount();
+
+    render(panel());
+    expect(await screen.findByText("the code editor")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Build" })).toHaveStyle({
+      "--tree-w": "192px",
+    });
+  });
+
+  /// **Pulling the pane out must not empty the pane.** It opens a window beside
+  /// the app; what was being read stays where it was, because the window is a
+  /// second view of the file rather than a move.
+  it("opens the pane in its own window on a drag, and still shows the code", async () => {
+    const user = userEvent.setup();
+    mocked.openFileWindow.mockResolvedValue(undefined);
+    mocked.readSolutionTree.mockResolvedValue({
+      entries: [{ path: "src/main.ts", name: "main.ts", isDir: false, depth: 0 }],
+      truncated: false,
+    });
+    mocked.readSolutionFile.mockResolvedValue("the file");
+    render(panel());
+
+    await user.click(await screen.findByLabelText("src/main.ts"));
+    const out = await screen.findByLabelText("Open src/main.ts in its own window");
+
+    // Dragged rather than clicked — the gesture people already have for tearing
+    // a window off a tab strip.
+    fireEvent.dragEnd(out);
+    await waitFor(() => expect(mocked.openFileWindow).toHaveBeenCalledWith(5, "src/main.ts"));
+    expect(screen.getByLabelText(/src\/main\.ts in Shop API/)).toBeInTheDocument();
   });
 
   /// **The lane links, it does not launch.** Handing work to an agent means

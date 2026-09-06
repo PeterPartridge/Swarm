@@ -14,6 +14,8 @@ import DebugBoard from "../code/DebugBoard";
 import DebugToolbar from "../code/DebugToolbar";
 import RunBar, { type RunRequest } from "../code/RunBar";
 import SectionTabs from "../common/SectionTabs";
+import Splitter from "../common/Splitter";
+import { loadPanes, savePanes, type PaneSizes } from "../../lib/panes";
 import GitExplorer from "../vcs/GitExplorer";
 import JobsPanel from "./JobsPanel";
 import QuestionsPanel from "./QuestionsPanel";
@@ -85,6 +87,20 @@ export default function AgentWorkspace({
    *  agent on them — starting a run stays a press on the item's build plan. */
   onOpenWork?: (workItemId: number) => void;
 }) {
+  /// How wide the lane and the tree are, and how tall the whole view is.
+  ///
+  /// **Read once, remembered per machine.** The panes were the numbers somebody
+  /// picked on one screen; reading code is the reason this view exists, so the
+  /// room it gets belongs to whoever is reading. Kept in localStorage: a fact
+  /// about this monitor, not about the work.
+  const [panes, setPanes] = useState<PaneSizes>(loadPanes);
+  const resize = (next: Partial<PaneSizes>) =>
+    setPanes((held) => {
+      const sizes = { ...held, ...next };
+      savePanes(sizes);
+      return sizes;
+    });
+
   const [agents, setAgents] = useState<Agent[]>([]);
   const [items, setItems] = useState<WorkItem[]>([]);
   const [selected, setSelected] = useState<string>("code");
@@ -473,7 +489,19 @@ export default function AgentWorkspace({
     review?.changes.find((c) => c.path === selectedFile) ?? null;
 
   return (
-    <section className="build-view" aria-label="Build">
+    <section
+      className="build-view"
+      aria-label="Build"
+      style={
+        {
+          "--lane-w": `${panes.lane}px`,
+          "--tree-w": `${panes.tree}px`,
+          // Zero means "as the stylesheet had it" — a first visit looks exactly
+          // as it always did, and only a drag pins a height.
+          ...(panes.height > 0 ? { "--build-h": `${panes.height}px` } : {}),
+        } as React.CSSProperties
+      }
+    >
       {/* The Solutions across the top, each saying how many agents are inside
           it — the one thing you cannot see from a lane sorted by work item. */}
       <div className="solution-bar" role="tablist" aria-label="Solutions">
@@ -583,6 +611,14 @@ export default function AgentWorkspace({
           onOpenWork={onOpenWork}
         />
 
+        <Splitter
+          label="the agent lane"
+          value={panes.lane}
+          min={160}
+          max={560}
+          onChange={(lane) => resize({ lane })}
+        />
+
         {/* The tree is out here rather than inside a pane because it belongs to
             the Solution, not to whichever agent happens to be selected. Both
             the Product-wide panes want the width instead. */}
@@ -609,6 +645,16 @@ export default function AgentWorkspace({
               // back — but what appears now is the code.
               setPane("code");
             }}
+          />
+        )}
+
+        {selected !== "all" && selected !== "debug" && (
+          <Splitter
+            label="the file tree"
+            value={panes.tree}
+            min={120}
+            max={640}
+            onChange={(tree) => resize({ tree })}
           />
         )}
 
@@ -656,12 +702,18 @@ export default function AgentWorkspace({
               The console's own pull-out stays on its header, where the drag
               gesture already is — moving it up here would have made two answers
               to one question. */}
+          {/* **Click it or drag it.** A window torn off a tab strip is a
+              gesture people already have; the button stays because a gesture
+              nobody is told about is a gesture nobody finds, and because a
+              drag is not available to everybody. Both do the same one thing. */}
           {pullOut && (
             <button
               type="button"
               className="pane-pop"
               aria-label={pullOut.label}
-              title="Opens it in its own window"
+              title="Click, or drag it out, to open it in its own window"
+              draggable
+              onDragEnd={() => void pullOut.open()}
               onClick={() => void pullOut.open()}
             >
               ⧉ Pull out
@@ -819,6 +871,19 @@ export default function AgentWorkspace({
           />
         )}
       </div>
+
+      {/* **The bottom edge, draggable.** The view was a fixed fraction of the
+          window, which is the right answer until somebody is reading a long
+          file. Dragging this makes the whole thing taller and the page scrolls
+          to it; the width dividers above share out what that height contains. */}
+      <Splitter
+        label="the Build view"
+        orientation="horizontal"
+        value={panes.height > 0 ? panes.height : 640}
+        min={320}
+        max={2400}
+        onChange={(height) => resize({ height })}
+      />
     </section>
   );
 }

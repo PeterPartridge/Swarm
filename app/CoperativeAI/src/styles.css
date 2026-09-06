@@ -4799,7 +4799,9 @@ code {
 .build-view {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 12rem);
+  /* The reader's own height once they have dragged the bottom edge; the
+     shipped one until then. */
+  height: var(--build-h, calc(100vh - 12rem));
   min-height: 34rem;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -5002,7 +5004,9 @@ code {
 /* ── The agent lane ───────────────────────────────────────────────────────── */
 
 .agent-lane {
-  width: 17.5rem;
+  /* Dragged, and remembered per machine. The number it falls back to is the
+     one this layout shipped with, so a first visit looks unchanged. */
+  width: var(--lane-w, 17.5rem);
   flex: none;
   display: flex;
   flex-direction: column;
@@ -5349,7 +5353,7 @@ code {
 /* ── The file tree ────────────────────────────────────────────────────────── */
 
 .build-explorer {
-  width: 13.5rem;
+  width: var(--tree-w, 13.5rem);
   flex: none;
   display: flex;
   flex-direction: column;
@@ -5476,6 +5480,38 @@ code {
 
 .tree-status.deleted {
   color: var(--bad);
+}
+
+/* A divider somebody drags. Two pixels of line and a comfortable target around
+   it: a hit area the width of the line is a line nobody can catch. */
+.splitter {
+  flex: none;
+  position: relative;
+  background: var(--line-soft, var(--line));
+  touch-action: none;
+}
+
+.splitter.vertical {
+  width: 1px;
+  cursor: col-resize;
+}
+
+.splitter.horizontal {
+  height: 1px;
+  cursor: row-resize;
+}
+
+.splitter::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+}
+
+.splitter:hover,
+.splitter:focus-visible,
+.splitter.dragging {
+  background: var(--accent);
+  outline: none;
 }
 
 /* ── The workbench ────────────────────────────────────────────────────────── */
