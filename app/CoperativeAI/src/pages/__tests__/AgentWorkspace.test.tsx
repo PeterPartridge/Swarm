@@ -65,9 +65,6 @@ vi.mock("../../components/code/CodeEditor", () => ({
 vi.mock("../../components/planning/WorkItemBuildPlan", () => ({
   default: ({ item }: { item: WorkItem }) => <div>build plan for {item.title}</div>,
 }));
-vi.mock("../../components/code/WorkItemChanges", () => ({
-  default: () => <div>the recorded scope</div>,
-}));
 vi.mock("../../components/code/RunTerminal", () => ({
   default: ({ title }: { title: string }) => <div>terminal: {title}</div>,
 }));
@@ -319,16 +316,17 @@ describe("AgentWorkspace (the Build view)", () => {
       "Tests",
       "Preview",
       "Run",
-      "Scope",
       "AI feedback",
     ]) {
       expect(within(tabs).getByRole("tab", { name: new RegExp(`^${name}`) })).toBeInTheDocument();
     }
 
+    // Neither Changes nor Scope: the changes are in the Files pane, and Scope
+    // drew the same per-Solution panel the Plan tab draws — one of them was a
+    // second place to type the same thing and wonder which one counted.
     expect(within(tabs).queryByRole("tab", { name: /^Changes/ })).not.toBeInTheDocument();
+    expect(within(tabs).queryByRole("tab", { name: /^Scope/ })).not.toBeInTheDocument();
     expect(await screen.findByText("build plan for Add checkout")).toBeInTheDocument();
-    await user.click(within(tabs).getByRole("tab", { name: /^Scope/ }));
-    expect(await screen.findByText("the recorded scope")).toBeInTheDocument();
     await user.click(within(tabs).getByRole("tab", { name: /^Preview/ }));
     expect(
       await screen.findByRole("region", { name: /Preview of Add checkout/ }),

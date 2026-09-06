@@ -3,7 +3,6 @@ import AiFeedbackPanel from "./AiFeedbackPanel";
 import PreviewPanel from "../code/PreviewPanel";
 import RunTerminal from "../code/RunTerminal";
 import WorkItemBuildPlan from "../planning/WorkItemBuildPlan";
-import WorkItemChanges from "../code/WorkItemChanges";
 import { hueFor, markFor, PHASES, phaseOf, status, type Agent } from "./AgentLane";
 import type { TestVerdict } from "./ReviewShipRail";
 import { notifyWorkChanged, useWorkChanged } from "../../lib/workSignal";
@@ -28,7 +27,6 @@ export type SubPanel =
   | "aiPlanning"
   | "git"
   | "tests"
-  | "scope"
   | "questions"
   | "preview"
   | "terminal";
@@ -46,7 +44,6 @@ const LABELS: Record<SubPanel, string> = {
   aiPlanning: "AI planning",
   git: "Git",
   tests: "Tests",
-  scope: "Scope",
   questions: "AI feedback",
   preview: "Preview",
   terminal: "Run",
@@ -132,7 +129,6 @@ export default function AgentJobPanel({
             "tests",
             "preview",
             "terminal",
-            "scope",
             "questions",
           ]
         : ["plan", "product", "aiPlanning", "git", "questions"],
@@ -472,17 +468,16 @@ export default function AgentJobPanel({
           </div>
         )}
 
-        {/* The Product goes down here too. Without it this panel shows the
-            Solution dropdown and no way to make one — the same dead end the
-            build plan had, in the other place the same component is used. */}
-        {panel === "scope" && (
-          <WorkItemChanges
-            workItemId={item.id}
-            mode="developer"
-            solutions={solutions}
-            productId={item.productId}
-          />
-        )}
+        {/* **Scope was Plan, with less on it.** It rendered
+            `WorkItemChanges mode="developer"` — and so does the Plan tab, with
+            the same props, above the lifecycle checklist, the pre-flight gates
+            and the buttons. Two tabs onto one panel, one of them a strict
+            subset of the other: the second was a place to type the same thing
+            and wonder which one counted.
+
+            Nothing moved to keep it: everything Scope drew, Plan already draws.
+            Removed rather than renamed, because a tab whose content lives
+            elsewhere is a tab that will drift from it. */}
 
         {panel === "questions" && (
           <div className="agent-questions">

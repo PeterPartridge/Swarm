@@ -5021,3 +5021,63 @@ cargo 763/763 (23 ignored), Vitest 746/746, `tsc --noEmit`, clippy
   template-already-inserted warning; no locale-assertion guard; no "run the
   regression suite" action; the lifecycle checklist reports but does not
   enforce; no logging outside Develop; no Admin UI for the routing defaults.
+
+## Round 96 — Scope was Plan with less on it
+
+### My Feedback
+
+> in the develop build and agent scope and Plan look to have the same function.
+> Can we remove scope?
+
+### Checked before removing
+
+They were not similar — they were the same component. Scope rendered
+`WorkItemChanges mode="developer"` with `workItemId`, `solutions` and
+`productId`; the Plan tab renders **the same component with the same props**,
+above the lifecycle checklist, the pre-flight gates and the Plan/Execute
+buttons. Scope was a strict subset: everything it drew, Plan already draws, with
+more around it.
+
+So it is gone rather than renamed. A tab whose content lives somewhere else is a
+tab that will drift from it, and two places to type the same thing leaves
+somebody wondering which one counted.
+
+Nothing moved. The one thing lost is a shorter screen for editing scope without
+the buttons underneath, which is not worth a tab.
+
+### Implemented
+
+- `SubPanel` loses `"scope"`; the tab, its label and its pane are gone.
+- The `WorkItemChanges` import went with it, and so did that file's mock in the
+  Build view's tests — a mock for a component nobody mounts is a lie about what
+  the file needs.
+
+### Tests
+
+The tab test names the tabs that remain and now asserts *neither* Changes nor
+Scope is offered. cargo 763/763 (23 ignored), Vitest 746/746, `tsc --noEmit`,
+clippy `-D warnings` and `npm run build` clean.
+
+### Your Feedback
+
+- **This is the third tab removed in four rounds** — Changes, then the build
+  plan's inner row, now Scope. The pattern is the same each time: a panel gets a
+  tab, then the thing it showed moves somewhere better, and the tab stays. Worth
+  a look at the remaining ones with the same question: Preview and Run are the
+  two I would ask about next.
+
+### Technical Debt
+
+- Carried, unchanged from round 95: `run_solution_tests` reads the Solution's
+  folder rather than the run's checkout; auto-running tests has no setting;
+  per-test reasons for cargo, pytest, dotnet and go; the test-file path is
+  matched by convention; nothing notices an agent has finished;
+  `commit_solution` writes to the Solution's folder; no per-file diff; nothing
+  advertises the right-click menu; no answer to "should a new attempt start from
+  a clean checkout?"; saving a file writes to the Solution's folder; probe
+  freshness is a number in the code; splitting prose is guesswork; the review is
+  not refreshed on the work signal; nothing distinguishes a scoring list from an
+  enforcing one; a policy tightened mid-run does not stop a running agent; no
+  template-already-inserted warning; no locale-assertion guard; no "run the
+  regression suite" action; the lifecycle checklist reports but does not
+  enforce; no logging outside Develop; no Admin UI for the routing defaults.
