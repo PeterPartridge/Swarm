@@ -21,7 +21,9 @@ So the files an agent must not touch can be named once, kept in the repository, 
 
 The sandbox answers *where* an agent runs. It does not answer *what it may reach once it is there*: inside the boundary, an agent can read every file of the work it was given, including the ones nobody meant it to see. A policy is where somebody says "not those", in a file, in writing.
 
-**And it exists to keep two very different promises apart.** "The agent has been asked not to read this" and "this was never put where the agent could reach it" are both called access control, and only one of them survives an agent that has been told not to ask. A policy that emitted only the first would be a padlock drawn on a door — the exact thing this app's sandbox was built to stop being.
+**How it does that: a script that runs before the agent starts.** Once a run's copy is in place and before anything is handed to an agent, a policy script runs **inside the boundary as root** and sets permissions on what the policy names. The agent then starts as an ordinary user that cannot gain privileges — so what root set, the agent cannot undo. This is enforced by the operating system, not by the agent's good behaviour, which is the whole reason it is worth building.
+
+**And it exists to keep two very different promises apart.** "The agent has been asked not to read this" and "the agent is not permitted to read this" are both called access control, and only the second survives an agent that has been told not to ask. A policy that emitted only deny-rules for the agent to honour would be a padlock drawn on a door — the exact thing this app's sandbox was built to stop being.
 
 ---
 
@@ -54,11 +56,28 @@ Anyone using the app — single-user local desktop application, no login. Roles 
 ### data-stored — What information needs to be stored, and what does each bit look like?
 The policy lives in the Solution's repository as a file, because that is what makes it shareable, reviewable and installable — a copy in this app's database would be the one nobody else gets. The database holds only the pointer and what a run used, so a run's record still tells the truth after the file changes.
 
+### how-it-works — What actually happens, and when?
+After the run's copy is made and **before the agent is given anything to do**, the app runs the policy inside the boundary as root:
+
+- A path the policy says must not be read is given to `root` and made unreadable to anyone else.
+- The agent then works as its ordinary user, with no way to become root — so it cannot read the file, and cannot change its permissions or its owner back.
+
+Established on the machine this was written on, rather than assumed:
+
+- Reading a root-owned, mode-`000` file as the agent: **Permission denied**.
+- `chmod` on it: **Operation not permitted**. `chown`: the same.
+- **But deleting it succeeded** — removing a file depends on write permission on its *directory*, not on the file. So a file can be made unreadable and still be destroyed.
+- The sticky bit does **not** fix that: it permits the directory's owner, and the directory's owner is the agent.
+- With the **parent directory owned by root** as well, deletion is refused too. That is the complete form — and its price is that the agent can no longer create anything in that directory either.
+
 ### in-memory — Does anything need to be remembered while the page is open (not saved permanently)?
 The parsed policy being edited, and the difference a pending install would make.
 
 ### tests — How will we know it works? What should we test?
-- A path rule that the sandbox can enforce results in that path **not being mounted** — checked by trying to read it from inside and failing.
+- A path the policy protects **cannot be read by the agent** — checked by trying, from inside, as the agent, and failing.
+- The agent **cannot undo it**: `chmod` and `chown` on a protected path are both refused.
+- Where the policy asks for it, the agent **cannot delete it either** — and where that was not possible without taking the directory, the page said so rather than implying otherwise.
+- The policy script runs **before** anything is handed to an agent, never after.
 - A rule that only the agent can honour is labelled as such, and is never described as enforced.
 - With the sandbox off, every rule reports as asked-only — because that is all any of them can be.
 - A policy saved to a repository and installed into a second Solution produces the same rules.
@@ -68,11 +87,13 @@ The parsed policy being edited, and the difference a pending install would make.
 - A rule naming a path outside the repository is refused rather than silently ignored.
 
 ### limits — Any known limits or things to watch out for?
-- **The two promises must never be blurred**, in the panel or in this document. Not-mounted is enforced by the kernel; asked-of-the-agent is a request the agent can be told to disregard, and is worth nothing under "never ask".
-- A file that is never mounted is invisible to the *build* as well as to the agent. Excluding something the project needs to compile will break the run, and the failure will look like a broken build rather than a policy.
-- The sandbox mounts a repository whole today. Enforcing a path rule means mounting less than that, which is a real change to how a run is prepared and is where the work in this actually is.
-- Some things cannot be kept from an agent that can run commands at all — anything it can reach through the network, and anything the build itself pulls in. The policy should not imply otherwise.
-- Secrets are the case people will reach for first, and the honest answer is that the right place for a secret is not in the repository. A policy that hides `.env` from an agent is worth having and is not a substitute for that.
+- **With the sandbox off, none of this is enforceable and the page must say so.** There is no separate user then: the agent runs as the person using the machine, with their permissions, and nothing can be kept from it. Every rule reports as asked-only, because that is all any of them can be.
+- **Unreadable is available anywhere; undeletable costs the directory.** Making a single file unreadable works wherever it sits. Making it undeletable requires its parent to be root-owned, and then the agent cannot create anything in that directory either — so protecting one file at the root of a working copy is a trade, not a free win.
+- **A policy script runs as root inside the boundary, which means it can weaken the boundary as easily as strengthen it.** It must be shown before it runs, the way the language starters already are, and where an installed one came from matters more than where a document came from.
+- A file the agent cannot read is one the **build** cannot read either, if it runs as the agent. Restricting something the project needs will present as a broken build rather than as a policy.
+- Some things cannot be kept from an agent that can run commands at all — anything it can reach over the network, anything the build pulls in. The policy must not imply otherwise.
+- Secrets are what people will reach for first, and the honest answer is that a repository is the wrong place for one. Hiding `.env` from an agent is worth having and is not a substitute.
+- The two promises must never be blurred, in the panel or in this document.
 
 ### model-and-effort — Which AI model and effort level should this page use by default?
 Most capable model, high effort — it makes claims about what an agent cannot do.
@@ -83,3 +104,4 @@ Most capable model, high effort — it makes claims about what an agent cannot d
 
 > Each time you come back to improve the page, add a bullet describing what you want to change. Keep changes small.
 - Round 1 (my feedback): Policy files that can be saved, shared and installed, to limit what an agent can reach and which files it cannot access. *(Raised while asking for the sandbox panel to be friendlier, and kept separate from it because this one makes a claim about enforcement rather than about layout. The condition carried over from the sandbox: every rule has to say which of the two promises it keeps, because a rule the agent merely honours stops meaning anything the moment an agent is run unattended — which is the setting this whole area exists to make defensible.)*
+- Round 2 (my feedback): **The mechanism is a script that runs before the agent spins up, restricting it with permissions.** *(This replaced a first draft that would have enforced path rules by mounting less of the repository. The script is the better answer: it runs inside the boundary as root while the agent runs as an ordinary user that cannot become root, so what it sets the agent cannot undo — and it leaves the mount, the simplest and best-proved part of the sandbox, alone. Checked on a real distribution rather than assumed: the agent cannot read a root-owned unreadable file, and cannot chmod or chown it back — but it **can delete** it, because removing a file depends on write permission on the directory rather than on the file, and the sticky bit does not help since it permits the directory's owner. Undeletable needs the parent owned by root too, which costs the agent the ability to create anything in that directory. Both facts belong on the page rather than in somebody's head. The thing this buys, and it is the point: with a sandbox on, these are permissions the operating system enforces, not requests an agent can be told to ignore.)*
