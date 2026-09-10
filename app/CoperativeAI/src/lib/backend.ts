@@ -3187,3 +3187,11 @@ export const sandboxReport = (): Promise<SandboxReport> => invoke("sandbox_repor
  *  distribution is configured rather than made a second time. */
 export const setUpSandbox = (mode: string): Promise<SetUpResult> =>
   invoke("set_up_sandbox", { mode });
+
+/** Chooses where agents run.
+ *
+ *  Refused when the machine has nothing set up for it: a setting that breaks
+ *  the terminal quietly, two screens away from where it was changed, is worse
+ *  than one that says no where it was pressed. */
+export const setAgentSandbox = (mode: string): Promise<void> =>
+  invoke("set_agent_sandbox", { mode });
