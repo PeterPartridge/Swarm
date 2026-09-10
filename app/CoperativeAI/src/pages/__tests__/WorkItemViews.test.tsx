@@ -168,7 +168,7 @@ describe("WorkItemViews", () => {
     ]);
     mocked.listRuns.mockResolvedValue([
       {
-        pullRequestUrl: "",
+        pullRequestUrl: "", restrictedBy: "",
         id: 3, workItemId: 1, workItemTitle: "Checkout", solutionId: 5,
         solutionName: "Shop API", state: "notStarted", branch: "b", worktreePath: "",
         terminalId: "", briefPath: "", filesChanged: 0, planApproved: true,

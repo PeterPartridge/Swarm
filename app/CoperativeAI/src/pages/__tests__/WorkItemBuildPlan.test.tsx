@@ -837,6 +837,7 @@ describe("once there is a plan", () => {
         briefPath: "b.md",
         filesChanged: 0,
         planApproved: true,
+        restrictedBy: "",
       },
     ]);
     mocked.listTerminals.mockResolvedValue([

@@ -192,7 +192,7 @@ describe("SolutionMap", () => {
     const opened: number[] = [];
     mocked.listRuns.mockResolvedValue([
       {
-      pullRequestUrl: "",
+      pullRequestUrl: "", restrictedBy: "",
         id: 3, workItemId: 42, workItemTitle: "Add checkout", solutionId: 12,
         solutionName: "Shop API", state: "prepared", branch: "b", worktreePath: "C:/wt",
         terminalId: "", briefPath: "", filesChanged: 2, planApproved: true,
@@ -211,7 +211,7 @@ describe("SolutionMap", () => {
   it("does not mark a Solution whose run has been settled", async () => {
     mocked.listRuns.mockResolvedValue([
       {
-      pullRequestUrl: "",
+      pullRequestUrl: "", restrictedBy: "",
         id: 3, workItemId: 42, workItemTitle: "Add checkout", solutionId: 12,
         solutionName: "Shop API", state: "kept", branch: "b", worktreePath: "C:/wt",
         terminalId: "", briefPath: "", filesChanged: 2, planApproved: true,

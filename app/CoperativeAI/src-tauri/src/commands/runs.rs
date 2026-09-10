@@ -36,6 +36,10 @@ pub struct RunDto {
     /// than looked up per row by the panel, so "Start all (n)" can count what
     /// would actually start instead of offering a number that starts nothing.
     pub plan_approved: bool,
+    /// What bounded this run and what its policy denied, as it was at the time.
+    /// Empty for a run from before any of that existed — which is honest: those
+    /// runs were bounded by nothing, and saying so is the point.
+    pub restricted_by: String,
 }
 
 /// Every run in a Product, and every (work item, Solution) that could become
@@ -102,6 +106,7 @@ pub async fn list_runs(db: State<'_, AppDb>, product_id: i64) -> Result<Vec<RunD
                     .map(|r| r.pull_request_url.clone())
                     .unwrap_or_default(),
                 plan_approved: plan.approved_at > 0,
+                restricted_by: existing.map(|r| r.restricted_by.clone()).unwrap_or_default(),
             });
         }
     }
@@ -320,6 +325,21 @@ pub(crate) async fn prepare_run(
             (id, folder.to_string_lossy().to_string())
         }
     };
+
+    // **Written down at the moment it was true.** The setting can be changed
+    // this afternoon and the policy file moves with every commit, so a record
+    // that resolved either of them later would describe today rather than this
+    // run — and the point of writing it is to be able to say afterwards what
+    // the agent could and could not reach while it worked.
+    let restricted_by = {
+        let policy = crate::tooling::sandbox_policy::read_policy(std::path::Path::new(&root))
+            .unwrap_or_default();
+        let deny = crate::tooling::sandbox_policy::deny_paths(&policy).unwrap_or_default();
+        serde_json::json!({ "sandbox": sandbox.id(), "deny": deny }).to_string()
+    };
+    change_run::set_restriction(conn, run_id, &restricted_by)
+        .await
+        .map_err(to_message)?;
 
     crate::files::emit::write_generated(
         &worktree,

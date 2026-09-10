@@ -37,11 +37,14 @@ pub struct ChangeRun {
     /// its own request — and hanging one URL off the item would have the second
     /// attempt overwrite the first's link to a review that may still be open.
     pub pull_request_url: String,
+    /// What bounded this run and what its policy denied, as JSON, as it was at
+    /// the time. Empty for a run that predates any of it.
+    pub restricted_by: String,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
-const SELECT: &str = "SELECT id, workItemId, solutionId, state, briefPath, findings, filesChanged, worktreePath, terminalId, pullRequestUrl, createdAt, updatedAt FROM change_runs";
+const SELECT: &str = "SELECT id, workItemId, solutionId, state, briefPath, findings, filesChanged, worktreePath, terminalId, pullRequestUrl, restrictedBy, createdAt, updatedAt FROM change_runs";
 
 pub async fn create_table(conn: &Connection) -> Result<()> {
     conn.execute(
@@ -79,6 +82,14 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             "pullRequestUrl",
             "ALTER TABLE change_runs ADD COLUMN pullRequestUrl TEXT NOT NULL DEFAULT ''",
         ),
+        (
+            // What bounded this run and what its policy denied, as it was at
+            // the time. Kept on the run because the setting and the policy file
+            // both move on, and a record that changed with them would stop
+            // being a record of anything.
+            "restrictedBy",
+            "ALTER TABLE change_runs ADD COLUMN restrictedBy TEXT NOT NULL DEFAULT ''",
+        ),
     ] {
         if has_table && !columns.iter().any(|c| c == name) {
             conn.execute(ddl, ()).await?;
@@ -96,6 +107,23 @@ pub async fn set_pull_request(conn: &Connection, id: i64, url: &str) -> Result<(
     conn.execute(
         "UPDATE change_runs SET pullRequestUrl = ?1, updatedAt = ?2 WHERE id = ?3",
         (url, now_millis(), id),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Records what bounded this run, and what its policy kept from the agent.
+///
+/// **Kept on the run, not looked up when asked.** Where agents run is a
+/// setting somebody can change this afternoon, and a policy is a file in a
+/// repository that moves with every commit. A record that resolved either of
+/// them at reading time would tell you about today rather than about the run —
+/// and the whole reason to write it down is to be able to say, later, what an
+/// agent could and could not reach while it was working.
+pub async fn set_restriction(conn: &Connection, id: i64, restricted_by: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE change_runs SET restrictedBy = ?1, updatedAt = ?2 WHERE id = ?3",
+        (restricted_by, now_millis(), id),
     )
     .await?;
     Ok(())
@@ -324,8 +352,9 @@ fn row_to_run(row: turso::Row) -> Result<ChangeRun> {
         worktree_path: row.get(7)?,
         terminal_id: row.get(8)?,
         pull_request_url: row.get(9)?,
-        created_at: row.get(10)?,
-        updated_at: row.get(11)?,
+        restricted_by: row.get(10)?,
+        created_at: row.get(11)?,
+        updated_at: row.get(12)?,
     })
 }
 

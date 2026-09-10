@@ -2792,6 +2792,31 @@ export interface Run {
   /** Whether this pair's plan has been approved. A run refuses to start
    *  without it, so "Start all" counts only these. */
   planApproved: boolean;
+  /** What bounded this run and what its policy denied, as JSON, **as it was at
+   *  the time**. Empty for a run from before any of that existed — which is
+   *  honest rather than missing: those runs were bounded by nothing. */
+  restrictedBy: string;
+}
+
+/** What a run's record says restricted it. */
+export interface RunRestriction {
+  sandbox: string;
+  deny: string[];
+}
+
+/** Reads a run's record of what bounded it.
+ *
+ *  **Never falls back to the current setting.** A run that recorded nothing was
+ *  bounded by nothing, and filling that in from today's setting would turn an
+ *  honest blank into a claim about a run nobody can check any more. */
+export function restrictionOf(run: { restrictedBy: string }): RunRestriction | null {
+  if (!run.restrictedBy.trim()) return null;
+  try {
+    const said = JSON.parse(run.restrictedBy) as Partial<RunRestriction>;
+    return { sandbox: said.sandbox ?? "off", deny: said.deny ?? [] };
+  } catch {
+    return null;
+  }
 }
 
 export interface StartedRun {

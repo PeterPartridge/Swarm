@@ -8,6 +8,7 @@ import {
   mergeRunBranch,
   previewRunMerge,
   removeWorktreeAt,
+  restrictionOf,
   startRun,
   type AbandonedWorktree,
   type MergeOutcome,
@@ -404,6 +405,13 @@ export default function RunsPanel({ productId }: { productId: number }) {
               </div>
             )}
 
+            {/* **What bounded this run, as it was when it ran.** Read from the
+                run's own record and never from today's setting: a run that
+                recorded nothing was bounded by nothing, and filling that in
+                from the setting would turn an honest blank into a claim about
+                a run nobody can check any more. */}
+            {run.state !== "notStarted" && <RanInside run={run} />}
+
             <div className="run-buttons">
               {run.state === "notStarted" ? (
                 <button
@@ -507,5 +515,28 @@ export default function RunsPanel({ productId }: { productId: number }) {
         </div>
       )}
     </section>
+  );
+}
+
+/** What bounded one run, in its own words.
+ *
+ *  **Words, never a padlock.** The same rule the sandbox table follows: a
+ *  symbol is read as reassurance before it is read at all, and "nothing bounded
+ *  this" is not reassuring. A run with no record says so plainly rather than
+ *  being left blank, because a blank reads as "not shown" rather than "none". */
+function RanInside({ run }: { run: Run }) {
+  const said = restrictionOf(run);
+  if (!said || said.sandbox === "off") {
+    return <p className="hint">Ran on this machine — nothing was kept from it.</p>;
+  }
+  const where = said.sandbox === "docker" ? "a container of its own" : "the app's distribution";
+  return (
+    <p className="hint">
+      Ran in {where}
+      {said.deny.length > 0
+        ? `, without ${said.deny.join(", ")}`
+        : ", with nothing held back from it"}
+      .
+    </p>
   );
 }

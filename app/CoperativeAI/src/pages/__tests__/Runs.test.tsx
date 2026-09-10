@@ -33,6 +33,7 @@ vi.mock("../../components/code/RunTerminal", () => ({
 }));
 
 import * as backend from "../../lib/backend";
+import { restrictionOf } from "../../lib/backend";
 
 const mocked = vi.mocked(backend);
 
@@ -52,6 +53,9 @@ const job = (over: Partial<AiJob> = {}): AiJob => ({
 const run = (over: Partial<Run> = {}): Run => ({
   // No pull request until something opens one, which is every run at first.
   pullRequestUrl: "",
+  // Nothing recorded, which is exactly what a run bounded by nothing looks
+  // like — and what every run before the sandbox existed looks like too.
+  restrictedBy: "",
   id: 0,
   workItemId: 9,
   workItemTitle: "Add checkout",
@@ -67,6 +71,27 @@ const run = (over: Partial<Run> = {}): Run => ({
   // the gate has its own tests below.
   planApproved: true,
   ...over,
+});
+
+describe("what a run says bounded it", () => {
+  /** **Read from the run, never from today's setting.** A run that recorded
+   *  nothing was bounded by nothing, and filling that in from the setting would
+   *  turn an honest blank into a claim about a run nobody can check any more. */
+  it("says plainly when a run was bounded by nothing", () => {
+    expect(restrictionOf({ restrictedBy: "" })).toBeNull();
+  });
+
+  it("reads back what bounded a run and what its policy denied", () => {
+    const said = restrictionOf({
+      restrictedBy: '{"sandbox":"docker","deny":["secrets"]}',
+    });
+    expect(said).toEqual({ sandbox: "docker", deny: ["secrets"] });
+  });
+
+  /** A record nobody can parse is not a claim to guess at. */
+  it("treats an unreadable record as no record rather than inventing one", () => {
+    expect(restrictionOf({ restrictedBy: "not json at all" })).toBeNull();
+  });
 });
 
 describe("JobsPanel", () => {
