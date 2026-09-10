@@ -9792,3 +9792,17 @@ button.ready-action.link:hover {
   align-items: center;
   gap: 0.5rem;
 }
+
+/* What was fetched, and what running it said. Shown so it can be read before
+   it is run — that reading is the only safeguard against a policy somebody
+   else wrote, given it runs as root inside the boundary. */
+.policy-read pre {
+  margin: 0.2rem 0 0;
+  padding: 0.4rem;
+  background: var(--sunken);
+  border-radius: 0.25rem;
+  font-size: 0.72rem;
+  max-height: 16rem;
+  overflow: auto;
+  white-space: pre-wrap;
+}

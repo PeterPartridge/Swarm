@@ -139,6 +139,8 @@ fn main() {
             commands::ai_settings::set_agent_sandbox,
             commands::ai_settings::get_agent_policy_source,
             commands::ai_settings::set_agent_policy_source,
+            commands::ai_settings::fetch_agent_policy,
+            commands::ai_settings::run_agent_policy,
             commands::ai_settings::get_agent_run_mode,
             commands::ai_settings::set_agent_run_mode,
             commands::logging::log_event,

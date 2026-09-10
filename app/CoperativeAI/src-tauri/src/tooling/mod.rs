@@ -11,6 +11,7 @@ pub mod dev_runner;
 pub mod sandbox;
 pub mod sandbox_detect;
 pub mod sandbox_docker;
+pub mod sandbox_policy;
 pub mod sandbox_provision;
 pub mod sandbox_run;
 pub mod scaffold;

@@ -536,6 +536,42 @@ pub async fn set_agent_policy_source(
         .map_err(to_message)
 }
 
+/// Brings the policy to this machine and hands back what it says.
+///
+/// **Fetching and running are separate presses.** What is fetched runs as root
+/// inside the boundary; a single button that did both would make reading it
+/// optional, and reading it is the only safeguard there is.
+#[tauri::command]
+pub async fn fetch_agent_policy(
+    db: State<'_, AppDb>,
+) -> Result<crate::tooling::sandbox_policy::Fetched, String> {
+    let source = {
+        let conn = db.0.lock().await;
+        crate::db::system_setting::agent_policy_source(&conn)
+            .await
+            .map_err(to_message)?
+    };
+    crate::tooling::sandbox_policy::fetch(&source.from, &source.folder).await
+}
+
+/// Runs the policy where the agent will run.
+#[tauri::command]
+pub async fn run_agent_policy(
+    db: State<'_, AppDb>,
+    fetched: crate::tooling::sandbox_policy::Fetched,
+) -> Result<String, String> {
+    let (source, mode) = {
+        let conn = db.0.lock().await;
+        (
+            crate::db::system_setting::agent_policy_source(&conn)
+                .await
+                .map_err(to_message)?,
+            crate::commands::sandbox_mode(&conn).await,
+        )
+    };
+    crate::tooling::sandbox_policy::install(&fetched, mode, &source.command).await
+}
+
 /// Chooses where agents run.
 ///
 /// **Checked against the machine, not just the name.** Storing a mode that has

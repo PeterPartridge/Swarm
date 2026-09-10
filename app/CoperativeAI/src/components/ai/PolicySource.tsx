@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  fetchAgentPolicy,
   getAgentPolicySource,
+  runAgentPolicy,
   setAgentPolicySource,
   type AgentPolicySource,
+  type FetchedPolicy,
 } from "../../lib/backend";
 
 /** Where an agent policy comes from, what installs it, and where it lands.
@@ -23,6 +26,10 @@ export default function PolicySource() {
   const [saved, setSaved] = useState<AgentPolicySource | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState("");
+  const [fetched, setFetched] = useState<FetchedPolicy | null>(null);
+  const [ran, setRan] = useState("");
+  /** Which act is under way, so only its own button says so. */
+  const [busy, setBusy] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -49,6 +56,38 @@ export default function PolicySource() {
       // The refusal is the useful part: it says which field cannot be honoured.
       setError(String(e));
       setNote("");
+    }
+  }
+
+  /** Brings it here so it can be read. Nothing is run by this. */
+  async function bring() {
+    setBusy("fetch");
+    setRan("");
+    try {
+      setFetched(await fetchAgentPolicy());
+      setNote("Fetched. Read it before running it.");
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+      setFetched(null);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  /** Runs it where the agent will run — as root, inside the boundary. */
+  async function apply() {
+    if (!fetched) return;
+    setBusy("run");
+    try {
+      setRan(await runAgentPolicy(fetched));
+      setNote("Policy run.");
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+      setRan("");
+    } finally {
+      setBusy("");
     }
   }
 
@@ -109,16 +148,52 @@ export default function PolicySource() {
         <button type="button" onClick={() => void save()} disabled={!changed}>
           Save
         </button>
+        {/* **Three presses, not one.** Fetch, read, then run. A single button
+            would make the reading optional, and the reading is the only
+            safeguard there is against a policy somebody else wrote — it runs
+            as root inside the boundary and can weaken it as easily as
+            strengthen it. */}
+        <button
+          type="button"
+          onClick={() => void bring()}
+          disabled={changed || !saved?.from.trim() || busy !== ""}
+        >
+          {busy === "fetch" ? "Fetching…" : "Fetch it"}
+        </button>
+        <button
+          type="button"
+          onClick={() => void apply()}
+          disabled={!fetched || busy !== ""}
+        >
+          {busy === "run" ? "Running…" : "Run it"}
+        </button>
         {note && <span className="hint">{note}</span>}
       </div>
 
-      {/* **Said plainly rather than discovered.** Saving a source is not the
-          same as a policy being in force, and the gap between the two is
-          exactly where somebody would otherwise assume protection. */}
+      {fetched && (
+        <div className="policy-read">
+          <p className="hint">
+            {fetched.bytes} bytes, at {fetched.path}. Read it before running it.
+            {fetched.truncated && " Shown as far as it is worth reading."}
+          </p>
+          <pre>{fetched.text}</pre>
+        </div>
+      )}
+
+      {ran && (
+        <div className="policy-read">
+          <p className="hint">What running it said:</p>
+          <pre>{ran || "(it said nothing)"}</pre>
+        </div>
+      )}
+
+      {/* **Said plainly rather than discovered.** A source that has been saved
+          is not a policy in force, and the gap between the two is exactly where
+          somebody would otherwise assume protection they do not have. */}
       <p className="hint">
-        Saving this records where the policy comes from. Fetching it, reading it
-        and running it before an agent starts is still to come — nothing is
-        restricted yet.
+        A policy only restricts anything once it has been run, and only where
+        there is a boundary to run it in. Under Docker it is applied when a run
+        starts, because a container does not exist between runs.
       </p>
     </section>
   );

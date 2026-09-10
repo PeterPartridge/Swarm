@@ -139,6 +139,21 @@ async fn inside(as_root: bool, script: &str, patience: Duration) -> Result<Strin
     }
 }
 
+/// Runs a script inside the distribution as root, and hands back what it said.
+///
+/// **Root, because that is the only account that can restrict the agent's.**
+/// The same power is why what runs here is read first: it can weaken the
+/// boundary as easily as strengthen it.
+pub async fn run_as_root(script: &str) -> Result<String, String> {
+    inside(true, script, Duration::from_secs(600)).await
+}
+
+/// Runs a script inside the distribution **as the agent**, which is how a
+/// restriction is checked: by asking the account it was meant to bind.
+pub async fn read_as_agent(script: &str) -> Result<String, String> {
+    inside(false, script, Duration::from_secs(120)).await
+}
+
 /// Makes a repository reachable from inside, and says nothing if it already is.
 pub async fn mount(repo_root: &Path) -> Result<(), String> {
     inside(true, &mount_command(repo_root)?, Duration::from_secs(120))

@@ -3218,3 +3218,25 @@ export const getAgentPolicySource = (): Promise<AgentPolicySource> =>
  *  when a run is starting. */
 export const setAgentPolicySource = (source: AgentPolicySource): Promise<void> =>
   invoke("set_agent_policy_source", { source });
+
+/** A policy brought to this machine, and what it says. */
+export interface FetchedPolicy {
+  /** Where it landed here. */
+  path: string;
+  bytes: number;
+  /** What it says, for reading before it is run. */
+  text: string;
+  /** Whether that is only the beginning of it. */
+  truncated: boolean;
+}
+
+/** Brings the policy here so it can be read. Fetching and running are separate
+ *  presses on purpose: what is fetched runs as root inside the boundary, and a
+ *  single button would make the reading optional. */
+export const fetchAgentPolicy = (): Promise<FetchedPolicy> => invoke("fetch_agent_policy");
+
+/** Runs it where the agent will run. Refused where it could restrict nothing —
+ *  with no sandbox there is no separate user, and a container does not exist
+ *  between runs. */
+export const runAgentPolicy = (fetched: FetchedPolicy): Promise<string> =>
+  invoke("run_agent_policy", { fetched });
