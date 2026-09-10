@@ -116,6 +116,25 @@ pub async fn set_workspace(
     Ok(())
 }
 
+/// Every run against one Solution.
+///
+/// Asked when a terminal is opened at a folder: a run inside a sandbox works in
+/// a clone rather than a worktree, so "is this one of the app's own folders?"
+/// cannot be answered by git alone any more.
+pub async fn list_for_solution(conn: &Connection, solution_id: i64) -> Result<Vec<ChangeRun>> {
+    let mut rows = conn
+        .query(
+            &format!("{SELECT} WHERE solutionId = ?1 ORDER BY createdAt DESC, id DESC LIMIT 200"),
+            (solution_id,),
+        )
+        .await?;
+    let mut runs = Vec::new();
+    while let Some(row) = rows.next().await? {
+        runs.push(row_to_run(row)?);
+    }
+    Ok(runs)
+}
+
 /// Every run in a Product, newest first — the list the runs panel shows.
 pub async fn list_for_product(conn: &Connection, product_id: i64) -> Result<Vec<ChangeRun>> {
     let mut rows = conn

@@ -88,8 +88,13 @@ This page is a containment surface, not an access-control one — the project ha
 - Frontend: the Admin card and its protections table; the run badge on the runs panel, in words rather than a padlock.
 - Tests: the nine above — cargo for detection, wrapping, path round-trip and the seam set; Vitest for the table never showing an unproved protection as on.
 
+**Technical debt after round 4b:**
+- **Four seconds a `git status`** over the network path. The panel refreshes on a timer in places, and a sandboxed run will feel sluggish where an unsandboxed one does not. The alternative — running git *inside* the distribution — is fast but makes `vcs.rs` sandbox-aware, and that decision is better made once Docker exists and there are two backends to serve.
+- The `safe.directory` grant is built at two call sites via one helper; a third runner added later would have to remember it.
+- The clone's `origin` still points at a Linux mount that means nothing out here. Nothing depends on it now that the fetch runs the other way, but anybody reading it there will be briefly confused.
+- The pull-request path was proved by unit tests and by the fetch round trip, **not** end to end against GitHub.
+
 **Technical debt after round 4a:**
-- The git panel, `filesChanged`, commit and the PR flow read a host worktree, which a sandboxed run does not have. They will show nothing rather than saying where the work is. **Round 4b.**
 - Mounts are never torn down, so a long-lived distribution accumulates one per repository ever used.
 - A run's clone is never removed. Disk grows with every run, and nothing prunes it.
 - A run interrupted mid-clone leaves a folder the app does not clean up; the next attempt finds a partial clone and the `test -d .git` guard will skip re-cloning it.
@@ -127,7 +132,28 @@ This page is a containment surface, not an access-control one — the project ha
 - WSL too old to be given a distribution of its own reduces WSL mode to the borrowed-distribution form. That is reported rather than worked around, and it means the mode's protections differ by machine.
 - Four open questions remain above; none now changes the shape of the build, only its edges.
 
-**Status:** round 4a built (2026-09-10) — the WSL backend, with clone-per-run
+**Status:** round 4b built (2026-09-10) — a sandboxed run can be finished from outside
+
+---
+
+## Report back — round 4b
+
+**Tests:** `cargo test` 817 passed, 0 failed, 27 ignored. `npm test` 772 passed across 73 files. The round trip was proved against the real distribution.
+
+**The probe that shaped the round.** Host git *does* work on a run's clone through `\\wsl.localhost\…`, given `safe.directory` for that command. So `vcs.rs` did not have to learn about sandboxes at all — it had to learn about **one path shape git distrusts**, which is a property of the path rather than of any setting. That is a much better boundary, and it is why this round is small.
+
+**What changed:**
+- `trusting()` grants `safe.directory` per command, in the `%(prefix)//` spelling git wants for a network path — never written into anybody's global config, where it would quietly cover every repository for ever.
+- `for_git` learned the third spelling of a path: canonicalised, a network path is `\\?\UNC\…`, and stripping only the `\\?\` leaves `UNC\…`, which is not a path at all and surfaces much later as "not a git repository" about a folder that plainly is one.
+- **The branch is fetched, not pushed.** A clone's `origin` is a Linux mount path that means nothing out here; the repository can name the clone perfectly well as a folder. So the repository pulls the branch in, and from that moment the merge, the diff and the pull request work on a branch they already know.
+- The pull-request flow brings the branch back *first* and then operates on the Solution's own repository — which is where the GitHub remote and this machine's credentials are. A clone knows no GitHub.
+- A run's own folder can open a terminal again: it is not a worktree of anything this side knows, so it is now checked against the run's recorded workspace as well.
+
+**A real catch, found by running it.** `trusting` matched the plain spelling of the path, but by the time a path reaches it, it has usually been canonicalised — so the exception was never granted and git refused with an ownership error that looks unrelated to any of this. The fix runs the path through `for_git` first; the test pins the canonicalised spelling.
+
+**Proved live:** `repo_state` read the clone from out here and reported its branch, `fetch_branch_from` brought `sandbox/probe` into the real repository, and the commit it landed as was checked by id. The probe branch was deleted afterwards.
+
+**The cost, measured rather than guessed:** `git status` over that path takes about **4 seconds**, against roughly a tenth of a second on a local folder. Only sandboxed runs pay it, and every panel refresh does.
 
 ---
 

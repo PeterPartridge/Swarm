@@ -631,7 +631,39 @@ pub async fn merge_run_branch(
     run_id: i64,
 ) -> Result<vcs::MergeOutcome, String> {
     let (root, branch, base) = branch_of_run(&db, run_id).await?;
+    bring_back(&db, run_id, &root, &branch).await?;
     vcs::merge_branch(&root, &branch, &base)
+}
+
+/// Puts a sandboxed run's branch into the repository, so everything downstream
+/// works on a branch it already knows.
+///
+/// **Fetched rather than pushed, because of which side can name what.** The
+/// clone inside the distribution has its `origin` set to a Linux mount path
+/// that means nothing out here; the repository can name the clone perfectly
+/// well as a folder. Once the branch has landed, the merge, the diff and the
+/// pull request have no idea a sandbox was ever involved.
+///
+/// Does nothing at all for a run that worked in an ordinary worktree — its
+/// branch was always in the repository.
+async fn bring_back(
+    db: &State<'_, AppDb>,
+    run_id: i64,
+    root: &str,
+    branch: &str,
+) -> Result<(), String> {
+    let workspace = {
+        let conn = db.0.lock().await;
+        change_run::find_by_id(&conn, run_id)
+            .await
+            .map_err(to_message)?
+            .map(|run| run.worktree_path)
+            .unwrap_or_default()
+    };
+    if !crate::tooling::sandbox::is_inside_view(&workspace) {
+        return Ok(());
+    }
+    vcs::fetch_branch_from(root, &workspace, branch)
 }
 
 /// Abandons a conflicted merge, putting the checkout back as it was.

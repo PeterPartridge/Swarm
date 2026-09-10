@@ -312,7 +312,7 @@ pub async fn open_pull_request(
     body: String,
     base: String,
 ) -> Result<String, String> {
-    let (root, repo_url, brief_path, work_item) = {
+    let (root, solution_root, repo_url, brief_path, work_item) = {
         let conn = db.0.lock().await;
         let Some(row) = solution::find_by_id(&conn, solution_id).await.map_err(to_message)? else {
             return Err("that Solution no longer exists".into());
@@ -348,10 +348,33 @@ pub async fn open_pull_request(
         };
         (
             crate::commands::workspace::root_for_run(&conn, solution_id, run_id).await?,
+            row.local_path.clone().unwrap_or_default(),
             url,
             brief,
             item,
         )
+    };
+
+    // **A run inside a sandbox has its work in a clone, and its clone knows no
+    // GitHub.** The clone's only remote is a Linux mount path, so a pull
+    // request cannot be opened from there. The branch is brought into the
+    // Solution's own repository first, and everything after this line then
+    // happens where the GitHub remote and this machine's credentials are —
+    // with no idea a sandbox was ever involved.
+    let root = if crate::tooling::sandbox::is_inside_view(&root) {
+        let inside = vcs::repo_state(&root)?;
+        if solution_root.trim().is_empty() {
+            return Err(
+                "this run worked inside the sandbox, and its Solution has no folder on this \
+                 machine to bring the branch back into"
+                    .into(),
+            );
+        }
+        let repository = solution_root;
+        vcs::fetch_branch_from(&repository, &root, &inside.branch)?;
+        repository
+    } else {
+        root
     };
 
     let state = vcs::repo_state(&root)?;

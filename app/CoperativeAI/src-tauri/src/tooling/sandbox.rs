@@ -164,6 +164,20 @@ pub fn windows_view(inside: &str) -> String {
     )
 }
 
+/// Whether a folder is a run's place inside the distribution rather than one on
+/// this machine.
+///
+/// Read from the path rather than from the setting, deliberately: a run that
+/// happened inside a sandbox is still inside one after somebody changes where
+/// agents run, and asking the setting would give the wrong answer about work
+/// that already exists.
+pub fn is_inside_view(path: &str) -> bool {
+    path.replace('\\', "/")
+        .trim_start_matches('/')
+        .to_lowercase()
+        .starts_with("wsl.localhost/")
+}
+
 /// Rewrites the paths in a runner's output so they can be opened here.
 ///
 /// **Done once, at the seam.** Six parsers read this output for `file:line`,

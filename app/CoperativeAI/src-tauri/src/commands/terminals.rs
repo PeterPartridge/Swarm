@@ -293,10 +293,22 @@ pub async fn open_terminal_at(
             .ok_or("that Solution has no folder on this machine")?;
         (root, super::sandbox_mode(&conn).await)
     };
-    // Only somewhere the app made: a worktree of this Solution's repository.
+    // Only somewhere the app made. Two shapes of that now: a worktree of this
+    // Solution's repository, or — for a run inside a sandbox — the clone the
+    // app made for it, which is not a worktree of anything this side knows and
+    // would otherwise be refused as an arbitrary path.
     let known = crate::git::vcs::list_worktrees(&root)?;
-    if !known.iter().any(|w| same_path(w, &path)) {
-        return Err("that folder is not one of this run's worktrees".into());
+    let is_worktree = known.iter().any(|w| same_path(w, &path));
+    let is_run_workspace = {
+        let conn = db.0.lock().await;
+        crate::db::change_run::list_for_solution(&conn, solution_id)
+            .await
+            .map_err(super::to_message)?
+            .iter()
+            .any(|run| !run.worktree_path.trim().is_empty() && same_path(&run.worktree_path, &path))
+    };
+    if !is_worktree && !is_run_workspace {
+        return Err("that folder is not one of this Solution's run workspaces".into());
     }
     let place = super::place_for(sandbox, std::path::Path::new(&root)).await?;
     spawn_terminal(&place, &app, &terminals, solution_id, &path, cols, rows)

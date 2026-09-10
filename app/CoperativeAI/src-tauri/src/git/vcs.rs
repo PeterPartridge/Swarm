@@ -554,7 +554,38 @@ pub fn worktree_dir(root: &str, branch: &str) -> Result<PathBuf, String> {
 /// canonicalisation, which is what makes the containment checks work.
 fn for_git(path: &Path) -> String {
     let text = path.to_string_lossy().to_string();
+    // **A network path canonicalises to a third spelling.** Windows turns
+    // `\\wsl.localhost\…` into `\\?\UNC\wsl.localhost\…`, and stripping only
+    // the `\\?\` leaves `UNC\wsl.localhost\…` — which is not a path at all, and
+    // presents much later as "not a git repository" about a folder that plainly
+    // is one.
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{rest}");
+    }
     text.strip_prefix(r"\\?\").unwrap_or(&text).to_string()
+}
+
+/// Brings a sandboxed run's branch back into the repository it came from.
+///
+/// **Fetched rather than pushed, because of which side can name what.** The
+/// clone inside the distribution has its `origin` set to a Linux mount path,
+/// which means nothing out here; the repository, on the other hand, can name
+/// the clone perfectly well as a folder. So the repository pulls the branch in,
+/// and from that moment everything downstream — the diff, the commit history,
+/// the pull request — works on a branch it already knows, with no idea a
+/// sandbox was ever involved.
+pub fn fetch_branch_from(repo_root: &str, clone_path: &str, branch: &str) -> Result<(), String> {
+    let root_path = canonical(repo_root)?;
+    let branch = branch.trim();
+    if branch.is_empty() {
+        return Err("a run needs a branch name before its work can be brought back".into());
+    }
+    let from = for_git(Path::new(clone_path));
+    git(
+        &root_path,
+        &["fetch", &from, &format!("{branch}:{branch}")],
+    )
+    .map(|_| ())
 }
 
 /// A branch name as a folder name. `feature/9-add-checkout` is a perfectly good
@@ -679,6 +710,7 @@ pub struct MergeOutcome {
 fn git_allowing_failure(root: &Path, args: &[&str]) -> Result<(bool, String, String), String> {
     let output = Command::new("git")
         .current_dir(root)
+        .args(trusting(root))
         .args(args)
         .output()
         .map_err(|e| format!("could not run git — is it installed? ({e})"))?;
@@ -881,9 +913,38 @@ fn canonical(root: &str) -> Result<std::path::PathBuf, String> {
         .map_err(|_| format!("the folder for this Solution is not there any more: {root}"))
 }
 
+/// What git needs before it will touch a run's folder inside the sandbox.
+///
+/// **A property of the path, not of any setting.** A run inside WSL keeps its
+/// work on the Linux filesystem, which this side reaches as
+/// `\\wsl.localhost\…`. To git that is a repository owned by somebody else, and
+/// it refuses — *dubious ownership* — which is git protecting people from
+/// exactly the kind of thing this is. The exception is granted **for the one
+/// command**, in the odd `%(prefix)//` spelling git requires for a network
+/// path, and never written into anybody's global config where it would quietly
+/// cover everything for ever.
+///
+/// An ordinary folder gets nothing added, so nothing about how git already runs
+/// on this machine changes.
+fn trusting(root: &Path) -> Vec<String> {
+    // **Through `for_git` first, and that is not tidiness.** By the time a path
+    // reaches here it has usually been canonicalised, which spells a network
+    // path `\\?\UNC\wsl.localhost\…`. Matching on that spelling directly finds
+    // nothing, the exception is never granted, and git refuses the folder with
+    // an ownership error that has no obvious connection to any of this.
+    let text = for_git(root).replace('\\', "/");
+    let unc = text.trim_start_matches('/');
+    if !unc.to_lowercase().starts_with("wsl.localhost/") && !unc.to_lowercase().starts_with("wsl$/")
+    {
+        return Vec::new();
+    }
+    vec!["-c".to_string(), format!("safe.directory=%(prefix)///{unc}")]
+}
+
 fn git(root: &Path, args: &[&str]) -> Result<String, String> {
     let output = Command::new("git")
         .current_dir(root)
+        .args(trusting(root))
         .args(args)
         .output()
         .map_err(|e| format!("could not run git — is it installed? ({e})"))?;
@@ -964,6 +1025,92 @@ fn first_line(err: &str, out: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **The exception is granted for one command, on one path.** Written into
+    /// a global config it would cover every repository on the machine for ever,
+    /// which is the opposite of what a sandbox is for.
+    #[test]
+    fn a_run_inside_the_sandbox_is_trusted_for_that_command_only() {
+        let granted = trusting(Path::new(r"\\wsl.localhost\coperativeai\work\runs\12"));
+        assert_eq!(granted[0], "-c");
+        assert_eq!(
+            granted[1],
+            "safe.directory=%(prefix)///wsl.localhost/coperativeai/work/runs/12",
+            "git wants a network path spelled its own way"
+        );
+    }
+
+    /// **The spelling a path actually arrives in.** Canonicalised, a network
+    /// path is `\\?\UNC\…`; matching only the plain form silently grants
+    /// nothing, and git then refuses with an ownership error that looks
+    /// unrelated to any of this. Found by running it.
+    #[test]
+    fn the_canonicalised_spelling_is_trusted_too() {
+        let granted = trusting(Path::new(r"\\?\UNC\wsl.localhost\coperativeai\work\runs\12"));
+        assert_eq!(
+            granted.get(1).map(String::as_str),
+            Some("safe.directory=%(prefix)///wsl.localhost/coperativeai/work/runs/12")
+        );
+    }
+
+    /// An ordinary folder gets nothing added, so nothing about how git already
+    /// runs on this machine changes.
+    #[test]
+    fn an_ordinary_folder_is_left_exactly_as_it_was() {
+        assert!(trusting(Path::new(r"C:\Users\me\source\shop")).is_empty());
+        assert!(trusting(Path::new("/home/me/shop")).is_empty());
+    }
+
+    /// **A network path canonicalises to a third spelling**, and stripping the
+    /// wrong half of it produces something that is not a path — which presents
+    /// much later as "not a git repository" about a folder that plainly is one.
+    #[test]
+    fn a_canonicalised_network_path_survives_being_handed_to_git() {
+        assert_eq!(
+            for_git(Path::new(r"\\?\UNC\wsl.localhost\coperativeai\work\runs\12")),
+            r"\\wsl.localhost\coperativeai\work\runs\12"
+        );
+        // The ordinary case is untouched.
+        assert_eq!(for_git(Path::new(r"\\?\C:\repo")), r"C:\repo");
+        assert_eq!(for_git(Path::new(r"C:\repo")), r"C:\repo");
+    }
+
+    /// A run has to have somewhere to bring its work back from.
+    #[test]
+    fn bringing_work_back_needs_a_branch_to_bring() {
+        let dir = std::env::temp_dir();
+        assert!(fetch_branch_from(&dir.to_string_lossy(), "anywhere", "  ").is_err());
+    }
+
+    /// **The whole point of 4b, against the real thing.**
+    ///
+    /// Commits inside the sandbox, then brings the branch out into the
+    /// repository it came from and checks the commit really arrived. Ignored by
+    /// default because it needs the distribution this machine now has, and a
+    /// run already prepared in it.
+    #[test]
+    #[ignore = "needs the real distribution, with a run prepared in it"]
+    fn work_done_inside_comes_back_out() {
+        let clone = r"\\wsl.localhost\coperativeai\work\runs\9999";
+        let here = std::env::current_dir().expect("cwd");
+        let repo = here
+            .ancestors()
+            .find(|p| p.join(".git").exists())
+            .expect("this repository");
+
+        // Git works out here on a folder that lives in there.
+        let state = repo_state(clone).expect("the clone is a repository from out here");
+        assert!(state.is_repo, "a clone inside the sandbox is still a repository");
+        println!("inside: on {}", state.branch);
+
+        fetch_branch_from(&repo.to_string_lossy(), clone, &state.branch)
+            .expect("the branch comes back");
+
+        let landed = git(repo, &["rev-parse", "--verify", &state.branch])
+            .expect("the branch is in the repository now");
+        println!("landed as {}", landed.trim());
+        assert!(!landed.trim().is_empty());
+    }
 
     /// **The branch you cut from is usually one you have never checked out.**
     /// A list of local branches only would leave `main` missing from a repo
