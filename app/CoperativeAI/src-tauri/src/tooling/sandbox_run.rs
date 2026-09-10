@@ -139,6 +139,37 @@ async fn inside(as_root: bool, script: &str, patience: Duration) -> Result<Strin
     }
 }
 
+/// The shell that applies a policy to a run's copy, as root.
+///
+/// **Given to root and made unreadable — the mechanism a distribution has and
+/// a container does not.** Inside a container `CAP_CHOWN` is dropped and this
+/// is impossible, which is why that backend masks with mounts instead. Here it
+/// works, and the agent cannot undo it: it is not root and cannot become root,
+/// so the file is beyond its reach as well as beyond its permission.
+///
+/// **Unreadable, not undeletable, and that is a deliberate stop.** Removing a
+/// file depends on write permission on its *directory*, so making it truly
+/// undeletable means giving root the parent too — and then the agent could
+/// create nothing there at all. For a folder at the top of a working copy that
+/// trade is worse than the thing it buys, so it is not made here and the limit
+/// is written down rather than papered over.
+///
+/// A path the policy names that does not exist is passed over rather than
+/// failing the run: a policy that mentions a folder this branch happens not to
+/// have is a policy doing its job, not a broken one.
+pub fn deny_command(run_id: i64, deny: &[String]) -> String {
+    let at = clone_dir(run_id);
+    deny.iter()
+        .map(|path| {
+            format!(
+                "if [ -e '{at}/{path}' ]; then chown -R root:root '{at}/{path}' \
+                 && chmod -R 000 '{at}/{path}'; fi"
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 /// Runs a script inside the distribution as root, and hands back what it said.
 ///
 /// **Root, because that is the only account that can restrict the agent's.**
@@ -186,6 +217,18 @@ pub async fn prepare(
     )
     .await
     .map_err(|said| format!("the run could not be given a copy to work in: {said}"))?;
+
+    // **After the copy and before the agent, which is the only moment it can
+    // be.** Before the clone there is nothing to restrict; once an agent is
+    // working, restricting under it is a race. The same `policy.json` the
+    // container backend turns into mounts becomes permissions here.
+    let policy = super::sandbox_policy::read_policy(repo_root)?;
+    let deny = super::sandbox_policy::deny_paths(&policy)?;
+    if !deny.is_empty() {
+        inside(true, &deny_command(run_id, &deny), Duration::from_secs(300))
+            .await
+            .map_err(|said| format!("the policy could not be applied to this run: {said}"))?;
+    }
 
     Ok(clone_dir(run_id))
 }
@@ -275,6 +318,28 @@ mod tests {
         assert!(script.contains("'HEAD'"), "{script}");
     }
 
+    /// **The same file the container backend reads, turned into permissions.**
+    #[test]
+    fn a_denied_path_is_given_to_root_and_made_unreadable() {
+        let script = deny_command(12, &["secrets".into(), "config/keys.json".into()]);
+        assert!(script.contains("chown -R root:root '/work/runs/12/secrets'"), "{script}");
+        assert!(script.contains("chmod -R 000 '/work/runs/12/secrets'"), "{script}");
+        assert!(script.contains("'/work/runs/12/config/keys.json'"), "{script}");
+    }
+
+    /// A policy naming a folder this branch happens not to have is a policy
+    /// doing its job, not a broken one — so it is passed over, not failed on.
+    #[test]
+    fn a_path_that_is_not_there_does_not_fail_the_run() {
+        let script = deny_command(3, &["secrets".into()]);
+        assert!(script.starts_with("if [ -e "), "{script}");
+    }
+
+    #[test]
+    fn a_run_with_no_policy_restricts_nothing() {
+        assert_eq!(deny_command(3, &[]), "");
+    }
+
     /// **The tightening, against the real thing — including the upgrade.**
     ///
     /// Puts a writable mount there first, the way earlier versions of this left
@@ -334,6 +399,61 @@ mod tests {
                 wrote.contains("Read-only file system"),
                 "writing to the repository from inside must fail: {wrote}"
             );
+        });
+    }
+
+    /// **The same policy file the container backend reads, enforced here.**
+    ///
+    /// One repository, one `policy.json`, prepared the way the app prepares a
+    /// run — then the claim asked of the account it was meant to bind.
+    #[test]
+    #[ignore = "runs inside the real distribution on this machine"]
+    fn the_same_policy_file_restricts_a_run_here_too() {
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        runtime.block_on(async {
+            let root = std::env::temp_dir().join(format!("wslpol-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            std::fs::create_dir_all(root.join("secrets")).expect("make it");
+            std::fs::create_dir_all(root.join(".coperativeai")).expect("make it");
+            std::fs::write(root.join("secrets/keys.txt"), "the crown jewels").expect("write");
+            std::fs::write(root.join("readme.md"), "ordinary work").expect("write");
+            std::fs::write(root.join(".coperativeai/policy.json"), r#"{"deny": ["secrets"]}"#)
+                .expect("write the policy");
+
+            let git = |args: &[&str]| {
+                std::process::Command::new("git")
+                    .current_dir(&root)
+                    .args(args)
+                    .output()
+                    .expect("git runs")
+            };
+            git(&["init", "-q"]);
+            git(&["add", "-A"]);
+            git(&["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "first"]);
+
+            let at = prepare(&root, 9996, "policy/probe", "").await.expect("prepare");
+            println!("the run works in {at}");
+
+            let seen = read_as_agent(&format!(
+                "cat '{at}/readme.md'; echo ---; cat '{at}/secrets/keys.txt' 2>&1"
+            ))
+            .await
+            .unwrap_or_else(|said| said);
+            println!("{seen}");
+
+            assert!(seen.contains("ordinary work"), "the work has to be there: {seen}");
+            assert!(
+                !seen.contains("crown jewels"),
+                "the policy did not keep it from the agent: {seen}"
+            );
+
+            let _ = inside(
+                true,
+                &format!("rm -rf '{at}'"),
+                Duration::from_secs(60),
+            )
+            .await;
+            let _ = std::fs::remove_dir_all(&root);
         });
     }
 

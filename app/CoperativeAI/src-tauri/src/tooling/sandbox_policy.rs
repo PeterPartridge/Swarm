@@ -66,6 +66,16 @@ pub fn deny_paths(policy: &Policy) -> Result<Vec<String>, String> {
         if cleaned.is_empty() {
             continue;
         }
+        // A denied path becomes a shell argument inside the distribution, and
+        // the lesson from the config that nearly shipped with an apostrophe in
+        // it is that broken quoting is not a loud failure — it is a half-run
+        // command leaving a boundary that looks applied.
+        if cleaned.contains('\'') {
+            return Err(format!(
+                "'{rule}' has a quote in it, and this app will not try to spell that safely for \
+                 a shell. Renaming the path is the way through."
+            ));
+        }
         if cleaned.starts_with("..")
             || cleaned.split('/').any(|part| part == "..")
             || cleaned.contains(':')
@@ -302,6 +312,44 @@ mod tests {
         let (text, truncated) = readable(short);
         assert!(!truncated);
         assert_eq!(text, "{\"deny\": []}");
+    }
+
+    /// **Refused rather than ignored.** A rule that silently does nothing
+    /// leaves somebody believing a path is protected when nothing was done.
+    #[test]
+    fn a_rule_that_reaches_outside_the_working_copy_is_refused() {
+        for bad in ["../secrets", "a/../../b", "C:/secrets"] {
+            let policy = Policy { deny: vec![bad.into()] };
+            assert!(deny_paths(&policy).is_err(), "{bad} should be refused");
+        }
+    }
+
+    /// A path becomes a shell argument inside the distribution; a quote in it
+    /// would break the quoting and leave a boundary that looks applied.
+    #[test]
+    fn a_rule_with_a_quote_in_it_is_refused_rather_than_guessed_at() {
+        let policy = Policy { deny: vec!["Nick's secrets".into()] };
+        assert!(deny_paths(&policy).is_err());
+    }
+
+    #[test]
+    fn rules_are_tidied_without_being_changed() {
+        let policy = Policy {
+            deny: vec!["  secrets/  ".into(), "config\\keys.json".into(), "  ".into()],
+        };
+        assert_eq!(
+            deny_paths(&policy).expect("ordinary rules"),
+            vec!["secrets".to_string(), "config/keys.json".to_string()]
+        );
+    }
+
+    /// A repository with no policy is the ordinary case, not a failure — most
+    /// work has nothing to hide from the agent doing it.
+    #[test]
+    fn a_repository_with_no_policy_denies_nothing() {
+        let nowhere = std::env::temp_dir().join("coperativeai-no-policy-here");
+        let _ = std::fs::create_dir_all(&nowhere);
+        assert_eq!(read_policy(&nowhere).expect("no policy is fine"), Policy::default());
     }
 
     #[tokio::test]

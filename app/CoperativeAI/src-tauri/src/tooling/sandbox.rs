@@ -882,9 +882,7 @@ mod tests {
         const OUTSIDE: &[(&str, &str)] = &[
             ("ai/claude_code.rs", "the app asking its own provider a question"),
             ("tooling/sandbox_detect.rs", "asking this machine what it has"),
-            ("commands/my_spaces.rs", "the app's own git plumbing"),
             ("tooling/sandbox_docker.rs", "the app's own git plumbing — making a run its copy"),
-            ("commands/runs.rs", "the app's own git plumbing"),
             ("debug/adapters.rs", "the debugger stays on this machine, per the brief"),
             ("debug/live.rs", "the debugger stays on this machine, per the brief"),
             ("debug/session.rs", "the debugger stays on this machine, per the brief"),
@@ -945,6 +943,15 @@ mod tests {
                     continue;
                 }
                 let text = std::fs::read_to_string(&path).unwrap_or_default();
+                // **Only what ships.** A check's own fixture may well start a
+                // process — making a repository to test against, say — and
+                // listing the whole file for that would blind this to a real
+                // spawn added to it later, which is the one thing it exists to
+                // catch. So the scan stops where the tests begin.
+                let text = match text.find("#[cfg(test)]") {
+                    Some(at) => text[..at].to_string(),
+                    None => text,
+                };
                 let spawns = text.lines().any(|line| {
                     let line = line.trim_start();
                     !line.starts_with("//")
