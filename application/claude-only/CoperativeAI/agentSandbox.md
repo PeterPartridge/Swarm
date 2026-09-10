@@ -94,7 +94,8 @@ This page is a containment surface, not an access-control one — the project ha
 - The Dockerfile is a string in the binary. The starters follow a "shown before it runs" rule; this does not yet, and should once it grows.
 - `wsl --install` downloads from Microsoft's catalogue — a dependency the app can only report on when it is unreachable.
 - Three machine-changing presses now exist (npm install, WSL set-up, image build) and still share no path. This round made that debt bigger.
-- The live path is unproven on any machine.
+- The Docker half remains unproven live — no engine was running on the machine this was built on.
+- `npm` inside the new distribution is 9.2.0 against node 22, which is the pairing Ubuntu ships. It works; it is not the pairing either project would pick.
 
 **Technical debt after round 2:**
 - The pure readers are pinned to two tools' output formats. Fixtures make a change visible rather than silent, but nothing warns when WSL or Docker changes its wording.
@@ -138,7 +139,17 @@ This page is a containment surface, not an access-control one — the project ha
 
 **Test scenarios created:** a machine with no distribution of ours is given one; an existing one is configured, never recreated; a mounted drive is unmounted and the distribution restarted last; an old WSL is told the truth (naming both its version and 2.4.4) rather than worked around; a machine without WSL is offered no set-up; the config really does disable automount and drop root; nothing embedded in a shell argument carries a quote of its own; the image carries git, Node and Claude Code and none of cargo/dotnet/python/go; nothing is built without an engine; a stopped set-up names its step and keeps its words. In the panel: a set-up that cannot run says why rather than only greying out; what each step printed survives to the screen; and the table is read again when a set-up finishes, because whether the verdicts changed is the entire point.
 
-**Not verified live.** The ignored `setting_up_for_real` exists and is written to be run, but running it registers a WSL distribution and downloads several hundred megabytes onto this machine — a change to somebody's computer rather than to this repository, so it waits for them to ask.
+**Verified live, on the machine it was written on.** `setting_up_for_real` was run at the person's word: all five steps succeeded first time, in 102 seconds. Created the distribution, wrote the config, added the user, installed the tools, restarted it.
+
+The claim that matters was then checked **independently of the test's own assertions**, because a boundary reported by the same code that built it is not evidence:
+
+- `/mnt/c` exists inside the distribution but is **empty**, `/proc/mounts` lists nothing under `/mnt`, and reading a real Windows file through it fails with "No such file or directory". The drive is genuinely unreachable — an empty directory that merely looks like a mount point would have passed a laxer check.
+- The distribution runs as uid 1000, not root.
+- git 2.53.0, node v22.22.1 and `claude` at `/usr/local/bin/claude` are all in place.
+
+One thing to know: `claude --version` inside a cold distribution takes long enough to look hung. It is a 200 MB binary on first run, not a failure.
+
+Detection re-read afterwards now reports `own_distribution: true`, `drive_mounted: Some(false)`, `root: Some(false)` — so the capability table on this machine has changed its answer for the first time.
 
 ---
 
