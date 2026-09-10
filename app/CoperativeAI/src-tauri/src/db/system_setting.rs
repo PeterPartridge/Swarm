@@ -128,6 +128,35 @@ pub async fn set_agent_run_mode(conn: &Connection, mode: &str) -> Result<()> {
     set(conn, AGENT_RUN_MODE_KEY, &json).await
 }
 
+const AGENT_SANDBOX_KEY: &str = "agentSandbox";
+
+/// Where commands run on somebody's behalf actually run — see
+/// `tooling::sandbox::SANDBOXES`.
+///
+/// **Defaults to off, and stays off until somebody says otherwise.** The other
+/// two need something installed and configured on the machine; arriving with an
+/// update and quietly moving where an agent runs would break work that was
+/// running perfectly well. It is the setting beside this one — how much the
+/// agent stops to ask — that this exists to make defensible, and the two are
+/// pressed separately on purpose.
+pub async fn agent_sandbox(conn: &Connection) -> Result<String> {
+    Ok(match get(conn, AGENT_SANDBOX_KEY).await? {
+        Some(json) => serde_json::from_str::<String>(&json).unwrap_or_else(|_| "off".into()),
+        None => "off".into(),
+    })
+}
+
+pub async fn set_agent_sandbox(conn: &Connection, mode: &str) -> Result<()> {
+    if !crate::tooling::sandbox::SANDBOXES.iter().any(|(id, _)| *id == mode) {
+        let ids: Vec<&str> = crate::tooling::sandbox::SANDBOXES.iter().map(|(id, _)| *id).collect();
+        return Err(crate::db::DbError::Validation(format!(
+            "sandbox must be one of {ids:?}, got '{mode}'"
+        )));
+    }
+    let json = serde_json::to_string(mode).expect("string serialize");
+    set(conn, AGENT_SANDBOX_KEY, &json).await
+}
+
 pub async fn paid_api_allowed(conn: &Connection) -> Result<bool> {
     Ok(match get(conn, API_USAGE_KEY).await? {
         Some(json) => serde_json::from_str::<bool>(&json).unwrap_or(false),
@@ -354,6 +383,31 @@ mod tests {
         let conn = connect(":memory:").await.expect("open in-memory db");
         create_table(&conn).await.expect("create table");
         conn
+    }
+
+    /// A fresh install runs where it always did, and says so by name rather
+    /// than by an empty value somebody has to interpret.
+    #[tokio::test]
+    async fn a_machine_that_has_never_chosen_runs_where_it_always_did() {
+        let conn = test_db().await;
+        assert_eq!(agent_sandbox(&conn).await.expect("get"), "off");
+    }
+
+    #[tokio::test]
+    async fn a_chosen_sandbox_is_kept_and_a_made_up_one_is_refused() {
+        let conn = test_db().await;
+        set_agent_sandbox(&conn, "docker").await.expect("docker is one of the three");
+        assert_eq!(agent_sandbox(&conn).await.expect("get"), "docker");
+
+        assert!(
+            set_agent_sandbox(&conn, "chroot").await.is_err(),
+            "a name the app cannot honour must be refused where it is written, not where it runs"
+        );
+        assert_eq!(
+            agent_sandbox(&conn).await.expect("get"),
+            "docker",
+            "a refused write must leave the previous choice alone"
+        );
     }
 
     #[tokio::test]

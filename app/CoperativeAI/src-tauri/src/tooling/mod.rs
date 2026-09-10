@@ -5,8 +5,10 @@
 //! override for what it does not, and never invents a command it cannot see.
 //! `dev_runner` finds how to start and hot-refresh a Solution; `test_runner`
 //! finds its test suites. `starter` and `scaffold` create new projects.
+//! `sandbox` decides where any of it actually runs.
 
 pub mod dev_runner;
+pub mod sandbox;
 pub mod scaffold;
 pub mod starter;
 pub mod test_runner;

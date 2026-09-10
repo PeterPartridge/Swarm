@@ -88,7 +88,14 @@ This page is a containment surface, not an access-control one — the project ha
 - Frontend: the Admin card and its protections table; the run badge on the runs panel, in words rather than a padlock.
 - Tests: the nine above — cargo for detection, wrapping, path round-trip and the seam set; Vitest for the table never showing an unproved protection as on.
 
-**Expected technical debt:**
+**Technical debt after round 1:**
+- Three call sites now take a `mode` they hand straight to a seam that, for the only reachable value, changes nothing. That is the cost of the boundary existing before the backends do, and it is the right order — retrofitting one under working code is the expensive way.
+- The seam test encodes today's exclusions, so adding a spawn site fails a test in an unrelated file. The message explains what decision is being asked for, but it will still surprise whoever hits it.
+- The two Solution-zero terminals pass `Off` by hand. Once WSL exists, the sign-in one has to move — it is the brief's own "sign in inside the sandbox" action, and nothing yet enforces that it does.
+- `Mode` is threaded as a parameter through three public signatures. If a fourth adopter arrives it is a fourth signature; at that point a small context struct probably beats another argument.
+- Not built this round, by plan: detection, the capability table, the picker, provisioning, path translation, and both backends. No UI exists, so no protection is claimed anywhere — the honesty rule is satisfied vacuously rather than actively.
+
+**Expected technical debt (as planned, before building):**
 - Detection runs binaries, so the Admin card must not re-detect on every render — cached for the view's lifetime only, never across runs, which is a deliberate cost.
 - Path translation lands at the seam and is proved by a round-trip test; each runner parser that emits a path still has to be checked individually, and one missed parser is a silently unclickable finding.
 - Network egress control is not built this round — recorded in the brief's limits, not omitted.
@@ -96,4 +103,20 @@ This page is a containment surface, not an access-control one — the project ha
 - WSL too old to be given a distribution of its own reduces WSL mode to the borrowed-distribution form. That is reported rather than worked around, and it means the mode's protections differ by machine.
 - Four open questions remain above; none now changes the shape of the build, only its edges.
 
-**Status:** approved (2026-09-10) — ready to build
+**Status:** round 1 built (2026-09-10) — the seam and the Off path
+
+---
+
+## Report back — round 1
+
+**Tests:** `cargo test` 776 passed, 0 failed, 23 ignored. `npm test` 764 passed across 72 files. Six tests are new: four on the seam itself, two on the setting.
+
+**How each use case was implemented.** `tooling/sandbox.rs` is the seam: `Mode` (off/wsl/docker, anything unrecognised reading as off), and `wrap` returning what should actually be run and where. `Off` hands back exactly what it was given — stated as the contract, not left as an implementation detail, because that is what makes adopting the seam a change that alters nothing until somebody chooses otherwise. The two unbuilt modes **refuse** rather than fall through; a mode that quietly ran the command unsandboxed would be this feature's own failure, invisibly.
+
+The setting is `agentSandbox` beside `agentRunMode`, defaulting to `off`, validated against `SANDBOXES` on write so a name the app cannot honour is refused where it is written rather than where it runs. It is resolved per press by `commands::sandbox_mode`, because the three spawn sites are synchronous and hold no database handle while the command layer above them already does — which also means the setting takes effect without a restart.
+
+Three adopters: `terminal::Session::spawn`, `test_runner::spawn`, `starter::run`. **The Code panel and a run's agent terminal are one function**, so covering the run also covers the panel by construction — the open question about the ad-hoc terminal answers itself, and exempting it would now take deliberate extra code. The two Solution-zero terminals (Claude sign-in, debug-adapter install) pass `Off` explicitly: they are about this machine's own setup, and there is nothing yet to sign in *inside*.
+
+**Test scenarios created:** off returns program, args and cwd unchanged; an unbuilt mode refuses and names itself; unknown, empty and mis-cased stored values read as off while the three real names parse; every offered sandbox is one the code knows; a fresh install reports `off` by name; a chosen sandbox is kept and `chroot` is refused without disturbing the previous choice; and **the seam test** — the source tree is read, every file that starts a process must appear as either sandboxed or outside-with-a-reason, and each sandboxed file is checked to actually reach `wrap` rather than merely claiming to.
+
+**Technical debt:** in the closing section below.

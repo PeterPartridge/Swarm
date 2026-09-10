@@ -490,7 +490,7 @@ pub async fn run_test_case(
 ) -> Result<TestRunResult, String> {
     use crate::tooling::test_runner;
 
-    let (place, custom) = {
+    let (place, custom, sandbox) = {
         let conn = db.0.lock().await;
         let place = resolve_test_run(&conn, test_case_id).await?;
         let custom = place
@@ -498,7 +498,7 @@ pub async fn run_test_case(
             .test_command
             .clone()
             .filter(|c| !c.trim().is_empty());
-        (place, custom)
+        (place, custom, super::sandbox_mode(&conn).await)
     };
 
     let test_path = place.case.test_path.clone().unwrap_or_default();
@@ -527,7 +527,7 @@ pub async fn run_test_case(
         let root = root.clone();
         let to_run = to_run.clone();
         tokio::task::spawn_blocking(move || {
-            test_runner::run(std::path::Path::new(&root), &to_run)
+            test_runner::run(sandbox, std::path::Path::new(&root), &to_run)
         })
         .await
         .map_err(|e| format!("the test run could not be started: {e}"))?

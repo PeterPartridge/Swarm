@@ -50,3 +50,19 @@ pub struct AppDb(pub Mutex<Connection>);
 pub(crate) fn to_message(e: crate::db::DbError) -> String {
     e.to_string()
 }
+
+/// Where commands run on somebody's behalf go, for this press.
+///
+/// **Resolved up here because down there it cannot be.** The three places that
+/// start such a command are synchronous and hold no database handle; the
+/// command layer holds one already. Reading it per press rather than once at
+/// startup is also what lets the setting take effect without a restart.
+///
+/// A read that fails lands on `Off`. That is the mode with no boundary at all,
+/// which reads like the wrong way to fail until you ask what the alternative
+/// says: any other answer would have the app assert a boundary it could not
+/// even read the name of.
+pub(crate) async fn sandbox_mode(conn: &Connection) -> crate::tooling::sandbox::Mode {
+    let stored = crate::db::system_setting::agent_sandbox(conn).await.unwrap_or_default();
+    crate::tooling::sandbox::Mode::from_setting(&stored)
+}

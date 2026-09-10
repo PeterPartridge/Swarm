@@ -15,6 +15,7 @@
 //! into a synchronous reader thread would buy nothing but a way to deadlock.
 
 use crate::terminal::{default_shell, Session};
+use crate::tooling::sandbox::Mode;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -130,7 +131,7 @@ pub async fn open_terminal(
     cols: u16,
     rows: u16,
 ) -> Result<OpenedTerminal, String> {
-    let cwd = {
+    let (cwd, sandbox) = {
         let conn = db.0.lock().await;
         let Some(row) = crate::db::solution::find_by_id(&conn, solution_id)
             .await
@@ -138,7 +139,8 @@ pub async fn open_terminal(
         else {
             return Err("that Solution no longer exists".into());
         };
-        row.local_path
+        let cwd = row
+            .local_path
             .filter(|p| !p.trim().is_empty())
             .ok_or_else(|| {
                 format!(
@@ -146,9 +148,10 @@ pub async fn open_terminal(
                      before opening a terminal in it",
                     row.name
                 )
-            })?
+            })?;
+        (cwd, super::sandbox_mode(&conn).await)
     };
-    spawn_terminal(&app, &terminals, solution_id, &cwd, cols, rows)
+    spawn_terminal(sandbox, &app, &terminals, solution_id, &cwd, cols, rows)
 }
 
 /// Opens a terminal and starts the Claude Code sign-in in it.
@@ -184,7 +187,7 @@ pub async fn open_claude_sign_in(
         .ok_or_else(|| "this machine reports no home folder to open a terminal in".to_string())?;
 
     // Solution zero: this terminal belongs to the machine, not to a repository.
-    let opened = spawn_terminal(&app, &terminals, 0, &home.display().to_string(), cols, rows)?;
+    let opened = spawn_terminal(Mode::Off, &app, &terminals, 0, &home.display().to_string(), cols, rows)?;
 
     // Quoted, because the discovered path routinely contains spaces — the
     // desktop app keeps its copy under `AppData\Roaming\Claude\...`.
@@ -245,7 +248,7 @@ pub async fn open_debugger_install(
         .ok_or_else(|| "this machine reports no home folder to open a terminal in".to_string())?;
 
     // Solution zero: an adapter belongs to the machine, not to a repository.
-    let opened = spawn_terminal(&app, &terminals, 0, &home.display().to_string(), cols, rows)?;
+    let opened = spawn_terminal(Mode::Off, &app, &terminals, 0, &home.display().to_string(), cols, rows)?;
     {
         let mut sessions = terminals
             .0
@@ -275,7 +278,7 @@ pub async fn open_terminal_at(
     cols: u16,
     rows: u16,
 ) -> Result<OpenedTerminal, String> {
-    let root = {
+    let (root, sandbox) = {
         let conn = db.0.lock().await;
         let Some(row) = crate::db::solution::find_by_id(&conn, solution_id)
             .await
@@ -283,16 +286,18 @@ pub async fn open_terminal_at(
         else {
             return Err("that Solution no longer exists".into());
         };
-        row.local_path
+        let root = row
+            .local_path
             .filter(|p| !p.trim().is_empty())
-            .ok_or("that Solution has no folder on this machine")?
+            .ok_or("that Solution has no folder on this machine")?;
+        (root, super::sandbox_mode(&conn).await)
     };
     // Only somewhere the app made: a worktree of this Solution's repository.
     let known = crate::git::vcs::list_worktrees(&root)?;
     if !known.iter().any(|w| same_path(w, &path)) {
         return Err("that folder is not one of this run's worktrees".into());
     }
-    spawn_terminal(&app, &terminals, solution_id, &path, cols, rows)
+    spawn_terminal(sandbox, &app, &terminals, solution_id, &path, cols, rows)
 }
 
 fn same_path(a: &str, b: &str) -> bool {
@@ -301,7 +306,13 @@ fn same_path(a: &str, b: &str) -> bool {
 }
 
 /// Starts a shell in `cwd` and streams it, shared by both open commands.
+///
+/// **The two Solution-zero callers pass `Off` deliberately.** Signing in and
+/// installing a debug adapter are about this machine's own setup, not about
+/// running somebody's code — and there is nothing yet to sign in *inside*.
+/// Both are named in the brief as later work.
 fn spawn_terminal(
+    sandbox: crate::tooling::sandbox::Mode,
     app: &AppHandle,
     terminals: &Terminals,
     solution_id: i64,
@@ -313,8 +324,13 @@ fn spawn_terminal(
     // A fresh id per panel, not per Solution: two terminals on one repository is
     // an ordinary thing to want, and one worktree per run makes it the norm.
     let id = format!("term-{}-{}", solution_id, crate::db::now_millis());
-    let (session, mut reader) =
-        Session::spawn(&shell, std::path::Path::new(cwd), cols.max(20), rows.max(5))?;
+    let (session, mut reader) = Session::spawn(
+        sandbox,
+        &shell,
+        std::path::Path::new(cwd),
+        cols.max(20),
+        rows.max(5),
+    )?;
 
     let emitter = app.clone();
     let stream_id = id.clone();

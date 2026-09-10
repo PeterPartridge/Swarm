@@ -3,7 +3,7 @@ form: page-brief
 page: "Terminal"
 solution: "CoperativeAI"
 depends-on: ["workspaceShell.md"]
-status: filled            # blank | filled | approved | built
+status: built             # blank | filled | approved | built
 ---
 
 # Page Brief — Terminal

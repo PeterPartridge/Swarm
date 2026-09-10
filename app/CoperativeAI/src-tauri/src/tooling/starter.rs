@@ -164,7 +164,12 @@ pub struct StarterRun {
 /// something already in it. A generator that ran and failed comes back as a
 /// `StarterRun` with `succeeded: false` and its own words in `output`, because
 /// that is a result to read rather than an error to swallow.
-pub fn run(parent: &str, folder_name: &str, command: &str) -> Result<StarterRun, String> {
+pub fn run(
+    sandbox: crate::tooling::sandbox::Mode,
+    parent: &str,
+    folder_name: &str,
+    command: &str,
+) -> Result<StarterRun, String> {
     let command = command.trim();
     if command.is_empty() {
         return Err("there is no command to run — choose a language or type one".into());
@@ -196,17 +201,17 @@ pub fn run(parent: &str, folder_name: &str, command: &str) -> Result<StarterRun,
             .map_err(|e| format!("could not create {}: {e}", target.display()))?;
     }
 
-    let mut shell = if cfg!(windows) {
-        let mut c = Command::new("cmd");
-        c.arg("/C").arg(command);
-        c
-    } else {
-        let mut c = Command::new("sh");
-        c.arg("-c").arg(command);
-        c
-    };
+    let (name, flag) = if cfg!(windows) { ("cmd", "/C") } else { ("sh", "-c") };
+    let run = crate::tooling::sandbox::wrap(
+        sandbox,
+        name,
+        &[flag.to_string(), command.to_string()],
+        &target,
+    )?;
+    let mut shell = Command::new(&run.program);
+    shell.args(&run.args);
     let output = shell
-        .current_dir(&target)
+        .current_dir(&run.cwd)
         .output()
         .map_err(|e| format!("could not run `{command}`: {e}"))?;
 
@@ -228,6 +233,7 @@ pub fn run(parent: &str, folder_name: &str, command: &str) -> Result<StarterRun,
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tooling::sandbox::Mode;
 
     fn scratch(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -272,7 +278,7 @@ mod tests {
         std::fs::create_dir_all(&existing).expect("dir");
         std::fs::write(existing.join("README.md"), "someone's work").expect("file");
 
-        let err = run(parent.to_str().unwrap(), "Shop API", "echo hello")
+        let err = run(Mode::Off, parent.to_str().unwrap(), "Shop API", "echo hello")
             .expect_err("must refuse");
         assert!(err.contains("already has something in it"), "got: {err}");
         // and it really did not run
@@ -286,7 +292,7 @@ mod tests {
     #[test]
     fn the_folder_is_created_and_the_command_runs_inside_it() {
         let parent = scratch("creates");
-        let run = run(parent.to_str().unwrap(), "Shop API", "echo started here")
+        let run = run(Mode::Off, parent.to_str().unwrap(), "Shop API", "echo started here")
             .expect("should run");
 
         assert!(run.succeeded, "output was: {}", run.output);
@@ -303,6 +309,7 @@ mod tests {
     fn a_failing_generator_reports_rather_than_erroring() {
         let parent = scratch("failing");
         let outcome = run(
+            Mode::Off,
             parent.to_str().unwrap(),
             "Broken",
             "this-command-does-not-exist-9317",
@@ -338,6 +345,7 @@ mod tests {
         let parent = scratch("real-rust");
         let template = find("rust").expect("the rust starter").command;
         let outcome = run(
+            Mode::Off,
             parent.to_str().unwrap(),
             "Shop Core",
             &fill(&template, "Shop Core"),
@@ -358,7 +366,7 @@ mod tests {
     #[test]
     fn an_empty_command_is_refused() {
         let parent = scratch("empty-command");
-        assert!(run(parent.to_str().unwrap(), "X", "   ").is_err());
+        assert!(run(Mode::Off, parent.to_str().unwrap(), "X", "   ").is_err());
         let _ = std::fs::remove_dir_all(&parent);
     }
 

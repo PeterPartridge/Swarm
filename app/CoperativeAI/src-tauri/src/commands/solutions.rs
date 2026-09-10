@@ -119,7 +119,11 @@ pub async fn create_solution_with_starter(
         .unwrap_or_default();
     let filled = crate::tooling::starter::fill(&template, &name);
 
-    let started = crate::tooling::starter::run(&parent, &name, &filled)?;
+    let sandbox = {
+        let conn = db.0.lock().await;
+        super::sandbox_mode(&conn).await
+    };
+    let started = crate::tooling::starter::run(sandbox, &parent, &name, &filled)?;
 
     {
         let conn = db.0.lock().await;
@@ -161,7 +165,7 @@ pub async fn start_existing_solution(
     command: Option<String>,
     parent_dir: String,
 ) -> Result<crate::tooling::starter::StarterRun, String> {
-    let name = {
+    let (name, sandbox) = {
         let conn = db.0.lock().await;
         let Some(row) = solution::find_by_id(&conn, solution_id)
             .await
@@ -169,14 +173,19 @@ pub async fn start_existing_solution(
         else {
             return Err("that Solution no longer exists".into());
         };
-        row.name
+        (row.name, super::sandbox_mode(&conn).await)
     };
 
     let template = command
         .filter(|c| !c.trim().is_empty())
         .or_else(|| crate::tooling::starter::find(&starter_id).map(|s| s.command))
         .unwrap_or_default();
-    let started = crate::tooling::starter::run(&parent_dir, &name, &crate::tooling::starter::fill(&template, &name))?;
+    let started = crate::tooling::starter::run(
+        sandbox,
+        &parent_dir,
+        &name,
+        &crate::tooling::starter::fill(&template, &name),
+    )?;
 
     {
         let conn = db.0.lock().await;

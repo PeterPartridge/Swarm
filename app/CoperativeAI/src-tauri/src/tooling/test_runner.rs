@@ -330,7 +330,7 @@ pub fn custom_suite(command_line: &str) -> Suite {
 /// not an error. Only a command that could not be started at all is an error,
 /// and that is reported through `exit_ok` plus the output so the person can see
 /// what the shell said.
-pub fn run(root: &Path, suite: &Suite) -> SuiteRun {
+pub fn run(sandbox: crate::tooling::sandbox::Mode, root: &Path, suite: &Suite) -> SuiteRun {
     let dir = if suite.directory == "." {
         root.to_path_buf()
     } else {
@@ -338,7 +338,7 @@ pub fn run(root: &Path, suite: &Suite) -> SuiteRun {
     };
     let started = std::time::Instant::now();
 
-    let output = spawn(&dir, &suite.command_line);
+    let output = spawn(sandbox, &dir, &suite.command_line);
     let duration_ms = started.elapsed().as_millis() as i64;
 
     let (exit_ok, text) = match output {
@@ -374,21 +374,25 @@ pub fn run(root: &Path, suite: &Suite) -> SuiteRun {
 /// what a person typed, and `npm test -- --run "my test"` does not survive
 /// naive splitting. On Windows this also solves `npm`/`npx` being batch shims
 /// that `CreateProcess` cannot start directly.
-fn spawn(dir: &Path, command_line: &str) -> Result<(bool, String), String> {
+fn spawn(
+    sandbox: crate::tooling::sandbox::Mode,
+    dir: &Path,
+    command_line: &str,
+) -> Result<(bool, String), String> {
     if command_line.trim().is_empty() {
         return Err("no test command to run".into());
     }
-    let mut command = if cfg!(windows) {
-        let mut c = Command::new("cmd");
-        c.arg("/C").arg(command_line);
-        c
-    } else {
-        let mut c = Command::new("sh");
-        c.arg("-c").arg(command_line);
-        c
-    };
+    let (shell, flag) = if cfg!(windows) { ("cmd", "/C") } else { ("sh", "-c") };
+    let run = crate::tooling::sandbox::wrap(
+        sandbox,
+        shell,
+        &[flag.to_string(), command_line.to_string()],
+        dir,
+    )?;
+    let mut command = Command::new(&run.program);
+    command.args(&run.args);
     let output = command
-        .current_dir(dir)
+        .current_dir(&run.cwd)
         .output()
         .map_err(|e| format!("could not run `{command_line}` in {}: {e}", dir.display()))?;
 
@@ -690,6 +694,7 @@ fn parse_go_json(text: &str) -> Option<Parsed> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tooling::sandbox::Mode;
 
     fn suite_at(kind: &str, directory: &str, command_line: &str) -> Suite {
         Suite {
@@ -1100,7 +1105,7 @@ Passed!  - Failed:     0, Passed:    12, Skipped:     1, Total:    13, Duration:
     fn a_command_that_fails_still_reports_rather_than_erroring() {
         let dir = scratch("failing");
         let suite = custom_suite(if cfg!(windows) { "exit /b 1" } else { "exit 1" });
-        let run = run(&dir, &suite);
+        let run = run(Mode::Off, &dir, &suite);
         assert!(!run.exit_ok);
         assert!(!run.counted, "a custom command's output has no known shape");
         let _ = std::fs::remove_dir_all(&dir);
@@ -1110,7 +1115,7 @@ Passed!  - Failed:     0, Passed:    12, Skipped:     1, Total:    13, Duration:
     fn a_custom_command_runs_and_keeps_its_output() {
         let dir = scratch("custom");
         let suite = custom_suite("echo hello from the suite");
-        let run = run(&dir, &suite);
+        let run = run(Mode::Off, &dir, &suite);
         assert!(run.exit_ok);
         assert!(run.output.contains("hello from the suite"), "got: {}", run.output);
         let _ = std::fs::remove_dir_all(&dir);
