@@ -508,6 +508,29 @@ mod tests {
         assert!(stopped.steps.last().expect("a step").output.contains("Unable to locate"));
     }
 
+    /// **Builds the agent's image for real.**
+    ///
+    /// Ignored by default because it needs a running engine and pulls a base
+    /// image over the network. It is the only thing that proves the Dockerfile
+    /// this app writes is one Docker will actually accept.
+    #[test]
+    #[ignore = "needs a running Docker engine; pulls a base image"]
+    fn building_the_agent_image_for_real() {
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        runtime.block_on(async {
+            let found = super::super::sandbox_detect::docker().await;
+            let done = provision_docker(&found).await;
+            for step in &done.steps {
+                println!("{} — {}", step.name, if step.succeeded { "done" } else { "failed" });
+                println!("{}", step.output);
+            }
+            assert!(done.succeeded, "the image did not build: {}", done.summary);
+
+            let after = super::super::sandbox_detect::docker().await;
+            assert!(after.agent_image, "the image should be there now");
+        });
+    }
+
     /// **Runs for real. Registers a distribution and downloads it.**
     ///
     /// Ignored by default for the obvious reason: it changes the machine it is

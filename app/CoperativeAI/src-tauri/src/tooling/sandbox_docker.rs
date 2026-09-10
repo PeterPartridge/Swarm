@@ -90,11 +90,32 @@ pub fn run_args(repo_root: &Path, run_folder: &Path, run_id: i64) -> Vec<String>
 pub fn clone_args(run_id: i64, branch: &str, base: &str) -> Vec<String> {
     let base = if base.trim().is_empty() { "HEAD" } else { base.trim() };
     let branch = branch.trim();
-    // Same shape as the WSL backend's, and `safe.directory` for the same
-    // reason: a bound folder from this machine is somebody else's to git.
+    // **Written into the container's own global config, and neither of the two
+    // obvious alternatives works.** A bound folder from this machine belongs to
+    // another user as far as git inside is concerned, so it refuses it for
+    // *dubious ownership* — and the failure names nothing useful, because
+    // cloning a local repository starts a second git to read the source and it
+    // is that one which refuses: what you see is "Could not read from remote
+    // repository".
+    //
+    // `-c safe.directory=…` does not reach the child process. `GIT_CONFIG_*`
+    // does reach it and is ignored anyway, because git honours this setting
+    // only from *protected* configuration — precisely so that a repository
+    // cannot grant itself the exception. That leaves the global config, and
+    // here that is the container's own: made for this run, thrown away with it,
+    // and nowhere near the developer's machine.
+    //
+    // **Both folders, and every time — not only around the clone.** `/work` is
+    // bound from this machine too, so it is just as much somebody else's as the
+    // repository is. Granting only the source got as far as a finished clone
+    // and then refused to check a branch out in what it had just written.
+    //
+    // Cleared first, so setting a run up twice does not pile the same three
+    // entries up again.
     let script = format!(
-        "test -d /work/.git || git -c safe.directory=/repo -c safe.directory=/repo/.git \
-         clone --no-hardlinks /repo /work; \
+        "git config --global --unset-all safe.directory 2>/dev/null; \
+         for d in /repo /repo/.git /work; do git config --global --add safe.directory \"$d\"; done; \
+         test -d /work/.git || git clone --no-hardlinks /repo /work; \
          cd /work && (git rev-parse --verify '{branch}' >/dev/null 2>&1 \
          && git checkout '{branch}' || git checkout -b '{branch}' '{base}')"
     );
@@ -240,6 +261,21 @@ mod tests {
         let script = clone_args(12, "feature/9-checkout", "main").join(" ");
         assert!(script.contains("test -d /work/.git"), "{script}");
         assert!(script.contains("clone --no-hardlinks /repo /work"));
+        // **Inherited, not passed to one process.** Cloning a local repository
+        // starts a second git to read it, and `-c` does not reach that one —
+        // it refuses the folder and the clone fails naming nothing useful.
+        // **Neither obvious way works.** `-c` does not reach the second git
+        // that a local clone starts to read the source; `GIT_CONFIG_*` reaches
+        // it and is ignored, because git honours this only from protected
+        // configuration. The container's own global config is what is left,
+        // and it is thrown away with the container.
+        assert!(script.contains("config --global --add safe.directory"), "{script}");
+        // Both folders are bound from this machine, so both are "somebody's
+        // else's" to git — granting only the source clones fine and then
+        // refuses to check a branch out in what it just wrote.
+        assert!(script.contains("/repo /repo/.git /work"), "both, not just the source: {script}");
+        assert!(!script.contains("-c safe.directory"), "-c does not reach the child: {script}");
+        assert!(!script.contains("GIT_CONFIG_"), "the environment is ignored for this: {script}");
         assert!(script.contains("git checkout 'feature/9-checkout'"));
         assert!(script.contains("git checkout -b 'feature/9-checkout' 'main'"));
         assert!(script.contains(&container_name(12)));
@@ -285,11 +321,14 @@ mod tests {
 
             // Not root, and unable to become it.
             assert_ne!(look("id -u").await, "0", "it must not run as root");
-            // Only what was bound: the repository read-only, its own work.
-            assert_eq!(
-                look("touch /repo/probe 2>&1 >/dev/null; echo $?").await,
-                "1",
-                "the repository must not be writable from inside"
+            // Only what was bound, and the repository is read-only. Asked by
+            // trying, and judged on **what the kernel said** rather than on an
+            // exit status — a shell reports that inconsistently enough that the
+            // test would pass while the write succeeded.
+            let refused = look("touch /repo/probe 2>&1").await;
+            assert!(
+                refused.contains("Read-only file system"),
+                "the repository must not be writable from inside: {refused}"
             );
             // git works in there, which is the point of the clone.
             assert!(

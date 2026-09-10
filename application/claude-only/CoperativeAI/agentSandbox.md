@@ -101,8 +101,9 @@ Recorded debt, paid while the Docker engine would not start. Nothing inside ever
 - Untidy: a mount stack can grow where an old writable mount will not unwind. Harmless, and worth cleaning up when the distribution is next restarted.
 
 **Technical debt after round 5:**
-- **The whole backend is unproven against a real engine.** Every earlier round found a real defect the moment it ran for the first time; there is no reason to think this one is different.
-- The agent image has never been built, so nothing has ever started from it.
+- ~~The whole backend is unproven against a real engine.~~ **Closed** — run, three faults found and fixed.
+- ~~The agent image has never been built.~~ **Closed** — built through the app's own path, 524 MB.
+- The `safe.directory` grants are written into the container's global config, which is right while a container is per-run and disposable. If containers are ever reused across runs, that assumption needs revisiting.
 - The two backends now keep their working copies in opposite places — inside the distribution for WSL, on this machine for Docker — and `runs.rs` has a three-way branch where it had two. Both are right for their own constraints; there are two stories to hold rather than one.
 - Tests run in the agent's own container, so they have the network. A throwaway container with none is the next increment.
 - Nothing removes a run's container or its folder when the run ends.
@@ -174,7 +175,17 @@ Recorded debt, paid while the Docker engine would not start. Nothing inside ever
 
 **Test scenarios created:** every named control appears in the `docker run` line; the repository is bound read-only and not also writable; two runs get different containers and different folders, and neither line names the other's; a container already up is not started again, and the match is exact rather than a prefix, so run 1 is not run 12; the clone is made once and an existing branch is reused; a `docker exec` names the run's container and `/work`; a sandbox asked for with no container refuses rather than falling back; an engine without the image reaches no `Enforced` at all; with both, isolation is enforced and the network row still says no.
 
-**Not verified live.** Docker Desktop was starting while this was built and never came up — the engine did not answer once. The ignored `a_real_container_enforces_what_the_table_says_it_does` is written and waiting: it checks, in a real container, that it is not root, that the repository cannot be written to, that git works in the copy, and that nothing of this machine is visible beyond the two mounts. **On this feature's record — four rounds, four live runs, a real defect found in every one — this round should be assumed to have defects until that test has run.**
+**Verified live** (added after the engine came up). The image was built through the app's own provisioning path, and the container check ran against a real container: not root, the repository refusing writes with *Read-only file system*, git working in the copy, and nothing of this machine visible beyond the two mounts.
+
+**Three faults, exactly as predicted, none of which any fixture would have shown.**
+
+1. **`-c safe.directory` never reaches the process that matters.** Cloning a *local* repository makes git start a second process to read the source, and `-c` applies only to the process it was given to. The child starts clean, refuses the folder for dubious ownership, and what surfaces is *"Could not read from remote repository"* — which names nothing that would lead anybody to the cause.
+2. **`GIT_CONFIG_*` reaches that child and is ignored anyway.** Git honours `safe.directory` only from *protected* configuration, precisely so that a repository cannot grant itself the exception. What is left is the global config — and here that is the container's own: made for the run, thrown away with it, nowhere near the developer's machine.
+3. **Both bound folders need it, not just the source.** `/work` is bound from this machine too. Granting only the repository got as far as a finished clone of 472 files and then refused to check a branch out in what it had just written.
+
+And one fault in the **test** rather than the code — the same one the read-only mount had an hour earlier: it judged a refused write by exit status. The write was correctly refused and the shell reported `0`. It now reads what the kernel said.
+
+**The build itself found something too.** One attempt died at `exporting to image` with `rpc error: Unavailable … EOF`, because Docker updated itself from 28.3.2 to 29.7.2 underneath it. Every Dockerfile instruction had succeeded. The step-by-step reporting made that an infrastructure failure at a glance rather than something to go hunting through the Dockerfile for — which is what that reporting was for.
 
 ---
 
