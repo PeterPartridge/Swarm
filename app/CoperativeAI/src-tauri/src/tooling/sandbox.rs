@@ -250,12 +250,31 @@ pub fn wrap(place: &Place, program: &str, args: &[String], cwd: &Path) -> Result
                 cwd: cwd.to_path_buf(),
             })
         }
-        Mode::Docker => Err(
-            "the 'docker' sandbox is not built yet, so nothing was run. Set where agents run \
-             back to something that is — running this outside the boundary you asked for is \
-             not something this app will do quietly."
-                .into(),
-        ),
+        Mode::Docker => {
+            if place.inside.trim().is_empty() {
+                return Err(
+                    "nothing was run: a container was asked for without saying which one. That \
+                     is a fault in this app rather than in the set-up."
+                        .into(),
+                );
+            }
+            // `inside` names the run's container. The folder is always `/work`
+            // — a container has one working copy and it is bound there, so
+            // there is nothing else it could sensibly mean.
+            let mut inner = vec![
+                "exec".to_string(),
+                "-w".to_string(),
+                "/work".to_string(),
+                place.inside.clone(),
+                program.to_string(),
+            ];
+            inner.extend(args.iter().cloned());
+            Ok(Spawn {
+                program: "docker".to_string(),
+                args: inner,
+                cwd: cwd.to_path_buf(),
+            })
+        }
     }
 }
 
@@ -484,22 +503,29 @@ fn wsl_column(found: &crate::tooling::sandbox_detect::WslFindings) -> ModeReport
 
 fn docker_column(found: &crate::tooling::sandbox_detect::DockerFindings) -> ModeReport {
     let running = !found.server_version.is_empty();
+    // Both, and both matter: an engine with no image cannot start a container,
+    // and an image with no engine is a file nobody can run.
+    let ready = running && found.agent_image;
     let buildable = crate::tooling::sandbox_provision::plan_docker(found);
     let each = [
         "A container sees only what is mounted into it.",
         "One container per run, and containers do not share a filesystem.",
         "Capabilities dropped, and no new ones can be gained.",
         "Processor, memory and process limits apply per container.",
-        "A container's network can be switched off entirely.",
+        "The container an agent works in keeps the network, because the agent needs its model. \n         Running tests in a throwaway container with none is the next step, not this one.",
     ];
 
     ModeReport {
         id: "docker".into(),
         label: SANDBOXES[2].1.into(),
-        built: false,
-        can_choose: false,
-        choose_detail: "Not built yet — it would refuse every command rather than run one \n             outside the boundary you asked for."
-            .to_string(),
+        built: true,
+        can_choose: ready,
+        choose_detail: if ready {
+            "Ready — each run gets a container of its own.".to_string()
+        } else {
+            "Start Docker and build the agent image first: choosing it before there is one \n             would stop runs working, with nothing gained."
+                .to_string()
+        },
         can_set_up: buildable.is_ok(),
         set_up_detail: match &buildable {
             Ok(()) => "Builds the agent's image — git, Node and Claude Code, and nothing of 
@@ -519,8 +545,17 @@ fn docker_column(found: &crate::tooling::sandbox_detect::DockerFindings) -> Mode
             .iter()
             .zip(each)
             .map(|(name, detail)| {
-                if running {
-                    protection(name, State::AvailableNotBuilt, detail)
+                if ready {
+                    // The fifth is the exception, and it says so rather than
+                    // being quietly dropped from the list.
+                    let state = if *name == PROTECTIONS[4] {
+                        State::Unavailable
+                    } else {
+                        State::Enforced
+                    };
+                    protection(name, state, detail)
+                } else if running {
+                    protection(name, State::AvailableNotBuilt, "The engine is running; the agent image still has to be built.")
                 } else {
                     protection(
                         name,
@@ -701,11 +736,16 @@ mod tests {
     /// was asked for. A later round makes them work; until then the failure is
     /// loud on purpose.
     #[test]
-    fn a_mode_that_is_not_built_refuses_instead_of_running_unprotected() {
-        let place = Place { mode: Mode::Docker, inside: "/work".into() };
-        let said = wrap(&place, "cmd", &[], Path::new("."))
-            .expect_err("an unbuilt sandbox must not run the command");
-        assert!(said.contains("docker"), "the refusal should name the mode: {said}");
+    fn a_docker_command_names_the_runs_container_and_its_folder() {
+        let place = Place { mode: Mode::Docker, inside: "coperativeai-run-12".into() };
+        let spawned = wrap(&place, "npm", &["test".to_string()], Path::new("C:\\repo"))
+            .expect("a container was named");
+
+        assert_eq!(spawned.program, "docker");
+        assert_eq!(
+            spawned.args,
+            vec!["exec", "-w", "/work", "coperativeai-run-12", "npm", "test"]
+        );
     }
 
     /// **A sandboxed command with nowhere to be is a bug, not a default.**
@@ -713,8 +753,44 @@ mod tests {
     /// exists to prevent, so it refuses instead.
     #[test]
     fn a_sandbox_asked_for_without_a_place_inside_refuses() {
-        let nowhere = Place { mode: Mode::Wsl, inside: String::new() };
-        assert!(wrap(&nowhere, "cmd", &[], Path::new(".")).is_err());
+        for mode in [Mode::Wsl, Mode::Docker] {
+            let nowhere = Place { mode, inside: String::new() };
+            assert!(
+                wrap(&nowhere, "cmd", &[], Path::new(".")).is_err(),
+                "{mode:?} must not fall back to running here"
+            );
+        }
+    }
+
+    /// **An engine is not an image.** Docker running with nothing to run in is
+    /// a machine that could, not a boundary that is — and the difference is the
+    /// whole reason the middle state exists.
+    #[test]
+    fn docker_without_its_image_is_not_a_boundary_yet() {
+        let engine_only = DockerFindings {
+            client_installed: true,
+            server_version: "27.3.1".into(),
+            agent_image: false,
+            detail: String::new(),
+        };
+        let table = report("off", &WslFindings::default(), &engine_only);
+        let docker = table.modes.iter().find(|m| m.id == "docker").expect("a docker column");
+        assert!(docker.built);
+        assert!(!docker.can_choose, "there is nothing to start a container from");
+        assert!(docker.protections.iter().all(|p| p.state != State::Enforced));
+
+        let ready = DockerFindings { agent_image: true, ..engine_only };
+        let table = report("off", &WslFindings::default(), &ready);
+        let docker = table.modes.iter().find(|m| m.id == "docker").expect("a docker column");
+        assert!(docker.can_choose);
+        // **The row that has been "no" in every column for five rounds.**
+        assert_eq!(docker.protections[1].state, State::Enforced, "one run cannot reach another");
+        // …and the one Docker could do but this app does not: said, not hidden.
+        assert_eq!(
+            docker.protections[4].state,
+            State::Unavailable,
+            "the agent needs its model, so its container keeps the network"
+        );
     }
 
     /// The command that actually reaches WSL: the app's own distribution, the

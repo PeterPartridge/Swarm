@@ -306,7 +306,18 @@ pub(crate) async fn prepare_run(
             (id, crate::tooling::sandbox::windows_view(&inside))
         }
         crate::tooling::sandbox::Mode::Docker => {
-            return Err("the 'docker' sandbox is not built yet, so a run cannot start in it".into())
+            let id = change_run::prepare(conn, work_item_id, solution_id, &brief_path)
+                .await
+                .map_err(to_message)?;
+            let root_path = std::path::Path::new(&root);
+            crate::tooling::sandbox_docker::prepare(root_path, id, &branch, &clone_from).await?;
+            // **The folder is on this machine, unlike the WSL backend's.** A
+            // clone's `.git` is a real directory with no absolute path in it,
+            // so a copy made inside a container into a bound folder is an
+            // ordinary repository out here — read at ordinary local speed, with
+            // none of the network-path trouble WSL needs.
+            let folder = crate::tooling::sandbox_docker::run_folder(root_path, id)?;
+            (id, folder.to_string_lossy().to_string())
         }
     };
 

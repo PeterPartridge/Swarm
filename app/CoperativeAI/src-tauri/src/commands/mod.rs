@@ -89,6 +89,13 @@ pub(crate) async fn place_for(
             crate::tooling::sandbox_run::mount(repo_root).await?;
             Ok(Place { mode: Mode::Wsl, inside: mount_point(repo_root) })
         }
-        Mode::Docker => Err("the 'docker' sandbox is not built yet, so nothing was run".into()),
+        // A container belongs to a run, and repository-level work (an ad-hoc
+        // terminal, a starter creating a project) is not one. Said plainly
+        // rather than run here anyway, which would be the one failure this
+        // whole feature exists to prevent.
+        Mode::Docker => Err(
+            "this happens outside any run, and a container belongs to a run — so there is no \n             container for it to happen in. Runs work under Docker; this does not yet."
+                .into(),
+        ),
     }
 }

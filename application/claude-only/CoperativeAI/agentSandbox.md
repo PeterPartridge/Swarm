@@ -88,6 +88,14 @@ This page is a containment surface, not an access-control one — the project ha
 - Frontend: the Admin card and its protections table; the run badge on the runs panel, in words rather than a padlock.
 - Tests: the nine above — cargo for detection, wrapping, path round-trip and the seam set; Vitest for the table never showing an unproved protection as on.
 
+**Technical debt after round 5:**
+- **The whole backend is unproven against a real engine.** Every earlier round found a real defect the moment it ran for the first time; there is no reason to think this one is different.
+- The agent image has never been built, so nothing has ever started from it.
+- The two backends now keep their working copies in opposite places — inside the distribution for WSL, on this machine for Docker — and `runs.rs` has a three-way branch where it had two. Both are right for their own constraints; there are two stories to hold rather than one.
+- Tests run in the agent's own container, so they have the network. A throwaway container with none is the next increment.
+- Nothing removes a run's container or its folder when the run ends.
+- WSL's repository mount is still read-write, though nothing needs it to be.
+
 **Technical debt after round 4b:**
 - **Four seconds a `git status`** over the network path. The panel refreshes on a timer in places, and a sandboxed run will feel sluggish where an unsandboxed one does not. The alternative — running git *inside* the distribution — is fast but makes `vcs.rs` sandbox-aware, and that decision is better made once Docker exists and there are two backends to serve.
 - The `safe.directory` grant is built at two call sites via one helper; a third runner added later would have to remember it.
@@ -132,7 +140,29 @@ This page is a containment surface, not an access-control one — the project ha
 - WSL too old to be given a distribution of its own reduces WSL mode to the borrowed-distribution form. That is reported rather than worked around, and it means the mode's protections differ by machine.
 - Four open questions remain above; none now changes the shape of the build, only its edges.
 
-**Status:** round 4b built (2026-09-10) — a sandboxed run can be finished from outside
+**Status:** round 5 built (2026-09-10) — the Docker backend, **not yet run against a real engine**
+
+---
+
+## Report back — round 5
+
+**Tests:** `cargo test` 824 passed, 0 failed, 28 ignored. `npm test` 772 passed across 73 files.
+
+**A container per run, and that is the point.** Two runs in a WSL distribution share a filesystem and a user, so either can read the other's work; two containers share nothing. "One run cannot reach another" has said *no* in every column for five rounds, and this is the round that changes it — but only where detection proves both an engine **and** the agent image, because an engine with nothing to run in is a machine that could, not a boundary that is.
+
+**The working copy lives on this machine, which is the opposite of the WSL backend.** For a reason rather than by accident: a *clone* has a real `.git` **directory**, self-contained, with no absolute path anywhere in it — unlike a worktree, whose `.git` is a one-line file naming where its repository sits. So a copy made inside a container into a bound folder is an ordinary repository out here, read by ordinary local git at ordinary local speed, with none of the network-path trouble WSL needs and none of its four-second `git status`.
+
+**The repository goes in read-only**, which round 4b's decision made free: work comes back by the repository fetching from the clone, so nothing ever needs to write to it. WSL's mount could be tightened the same way and has not been.
+
+**Every control is asserted by name**, one test each — `--cap-drop=ALL`, `--security-opt=no-new-privileges`, `--pids-limit`, `--memory`, `--cpus`. A flag dropped in a later refactor is a protection silently gone, and nothing about a run would look different.
+
+**The one Docker could do and this does not:** the network. The container an agent works in keeps it, because the agent needs its model. That row therefore stays **No**, with that sentence in it, rather than being quietly left off the list. Running *tests* in a throwaway container with `--network none` is the obvious next increment and is not this round.
+
+**Repository-level work refuses under Docker rather than running here.** An ad-hoc terminal or a starter creating a project is not a run, and a container belongs to a run — so there is no container for it to happen in, and it says so instead of quietly falling back to this machine, which would be the one failure this whole feature exists to prevent.
+
+**Test scenarios created:** every named control appears in the `docker run` line; the repository is bound read-only and not also writable; two runs get different containers and different folders, and neither line names the other's; a container already up is not started again, and the match is exact rather than a prefix, so run 1 is not run 12; the clone is made once and an existing branch is reused; a `docker exec` names the run's container and `/work`; a sandbox asked for with no container refuses rather than falling back; an engine without the image reaches no `Enforced` at all; with both, isolation is enforced and the network row still says no.
+
+**Not verified live.** Docker Desktop was starting while this was built and never came up — the engine did not answer once. The ignored `a_real_container_enforces_what_the_table_says_it_does` is written and waiting: it checks, in a real container, that it is not root, that the repository cannot be written to, that git works in the copy, and that nothing of this machine is visible beyond the two mounts. **On this feature's record — four rounds, four live runs, a real defect found in every one — this round should be assumed to have defects until that test has run.**
 
 ---
 
