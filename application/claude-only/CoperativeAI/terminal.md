@@ -30,7 +30,7 @@ Most capable tier (Claude Fable 5), high effort.
 | (nothing) | Terminal output is never logged or persisted — solution security rule. |
 
 **Access & security**
-Per the solution's security rules: same permissions as the OS user (no escalation), local only (never network-exposed), output never logged or persisted by the app.
+Per the solution's security rules: local only (never network-exposed), output never logged or persisted by the app. Permissions are **not** fixed here — they follow the app-wide sandbox setting (off / WSL / Docker): the same permissions as the OS user with no escalation when it is off, the chosen boundary when it is not. See `agentSandbox.md`.
 
 **Tests**
 - [ ] Opening starts a real PTY shell and shows its prompt.

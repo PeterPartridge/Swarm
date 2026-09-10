@@ -106,7 +106,8 @@
         "Any file dragged in or opened by the user is validated (path, type, size) before being read.",
         "AI provider API keys are stored in the OS credential store (Windows Credential Manager / Linux Secret Service) via a Tauri keyring plugin — never in plaintext in the database, config files, code, or logs. The database stores only a key alias.",
         "Per-work-item AI policies are enforced deny-by-default: before any work-item content is sent to an AI provider, the item's policy must explicitly allow that use and that provider.",
-        "The embedded terminal runs as a real shell with the same permissions as the OS user running the app — no privilege escalation, and no separate elevated process.",
+        "Where the embedded terminal — and every command the app runs on someone's behalf — actually runs is one setting: off (this machine), WSL, or Docker. See the Agent Sandbox page brief. Off, it is a real shell with the same permissions as the OS user running the app — no privilege escalation, and no separate elevated process. Under WSL or Docker it runs inside that boundary instead, and nothing about how it is used changes.",
+        "No protection is claimed that has not been proved on the machine in front of it. The app reports what its detection actually found — including that WSL with the Windows drive still mounted has no filesystem boundary at all — rather than what the chosen option is called. This is the same rule as never showing a cost the app cannot see.",
         "The embedded terminal is local only — never exposed over a network socket or remote-accessible interface.",
         "Output copied from or displayed in the embedded terminal is never logged or persisted by the application itself."
       ]
@@ -147,7 +148,12 @@
     }
   },
   "openQuestions": [
-    "The embedded terminal is a real shell with full OS-user permissions — should it be restricted in any way (e.g. confined to the project's working directory, or a denylist of commands), or is full shell access intended?",
     "Any must-not-do constraints for this solution specifically (beyond the project-wide rules)?"
+  ],
+  "answeredQuestions": [
+    {
+      "question": "The embedded terminal is a real shell with full OS-user permissions — should it be restricted in any way (e.g. confined to the project's working directory, or a denylist of commands), or is full shell access intended?",
+      "answer": "Neither of the two restrictions offered. Not a denylist: an agent that can write a file can write a script, so a list of forbidden commands is theatre. Not a directory confinement either, since the shell has to be able to build and test. Instead the boundary is chosen — off, WSL, or Docker — as one app-wide setting, and the app is honest about what the chosen one really enforces on this machine. See the Agent Sandbox page brief."
+    }
   ]
 }

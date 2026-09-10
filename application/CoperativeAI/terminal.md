@@ -55,7 +55,7 @@ The running shell process and its scrollback buffer.
 - Closing the panel ends the shell process (no orphaned processes).
 
 ### limits — Any known limits or things to watch out for?
-Windows ConPTY quirks (resize, UTF-8, killing the process tree) — spike this first. The shell runs with the same permissions as the OS user, local only, per the solution's security rules.
+Windows ConPTY quirks (resize, UTF-8, killing the process tree) — spike this first. The shell is local only and is never logged, per the solution's security rules. What permissions it runs with is no longer fixed here: it follows the app-wide sandbox setting — the same permissions as the OS user when that is off, and the chosen boundary when it is not. See [`agentSandbox.md`](agentSandbox.md).
 
 ### model-and-effort — Which AI model and effort level should this page use by default?
 Most capable model, high effort.
@@ -66,3 +66,4 @@ Most capable model, high effort.
 
 > Each time you come back to improve the page, add a bullet describing what you want to change. Keep changes small.
 - Round 2 (built): The terminal is built as a **real PTY** (portable-pty + xterm.js), opened from the Develop **Code** tab in the selected Solution's working copy. The Windows ConPTY spike the limits section asked for was done first, and found the thing that would otherwise have looked like a dead terminal: **ConPTY opens by sending `ESC [ 6 n` — "report your cursor position" — and says nothing at all until something answers.** xterm.js answers it automatically, which is why the panel works; anything that merely reads the PTY sees four bytes and silence. Resize is wired (without it the shell keeps wrapping at its startup width) and closing the panel ends the shell. **Known limit:** killing the shell does not reliably kill what the shell started.
+- Round 3 (my feedback): The shell's permissions stop being a fixed property of this page. They follow the new app-wide sandbox setting instead — see [`agentSandbox.md`](agentSandbox.md). *(Nothing about this page changes when the setting is off, which is the default; the reason for moving the statement is that a security rule which stays written down after it stops being true is the one that gets quoted later as if it still held.)*
