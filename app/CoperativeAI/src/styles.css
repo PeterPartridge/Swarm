@@ -9588,3 +9588,165 @@ button.ready-action.link:hover {
   color: var(--fg-muted);
   overflow-wrap: anywhere;
 }
+
+/* ── Admin, in the shape the Develop area already had ────────────────────
+   The two cards were nearly the same already — same surface, same border,
+   same left accent — but Develop laid its contents out and Admin did not, so
+   Admin's cards read as a wall while Develop's breathed. This is that layout,
+   not a new look. */
+.admin-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.admin-card > h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.admin-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.8rem;
+}
+
+/* ── Where agents run ────────────────────────────────────────────────────
+   **This panel had no styling at all**, which is most of why it read as
+   unfriendly: a bare table of prose with nothing separating one verdict from
+   the next. The arrangement below puts the decision first and the evidence
+   under it. */
+.sandbox-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.sandbox-now {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.sandbox-modes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.5rem;
+}
+
+.sandbox-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.375rem;
+  background: var(--sunken);
+}
+
+/* The one in force is marked by more than a filled radio, which is easy to
+   miss in a row of three that otherwise look identical. */
+.sandbox-mode.chosen {
+  border-color: var(--accent);
+  background: var(--info-tint);
+}
+
+.sandbox-pick {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.sandbox-name {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--fg-bright);
+}
+
+.sandbox-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: auto;
+}
+
+.sandbox-detail > summary {
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: var(--fg-muted);
+  padding: 0.25rem 0;
+}
+
+/* Wide content scrolls inside itself rather than pushing the panel sideways. */
+.sandbox-scroll {
+  overflow-x: auto;
+}
+
+.sandbox-detail table {
+  border-collapse: collapse;
+  font-size: 0.78rem;
+  width: 100%;
+}
+
+.sandbox-detail th,
+.sandbox-detail td {
+  border: 1px solid var(--line);
+  padding: 0.35rem 0.5rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+/* **Colour supports the words and never replaces them.** Each cell still says
+   what it is; the tint is there so a column can be scanned, not so a glance
+   can be mistaken for reading. */
+.sandbox-cell {
+  display: table-cell;
+}
+
+.sandbox-cell .verdict {
+  display: block;
+  font-weight: 600;
+  font-size: 0.76rem;
+}
+
+.sandbox-cell.enforced {
+  background: var(--ok-tint);
+}
+
+.sandbox-cell.availableNotBuilt {
+  background: var(--warn-tint);
+}
+
+.sandbox-cell.unavailable .verdict {
+  color: var(--fg-muted);
+}
+
+.sandbox-result {
+  border-top: 1px solid var(--line);
+  padding-top: 0.5rem;
+  font-size: 0.82rem;
+}
+
+.sandbox-result ol {
+  margin: 0.4rem 0 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.sandbox-result li.failed > span {
+  color: var(--bad);
+}
+
+.sandbox-result pre {
+  margin: 0.2rem 0 0;
+  padding: 0.4rem;
+  background: var(--sunken);
+  border-radius: 0.25rem;
+  font-size: 0.72rem;
+  max-height: 14rem;
+  overflow: auto;
+  white-space: pre-wrap;
+}

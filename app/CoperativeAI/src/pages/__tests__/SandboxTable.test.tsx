@@ -82,15 +82,18 @@ describe("SandboxTable", () => {
   it("never presents an unbuilt mode as protection in force", async () => {
     render(<SandboxTable />);
 
-    const docker = await screen.findByRole("columnheader", {
+    const docker = await screen.findByRole("article", {
       name: /container of its own/,
     });
     expect(docker).toHaveTextContent("not built yet");
 
+    // Opened the way somebody would, rather than reached around: the evidence
+    // is a disclosure now, and a test that read past it would not be testing
+    // what anyone sees.
+    await userEvent.click(screen.getByText("What each one actually enforces"));
+
     // The one ready cell on this machine still says it is not doing anything.
-    expect(
-      await screen.findByText("This machine could — not built yet"),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Could — not built yet")).toBeInTheDocument();
     expect(screen.queryByText("In force")).not.toBeInTheDocument();
   });
 
@@ -128,13 +131,13 @@ describe("SandboxTable", () => {
   it("says why a set-up cannot be run, rather than only greying it out", async () => {
     render(<SandboxTable />);
 
-    const docker = await screen.findByRole("columnheader", { name: /container of its own/ });
+    const docker = await screen.findByRole("article", { name: /container of its own/ });
     expect(within(docker).getByRole("button", { name: "Set this up" })).toBeDisabled();
     expect(docker).toHaveTextContent(
       "Docker's engine is not running, and an image cannot be built without it.",
     );
 
-    const wsl = screen.getByRole("columnheader", { name: /Linux distribution/ });
+    const wsl = screen.getByRole("article", { name: /Linux distribution/ });
     expect(within(wsl).getByRole("button", { name: "Set this up" })).toBeEnabled();
   });
 
@@ -157,7 +160,7 @@ describe("SandboxTable", () => {
     });
 
     render(<SandboxTable />);
-    const wsl = await screen.findByRole("columnheader", { name: /Linux distribution/ });
+    const wsl = await screen.findByRole("article", { name: /Linux distribution/ });
     await userEvent.click(within(wsl).getByRole("button", { name: "Set this up" }));
 
     expect(await screen.findByText(/Stopped at 'Install what the agent needs'/)).toBeInTheDocument();
@@ -175,7 +178,7 @@ describe("SandboxTable", () => {
     });
 
     render(<SandboxTable />);
-    const wsl = await screen.findByRole("columnheader", { name: /Linux distribution/ });
+    const wsl = await screen.findByRole("article", { name: /Linux distribution/ });
     expect(mocked.sandboxReport).toHaveBeenCalledTimes(1);
 
     await userEvent.click(within(wsl).getByRole("button", { name: "Set this up" }));
