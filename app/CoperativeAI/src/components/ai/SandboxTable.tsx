@@ -195,6 +195,19 @@ export default function SandboxTable() {
 
       {result && (
         <section className="sandbox-result" aria-label="What setting up did">
+          {/* **Said, and said as a live region.** Setting up takes minutes and
+              ends with a wall of a tool's own output; without a plain line at
+              the top, "has it finished?" is answered by reading the whole thing
+              and inferring. `role="status"` because it arrives after an action
+              rather than being on the page all along.
+
+              It reports the **set-up**, never the protection. What is actually
+              in force is the table's business, and the table is re-read the
+              moment this appears — so this line says a job ended, and the row
+              beneath says what that bought. */}
+          <p role="status" className={`sandbox-verdict ${result.succeeded ? "done" : "failed"}`}>
+            {result.succeeded ? "Set up complete." : "Set up stopped."}
+          </p>
           <p>{result.summary}</p>
           <ol>
             {result.steps.map((step) => (

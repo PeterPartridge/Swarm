@@ -9750,3 +9750,19 @@ button.ready-action.link:hover {
   overflow: auto;
   white-space: pre-wrap;
 }
+
+/* The line that answers "has it finished?" without making anybody read a
+   tool's output to find out. It reports the set-up, never the protection —
+   what is in force is the table's business, directly above. */
+.sandbox-verdict {
+  margin: 0 0 0.25rem;
+  font-weight: 600;
+}
+
+.sandbox-verdict.done {
+  color: var(--ok);
+}
+
+.sandbox-verdict.failed {
+  color: var(--bad);
+}

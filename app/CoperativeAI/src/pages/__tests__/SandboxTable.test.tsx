@@ -167,6 +167,42 @@ describe("SandboxTable", () => {
     expect(screen.getByText("E: Unable to locate package nodejs")).toBeInTheDocument();
   });
 
+  /** **"Has it finished?" answered without reading a tool's output.** Setting
+   *  up takes minutes and ends in a wall of somebody else's words. */
+  it("says plainly when a set-up finished, and when it stopped", async () => {
+    mocked.setUpSandbox.mockResolvedValue({
+      mode: "wsl",
+      succeeded: true,
+      summary: "'coperativeai' is set up.",
+      steps: [{ name: "Create the distribution", succeeded: true, output: "" }],
+    });
+
+    render(<SandboxTable />);
+    const wsl = await screen.findByRole("article", { name: /Linux distribution/ });
+    await userEvent.click(within(wsl).getByRole("button", { name: "Set this up" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Set up complete.");
+  });
+
+  /** And it reports the **set-up**, never the protection — what is in force is
+   *  the table's business, and a finished job is not a boundary. */
+  it("says a set-up stopped without claiming anything about protection", async () => {
+    mocked.setUpSandbox.mockResolvedValue({
+      mode: "wsl",
+      succeeded: false,
+      summary: "Stopped at 'Install what the agent needs'.",
+      steps: [{ name: "Install what the agent needs", succeeded: false, output: "E: no package" }],
+    });
+
+    render(<SandboxTable />);
+    const wsl = await screen.findByRole("article", { name: /Linux distribution/ });
+    await userEvent.click(within(wsl).getByRole("button", { name: "Set this up" }));
+
+    const said = await screen.findByRole("status");
+    expect(said).toHaveTextContent("Set up stopped.");
+    expect(said).not.toHaveTextContent(/protected|secure|safe/i);
+  });
+
   /** The point of setting up is whether the verdicts changed, so the table is
    *  read again rather than left showing what was true before. */
   it("looks at the machine again once a set-up finishes", async () => {
