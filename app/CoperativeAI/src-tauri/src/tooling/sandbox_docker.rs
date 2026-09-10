@@ -53,7 +53,7 @@ pub fn run_folder(repo_root: &Path, run_id: i64) -> Result<std::path::PathBuf, S
 /// comes back out by the repository fetching from the clone, which was settled
 /// when the WSL backend landed. Read-only is therefore free, and free
 /// protections are the ones worth taking.
-pub fn run_args(repo_root: &Path, run_folder: &Path, run_id: i64) -> Vec<String> {
+pub fn run_args(repo_root: &Path, run_folder: &Path, run_id: i64, deny: &[String]) -> Vec<String> {
     let mut args: Vec<String> = vec!["run".into(), "-d".into(), "--name".into(), container_name(run_id)];
     for flag in [
         // Everything a container is normally allowed to do that this does not
@@ -76,6 +76,19 @@ pub fn run_args(repo_root: &Path, run_folder: &Path, run_id: i64) -> Vec<String>
     args.push(format!("{}:/repo:ro", repo_root.display()));
     args.push("-v".into());
     args.push(format!("{}:/work", run_folder.display()));
+    // **The policy, applied where a container can apply one: its mounts.**
+    // Root inside here cannot take a file from the agent — `CAP_CHOWN` is
+    // dropped — so the permissions route the distribution uses does not exist.
+    // An empty read-only filesystem over the path does the same job and needs
+    // no capability at all: what was underneath is simply not there.
+    //
+    // Which is also why the copy has to exist **before** the container does.
+    // A mask cannot be added to a running container, and a clone into a
+    // masked path would be a checkout writing to a read-only filesystem.
+    for path in deny {
+        args.push("--tmpfs".into());
+        args.push(format!("/work/{path}:ro"));
+    }
     args.push("-w".into());
     args.push("/work".into());
     args.push(AGENT_IMAGE.into());
@@ -84,48 +97,6 @@ pub fn run_args(repo_root: &Path, run_folder: &Path, run_id: i64) -> Vec<String>
     args.push("sleep".into());
     args.push("infinity".into());
     args
-}
-
-/// The command that clones a run's working copy inside its container.
-pub fn clone_args(run_id: i64, branch: &str, base: &str) -> Vec<String> {
-    let base = if base.trim().is_empty() { "HEAD" } else { base.trim() };
-    let branch = branch.trim();
-    // **Written into the container's own global config, and neither of the two
-    // obvious alternatives works.** A bound folder from this machine belongs to
-    // another user as far as git inside is concerned, so it refuses it for
-    // *dubious ownership* — and the failure names nothing useful, because
-    // cloning a local repository starts a second git to read the source and it
-    // is that one which refuses: what you see is "Could not read from remote
-    // repository".
-    //
-    // `-c safe.directory=…` does not reach the child process. `GIT_CONFIG_*`
-    // does reach it and is ignored anyway, because git honours this setting
-    // only from *protected* configuration — precisely so that a repository
-    // cannot grant itself the exception. That leaves the global config, and
-    // here that is the container's own: made for this run, thrown away with it,
-    // and nowhere near the developer's machine.
-    //
-    // **Both folders, and every time — not only around the clone.** `/work` is
-    // bound from this machine too, so it is just as much somebody else's as the
-    // repository is. Granting only the source got as far as a finished clone
-    // and then refused to check a branch out in what it had just written.
-    //
-    // Cleared first, so setting a run up twice does not pile the same three
-    // entries up again.
-    let script = format!(
-        "git config --global --unset-all safe.directory 2>/dev/null; \
-         for d in /repo /repo/.git /work; do git config --global --add safe.directory \"$d\"; done; \
-         test -d /work/.git || git clone --no-hardlinks /repo /work; \
-         cd /work && (git rev-parse --verify '{branch}' >/dev/null 2>&1 \
-         && git checkout '{branch}' || git checkout -b '{branch}' '{base}')"
-    );
-    vec![
-        "exec".into(),
-        container_name(run_id).clone(),
-        "sh".into(),
-        "-c".into(),
-        script,
-    ]
 }
 
 /// Whether a run's container is already up.
@@ -152,6 +123,20 @@ pub async fn prepare(
     std::fs::create_dir_all(&folder)
         .map_err(|e| format!("could not make a folder for this run at {}: {e}", folder.display()))?;
 
+    // **The copy is made before the container exists, and the policy is why.**
+    // A container's restrictions are settled when it is created and cannot be
+    // added afterwards — so a clone made *inside* would have to write into a
+    // path the policy had already sealed, which is a checkout against a
+    // read-only filesystem. Cloning first, out here, means the container is
+    // created over a working copy that is already complete, and the masks go
+    // straight on top of it.
+    //
+    // It is simpler as well: the folder is this machine's, so this is ordinary
+    // local git with none of the ownership argument a bound folder provokes.
+    let policy = super::sandbox_policy::read_policy(repo_root)?;
+    let deny = super::sandbox_policy::deny_paths(&policy)?;
+    clone_on_this_machine(repo_root, &folder, branch, base)?;
+
     let listed = match ask(
         "docker",
         &["ps", "--format", "{{.Names}}"],
@@ -175,7 +160,7 @@ pub async fn prepare(
         )
         .await;
 
-        let args = run_args(repo_root, &folder, run_id);
+        let args = run_args(repo_root, &folder, run_id, &deny);
         let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
         match ask("docker", &borrowed, Duration::from_secs(300)).await {
             Answered::Yes((true, _)) => {}
@@ -189,16 +174,57 @@ pub async fn prepare(
         }
     }
 
-    let args = clone_args(run_id, branch, base);
-    let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
-    match ask("docker", &borrowed, Duration::from_secs(600)).await {
-        Answered::Yes((true, _)) => Ok(container_name(run_id)),
-        Answered::Yes((false, said)) => Err(format!(
-            "the run could not be given a copy to work in: {}",
-            String::from_utf8_lossy(&said).trim()
-        )),
-        _ => Err("Docker did not answer while making the run's copy".into()),
+    Ok(container_name(run_id))
+}
+
+/// Makes the run's copy on this machine, before any container exists.
+///
+/// Ordinary local git on an ordinary local folder: the source and the target
+/// are both this machine's, so there is none of the ownership argument a bound
+/// folder provokes.
+fn clone_on_this_machine(
+    repo_root: &Path,
+    folder: &Path,
+    branch: &str,
+    base: &str,
+) -> Result<(), String> {
+    let git = |args: &[&str], at: &Path| -> Result<String, String> {
+        let out = std::process::Command::new("git")
+            .current_dir(at)
+            .args(args)
+            .output()
+            .map_err(|e| format!("could not run git — is it installed? ({e})"))?;
+        if !out.status.success() {
+            return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).to_string())
+    };
+
+    if !folder.join(".git").is_dir() {
+        git(
+            &[
+                "clone",
+                "--no-hardlinks",
+                &repo_root.to_string_lossy(),
+                &folder.to_string_lossy(),
+            ],
+            repo_root,
+        )
+        .map_err(|said| format!("the run could not be given a copy to work in: {said}"))?;
     }
+
+    let branch = branch.trim();
+    if branch.is_empty() {
+        return Ok(());
+    }
+    let base = if base.trim().is_empty() { "HEAD" } else { base.trim() };
+    if git(&["rev-parse", "--verify", branch], folder).is_ok() {
+        git(&["checkout", branch], folder)
+    } else {
+        git(&["checkout", "-b", branch, base], folder)
+    }
+    .map(|_| ())
+    .map_err(|said| format!("the run's branch could not be made: {said}"))
 }
 
 #[cfg(test)]
@@ -215,7 +241,7 @@ mod tests {
     #[test]
     fn every_control_the_table_claims_is_actually_applied() {
         let folder = run_folder(&repo(), 12).expect("a parent");
-        let line = run_args(&repo(), &folder, 12).join(" ");
+        let line = run_args(&repo(), &folder, 12, &[]).join(" ");
 
         assert!(line.contains("--cap-drop=ALL"), "capabilities: {line}");
         assert!(line.contains("--security-opt=no-new-privileges"), "privileges: {line}");
@@ -229,7 +255,7 @@ mod tests {
     #[test]
     fn the_repository_goes_in_read_only() {
         let folder = run_folder(&repo(), 12).expect("a parent");
-        let line = run_args(&repo(), &folder, 12).join(" ");
+        let line = run_args(&repo(), &folder, 12, &[]).join(" ");
         assert!(line.contains(r"C:\work\shop:/repo:ro"), "{line}");
         assert!(!line.contains(r"C:\work\shop:/repo "), "it must not also go in writable");
     }
@@ -243,7 +269,7 @@ mod tests {
         assert_ne!(one, two);
         assert_ne!(container_name(1), container_name(2));
 
-        let line = run_args(&repo(), &one, 1).join(" ");
+        let line = run_args(&repo(), &one, 1, &[]).join(" ");
         assert!(!line.contains(&two.display().to_string()), "one run must not see the other");
     }
 
@@ -256,35 +282,101 @@ mod tests {
         assert!(!is_running("coperativeai-run-12\n", 1));
     }
 
+    /// **The policy, where a container can apply one.** Root inside cannot
+    /// take a file from the agent -- CAP_CHOWN is dropped -- so the mask is
+    /// the mechanism, and it needs no capability at all.
     #[test]
-    fn a_clone_is_made_once_and_the_branch_reused_when_it_is_there() {
-        let script = clone_args(12, "feature/9-checkout", "main").join(" ");
-        assert!(script.contains("test -d /work/.git"), "{script}");
-        assert!(script.contains("clone --no-hardlinks /repo /work"));
-        // **Inherited, not passed to one process.** Cloning a local repository
-        // starts a second git to read it, and `-c` does not reach that one —
-        // it refuses the folder and the clone fails naming nothing useful.
-        // **Neither obvious way works.** `-c` does not reach the second git
-        // that a local clone starts to read the source; `GIT_CONFIG_*` reaches
-        // it and is ignored, because git honours this only from protected
-        // configuration. The container's own global config is what is left,
-        // and it is thrown away with the container.
-        assert!(script.contains("config --global --add safe.directory"), "{script}");
-        // Both folders are bound from this machine, so both are "somebody's
-        // else's" to git — granting only the source clones fine and then
-        // refuses to check a branch out in what it just wrote.
-        assert!(script.contains("/repo /repo/.git /work"), "both, not just the source: {script}");
-        assert!(!script.contains("-c safe.directory"), "-c does not reach the child: {script}");
-        assert!(!script.contains("GIT_CONFIG_"), "the environment is ignored for this: {script}");
-        assert!(script.contains("git checkout 'feature/9-checkout'"));
-        assert!(script.contains("git checkout -b 'feature/9-checkout' 'main'"));
-        assert!(script.contains(&container_name(12)));
+    fn a_denied_path_is_masked_when_the_container_is_made() {
+        let folder = run_folder(&repo(), 12).expect("a parent");
+        let deny = vec!["secrets".to_string(), "config/keys.json".to_string()];
+        let line = run_args(&repo(), &folder, 12, &deny).join(" ");
+
+        assert!(line.contains("--tmpfs /work/secrets:ro"), "{line}");
+        assert!(line.contains("--tmpfs /work/config/keys.json:ro"), "{line}");
     }
 
+    /// A repository with nothing to hide is the ordinary case, and it must not
+    /// pick up restrictions it never asked for.
     #[test]
-    fn a_run_with_no_base_branches_from_where_the_clone_landed() {
-        let script = clone_args(3, "feature/x", "  ").join(" ");
-        assert!(script.contains("'HEAD'"), "{script}");
+    fn a_run_with_no_policy_is_masked_nowhere() {
+        let folder = run_folder(&repo(), 12).expect("a parent");
+        let line = run_args(&repo(), &folder, 12, &[]).join(" ");
+        assert!(!line.contains("--tmpfs"), "{line}");
+    }
+
+    /// **A policy, in a real container, checked from inside it.**
+    ///
+    /// Makes a repository with something to hide and a policy that hides it,
+    /// prepares a run the way the app does, and then asks the agent's own
+    /// account what it can see. Needs a running engine and the agent image.
+    #[test]
+    #[ignore = "needs a running Docker engine and the agent image"]
+    fn a_denied_path_is_really_not_there_inside_the_container() {
+        use super::super::sandbox_detect::{ask, Answered};
+        use std::time::Duration;
+
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        runtime.block_on(async {
+            // A small repository of its own, so nothing here depends on the
+            // shape of the one this is being written in.
+            let root = std::env::temp_dir().join(format!("polrepo-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&root);
+            std::fs::create_dir_all(root.join("secrets")).expect("make it");
+            std::fs::create_dir_all(root.join(".coperativeai")).expect("make it");
+            std::fs::write(root.join("secrets/keys.txt"), "the crown jewels").expect("write");
+            std::fs::write(root.join("readme.md"), "ordinary work").expect("write");
+            std::fs::write(
+                root.join(".coperativeai/policy.json"),
+                r#"{"deny": ["secrets"]}"#,
+            )
+            .expect("write the policy");
+
+            let git = |args: &[&str]| {
+                std::process::Command::new("git")
+                    .current_dir(&root)
+                    .args(args)
+                    .output()
+                    .expect("git runs")
+            };
+            git(&["init", "-q"]);
+            git(&["add", "-A"]);
+            git(&["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "first"]);
+
+            let container = prepare(&root, 9997, "policy/probe", "")
+                .await
+                .expect("a container with the policy applied");
+
+            let look = |script: &'static str| {
+                let name = container.clone();
+                async move {
+                    let args = vec!["exec".to_string(), name, "sh".into(), "-c".into(), script.into()];
+                    let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
+                    match ask("docker", &borrowed, Duration::from_secs(60)).await {
+                        Answered::Yes((_, said)) => String::from_utf8_lossy(&said).trim().to_string(),
+                        _ => String::new(),
+                    }
+                }
+            };
+
+            // The work is there…
+            assert!(look("cat /work/readme.md").await.contains("ordinary work"));
+            // …and what the policy denied is not.
+            let hidden = look("cat /work/secrets/keys.txt 2>&1; echo ---; ls -A /work/secrets").await;
+            println!("{hidden}");
+            assert!(
+                !hidden.contains("crown jewels"),
+                "the policy did not keep it from the agent: {hidden}"
+            );
+
+            let _ = ask(
+                "docker",
+                &["rm", "-f", &container_name(9997)],
+                Duration::from_secs(60),
+            )
+            .await;
+            let _ = std::fs::remove_dir_all(&root);
+            let _ = run_folder(&root, 9997).map(std::fs::remove_dir_all);
+        });
     }
 
     /// **The claims, checked against a real container.**

@@ -18,6 +18,68 @@
 
 use std::path::Path;
 
+/// Where a Solution keeps the list of what an agent may not reach.
+pub const POLICY_FILE: &str = ".coperativeai/policy.json";
+
+/// What an agent may not reach, as the repository states it.
+///
+/// **A list of what, never a script of how.** The two boundaries enforce it in
+/// completely different ways — permissions under WSL, mounts under Docker — and
+/// a container cannot run a script before it exists. Saying *what* is the only
+/// form both can honour.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Policy {
+    /// Paths in the working copy an agent must not reach, relative to the
+    /// repository root.
+    #[serde(default)]
+    pub deny: Vec<String>,
+}
+
+/// Reads a Solution's policy, or nothing when it has none.
+///
+/// A repository with no policy is the ordinary case, not a failure — most work
+/// has nothing to hide from the agent doing it.
+pub fn read_policy(repo_root: &Path) -> Result<Policy, String> {
+    let at = repo_root.join(POLICY_FILE.replace('/', std::path::MAIN_SEPARATOR_STR));
+    if !at.is_file() {
+        return Ok(Policy::default());
+    }
+    let text = std::fs::read_to_string(&at)
+        .map_err(|e| format!("could not read {}: {e}", at.display()))?;
+    serde_json::from_str(&text).map_err(|e| {
+        // The line is the useful part: a policy nobody can parse is one nobody
+        // can fix, and the whole file being "invalid" says nothing.
+        format!("{POLICY_FILE} could not be read — {e}")
+    })
+}
+
+/// The denied paths, refusing any that would reach outside the working copy.
+///
+/// **A rule that climbs out of the repository is refused rather than ignored.**
+/// Silently dropping it would leave somebody believing a path was protected
+/// when nothing had been done about it at all.
+pub fn deny_paths(policy: &Policy) -> Result<Vec<String>, String> {
+    let mut out = Vec::with_capacity(policy.deny.len());
+    for rule in &policy.deny {
+        let cleaned = rule.trim().replace('\\', "/");
+        let cleaned = cleaned.trim_matches('/').to_string();
+        if cleaned.is_empty() {
+            continue;
+        }
+        if cleaned.starts_with("..")
+            || cleaned.split('/').any(|part| part == "..")
+            || cleaned.contains(':')
+        {
+            return Err(format!(
+                "'{rule}' reaches outside the working copy, so it was refused rather than \
+                 quietly ignored — a rule that does nothing is worse than no rule"
+            ));
+        }
+        out.push(cleaned);
+    }
+    Ok(out)
+}
+
 /// What was fetched, and what it says.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]

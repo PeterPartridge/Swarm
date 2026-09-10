@@ -883,6 +883,7 @@ mod tests {
             ("ai/claude_code.rs", "the app asking its own provider a question"),
             ("tooling/sandbox_detect.rs", "asking this machine what it has"),
             ("commands/my_spaces.rs", "the app's own git plumbing"),
+            ("tooling/sandbox_docker.rs", "the app's own git plumbing — making a run its copy"),
             ("commands/runs.rs", "the app's own git plumbing"),
             ("debug/adapters.rs", "the debugger stays on this machine, per the brief"),
             ("debug/live.rs", "the debugger stays on this machine, per the brief"),

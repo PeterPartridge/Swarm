@@ -150,6 +150,9 @@ pub async fn run_as_root(script: &str) -> Result<String, String> {
 
 /// Runs a script inside the distribution **as the agent**, which is how a
 /// restriction is checked: by asking the account it was meant to bind.
+/// Used by the checks that prove a restriction from the account it binds;
+/// nothing in the running app asks this, which is the point of it.
+#[allow(dead_code)]
 pub async fn read_as_agent(script: &str) -> Result<String, String> {
     inside(false, script, Duration::from_secs(120)).await
 }
