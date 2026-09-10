@@ -1,3 +1,4 @@
+import SandboxTable from "../components/ai/SandboxTable";
 import AgentRunMode from "../components/ai/AgentRunMode";
 import AppLogPanel from "../components/ai/AppLogPanel";
 import SectionTabs from "../components/common/SectionTabs";
@@ -204,6 +205,9 @@ export default function AdminArea() {
           {/* Beside the concurrency: both are about how work actually runs,
               rather than about who may ask for it. */}
           <AgentRunMode />
+          {/* Beside it, and after it: this is what makes that choice
+              defensible, and it has to be read second. */}
+          <SandboxTable />
           {products.length === 0 ? (
             <p className="hint">
               No Products yet — the per-Product AI policies appear once there is

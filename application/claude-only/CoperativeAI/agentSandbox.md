@@ -88,6 +88,13 @@ This page is a containment surface, not an access-control one — the project ha
 - Frontend: the Admin card and its protections table; the run badge on the runs panel, in words rather than a padlock.
 - Tests: the nine above — cargo for detection, wrapping, path round-trip and the seam set; Vitest for the table never showing an unproved protection as on.
 
+**Technical debt after round 2:**
+- The pure readers are pinned to two tools' output formats. Fixtures make a change visible rather than silent, but nothing warns when WSL or Docker changes its wording.
+- Telling "Docker is not installed" from "installed, engine stopped" rests on reading its error text, which is not a stable contract. Today it works against this machine's actual message.
+- The five protections are now named in three places — brief, `PROTECTIONS`, and the panel's copy. The Rust constant is the source and the panel renders from it, so only the brief can drift.
+- Detection is not cached at all, by design; the cost is that pressing "check again" on a cold WSL takes seconds with only a disabled button to show for it.
+- WSL findings for a *borrowed* distribution are deliberately not gathered — only the app's own is inspected. So somebody pointing WSL at their own Ubuntu gets "not configured by this app" rather than a report on it, which is honest but less useful than it could be.
+
 **Technical debt after round 1:**
 - Three call sites now take a `mode` they hand straight to a seam that, for the only reachable value, changes nothing. That is the cost of the boundary existing before the backends do, and it is the right order — retrofitting one under working code is the expensive way.
 - The seam test encodes today's exclusions, so adding a spawn site fails a test in an unrelated file. The message explains what decision is being asked for, but it will still surprise whoever hits it.
@@ -103,7 +110,25 @@ This page is a containment surface, not an access-control one — the project ha
 - WSL too old to be given a distribution of its own reduces WSL mode to the borrowed-distribution form. That is reported rather than worked around, and it means the mode's protections differ by machine.
 - Four open questions remain above; none now changes the shape of the build, only its edges.
 
-**Status:** round 1 built (2026-09-10) — the seam and the Off path
+**Status:** round 2 built (2026-09-10) — detection and the capability table
+
+---
+
+## Report back — round 2
+
+**Tests:** `cargo test` 791 passed, 0 failed, 24 ignored. `npm test` 769 passed across 73 files. Twenty new: fifteen in Rust, five in Vitest, plus one ignored live check.
+
+**Detection lives in its own file.** `tooling/sandbox_detect.rs`, not in `sandbox.rs` — the seam test *skips* `sandbox.rs` (it names `Command::new` in prose rather than using it), so a spawn hidden there would have been invisible to the one test that keeps the caller set honest. It is filed in `OUTSIDE` as "asking this machine what it has".
+
+**Run and read are separated throughout**, the way the test-runner parsers already are: every judgement lives in a pure function over captured output, so the tests pass on a machine with neither tool installed. Three captures come from this machine, including its real `/proc/mounts` line.
+
+**Three states per cell, and the middle one is the round's whole point.** `Enforced` / `AvailableNotBuilt` / `Unavailable`. Neither sandbox runs anything yet, so nothing is `Enforced` — and a tick against a mode that refuses every command would be precisely the claim this page exists to prevent. `nothing_is_ever_claimed_as_in_force_for_a_mode_that_is_not_built` asserts it in Rust; the Vitest suite asserts the panel cannot render it either. The `Enforced` variant is `#[allow(dead_code)]` with the reason written down: nothing is in force, which is the state of the world rather than a gap in the code.
+
+**No picker.** Choosing WSL or Docker today would stop the terminal and the test runner working, since both modes refuse. A test asserts the panel offers no radio and no select — the choice arrives with the first backend that can honour it.
+
+**Test scenarios created:** a stock distribution's real mount line reads as no boundary; `drvfs`, `9p` and `virtiofs` are all recognised (matching only `drvfs` would report today's ordinary Ubuntu as bounded — the most dangerous wrong answer available); a distribution with nothing of this machine in it reads as bounded; `docker-desktop` and `docker-desktop-data` are never offered as somewhere to work; WSL's UTF-16 output is decoded (read as UTF-8 it is a working install that looks empty); this machine's actual Docker error reads as no engine; a running engine reports its version; root and non-root are told apart; no mode claims a protection it does not enforce; a ready machine is told apart from an unready one; a distribution that still mounts the drive gets no boundary row; Off says plainly that nothing is bounded; every cell carries a reason; and in the panel — no unbuilt column reads as protection, every verdict is in words, no way to choose an unbuilt mode, detection runs once per open and again only when asked, and a failure says why instead of showing an empty table.
+
+**Verified live on this machine** (the ignored `what_this_machine_really_says`): WSL answered with `Ubuntu` only — Docker's own distribution correctly filtered out — the app's own distribution absent; Docker reported client installed, no engine. Both details read as intended. The panel itself was not opened: this is a Tauri window rather than a browser page, and outside the shell every `invoke` fails, so running it would have proved only the error state.
 
 ---
 

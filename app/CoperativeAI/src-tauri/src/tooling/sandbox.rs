@@ -105,9 +105,358 @@ pub fn wrap(mode: Mode, program: &str, args: &[String], cwd: &Path) -> Result<Sp
     }
 }
 
+/// The five things a boundary can do, named once so the three places that talk
+/// about them cannot drift apart.
+pub const PROTECTIONS: &[&str] = &[
+    "A boundary from this machine's files",
+    "One run cannot reach another",
+    "Reduced privileges",
+    "Limits on what a run can use",
+    "Control over what it can reach",
+];
+
+/// Whether one protection is actually doing anything.
+///
+/// **Three states, not two, and the middle one is the honest part.** A machine
+/// that could run containers is not a machine that is running one, and this app
+/// does not yet run either sandbox. A green tick against a mode that refuses
+/// every command would be exactly the claim this whole page exists to prevent —
+/// so "the machine could, the app cannot yet" gets said in those words.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum State {
+    /// In force, now, for anything run in this mode.
+    ///
+    /// **Nothing constructs this yet, and the compiler is right to say so.**
+    /// Neither sandbox runs anything, so nothing is in force — which is the
+    /// state of the world this round reports rather than a gap in it. The
+    /// variant exists so the shape the panel reads is complete before the
+    /// backend that earns it lands.
+    #[allow(dead_code)]
+    Enforced,
+    /// This machine could do it; this app does not do it yet.
+    AvailableNotBuilt,
+    /// Not here — `detail` says what was found instead.
+    Unavailable,
+}
+
+/// One protection, as it really stands for one mode.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Protection {
+    pub name: String,
+    pub state: State,
+    /// Why, in the app's own words. Never empty: a cell with no explanation is
+    /// a verdict somebody has to guess at.
+    pub detail: String,
+}
+
+/// One mode's column.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModeReport {
+    pub id: String,
+    pub label: String,
+    /// Whether this mode runs anything at all yet. A column whose header does
+    /// not say this cannot be read safely.
+    pub built: bool,
+    pub summary: String,
+    pub protections: Vec<Protection>,
+}
+
+/// What this machine can offer, mode by mode.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Report {
+    pub modes: Vec<ModeReport>,
+    /// Which mode is chosen, so the table can mark it.
+    pub chosen: String,
+}
+
+fn protection(name: &str, state: State, detail: &str) -> Protection {
+    Protection { name: name.into(), state, detail: detail.into() }
+}
+
+/// Builds the table from what detection found.
+///
+/// Pure, so the rule that matters most — *nothing is ever `Enforced` for a mode
+/// that is not built* — is a test rather than a hope.
+pub fn report(
+    chosen: &str,
+    wsl: &crate::tooling::sandbox_detect::WslFindings,
+    docker: &crate::tooling::sandbox_detect::DockerFindings,
+) -> Report {
+    Report {
+        chosen: Mode::from_setting(chosen).id().to_string(),
+        modes: vec![off_column(), wsl_column(wsl), docker_column(docker)],
+    }
+}
+
+/// Off is not a failure to be sandboxed — it is the machine you are on, said
+/// plainly. Every row is `Unavailable`, and that is the truth rather than a
+/// complaint.
+fn off_column() -> ModeReport {
+    let here = "Nothing is bounded — this is your machine, with your permissions.";
+    ModeReport {
+        id: "off".into(),
+        label: SANDBOXES[0].1.into(),
+        built: true,
+        summary: "Runs here, exactly as it always has.".into(),
+        protections: PROTECTIONS
+            .iter()
+            .map(|name| protection(name, State::Unavailable, here))
+            .collect(),
+    }
+}
+
+fn wsl_column(found: &crate::tooling::sandbox_detect::WslFindings) -> ModeReport {
+    use crate::tooling::sandbox_detect::OWN_DISTRIBUTION;
+
+    // Everything below hangs off this: without the app's own distribution,
+    // configured by the app, WSL mode has nothing it can promise.
+    let ready = found.answered && found.own_distribution;
+    let unmounted = found.drive_mounted == Some(false);
+
+    let boundary = if !ready {
+        protection(
+            PROTECTIONS[0],
+            State::Unavailable,
+            if found.detail.is_empty() { "WSL was not usable here." } else { &found.detail },
+        )
+    } else if unmounted {
+        protection(
+            PROTECTIONS[0],
+            State::AvailableNotBuilt,
+            &format!("'{OWN_DISTRIBUTION}' does not mount this machine's drive."),
+        )
+    } else {
+        protection(
+            PROTECTIONS[0],
+            State::Unavailable,
+            &format!(
+                "'{OWN_DISTRIBUTION}' still has this machine's drive mounted, so an agent \
+                 inside it could write anywhere on this computer."
+            ),
+        )
+    };
+
+    let privileges = match (ready, found.root) {
+        (true, Some(false)) => protection(
+            PROTECTIONS[2],
+            State::AvailableNotBuilt,
+            "It runs as an ordinary user, not root.",
+        ),
+        (true, Some(true)) => {
+            protection(PROTECTIONS[2], State::Unavailable, "It runs as root.")
+        }
+        _ => protection(PROTECTIONS[2], State::Unavailable, "Nothing to look inside yet."),
+    };
+
+    ModeReport {
+        id: "wsl".into(),
+        label: SANDBOXES[1].1.into(),
+        built: false,
+        summary: match (ready, found.detail.trim()) {
+            (true, _) => {
+                format!("'{OWN_DISTRIBUTION}' is here. Running work inside it is not built yet.")
+            }
+            // Never left blank. A column with no summary is one whose verdict
+            // has to be inferred from the rows, which is how a table stops
+            // being read at all.
+            (false, "") => "WSL was not usable on this machine.".to_string(),
+            (false, said) => said.to_string(),
+        },
+        protections: vec![
+            boundary,
+            // Not a detection failure — a fact about WSL. One distribution is
+            // shared by everything in it, so two runs are neighbours.
+            protection(
+                PROTECTIONS[1],
+                State::Unavailable,
+                "One distribution is shared, so runs in it are not kept apart.",
+            ),
+            privileges,
+            protection(
+                PROTECTIONS[3],
+                State::Unavailable,
+                "WSL's limits cover the whole virtual machine, never one run.",
+            ),
+            protection(
+                PROTECTIONS[4],
+                State::Unavailable,
+                "A distribution reaches the network exactly as this machine does.",
+            ),
+        ],
+    }
+}
+
+fn docker_column(found: &crate::tooling::sandbox_detect::DockerFindings) -> ModeReport {
+    let running = !found.server_version.is_empty();
+    let each = [
+        "A container sees only what is mounted into it.",
+        "One container per run, and containers do not share a filesystem.",
+        "Capabilities dropped, and no new ones can be gained.",
+        "Processor, memory and process limits apply per container.",
+        "A container's network can be switched off entirely.",
+    ];
+
+    ModeReport {
+        id: "docker".into(),
+        label: SANDBOXES[2].1.into(),
+        built: false,
+        summary: match (running, found.detail.trim()) {
+            (true, _) => format!(
+                "Docker {} is running. Running work inside it is not built yet.",
+                found.server_version
+            ),
+            (false, "") => "No Docker engine answered on this machine.".to_string(),
+            (false, said) => said.to_string(),
+        },
+        protections: PROTECTIONS
+            .iter()
+            .zip(each)
+            .map(|(name, detail)| {
+                if running {
+                    protection(name, State::AvailableNotBuilt, detail)
+                } else {
+                    protection(
+                        name,
+                        State::Unavailable,
+                        if found.detail.is_empty() {
+                            "No Docker engine answered."
+                        } else {
+                            &found.detail
+                        },
+                    )
+                }
+            })
+            .collect(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tooling::sandbox_detect::{DockerFindings, WslFindings, OWN_DISTRIBUTION};
+
+    fn ready_wsl() -> WslFindings {
+        WslFindings {
+            installed: true,
+            answered: true,
+            distributions: vec![OWN_DISTRIBUTION.to_string()],
+            own_distribution: true,
+            drive_mounted: Some(false),
+            root: Some(false),
+            detail: String::new(),
+        }
+    }
+
+    /// **The rule the whole page exists for.** Neither sandbox runs anything
+    /// yet, so no cell in either column may say a protection is in force —
+    /// however good the machine looks.
+    #[test]
+    fn nothing_is_ever_claimed_as_in_force_for_a_mode_that_is_not_built() {
+        let docker = DockerFindings {
+            server_version: "27.3.1".into(),
+            client_installed: true,
+            agent_image: true,
+            detail: String::new(),
+        };
+        let built = report("off", &ready_wsl(), &docker);
+        for mode in &built.modes {
+            if mode.built {
+                continue;
+            }
+            for row in &mode.protections {
+                assert_ne!(
+                    row.state,
+                    State::Enforced,
+                    "{} claims '{}' is in force, and it runs nothing",
+                    mode.id,
+                    row.name
+                );
+            }
+        }
+    }
+
+    /// A machine that is ready still says so — otherwise there is no way to
+    /// tell "your machine cannot" from "this app cannot yet", which are very
+    /// different problems to have.
+    #[test]
+    fn a_ready_machine_is_told_apart_from_an_unready_one() {
+        let docker = DockerFindings {
+            server_version: "27.3.1".into(),
+            client_installed: true,
+            ..Default::default()
+        };
+        let ready = report("off", &ready_wsl(), &docker);
+        let docker_column = ready.modes.iter().find(|m| m.id == "docker").unwrap();
+        assert!(docker_column
+            .protections
+            .iter()
+            .all(|p| p.state == State::AvailableNotBuilt));
+
+        let stopped = report("off", &WslFindings::default(), &DockerFindings {
+            client_installed: true,
+            detail: "Docker is installed, but its engine is not running".into(),
+            ..Default::default()
+        });
+        let stopped_column = stopped.modes.iter().find(|m| m.id == "docker").unwrap();
+        assert!(stopped_column
+            .protections
+            .iter()
+            .all(|p| p.state == State::Unavailable));
+        assert!(stopped_column.summary.contains("not running"));
+    }
+
+    /// The headline: a distribution that still mounts the drive gets no
+    /// boundary row, however well everything else about it reads.
+    #[test]
+    fn a_distribution_that_still_mounts_the_drive_is_given_no_boundary() {
+        let mut found = ready_wsl();
+        found.drive_mounted = Some(true);
+        let table = report("wsl", &found, &DockerFindings::default());
+        let wsl = table.modes.iter().find(|m| m.id == "wsl").unwrap();
+        assert_eq!(wsl.protections[0].state, State::Unavailable);
+        assert!(
+            wsl.protections[0].detail.contains("anywhere on this computer"),
+            "the cell has to say what it means: {}",
+            wsl.protections[0].detail
+        );
+    }
+
+    /// Off is the machine you are on, stated rather than apologised for.
+    #[test]
+    fn off_says_plainly_that_nothing_is_bounded() {
+        let table = report("off", &WslFindings::default(), &DockerFindings::default());
+        let off = table.modes.iter().find(|m| m.id == "off").unwrap();
+        assert!(off.built);
+        assert!(off.protections.iter().all(|p| p.state == State::Unavailable));
+        assert_eq!(off.protections.len(), PROTECTIONS.len());
+    }
+
+    /// Every cell explains itself. An unexplained verdict is one somebody has
+    /// to guess at, and guessing about a boundary is the failure this prevents.
+    #[test]
+    fn no_cell_is_left_without_a_reason() {
+        let table = report("off", &WslFindings::default(), &DockerFindings::default());
+        for mode in &table.modes {
+            assert!(!mode.summary.trim().is_empty(), "{} has no summary", mode.id);
+            for row in &mode.protections {
+                assert!(!row.detail.trim().is_empty(), "{} / {} has no reason", mode.id, row.name);
+            }
+        }
+    }
+
+    #[test]
+    fn every_mode_answers_for_every_protection() {
+        let table = report("docker", &ready_wsl(), &DockerFindings::default());
+        assert_eq!(table.modes.len(), SANDBOXES.len());
+        assert_eq!(table.chosen, "docker");
+        for mode in &table.modes {
+            assert_eq!(mode.protections.len(), PROTECTIONS.len(), "{}", mode.id);
+        }
+    }
 
     #[test]
     fn off_hands_back_exactly_what_it_was_given() {
@@ -173,6 +522,7 @@ mod tests {
         /// its own account rather than running somebody's command.
         const OUTSIDE: &[(&str, &str)] = &[
             ("ai/claude_code.rs", "the app asking its own provider a question"),
+            ("tooling/sandbox_detect.rs", "asking this machine what it has"),
             ("commands/my_spaces.rs", "the app's own git plumbing"),
             ("commands/runs.rs", "the app's own git plumbing"),
             ("debug/adapters.rs", "the debugger stays on this machine, per the brief"),

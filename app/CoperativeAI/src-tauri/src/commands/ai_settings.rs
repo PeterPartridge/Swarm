@@ -484,6 +484,33 @@ pub fn agent_run_modes() -> Vec<(String, String)> {
         .collect()
 }
 
+/// What this machine can actually offer, mode by mode.
+///
+/// **Asked for, never volunteered.** It runs two external tools and a cold WSL
+/// answers in seconds, so it happens when somebody opens the panel or presses
+/// "check again" — not on every render, and not on a timer. Nothing is
+/// remembered between calls either: the configuration underneath can be changed
+/// outside this app, and a remembered answer is a claim about a machine that
+/// has moved on.
+#[tauri::command]
+pub async fn sandbox_report(
+    db: State<'_, AppDb>,
+) -> Result<crate::tooling::sandbox::Report, String> {
+    let chosen = {
+        let conn = db.0.lock().await;
+        crate::db::system_setting::agent_sandbox(&conn)
+            .await
+            .map_err(to_message)?
+    };
+    // The lock is released first: both of these shell out, and holding the
+    // database while a virtual machine boots would freeze the whole app.
+    let (wsl, docker) = tokio::join!(
+        crate::tooling::sandbox_detect::wsl(),
+        crate::tooling::sandbox_detect::docker()
+    );
+    Ok(crate::tooling::sandbox::report(&chosen, &wsl, &docker))
+}
+
 #[tauri::command]
 pub async fn get_agent_run_mode(db: State<'_, AppDb>) -> Result<String, String> {
     let conn = db.0.lock().await;

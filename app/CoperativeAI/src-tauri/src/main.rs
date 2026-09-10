@@ -134,6 +134,7 @@ fn main() {
             commands::jobs::clear_ai_jobs,
             commands::build_info::app_build,
             commands::ai_settings::agent_run_modes,
+            commands::ai_settings::sandbox_report,
             commands::ai_settings::get_agent_run_mode,
             commands::ai_settings::set_agent_run_mode,
             commands::logging::log_event,

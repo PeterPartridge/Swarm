@@ -3117,3 +3117,40 @@ export const getAgentRunMode = (): Promise<string> => invoke("get_agent_run_mode
 
 export const setAgentRunMode = (mode: string): Promise<void> =>
   invoke("set_agent_run_mode", { mode });
+
+/** Whether one protection is actually doing anything.
+ *
+ *  Three states, and the middle one carries the weight: a machine that *could*
+ *  run containers is not a machine that is running one. Neither sandbox is
+ *  built, so nothing is `enforced` — and a tick against a mode that refuses
+ *  every command would be the exact claim this panel exists to prevent. */
+export type ProtectionState = "enforced" | "availableNotBuilt" | "unavailable";
+
+export interface Protection {
+  name: string;
+  state: ProtectionState;
+  /** Why. Never empty — an unexplained verdict is one you have to guess at. */
+  detail: string;
+}
+
+export interface SandboxMode {
+  id: string;
+  label: string;
+  /** Whether this mode runs anything at all yet. */
+  built: boolean;
+  summary: string;
+  protections: Protection[];
+}
+
+export interface SandboxReport {
+  modes: SandboxMode[];
+  chosen: string;
+}
+
+/** What this machine can actually offer, established by running the tools
+ *  rather than by looking for them on PATH.
+ *
+ *  Asked for, never volunteered: it shells out twice and a cold WSL takes
+ *  seconds. Nothing is cached, because the configuration underneath can change
+ *  outside this app between one look and the next. */
+export const sandboxReport = (): Promise<SandboxReport> => invoke("sandbox_report");
