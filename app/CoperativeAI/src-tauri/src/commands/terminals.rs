@@ -15,7 +15,7 @@
 //! into a synchronous reader thread would buy nothing but a way to deadlock.
 
 use crate::terminal::{default_shell, Session};
-use crate::tooling::sandbox::Mode;
+use crate::tooling::sandbox::Place;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -151,7 +151,8 @@ pub async fn open_terminal(
             })?;
         (cwd, super::sandbox_mode(&conn).await)
     };
-    spawn_terminal(sandbox, &app, &terminals, solution_id, &cwd, cols, rows)
+    let place = super::place_for(sandbox, std::path::Path::new(&cwd)).await?;
+    spawn_terminal(&place, &app, &terminals, solution_id, &cwd, cols, rows)
 }
 
 /// Opens a terminal and starts the Claude Code sign-in in it.
@@ -187,7 +188,7 @@ pub async fn open_claude_sign_in(
         .ok_or_else(|| "this machine reports no home folder to open a terminal in".to_string())?;
 
     // Solution zero: this terminal belongs to the machine, not to a repository.
-    let opened = spawn_terminal(Mode::Off, &app, &terminals, 0, &home.display().to_string(), cols, rows)?;
+    let opened = spawn_terminal(&Place::here(), &app, &terminals, 0, &home.display().to_string(), cols, rows)?;
 
     // Quoted, because the discovered path routinely contains spaces — the
     // desktop app keeps its copy under `AppData\Roaming\Claude\...`.
@@ -248,7 +249,7 @@ pub async fn open_debugger_install(
         .ok_or_else(|| "this machine reports no home folder to open a terminal in".to_string())?;
 
     // Solution zero: an adapter belongs to the machine, not to a repository.
-    let opened = spawn_terminal(Mode::Off, &app, &terminals, 0, &home.display().to_string(), cols, rows)?;
+    let opened = spawn_terminal(&Place::here(), &app, &terminals, 0, &home.display().to_string(), cols, rows)?;
     {
         let mut sessions = terminals
             .0
@@ -297,7 +298,8 @@ pub async fn open_terminal_at(
     if !known.iter().any(|w| same_path(w, &path)) {
         return Err("that folder is not one of this run's worktrees".into());
     }
-    spawn_terminal(sandbox, &app, &terminals, solution_id, &path, cols, rows)
+    let place = super::place_for(sandbox, std::path::Path::new(&root)).await?;
+    spawn_terminal(&place, &app, &terminals, solution_id, &path, cols, rows)
 }
 
 fn same_path(a: &str, b: &str) -> bool {
@@ -312,7 +314,7 @@ fn same_path(a: &str, b: &str) -> bool {
 /// running somebody's code — and there is nothing yet to sign in *inside*.
 /// Both are named in the brief as later work.
 fn spawn_terminal(
-    sandbox: crate::tooling::sandbox::Mode,
+    sandbox: &crate::tooling::sandbox::Place,
     app: &AppHandle,
     terminals: &Terminals,
     solution_id: i64,

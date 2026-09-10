@@ -88,6 +88,14 @@ This page is a containment surface, not an access-control one — the project ha
 - Frontend: the Admin card and its protections table; the run badge on the runs panel, in words rather than a padlock.
 - Tests: the nine above — cargo for detection, wrapping, path round-trip and the seam set; Vitest for the table never showing an unproved protection as on.
 
+**Technical debt after round 4a:**
+- The git panel, `filesChanged`, commit and the PR flow read a host worktree, which a sandboxed run does not have. They will show nothing rather than saying where the work is. **Round 4b.**
+- Mounts are never torn down, so a long-lived distribution accumulates one per repository ever used.
+- A run's clone is never removed. Disk grows with every run, and nothing prunes it.
+- A run interrupted mid-clone leaves a folder the app does not clean up; the next attempt finds a partial clone and the `test -d .git` guard will skip re-cloning it.
+- Two runs still share a distribution and a user, so one can read another's folder. Said in the table, said in the module, and not fixable in WSL.
+- Filtering `wsl: Failed to translate` is a string match against another tool's wording.
+
 **Technical debt after round 3:**
 - Provisioning cannot be cancelled. A slow `apt-get` leaves somebody watching a disabled button for minutes with no way out but closing the app.
 - Nothing streams. Each step's output arrives when the step ends, so the longest two look like nothing is happening while they are the ones worth watching.
@@ -119,7 +127,32 @@ This page is a containment surface, not an access-control one — the project ha
 - WSL too old to be given a distribution of its own reduces WSL mode to the borrowed-distribution form. That is reported rather than worked around, and it means the mode's protections differ by machine.
 - Four open questions remain above; none now changes the shape of the build, only its edges.
 
-**Status:** round 3 built (2026-09-10) — provisioning
+**Status:** round 4a built (2026-09-10) — the WSL backend, with clone-per-run
+
+---
+
+## Report back — round 4a
+
+**Tests:** `cargo test` 812 passed, 0 failed, 26 ignored. `npm test` 772 passed across 73 files. Both live checks were run against the real distribution on this machine.
+
+**Agents now run inside the boundary.** `wrap` builds `wsl.exe -d coperativeai --user agent --cd <inside> -- …` and stays pure; mounting and cloning spawn, so they happen on the command layer's side of the line where they can be awaited and their failure reported. The seam's fifth argument became the `Place` struct the first round's debt entry predicted.
+
+**Clone per run, and the reason is not a preference.** A git worktree's `.git` is a file holding an *absolute* Windows path, which exists at no mount point inside a Linux distribution — so a checkout made out here simply cannot be used in there, and an agent without `git diff` is working blindfolded. Each run gets `/work/runs/<id>`, cloned from the repository's mount. It is also much faster: everything a build touches happens on the Linux filesystem rather than across a mount to NTFS.
+
+**A run's folder is still reachable from Windows**, as `\\wsl.localhost\coperativeai\work\runs\<id>` — which is what lets the brief be written into it and the existing panels read it without knowing where it really is. The same spelling translates test output, once at the seam, so a `file:line` from a sandboxed run still opens in the editor. The whole path turns round, not just its root: half-translated, it opens in neither world.
+
+**The first `Enforced` in the codebase** — but only where detection proved it. A distribution that still mounts the drive gets nothing and cannot be chosen. The three things WSL cannot do stay No: one distribution is shared, its limits cover the whole virtual machine, and its network is this machine's.
+
+**The picker arrives, gated.** A mode is offered but disabled, with its reason beside it, unless it is built *and* ready here — and the backend checks the machine again before storing the choice, so a mode that quietly stopped being ready is refused rather than saved.
+
+**Three things the live run found that no fixture would have.**
+1. `mkdir: Permission denied` — `/work` did not exist and was not the agent's. Provisioning gained a step.
+2. `fatal: detected dubious ownership` — a Windows folder over a mount looks to git like somebody else's repository, and it refuses to touch one. Granted with `-c safe.directory` for that single clone rather than written into the distribution's global config.
+3. Forty lines of `wsl: Failed to translate` before every command, from `wsl.exe` translating this machine's PATH. `interop.appendWindowsPath = false` in the config stops the distribution caring, and the noise is filtered from captured output — the distribution ignores that PATH by design, and left in it would bury the one line that matters. `interop.enabled = false` went in beside it, which tightens the boundary as well as quieting it.
+
+**Verified live:** a run got `/work/runs/9999`, git inside reported the branch `sandbox/probe`, and `/mnt/c` showed nothing. Re-provisioning took 14 seconds rather than 102 — the configure-not-recreate path, proved rather than asserted.
+
+**Named as not done:** the git panel, `filesChanged`, commit and the PR flow still read a host-side worktree. That is round 4b.
 
 ---
 

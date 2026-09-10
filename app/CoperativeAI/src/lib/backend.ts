@@ -3139,6 +3139,10 @@ export interface SandboxMode {
   /** Whether this mode runs anything at all yet. */
   built: boolean;
   summary: string;
+  /** Whether this mode can be chosen here, now — not the same as `built`. */
+  canChoose: boolean;
+  /** Why it cannot be chosen, when it cannot. Never empty. */
+  chooseDetail: string;
   /** Whether the app could build this mode's boundary here, now. Separate from
    *  `built`: one is about the machine, the other about the app. */
   canSetUp: boolean;

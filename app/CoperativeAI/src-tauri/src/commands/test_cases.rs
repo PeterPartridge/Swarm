@@ -501,6 +501,7 @@ pub async fn run_test_case(
         (place, custom, super::sandbox_mode(&conn).await)
     };
 
+    let sandbox = crate::commands::place_for(sandbox, std::path::Path::new(&place.root)).await?;
     let test_path = place.case.test_path.clone().unwrap_or_default();
     let root = place.root.clone();
     let names = place.case.test_names.clone();
@@ -526,8 +527,9 @@ pub async fn run_test_case(
     let run = {
         let root = root.clone();
         let to_run = to_run.clone();
+        let sandbox = sandbox.clone();
         tokio::task::spawn_blocking(move || {
-            test_runner::run(sandbox, std::path::Path::new(&root), &to_run)
+            test_runner::run(&sandbox, std::path::Path::new(&root), &to_run)
         })
         .await
         .map_err(|e| format!("the test run could not be started: {e}"))?

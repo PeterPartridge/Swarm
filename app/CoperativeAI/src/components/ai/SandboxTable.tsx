@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   sandboxReport,
+  setAgentSandbox,
   setUpSandbox,
   type Protection,
   type SandboxMode,
@@ -17,11 +18,11 @@ import {
  *  nothing at all. So the app establishes what is really true of this machine
  *  and shows that, rather than showing what the chosen option is *called*.
  *
- *  **There is no picker here yet, deliberately.** Neither sandbox runs anything
- *  — both refuse rather than quietly run a command outside the boundary that
- *  was asked for — so offering the choice today would be offering a way to stop
- *  the terminal working. The choice arrives with the first backend that can
- *  honour it.
+ *  **The choice is offered only where it can be honoured.** A mode that is not
+ *  built, or one that is built but has nothing set up on this machine, would
+ *  refuse every command the moment somebody opened a terminal. So it appears,
+ *  disabled, with the reason beside it — the app saying no and saying why beats
+ *  a setting that breaks something quietly two screens away.
  *
  *  Detection runs external tools, so it happens once when the panel opens and
  *  again only when somebody asks. Nothing is remembered between looks: the
@@ -50,13 +51,16 @@ export default function SandboxTable() {
     void check();
   }, [check]);
 
-  /** **The one press here that changes this computer.** It registers a
-   *  distribution or builds an image, so it says what it will do beforehand and
-   *  hands back everything it printed afterwards — a five-minute install
-   *  reduced to "done" is one whose failure nobody can act on.
-   *
-   *  The table is re-read when it finishes, because the point of the whole
-   *  thing is whether the verdicts changed. */
+  async function choose(mode: SandboxMode) {
+    try {
+      await setAgentSandbox(mode.id);
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+    await check();
+  }
+
   async function setUp(mode: SandboxMode) {
     setBuilding(mode.id);
     setResult(null);
@@ -99,7 +103,21 @@ export default function SandboxTable() {
                   {/* The header carries this, not a footnote: a column read
                       without it looks like a list of protections in force. */}
                   {!mode.built && <span className="badge">not built yet</span>}
-                  {mode.id === report.chosen && <span className="badge">chosen</span>}
+                  {/* **The choice, offered only where it can be honoured.** A
+                      mode with nothing set up would refuse every command the
+                      moment somebody used the terminal, so it is disabled and
+                      the reason sits under it rather than being a mystery. */}
+                  <label>
+                    <input
+                      type="radio"
+                      name="agent-sandbox"
+                      checked={mode.id === report.chosen}
+                      disabled={!mode.canChoose || building !== ""}
+                      onChange={() => void choose(mode)}
+                    />
+                    Run agents here
+                  </label>
+                  <span className="hint">{mode.chooseDetail}</span>
                   <span className="hint">{mode.summary}</span>
                   {mode.id !== "off" && (
                     <>

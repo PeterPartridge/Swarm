@@ -165,7 +165,7 @@ pub struct StarterRun {
 /// `StarterRun` with `succeeded: false` and its own words in `output`, because
 /// that is a result to read rather than an error to swallow.
 pub fn run(
-    sandbox: crate::tooling::sandbox::Mode,
+    sandbox: &crate::tooling::sandbox::Place,
     parent: &str,
     folder_name: &str,
     command: &str,
@@ -233,7 +233,7 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tooling::sandbox::Mode;
+    use crate::tooling::sandbox::Place;
 
     fn scratch(name: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -278,7 +278,7 @@ mod tests {
         std::fs::create_dir_all(&existing).expect("dir");
         std::fs::write(existing.join("README.md"), "someone's work").expect("file");
 
-        let err = run(Mode::Off, parent.to_str().unwrap(), "Shop API", "echo hello")
+        let err = run(&Place::here(), parent.to_str().unwrap(), "Shop API", "echo hello")
             .expect_err("must refuse");
         assert!(err.contains("already has something in it"), "got: {err}");
         // and it really did not run
@@ -292,7 +292,7 @@ mod tests {
     #[test]
     fn the_folder_is_created_and_the_command_runs_inside_it() {
         let parent = scratch("creates");
-        let run = run(Mode::Off, parent.to_str().unwrap(), "Shop API", "echo started here")
+        let run = run(&Place::here(), parent.to_str().unwrap(), "Shop API", "echo started here")
             .expect("should run");
 
         assert!(run.succeeded, "output was: {}", run.output);
@@ -309,7 +309,7 @@ mod tests {
     fn a_failing_generator_reports_rather_than_erroring() {
         let parent = scratch("failing");
         let outcome = run(
-            Mode::Off,
+            &Place::here(),
             parent.to_str().unwrap(),
             "Broken",
             "this-command-does-not-exist-9317",
@@ -345,7 +345,7 @@ mod tests {
         let parent = scratch("real-rust");
         let template = find("rust").expect("the rust starter").command;
         let outcome = run(
-            Mode::Off,
+            &Place::here(),
             parent.to_str().unwrap(),
             "Shop Core",
             &fill(&template, "Shop Core"),
@@ -366,7 +366,7 @@ mod tests {
     #[test]
     fn an_empty_command_is_refused() {
         let parent = scratch("empty-command");
-        assert!(run(Mode::Off, parent.to_str().unwrap(), "X", "   ").is_err());
+        assert!(run(&Place::here(), parent.to_str().unwrap(), "X", "   ").is_err());
         let _ = std::fs::remove_dir_all(&parent);
     }
 

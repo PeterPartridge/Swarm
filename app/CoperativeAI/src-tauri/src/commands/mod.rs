@@ -66,3 +66,29 @@ pub(crate) async fn sandbox_mode(conn: &Connection) -> crate::tooling::sandbox::
     let stored = crate::db::system_setting::agent_sandbox(conn).await.unwrap_or_default();
     crate::tooling::sandbox::Mode::from_setting(&stored)
 }
+
+/// Where a command about a repository should run.
+///
+/// **Mounting happens here, not at the seam.** The seam is pure and stays that
+/// way; getting the repository reachable from inside is work, and work belongs
+/// on this side of the line where it can be awaited and its failure reported.
+///
+/// A mode the app cannot honour comes back as an error rather than quietly
+/// running here — which is the whole point of the setting.
+/// Takes the mode, which came from the database, and the folder the work is
+/// about — and returns it **after** the lock has been dropped, because getting
+/// a repository reachable from inside spawns a process and can take seconds.
+pub(crate) async fn place_for(
+    mode: crate::tooling::sandbox::Mode,
+    repo_root: &std::path::Path,
+) -> Result<crate::tooling::sandbox::Place, String> {
+    use crate::tooling::sandbox::{mount_point, Mode, Place};
+    match mode {
+        Mode::Off => Ok(Place::here()),
+        Mode::Wsl => {
+            crate::tooling::sandbox_run::mount(repo_root).await?;
+            Ok(Place { mode: Mode::Wsl, inside: mount_point(repo_root) })
+        }
+        Mode::Docker => Err("the 'docker' sandbox is not built yet, so nothing was run".into()),
+    }
+}

@@ -7,7 +7,7 @@ import type { SandboxReport } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../lib/backend")>();
-  return { ...original, sandboxReport: vi.fn(), setUpSandbox: vi.fn() };
+  return { ...original, sandboxReport: vi.fn(), setUpSandbox: vi.fn(), setAgentSandbox: vi.fn() };
 });
 
 const mocked = vi.mocked(backend);
@@ -19,6 +19,8 @@ const thisMachine: SandboxReport = {
   modes: [
     {
       id: "off",
+      canChoose: true,
+      chooseDetail: "Always available.",
       canSetUp: false,
       setUpDetail: "There is nothing to set up — this is your machine.",
       label: "This machine — the same permissions you have",
@@ -34,6 +36,8 @@ const thisMachine: SandboxReport = {
     },
     {
       id: "wsl",
+      canChoose: false,
+      chooseDetail: "Set it up first: choosing it before there is a boundary would stop the terminal working.",
       canSetUp: true,
       setUpDetail: "5 steps — it downloads a distribution and installs into it.",
       label: "A Linux distribution this app creates and owns",
@@ -49,6 +53,8 @@ const thisMachine: SandboxReport = {
     },
     {
       id: "docker",
+      canChoose: false,
+      chooseDetail: "Not built yet — it would refuse every command.",
       canSetUp: false,
       setUpDetail: "Docker's engine is not running, and an image cannot be built without it.",
       label: "A container of its own for each run",
@@ -102,12 +108,14 @@ describe("SandboxTable", () => {
 
   /** Choosing a mode that refuses every command would stop the terminal
    *  working. The choice arrives with the first backend that can honour it. */
-  it("offers no way to choose a mode that cannot run anything", async () => {
+  it("offers no way to choose a mode that would stop the terminal working", async () => {
     render(<SandboxTable />);
     await screen.findByRole("table");
 
-    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
-    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    // The only mode that can be chosen on this machine is the one that is
+    // ready; the rest are offered but disabled, with their reason beside them.
+    const choices = screen.getAllByRole("radio");
+    expect(choices.filter((c) => !(c as HTMLInputElement).disabled)).toHaveLength(1);
     // Every button here either looks at the machine or builds something.
     // None of them selects a mode, which is the part that would break a
     // terminal.

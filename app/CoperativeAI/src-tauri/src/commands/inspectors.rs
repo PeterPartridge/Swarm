@@ -249,7 +249,7 @@ pub async fn run_solution_tests(
     // is what it always was.
     run_id: Option<i64>,
 ) -> Result<Vec<test_runner::SuiteRun>, String> {
-    let (root, custom, sandbox) = {
+    let (root, custom, mode) = {
         let conn = db.0.lock().await;
         let Some(row) = solution::find_by_id(&conn, solution_id)
             .await
@@ -270,6 +270,7 @@ pub async fn run_solution_tests(
     };
 
     let path = std::path::Path::new(&root);
+    let sandbox = crate::commands::place_for(mode, path).await?;
     let suites = match &custom {
         Some(command) => vec![test_runner::custom_suite(command)],
         None => test_runner::detect(path),
@@ -280,7 +281,7 @@ pub async fn run_solution_tests(
                 .into(),
         );
     }
-    Ok(suites.iter().map(|suite| test_runner::run(sandbox, path, suite)).collect())
+    Ok(suites.iter().map(|suite| test_runner::run(&sandbox, path, suite)).collect())
 }
 
 /// Runs one named suite, so a single failing suite can be re-run alone.
@@ -295,18 +296,19 @@ pub async fn run_test_suite(
     // checkout, and re-running it anywhere else answers about other code.
     run_id: Option<i64>,
 ) -> Result<test_runner::SuiteRun, String> {
-    let (root, sandbox) = {
+    let (root, mode) = {
         let conn = db.0.lock().await;
         let root = crate::commands::workspace::root_for_run(&conn, solution_id, run_id).await?;
         (root, crate::commands::sandbox_mode(&conn).await)
     };
+    let sandbox = crate::commands::place_for(mode, std::path::Path::new(&root)).await?;
     let suite = test_runner::Suite {
         kind,
         directory,
         command_line,
         found_by: "re-run".into(),
     };
-    Ok(test_runner::run(sandbox, std::path::Path::new(&root), &suite))
+    Ok(test_runner::run(&sandbox, std::path::Path::new(&root), &suite))
 }
 
 #[tauri::command]

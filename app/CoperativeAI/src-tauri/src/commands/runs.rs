@@ -277,9 +277,39 @@ pub(crate) async fn prepare_run(
     };
     let _ = attempt;
 
-    // The checkout comes first: the brief is written into it, not into the main
-    // working copy, so an agent reading its brief is already in its own folder.
-    let worktree = vcs::add_worktree(&root, &branch, &clone_from)?;
+    // **Sandboxed runs are given a place before they are given a folder.** A
+    // worktree made out here cannot be used in there — its `.git` is a file
+    // holding an absolute Windows path, which exists at no mount point inside a
+    // Linux distribution — so the run gets a clone of its own instead. The row
+    // is created first in that case, because the clone is named after the run.
+    let sandbox = super::sandbox_mode(conn).await;
+    let (run_id, worktree) = match sandbox {
+        crate::tooling::sandbox::Mode::Off => {
+            // The checkout comes first: the brief is written into it, not into
+            // the main working copy, so an agent reading its brief is already
+            // in its own folder.
+            let worktree = vcs::add_worktree(&root, &branch, &clone_from)?;
+            let id = change_run::prepare(conn, work_item_id, solution_id, &brief_path)
+                .await
+                .map_err(to_message)?;
+            (id, worktree)
+        }
+        crate::tooling::sandbox::Mode::Wsl => {
+            let id = change_run::prepare(conn, work_item_id, solution_id, &brief_path)
+                .await
+                .map_err(to_message)?;
+            let inside =
+                crate::tooling::sandbox_run::prepare(std::path::Path::new(&root), id, &branch, &clone_from)
+                    .await?;
+            // Stored the way Windows can reach it, so the brief can be written
+            // in and the panels can read it without knowing where it really is.
+            (id, crate::tooling::sandbox::windows_view(&inside))
+        }
+        crate::tooling::sandbox::Mode::Docker => {
+            return Err("the 'docker' sandbox is not built yet, so a run cannot start in it".into())
+        }
+    };
+
     crate::files::emit::write_generated(
         &worktree,
         &[crate::files::emit::EmitFile {
@@ -287,16 +317,9 @@ pub(crate) async fn prepare_run(
             contents: brief,
         }],
     )?;
-
-    let run_id = {
-        let id = change_run::prepare(conn, work_item_id, solution_id, &brief_path)
-            .await
-            .map_err(to_message)?;
-        change_run::set_workspace(conn, id, &worktree, "")
-            .await
-            .map_err(to_message)?;
-        id
-    };
+    change_run::set_workspace(conn, run_id, &worktree, "")
+        .await
+        .map_err(to_message)?;
 
     Ok(StartedRun {
         run_id,

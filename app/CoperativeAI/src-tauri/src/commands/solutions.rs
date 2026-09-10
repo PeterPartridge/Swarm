@@ -119,11 +119,12 @@ pub async fn create_solution_with_starter(
         .unwrap_or_default();
     let filled = crate::tooling::starter::fill(&template, &name);
 
-    let sandbox = {
+    let mode = {
         let conn = db.0.lock().await;
         super::sandbox_mode(&conn).await
     };
-    let started = crate::tooling::starter::run(sandbox, &parent, &name, &filled)?;
+    let sandbox = super::place_for(mode, std::path::Path::new(&parent)).await?;
+    let started = crate::tooling::starter::run(&sandbox, &parent, &name, &filled)?;
 
     {
         let conn = db.0.lock().await;
@@ -180,8 +181,9 @@ pub async fn start_existing_solution(
         .filter(|c| !c.trim().is_empty())
         .or_else(|| crate::tooling::starter::find(&starter_id).map(|s| s.command))
         .unwrap_or_default();
+    let sandbox = super::place_for(sandbox, std::path::Path::new(&parent_dir)).await?;
     let started = crate::tooling::starter::run(
-        sandbox,
+        &sandbox,
         &parent_dir,
         &name,
         &crate::tooling::starter::fill(&template, &name),

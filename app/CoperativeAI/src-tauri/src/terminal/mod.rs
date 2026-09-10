@@ -54,7 +54,7 @@ impl Session {
     /// returning it rather than owning it is what lets this be tested without
     /// Tauri anywhere in the picture.
     pub fn spawn(
-        sandbox: crate::tooling::sandbox::Mode,
+        sandbox: &crate::tooling::sandbox::Place,
         program: &str,
         cwd: &Path,
         cols: u16,
@@ -203,7 +203,7 @@ mod tests {
     use super::*;
     // `Off` throughout: these prove the PTY itself, and the seam's own tests
     // prove that off changes nothing about what gets spawned.
-    use crate::tooling::sandbox::Mode;
+    use crate::tooling::sandbox::Place;
     use std::time::{Duration, Instant};
 
     fn scratch(name: &str) -> std::path::PathBuf {
@@ -285,7 +285,7 @@ mod tests {
         std::fs::write(dir.join(format!("{marker}.txt")), "x").expect("marker file");
 
         let (mut session, reader) =
-            Session::spawn(Mode::Off, &default_shell(), &dir, 120, 30).expect("spawn a shell");
+            Session::spawn(&Place::here(), &default_shell(), &dir, 120, 30).expect("spawn a shell");
 
         // Listing the folder proves both that the shell runs and that its
         // working directory is the one that was asked for.
@@ -306,7 +306,7 @@ mod tests {
     fn a_running_shell_can_be_resized() {
         let dir = scratch("resize");
         let (mut session, _reader) =
-            Session::spawn(Mode::Off, &default_shell(), &dir, 80, 24).expect("spawn a shell");
+            Session::spawn(&Place::here(), &default_shell(), &dir, 80, 24).expect("spawn a shell");
 
         session.resize(200, 50).expect("resize while running");
         session.kill().expect("kill");
@@ -319,7 +319,7 @@ mod tests {
     fn closing_the_panel_ends_the_shell() {
         let dir = scratch("kill");
         let (mut session, _reader) =
-            Session::spawn(Mode::Off, &default_shell(), &dir, 80, 24).expect("spawn a shell");
+            Session::spawn(&Place::here(), &default_shell(), &dir, 80, 24).expect("spawn a shell");
 
         assert!(!session.finished(), "it should be running before it is killed");
         session.kill().expect("kill");
@@ -335,7 +335,7 @@ mod tests {
         let missing = std::env::temp_dir().join("coperativeai-no-such-folder-4471");
         let _ = std::fs::remove_dir_all(&missing);
         // `expect_err` needs Debug on the Ok side, and a live PTY has none.
-        let err = Session::spawn(Mode::Off, &default_shell(), &missing, 80, 24)
+        let err = Session::spawn(&Place::here(), &default_shell(), &missing, 80, 24)
             .err()
             .expect("should refuse a folder that is not there");
         assert!(err.contains("not a folder"), "got: {err}");

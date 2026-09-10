@@ -330,7 +330,7 @@ pub fn custom_suite(command_line: &str) -> Suite {
 /// not an error. Only a command that could not be started at all is an error,
 /// and that is reported through `exit_ok` plus the output so the person can see
 /// what the shell said.
-pub fn run(sandbox: crate::tooling::sandbox::Mode, root: &Path, suite: &Suite) -> SuiteRun {
+pub fn run(sandbox: &crate::tooling::sandbox::Place, root: &Path, suite: &Suite) -> SuiteRun {
     let dir = if suite.directory == "." {
         root.to_path_buf()
     } else {
@@ -375,7 +375,7 @@ pub fn run(sandbox: crate::tooling::sandbox::Mode, root: &Path, suite: &Suite) -
 /// naive splitting. On Windows this also solves `npm`/`npx` being batch shims
 /// that `CreateProcess` cannot start directly.
 fn spawn(
-    sandbox: crate::tooling::sandbox::Mode,
+    sandbox: &crate::tooling::sandbox::Place,
     dir: &Path,
     command_line: &str,
 ) -> Result<(bool, String), String> {
@@ -404,6 +404,11 @@ fn spawn(
         text.push('\n');
         text.push_str(&stderr);
     }
+    // **Translated here, once, before any parser sees it.** Six parsers read
+    // this for `file:line`, and doing it in each of them would be six chances
+    // to forget — and the one that forgot would produce findings that silently
+    // will not open. For `Off` this is the same string back.
+    let text = crate::tooling::sandbox::from_sandbox_text(&text, &sandbox.inside);
     Ok((output.status.success(), text))
 }
 
@@ -694,7 +699,7 @@ fn parse_go_json(text: &str) -> Option<Parsed> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tooling::sandbox::Mode;
+    use crate::tooling::sandbox::Place;
 
     fn suite_at(kind: &str, directory: &str, command_line: &str) -> Suite {
         Suite {
@@ -1105,7 +1110,7 @@ Passed!  - Failed:     0, Passed:    12, Skipped:     1, Total:    13, Duration:
     fn a_command_that_fails_still_reports_rather_than_erroring() {
         let dir = scratch("failing");
         let suite = custom_suite(if cfg!(windows) { "exit /b 1" } else { "exit 1" });
-        let run = run(Mode::Off, &dir, &suite);
+        let run = run(&Place::here(), &dir, &suite);
         assert!(!run.exit_ok);
         assert!(!run.counted, "a custom command's output has no known shape");
         let _ = std::fs::remove_dir_all(&dir);
@@ -1115,7 +1120,7 @@ Passed!  - Failed:     0, Passed:    12, Skipped:     1, Total:    13, Duration:
     fn a_custom_command_runs_and_keeps_its_output() {
         let dir = scratch("custom");
         let suite = custom_suite("echo hello from the suite");
-        let run = run(Mode::Off, &dir, &suite);
+        let run = run(&Place::here(), &dir, &suite);
         assert!(run.exit_ok);
         assert!(run.output.contains("hello from the suite"), "got: {}", run.output);
         let _ = std::fs::remove_dir_all(&dir);

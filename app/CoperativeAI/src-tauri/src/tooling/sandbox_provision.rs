@@ -43,6 +43,10 @@ pub enum WslStep {
     /// The file that unmounts this machine's drive and names the user.
     WriteConfig,
     CreateUser,
+    /// Somewhere for runs to live, owned by the agent rather than by root.
+    /// Without it the first run fails on `mkdir: Permission denied`, which is
+    /// what the live check found.
+    MakeRunSpace,
     /// git, node and Claude Code — what the *agent* needs. Never a Solution's
     /// own toolchain, which belongs to that Solution.
     InstallTools,
@@ -59,6 +63,7 @@ impl WslStep {
             WslStep::Create => "Create the distribution",
             WslStep::WriteConfig => "Unmount this machine's drive",
             WslStep::CreateUser => "Add a user that is not root",
+            WslStep::MakeRunSpace => "Make somewhere for runs to live",
             WslStep::InstallTools => "Install what the agent needs",
             WslStep::Terminate => "Restart it so the settings apply",
         }
@@ -115,6 +120,7 @@ pub fn plan_wsl(found: &WslFindings) -> Result<Vec<WslStep>, String> {
     }
     steps.push(WslStep::WriteConfig);
     steps.push(WslStep::CreateUser);
+    steps.push(WslStep::MakeRunSpace);
     steps.push(WslStep::InstallTools);
     steps.push(WslStep::Terminate);
     Ok(steps)
@@ -197,6 +203,9 @@ fn wsl_command(step: WslStep) -> String {
         // internet.** Node may lag a release behind that way; fetching a shell
         // script over the network and running it as root inside the boundary
         // this exists to build would be a worse trade than an older Node.
+        WslStep::MakeRunSpace => format!(
+            "mkdir -p /work/runs /mnt/repos && chown -R {AGENT_USER}:{AGENT_USER} /work"
+        ),
         WslStep::InstallTools => "apt-get update && apt-get install -y --no-install-recommends \
              git ca-certificates nodejs npm && npm install -g @anthropic-ai/claude-code"
             .to_string(),

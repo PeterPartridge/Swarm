@@ -79,6 +79,119 @@ pub struct Spawn {
     pub cwd: PathBuf,
 }
 
+/// Where a command is to run.
+///
+/// **A struct rather than a fifth argument**, which is what the first round's
+/// debt entry said would be needed as soon as the seam had to know more than
+/// the mode. It knows two things: which boundary, and — for a sandboxed one —
+/// where inside it. Off carries no inside, and uses the folder it was given.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Place {
+    pub mode: Mode,
+    /// The working directory as the *inside* sees it, e.g. `/work/runs/12`.
+    /// Empty for `Off`, and empty is refused for anything else — a sandboxed
+    /// command with nowhere to be is a bug, not a default.
+    pub inside: String,
+}
+
+impl Default for Mode {
+    fn default() -> Self {
+        Mode::Off
+    }
+}
+
+impl Place {
+    /// On this machine, as everything did before any of this existed.
+    pub fn here() -> Self {
+        Place { mode: Mode::Off, inside: String::new() }
+    }
+}
+
+/// Where a repository is mounted inside the distribution.
+///
+/// One mount per repository, named after it so somebody looking around inside
+/// can tell what they are looking at, with a short digest of the full path so
+/// two repositories of the same name cannot land on top of each other.
+pub fn mount_point(repo_root: &Path) -> String {
+    format!("/mnt/repos/{}", place_slug(repo_root))
+}
+
+/// Where one run's own clone lives inside the distribution.
+///
+/// **Its own clone, not the host's checkout.** A worktree's `.git` is a file
+/// holding an *absolute* path, so a checkout made on Windows cannot be used
+/// from inside at any mount point — git simply cannot find its repository. A
+/// clone made inside has its own consistent git, and lives on the Linux
+/// filesystem, which is also far faster than reaching back across a mount for
+/// every file a build touches.
+pub fn clone_dir(run_id: i64) -> String {
+    format!("/work/runs/{run_id}")
+}
+
+/// A short, stable name for a Windows path.
+///
+/// The digest is written out here rather than taken from `DefaultHasher`,
+/// whose value is explicitly not stable between Rust releases — a mount that
+/// moved when the toolchain was upgraded would be a hard afternoon.
+fn place_slug(path: &Path) -> String {
+    let full = path.to_string_lossy().to_lowercase().replace('\\', "/");
+    let mut digest: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in full.as_bytes() {
+        digest ^= u64::from(*byte);
+        digest = digest.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    let name: String = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_lowercase())
+        .unwrap_or_default()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    format!("{}-{:08x}", name.trim_matches('-'), digest as u32)
+}
+
+/// How Windows reaches back into the distribution.
+///
+/// **The reason a finding from a sandboxed run can still be opened.** A run's
+/// files live on the Linux filesystem and have no drive letter, so a path out
+/// of a test runner names a file this side cannot see — unless it is spelled
+/// the way Windows can reach it, which is this.
+pub fn windows_view(inside: &str) -> String {
+    format!(
+        "\\\\wsl.localhost\\{}{}",
+        crate::tooling::sandbox_detect::OWN_DISTRIBUTION,
+        inside.replace('/', "\\")
+    )
+}
+
+/// Rewrites the paths in a runner's output so they can be opened here.
+///
+/// **Done once, at the seam.** Six parsers read this output for `file:line`,
+/// and translating inside each of them would be six chances to forget — the
+/// one that forgot would produce findings that silently will not open.
+pub fn from_sandbox_text(text: &str, inside_root: &str) -> String {
+    if inside_root.is_empty() || !text.contains(inside_root) {
+        return text.to_string();
+    }
+    let here = windows_view(inside_root);
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(at) = rest.find(inside_root) {
+        out.push_str(&rest[..at]);
+        out.push_str(&here);
+        rest = &rest[at + inside_root.len()..];
+        // **The rest of the path has to turn round too.** Rewriting only the
+        // root leaves `\\wsl.localhost\…\runs\12/src/lib.rs`, which is a path
+        // half in each world and opens in neither reliably. The run of
+        // non-space after the root is the file, so it converts with it.
+        let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+        out.push_str(&rest[..end].replace('/', "\\"));
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
 /// What to run, and where, for the mode in force.
 ///
 /// `Off` hands back exactly what it was given. That is worth stating as the
@@ -89,19 +202,46 @@ pub struct Spawn {
 /// The other two modes are not built yet and say so. **Saying so is the point**
 /// — a mode that quietly ran the command unsandboxed would be the exact failure
 /// this whole feature exists to prevent, and it would be invisible.
-pub fn wrap(mode: Mode, program: &str, args: &[String], cwd: &Path) -> Result<Spawn, String> {
-    match mode {
+pub fn wrap(place: &Place, program: &str, args: &[String], cwd: &Path) -> Result<Spawn, String> {
+    match place.mode {
         Mode::Off => Ok(Spawn {
             program: program.to_string(),
             args: args.to_vec(),
             cwd: cwd.to_path_buf(),
         }),
-        Mode::Wsl | Mode::Docker => Err(format!(
-            "the '{}' sandbox is not built yet, so nothing was run. Set where agents run \
-             back to 'off' — running this outside the boundary you asked for is not \
-             something this app will do quietly.",
-            mode.id()
-        )),
+        Mode::Wsl => {
+            if place.inside.trim().is_empty() {
+                return Err(
+                    "nothing was run: the sandbox was asked for without saying where inside it \
+                     to run. That is a fault in this app rather than in the set-up."
+                        .into(),
+                );
+            }
+            let mut inner = vec![
+                "-d".to_string(),
+                crate::tooling::sandbox_detect::OWN_DISTRIBUTION.to_string(),
+                "--user".to_string(),
+                crate::tooling::sandbox_provision::AGENT_USER.to_string(),
+                "--cd".to_string(),
+                place.inside.clone(),
+                "--".to_string(),
+                program.to_string(),
+            ];
+            inner.extend(args.iter().cloned());
+            Ok(Spawn {
+                program: "wsl.exe".to_string(),
+                args: inner,
+                // The outer process still needs somewhere real to start from on
+                // this side; what it does happens inside.
+                cwd: cwd.to_path_buf(),
+            })
+        }
+        Mode::Docker => Err(
+            "the 'docker' sandbox is not built yet, so nothing was run. Set where agents run \
+             back to something that is — running this outside the boundary you asked for is \
+             not something this app will do quietly."
+                .into(),
+        ),
     }
 }
 
@@ -163,6 +303,12 @@ pub struct ModeReport {
     pub summary: String,
     /// Whether this app could build the boundary this mode needs, here, now.
     /// Separate from `built`: one is about the machine, the other about the app.
+    /// Whether this mode can be chosen here, now. **Not the same as built**:
+    /// a mode that runs but has nothing set up would stop the terminal working,
+    /// so offering it would be offering a way to break the app.
+    pub can_choose: bool,
+    /// Why it cannot be chosen, when it cannot. Never empty.
+    pub choose_detail: String,
     pub can_set_up: bool,
     /// What setting it up would do, or why it cannot be done. Never empty — an
     /// unexplained disabled button is worse than no button.
@@ -209,6 +355,8 @@ fn off_column() -> ModeReport {
         built: true,
         summary: "Runs here, exactly as it always has.".into(),
         // Nothing to build: this is the machine you are already on.
+        can_choose: true,
+        choose_detail: "Always available — it is where everything ran before any of this.".into(),
         can_set_up: false,
         set_up_detail: "There is nothing to set up — this is your machine.".into(),
         protections: PROTECTIONS
@@ -236,7 +384,7 @@ fn wsl_column(found: &crate::tooling::sandbox_detect::WslFindings) -> ModeReport
     } else if unmounted {
         protection(
             PROTECTIONS[0],
-            State::AvailableNotBuilt,
+            State::Enforced,
             &format!("'{OWN_DISTRIBUTION}' does not mount this machine's drive."),
         )
     } else {
@@ -253,7 +401,7 @@ fn wsl_column(found: &crate::tooling::sandbox_detect::WslFindings) -> ModeReport
     let privileges = match (ready, found.root) {
         (true, Some(false)) => protection(
             PROTECTIONS[2],
-            State::AvailableNotBuilt,
+            State::Enforced,
             "It runs as an ordinary user, not root.",
         ),
         (true, Some(true)) => {
@@ -265,7 +413,17 @@ fn wsl_column(found: &crate::tooling::sandbox_detect::WslFindings) -> ModeReport
     ModeReport {
         id: "wsl".into(),
         label: SANDBOXES[1].1.into(),
-        built: false,
+        // **Built, as of the round that made it run.** Which is why the rows
+        // below may now say a protection is in force — but only where
+        // detection proved it, never because the mode exists.
+        built: true,
+        can_choose: ready && unmounted,
+        choose_detail: if ready && unmounted {
+            "Ready — runs will happen inside it.".to_string()
+        } else {
+            "Set it up first: choosing it before there is a boundary would stop the terminal \n             working, with nothing gained."
+                .to_string()
+        },
         can_set_up: set_up.is_ok(),
         set_up_detail: match &set_up {
             Ok(steps) => format!(
@@ -277,9 +435,9 @@ fn wsl_column(found: &crate::tooling::sandbox_detect::WslFindings) -> ModeReport
             Err(why) => why.clone(),
         },
         summary: match (ready, found.detail.trim()) {
-            (true, _) => {
-                format!("'{OWN_DISTRIBUTION}' is here. Running work inside it is not built yet.")
-            }
+            (true, _) => format!(
+                "'{OWN_DISTRIBUTION}' is here, and runs happen inside it — each in a clone of \n                 its own, because a checkout made out here cannot be used in there."
+            ),
             // Never left blank. A column with no summary is one whose verdict
             // has to be inferred from the rows, which is how a table stops
             // being read at all.
@@ -325,6 +483,9 @@ fn docker_column(found: &crate::tooling::sandbox_detect::DockerFindings) -> Mode
         id: "docker".into(),
         label: SANDBOXES[2].1.into(),
         built: false,
+        can_choose: false,
+        choose_detail: "Not built yet — it would refuse every command rather than run one \n             outside the boundary you asked for."
+            .to_string(),
         can_set_up: buildable.is_ok(),
         set_up_detail: match &buildable {
             Ok(()) => "Builds the agent's image — git, Node and Claude Code, and nothing of 
@@ -455,6 +616,30 @@ mod tests {
         );
     }
 
+    /// **In force is earned, not granted by existing.** WSL runs things now, so
+    /// its rows may say a protection is on — but only where detection proved
+    /// it. A distribution that still mounts the drive gets nothing, and neither
+    /// can it be chosen.
+    #[test]
+    fn a_built_mode_still_only_claims_what_was_proved() {
+        let mut mounted = ready_wsl();
+        mounted.drive_mounted = Some(true);
+        let table = report("off", &mounted, &DockerFindings::default());
+        let wsl = table.modes.iter().find(|m| m.id == "wsl").expect("a wsl column");
+        assert!(wsl.built, "it runs things now");
+        assert_ne!(wsl.protections[0].state, State::Enforced);
+        assert!(!wsl.can_choose, "choosing it would stop the terminal working for nothing");
+
+        let table = report("off", &ready_wsl(), &DockerFindings::default());
+        let wsl = table.modes.iter().find(|m| m.id == "wsl").expect("a wsl column");
+        assert_eq!(wsl.protections[0].state, State::Enforced, "the drive really is unreachable");
+        assert!(wsl.can_choose);
+        // The three WSL cannot do stay honest however well the rest reads.
+        assert_eq!(wsl.protections[1].state, State::Unavailable, "runs share one distribution");
+        assert_eq!(wsl.protections[3].state, State::Unavailable);
+        assert_eq!(wsl.protections[4].state, State::Unavailable);
+    }
+
     /// Off is the machine you are on, stated rather than apologised for.
     #[test]
     fn off_says_plainly_that_nothing_is_bounded() {
@@ -491,7 +676,7 @@ mod tests {
     #[test]
     fn off_hands_back_exactly_what_it_was_given() {
         let args = vec!["/C".to_string(), "npm test".to_string()];
-        let spawned = wrap(Mode::Off, "cmd", &args, Path::new("."))
+        let spawned = wrap(&Place::here(), "cmd", &args, Path::new("."))
             .expect("off never fails — it is what the app already does");
         assert_eq!(spawned.program, "cmd");
         assert_eq!(spawned.args, args);
@@ -503,11 +688,65 @@ mod tests {
     /// loud on purpose.
     #[test]
     fn a_mode_that_is_not_built_refuses_instead_of_running_unprotected() {
-        for mode in [Mode::Wsl, Mode::Docker] {
-            let refused = wrap(mode, "cmd", &[], Path::new("."));
-            let said = refused.expect_err("an unbuilt sandbox must not run the command");
-            assert!(said.contains(mode.id()), "the refusal should name the mode: {said}");
-        }
+        let place = Place { mode: Mode::Docker, inside: "/work".into() };
+        let said = wrap(&place, "cmd", &[], Path::new("."))
+            .expect_err("an unbuilt sandbox must not run the command");
+        assert!(said.contains("docker"), "the refusal should name the mode: {said}");
+    }
+
+    /// **A sandboxed command with nowhere to be is a bug, not a default.**
+    /// Running it here anyway would be the one failure this whole feature
+    /// exists to prevent, so it refuses instead.
+    #[test]
+    fn a_sandbox_asked_for_without_a_place_inside_refuses() {
+        let nowhere = Place { mode: Mode::Wsl, inside: String::new() };
+        assert!(wrap(&nowhere, "cmd", &[], Path::new(".")).is_err());
+    }
+
+    /// The command that actually reaches WSL: the app's own distribution, the
+    /// agent's user, and the folder inside — never this machine's.
+    #[test]
+    fn a_wsl_command_names_the_distribution_the_user_and_the_place_inside() {
+        let place = Place { mode: Mode::Wsl, inside: "/work/runs/12".into() };
+        let spawned = wrap(&place, "npm", &["test".to_string()], Path::new("C:\\repo"))
+            .expect("a place inside was given");
+
+        assert_eq!(spawned.program, "wsl.exe");
+        assert_eq!(
+            spawned.args,
+            vec![
+                "-d",
+                crate::tooling::sandbox_detect::OWN_DISTRIBUTION,
+                "--user",
+                crate::tooling::sandbox_provision::AGENT_USER,
+                "--cd",
+                "/work/runs/12",
+                "--",
+                "npm",
+                "test",
+            ]
+        );
+    }
+
+    /// **A finding from inside has to be openable from out here.** The run's
+    /// files live on the Linux filesystem and have no drive letter, so a path
+    /// out of a test runner names a file this side cannot see — unless it is
+    /// spelled the way Windows can reach it.
+    #[test]
+    fn a_path_out_of_the_sandbox_can_be_opened_on_this_machine() {
+        let said = "FAILED /work/runs/12/src/lib.rs:42 — assertion failed";
+        let here = from_sandbox_text(said, "/work/runs/12");
+        assert!(
+            here.contains("\\\\wsl.localhost\\coperativeai\\work\\runs\\12\\src\\lib.rs:42"),
+            "got: {here}"
+        );
+    }
+
+    /// Off is untouched: no translation, not even a copy that differs.
+    #[test]
+    fn output_from_this_machine_is_left_exactly_as_it_was() {
+        let said = "FAILED C:\\repo\\src\\lib.rs:42";
+        assert_eq!(from_sandbox_text(said, ""), said);
     }
 
     #[test]

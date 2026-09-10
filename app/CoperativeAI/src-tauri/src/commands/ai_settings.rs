@@ -511,6 +511,33 @@ pub async fn sandbox_report(
     Ok(crate::tooling::sandbox::report(&chosen, &wsl, &docker))
 }
 
+/// Chooses where agents run.
+///
+/// **Checked against the machine, not just the name.** Storing a mode that has
+/// nothing set up would stop the terminal and the test runner working the
+/// moment somebody used them — a setting that breaks the app quietly is worse
+/// than one that refuses loudly, so the refusal happens here.
+#[tauri::command]
+pub async fn set_agent_sandbox(db: State<'_, AppDb>, mode: String) -> Result<(), String> {
+    if crate::tooling::sandbox::Mode::from_setting(&mode) != crate::tooling::sandbox::Mode::Off {
+        let (wsl, docker) = tokio::join!(
+            crate::tooling::sandbox_detect::wsl(),
+            crate::tooling::sandbox_detect::docker()
+        );
+        let looked = crate::tooling::sandbox::report(&mode, &wsl, &docker);
+        let Some(column) = looked.modes.iter().find(|m| m.id == mode) else {
+            return Err(format!("'{mode}' is not a place this app can run things"));
+        };
+        if !column.can_choose {
+            return Err(column.choose_detail.clone());
+        }
+    }
+    let conn = db.0.lock().await;
+    crate::db::system_setting::set_agent_sandbox(&conn, &mode)
+        .await
+        .map_err(to_message)
+}
+
 /// Builds the boundary a mode needs — the one thing here that changes this
 /// machine.
 ///
