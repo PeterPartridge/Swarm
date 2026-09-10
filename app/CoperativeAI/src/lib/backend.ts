@@ -3195,3 +3195,26 @@ export const setUpSandbox = (mode: string): Promise<SetUpResult> =>
  *  than one that says no where it was pressed. */
 export const setAgentSandbox = (mode: string): Promise<void> =>
   invoke("set_agent_sandbox", { mode });
+
+/** Where an agent policy comes from, what installs it, and where it lands.
+ *
+ *  Three fields rather than one, because fetching and running are two
+ *  different acts — and keeping them apart is what lets the thing be read
+ *  before it is run, which is the only safeguard against a policy somebody
+ *  else wrote. */
+export interface AgentPolicySource {
+  /** An https address, or a file on this machine. Empty means no policy. */
+  from: string;
+  /** The command that installs it, run where the agent will run. */
+  command: string;
+  /** The folder it is downloaded into. */
+  folder: string;
+}
+
+export const getAgentPolicySource = (): Promise<AgentPolicySource> =>
+  invoke("get_agent_policy_source");
+
+/** Refused when it cannot be honoured — a bad source caught here rather than
+ *  when a run is starting. */
+export const setAgentPolicySource = (source: AgentPolicySource): Promise<void> =>
+  invoke("set_agent_policy_source", { source });

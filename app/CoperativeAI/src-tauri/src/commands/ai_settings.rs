@@ -511,6 +511,31 @@ pub async fn sandbox_report(
     Ok(crate::tooling::sandbox::report(&chosen, &wsl, &docker))
 }
 
+/// Where an agent policy comes from, what installs it, and where it lands.
+#[tauri::command]
+pub async fn get_agent_policy_source(
+    db: State<'_, AppDb>,
+) -> Result<crate::db::system_setting::AgentPolicySource, String> {
+    let conn = db.0.lock().await;
+    crate::db::system_setting::agent_policy_source(&conn)
+        .await
+        .map_err(to_message)
+}
+
+/// **Refused here rather than at the worst moment.** A source that is neither
+/// an https address nor a file on this machine is a setting that would fail
+/// when a run is starting; caught where somebody is looking at it instead.
+#[tauri::command]
+pub async fn set_agent_policy_source(
+    db: State<'_, AppDb>,
+    source: crate::db::system_setting::AgentPolicySource,
+) -> Result<(), String> {
+    let conn = db.0.lock().await;
+    crate::db::system_setting::set_agent_policy_source(&conn, &source)
+        .await
+        .map_err(to_message)
+}
+
 /// Chooses where agents run.
 ///
 /// **Checked against the machine, not just the name.** Storing a mode that has

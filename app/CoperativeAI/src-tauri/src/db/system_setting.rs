@@ -157,6 +157,68 @@ pub async fn set_agent_sandbox(conn: &Connection, mode: &str) -> Result<()> {
     set(conn, AGENT_SANDBOX_KEY, &json).await
 }
 
+const AGENT_POLICY_KEY: &str = "agentPolicySource";
+
+/// Where an agent policy comes from, what installs it, and where it lands.
+///
+/// **Three fields rather than one path, because fetching and running are two
+/// different acts.** The first says where to get it, the second what to do with
+/// it once it is here, and the third where "here" is — and separating them is
+/// what lets the thing be read before it is run, which is the only safeguard
+/// there is against a policy somebody else wrote.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentPolicySource {
+    /// A URL, or a path to a file on this machine. Empty means no policy.
+    pub from: String,
+    /// The command that installs it, run where the agent will run.
+    pub command: String,
+    /// The folder it is downloaded into.
+    pub folder: String,
+}
+
+pub async fn agent_policy_source(conn: &Connection) -> Result<AgentPolicySource> {
+    Ok(match get(conn, AGENT_POLICY_KEY).await? {
+        Some(json) => serde_json::from_str(&json).unwrap_or_default(),
+        None => AgentPolicySource::default(),
+    })
+}
+
+/// **Refused rather than stored when it cannot be honoured.** A source that is
+/// neither a URL nor a file on this machine is a setting that will fail at the
+/// worst moment — when a run is starting — instead of here, where somebody is
+/// looking at it.
+pub async fn set_agent_policy_source(
+    conn: &Connection,
+    source: &AgentPolicySource,
+) -> Result<()> {
+    let from = source.from.trim();
+    if !from.is_empty() {
+        let is_url = from.starts_with("https://") || from.starts_with("http://");
+        if is_url {
+            // **https, because this is fetched and then run.** A policy served
+            // over plain http is one anybody on the path can rewrite, and the
+            // thing they would be rewriting runs as root inside the boundary.
+            if !from.starts_with("https://") {
+                return Err(crate::db::DbError::Validation(
+                    "a policy is fetched and then run, so it has to come over https".into(),
+                ));
+            }
+        } else if !std::path::Path::new(from).is_file() {
+            return Err(crate::db::DbError::Validation(format!(
+                "'{from}' is neither an https address nor a file on this machine"
+            )));
+        }
+        if source.folder.trim().is_empty() {
+            return Err(crate::db::DbError::Validation(
+                "say which folder it should be downloaded into".into(),
+            ));
+        }
+    }
+    let json = serde_json::to_string(source).expect("struct serialize");
+    set(conn, AGENT_POLICY_KEY, &json).await
+}
+
 pub async fn paid_api_allowed(conn: &Connection) -> Result<bool> {
     Ok(match get(conn, API_USAGE_KEY).await? {
         Some(json) => serde_json::from_str::<bool>(&json).unwrap_or(false),

@@ -9766,3 +9766,29 @@ button.ready-action.link:hover {
 .sandbox-verdict.failed {
   color: var(--bad);
 }
+
+/* Where a policy comes from. Inside the sandbox card, and set apart from the
+   modes above it, because it answers a different question: not where an agent
+   runs, but what it may not reach once it is there. */
+.policy-source {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.6rem;
+}
+
+.policy-source h4 {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.policy-source input {
+  width: 100%;
+}
+
+.policy-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}

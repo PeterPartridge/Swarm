@@ -119,11 +119,12 @@ describe("SandboxTable", () => {
     // ready; the rest are offered but disabled, with their reason beside them.
     const choices = screen.getAllByRole("radio");
     expect(choices.filter((c) => !(c as HTMLInputElement).disabled)).toHaveLength(1);
-    // Every button here either looks at the machine or builds something.
-    // None of them selects a mode, which is the part that would break a
-    // terminal.
-    for (const button of screen.getAllByRole("button")) {
-      expect(button.textContent).toMatch(/Check again|Set this up/);
+    // Scoped to where the modes are offered, rather than to the whole panel.
+    // The point was never "this panel has few buttons" — it is that nothing
+    // among the options selects one another way round the disabled radios.
+    const options = screen.getByRole("radiogroup", { name: "Where agents run" });
+    for (const button of within(options).getAllByRole("button")) {
+      expect(button.textContent).toMatch(/Set this up/);
     }
   });
 

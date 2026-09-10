@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import PolicySource from "./PolicySource";
 import {
   sandboxReport,
   setAgentSandbox,
@@ -190,6 +191,11 @@ export default function SandboxTable() {
               </table>
             </div>
           </details>
+
+          {/* Inside this card on purpose: a policy without a boundary keeps
+              nothing from anybody, and a panel of its own would read as
+              protection in its own right. */}
+          <PolicySource />
         </>
       )}
 
