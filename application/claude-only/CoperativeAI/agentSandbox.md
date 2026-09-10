@@ -88,6 +88,18 @@ This page is a containment surface, not an access-control one — the project ha
 - Frontend: the Admin card and its protections table; the run badge on the runs panel, in words rather than a padlock.
 - Tests: the nine above — cargo for detection, wrapping, path round-trip and the seam set; Vitest for the table never showing an unproved protection as on.
 
+**Round 5a — the repository goes in read-only under WSL too**
+
+Recorded debt, paid while the Docker engine would not start. Nothing inside ever writes to the repository — a run works in a clone and its work comes back by the repository fetching from it, settled in round 4b — so the writable mount was a permission granted for no reason. The container backend took read-only from the start; this is WSL catching up.
+
+**Two faults, both found by running it, neither visible in any fixture.**
+1. **Mounts stack.** A new mount at a point hides the old rather than replacing it. The first version asked whether *a* read-only mount was listed, which answers yes while a writable one sits on top hiding it — so it passed its own check and changed nothing. The check now reads the mount **in force**, which is the last line.
+2. ** does not reliably unwind a stack on this filesystem.** So it is attempted and not relied on: a mount that will not come away must not stop the read-only one going on top. A pile underneath is untidy rather than dangerous — the top one is what any process gets.
+
+**Proved live, and by the claim rather than the flag:** a writable mount was put there first the way the old version left them, the mount in force afterwards was read-only, and  inside the repository came back *Read-only file system*.
+
+- Untidy: a mount stack can grow where an old writable mount will not unwind. Harmless, and worth cleaning up when the distribution is next restarted.
+
 **Technical debt after round 5:**
 - **The whole backend is unproven against a real engine.** Every earlier round found a real defect the moment it ran for the first time; there is no reason to think this one is different.
 - The agent image has never been built, so nothing has ever started from it.

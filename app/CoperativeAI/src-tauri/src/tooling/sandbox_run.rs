@@ -45,15 +45,42 @@ fn quotable(path: &Path) -> Result<String, String> {
     Ok(text)
 }
 
-/// The shell that mounts a repository in, if it is not already.
+/// The shell that mounts a repository in, if it is not already there
+/// **read-only**.
 ///
 /// Checked against `/proc/mounts` first, because a mount does not survive the
 /// distribution being restarted and a run may be the first thing after one.
+///
+/// **Read-only, and it costs nothing.** Nothing inside ever needs to write to
+/// the repository: a run works in a clone, and its work comes back out by the
+/// repository fetching from that clone — settled when the branch first had to
+/// travel. So the writable mount this used to make was a permission granted
+/// for no reason, which is the kind worth taking back. The container backend
+/// took it from the start; this is WSL catching up.
+///
+/// The check is for a read-only mount *in force*, so a writable one left over
+/// from an earlier version is put right rather than accepted — otherwise the
+/// tightening would reach only machines that had never run this before, which
+/// is the opposite of who needs it.
 pub fn mount_command(repo_root: &Path) -> Result<String, String> {
     let windows = quotable(repo_root)?;
     let at = mount_point(repo_root);
+    // **The last line, not any line.** Mounts at one point *stack*: a new one
+    // hides the old rather than replacing it, and the one in force is the
+    // newest. Asking whether *a* read-only mount is listed answers yes while a
+    // writable one sits on top hiding it — which is how the first version of
+    // this passed its own check and changed nothing at all.
+    //
+    // Unmounting first is attempted and **not** relied on: on this filesystem
+    // it does not reliably unwind a stack, and a mount that will not come away
+    // must not stop the read-only one going on top of it. So the check is on
+    // what is in force, the fix puts the right thing in force, and a pile
+    // underneath is untidy rather than dangerous — the top one is what any
+    // process actually gets.
     Ok(format!(
-        "grep -q ' {at} ' /proc/mounts || {{ mkdir -p '{at}' && mount -t drvfs '{windows}' '{at}'; }}"
+        "grep ' {at} ' /proc/mounts | tail -1 | grep -qE ' ro[,[:space:]]' \
+         || {{ umount '{at}' 2>/dev/null; mkdir -p '{at}' \
+         && mount -t drvfs -o ro '{windows}' '{at}'; }}"
     ))
 }
 
@@ -156,9 +183,31 @@ mod tests {
     #[test]
     fn a_mount_is_only_made_when_it_is_not_already_there() {
         let script = mount_command(&repo()).expect("an ordinary path");
-        assert!(script.starts_with("grep -q "), "it must look first: {script}");
+        assert!(script.starts_with("grep "), "it must look first: {script}");
         assert!(script.contains("/proc/mounts"));
         assert!(script.contains("mount -t drvfs"));
+    }
+
+    /// **A permission granted for no reason is one worth taking back.** Nothing
+    /// inside ever writes to the repository — a run works in a clone, and its
+    /// work comes back by the repository fetching from it.
+    #[test]
+    fn the_repository_goes_in_read_only() {
+        let script = mount_command(&repo()).expect("an ordinary path");
+        assert!(script.contains("mount -t drvfs -o ro"), "{script}");
+    }
+
+    /// The check is for a read-only mount *specifically*. Accepting any mount
+    /// would leave every machine that ran the old writable one exactly as it
+    /// was, and the tightening would reach only new installations.
+    #[test]
+    fn a_writable_mount_left_over_from_before_is_replaced_rather_than_accepted() {
+        let script = mount_command(&repo()).expect("an ordinary path");
+        assert!(script.contains(" ro[,[:space:]]"), "it must ask for read-only: {script}");
+        assert!(script.contains("umount"), "and replace what is there: {script}");
+        // Mounts stack, and the one in force is the newest. Asking whether *a*
+        // read-only mount is listed says yes while a writable one hides it.
+        assert!(script.contains("tail -1"), "it must read the mount in force: {script}");
     }
 
     /// Two repositories of the same name must not land on the same mount, or
@@ -206,6 +255,68 @@ mod tests {
     fn a_run_with_no_base_branches_from_where_the_clone_landed() {
         let script = clone_command(&repo(), 3, "feature/x", "   ");
         assert!(script.contains("'HEAD'"), "{script}");
+    }
+
+    /// **The tightening, against the real thing — including the upgrade.**
+    ///
+    /// Puts a writable mount there first, the way earlier versions of this left
+    /// them, then checks that asking for the mount replaces it with a read-only
+    /// one and that writing to the repository from inside really does fail. A
+    /// machine that had already run the old version is the case that would
+    /// otherwise be missed entirely.
+    #[test]
+    #[ignore = "runs inside the real distribution on this machine"]
+    fn the_repository_ends_up_read_only_even_where_it_was_not() {
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        runtime.block_on(async {
+            let here = std::env::current_dir().expect("cwd");
+            let repo_root = here.ancestors().find(|p| p.join(".git").exists()).expect("a repo");
+            let at = mount_point(repo_root);
+            let windows = repo_root.to_string_lossy().to_string();
+
+            // As it used to be left: mounted, and writable.
+            inside(
+                true,
+                &format!("umount '{at}' 2>/dev/null; mkdir -p '{at}' && mount -t drvfs '{windows}' '{at}'"),
+                Duration::from_secs(60),
+            )
+            .await
+            .expect("a writable mount, as the old version made");
+
+            mount(repo_root).await.expect("asking for the mount again");
+
+            // **Replaced, not stacked.** Mounts at one point pile up, and the
+            // first version of this left the old writable one underneath the
+            // new read-only one — working, but a mess to read and to reason
+            // about. One line at that point, and it is the read-only one.
+            let how = inside(
+                false,
+                &format!("grep ' {at} ' /proc/mounts"),
+                Duration::from_secs(60),
+            )
+            .await
+            .expect("read the mounts");
+            println!("{how}");
+            // The one in force is the last, and that is the one that has to be
+            // read-only. A pile underneath is untidy, not dangerous.
+            let in_force = how.lines().last().unwrap_or_default();
+            assert!(
+                in_force.split_whitespace().nth(3).is_some_and(|opts| opts.starts_with("ro")),
+                "the mount in force must be read-only: {how}"
+            );
+
+            // **The claim itself, not the flag meant to make it true.** Asked
+            // by trying, and read from what the kernel says rather than from an
+            // exit status — a shell reports that inconsistently enough that a
+            // test on it would pass while the write succeeded.
+            let wrote = inside(false, &format!("touch '{at}/probe-write' 2>&1"), Duration::from_secs(60))
+                .await
+                .unwrap_or_else(|said| said);
+            assert!(
+                wrote.contains("Read-only file system"),
+                "writing to the repository from inside must fail: {wrote}"
+            );
+        });
     }
 
     /// **Runs for real, in the distribution this machine now has.**
