@@ -155,37 +155,41 @@ export default function AdminArea() {
     <div className="admin-area">
       {error && <p role="alert">{error}</p>}
 
-      {/* Four sections rather than one long scroll. Everything that was in
-          Develop → Settings is here too: settings were in two places, which
-          meant knowing which before you could look. */}
-      <SectionTabs
-        label="Settings sections"
-        className="admin-tabs"
-        options={[...ADMIN_SECTIONS]}
-        active={section}
-        onSelect={(id) => setSection(id as AdminSection)}
-      />
+      {/* **One bar, the way Develop settles it.** Four sections rather than one
+          long scroll — everything that was in Develop → Settings is here too,
+          because settings in two places meant knowing which before you could
+          look. And the Product picker sits *beside* the tabs rather than on a
+          line of its own: Develop moved away from the stacked version for the
+          reason written down there, that a control changing about once a
+          session should not cost a whole row, and this page had kept it. */}
+      <div className="admin-bar">
+        <SectionTabs
+          label="Settings sections"
+          className="admin-tabs"
+          options={[...ADMIN_SECTIONS]}
+          active={section}
+          onSelect={(id) => setSection(id as AdminSection)}
+        />
 
-      {/* One picker for every per-Product setting on this page, at the top
-          rather than repeated inside each card. */}
+        {section === "ai" && products.length > 0 && (
+          <label className="develop-product-picker">
+            Product
+            <select
+              aria-label="Policy product"
+              value={policyProduct}
+              onChange={(e) => setPolicyProduct(Number(e.target.value))}
+            >
+              {products.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+
       {section === "log" && <AppLogPanel />}
-
-      {section === "ai" && products.length > 0 && (
-        <label className="develop-product-picker">
-          Product
-          <select
-            aria-label="Policy product"
-            value={policyProduct}
-            onChange={(e) => setPolicyProduct(Number(e.target.value))}
-          >
-            {products.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
 
       {section === "ai" && (
         <>

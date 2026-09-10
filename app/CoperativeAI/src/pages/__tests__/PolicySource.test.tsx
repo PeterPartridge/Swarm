@@ -99,4 +99,18 @@ describe("PolicySource", () => {
       screen.getByText(/only restricts anything once it has been run/),
     ).toBeInTheDocument();
   });
+
+  /** **The limit a person would otherwise find the hard way.** Both mechanisms
+   *  work on the working copy and neither touches git's own storage, so a
+   *  committed file is still reachable through history. Saying so is the
+   *  difference between a useful tool and one that is trusted for the wrong
+   *  job. */
+  it("says that a committed path is still reachable through history", async () => {
+    render(<PolicySource />);
+    await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
+
+    expect(
+      screen.getByText(/stays in the repository's history/),
+    ).toBeInTheDocument();
+  });
 });

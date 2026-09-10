@@ -1588,7 +1588,8 @@ code {
 }
 
 /* The tabs and the Product they are scoped to, on one line. */
-.develop-bar {
+.develop-bar,
+.admin-bar {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
@@ -1599,7 +1600,8 @@ code {
 
 /* The bar owns the rule now, so the tab strip drops its own and the margin it
    used when it was a row on its own. */
-.develop-bar .develop-tabs {
+.develop-bar .develop-tabs,
+.admin-bar .admin-tabs {
   margin: 0;
   border-bottom: none;
   flex: 1;

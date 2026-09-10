@@ -195,6 +195,19 @@ export default function PolicySource() {
         there is a boundary to run it in. Under Docker it is applied when a run
         starts, because a container does not exist between runs.
       </p>
+      {/* **The limit that would otherwise be found the hard way.** Both
+          mechanisms work on the working copy — one hides the path, the other
+          makes it unreadable — and neither touches git's own storage. A file
+          committed at any point is still in the history the run was cloned
+          from, and `git show` does not go through the filesystem. So this is
+          worth having for untracked and ignored files, and is not the thing
+          that keeps a committed secret from an agent. */}
+      <p className="hint">
+        A path that was ever committed stays in the repository's history, and an
+        agent with the clone can still reach it through git. This keeps
+        untracked and ignored files out of its way; it is not a way to take back
+        something already committed.
+      </p>
     </section>
   );
 }
