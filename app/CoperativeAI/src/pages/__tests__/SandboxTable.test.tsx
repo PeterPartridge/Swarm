@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SandboxTable from "../../components/ai/SandboxTable";
@@ -7,7 +7,7 @@ import type { SandboxReport } from "../../lib/backend";
 
 vi.mock("../../lib/backend", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../lib/backend")>();
-  return { ...original, sandboxReport: vi.fn() };
+  return { ...original, sandboxReport: vi.fn(), setUpSandbox: vi.fn() };
 });
 
 const mocked = vi.mocked(backend);
@@ -19,6 +19,8 @@ const thisMachine: SandboxReport = {
   modes: [
     {
       id: "off",
+      canSetUp: false,
+      setUpDetail: "There is nothing to set up — this is your machine.",
       label: "This machine — the same permissions you have",
       built: true,
       summary: "Runs here, exactly as it always has.",
@@ -32,6 +34,8 @@ const thisMachine: SandboxReport = {
     },
     {
       id: "wsl",
+      canSetUp: true,
+      setUpDetail: "5 steps — it downloads a distribution and installs into it.",
       label: "A Linux distribution this app creates and owns",
       built: false,
       summary: "This app has not created its own distribution yet.",
@@ -45,6 +49,8 @@ const thisMachine: SandboxReport = {
     },
     {
       id: "docker",
+      canSetUp: false,
+      setUpDetail: "Docker's engine is not running, and an image cannot be built without it.",
       label: "A container of its own for each run",
       built: false,
       summary: "Docker is installed, but its engine is not running.",
@@ -102,10 +108,70 @@ describe("SandboxTable", () => {
 
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
-    // The only button is the one that looks again.
-    const buttons = screen.getAllByRole("button");
-    expect(buttons).toHaveLength(1);
-    expect(buttons[0]).toHaveTextContent("Check again");
+    // Every button here either looks at the machine or builds something.
+    // None of them selects a mode, which is the part that would break a
+    // terminal.
+    for (const button of screen.getAllByRole("button")) {
+      expect(button.textContent).toMatch(/Check again|Set this up/);
+    }
+  });
+
+  /** A disabled button with no reason beside it is a dead end. */
+  it("says why a set-up cannot be run, rather than only greying it out", async () => {
+    render(<SandboxTable />);
+
+    const docker = await screen.findByRole("columnheader", { name: /container of its own/ });
+    expect(within(docker).getByRole("button", { name: "Set this up" })).toBeDisabled();
+    expect(docker).toHaveTextContent(
+      "Docker's engine is not running, and an image cannot be built without it.",
+    );
+
+    const wsl = screen.getByRole("columnheader", { name: /Linux distribution/ });
+    expect(within(wsl).getByRole("button", { name: "Set this up" })).toBeEnabled();
+  });
+
+  /** **Everything it printed, whole.** A five-minute install reduced to "done"
+   *  is one whose failure nobody can act on — the missing package is named in
+   *  the output or nowhere. */
+  it("keeps what each step printed, and names the step it stopped at", async () => {
+    mocked.setUpSandbox.mockResolvedValue({
+      mode: "wsl",
+      succeeded: false,
+      summary: "Stopped at 'Install what the agent needs', and nothing after it was attempted.",
+      steps: [
+        { name: "Create the distribution", succeeded: true, output: "" },
+        {
+          name: "Install what the agent needs",
+          succeeded: false,
+          output: "E: Unable to locate package nodejs",
+        },
+      ],
+    });
+
+    render(<SandboxTable />);
+    const wsl = await screen.findByRole("columnheader", { name: /Linux distribution/ });
+    await userEvent.click(within(wsl).getByRole("button", { name: "Set this up" }));
+
+    expect(await screen.findByText(/Stopped at 'Install what the agent needs'/)).toBeInTheDocument();
+    expect(screen.getByText("E: Unable to locate package nodejs")).toBeInTheDocument();
+  });
+
+  /** The point of setting up is whether the verdicts changed, so the table is
+   *  read again rather than left showing what was true before. */
+  it("looks at the machine again once a set-up finishes", async () => {
+    mocked.setUpSandbox.mockResolvedValue({
+      mode: "wsl",
+      succeeded: true,
+      summary: "'coperativeai' is set up.",
+      steps: [{ name: "Create the distribution", succeeded: true, output: "" }],
+    });
+
+    render(<SandboxTable />);
+    const wsl = await screen.findByRole("columnheader", { name: /Linux distribution/ });
+    expect(mocked.sandboxReport).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(within(wsl).getByRole("button", { name: "Set this up" }));
+    await waitFor(() => expect(mocked.sandboxReport).toHaveBeenCalledTimes(2));
   });
 
   it("asks the machine once on opening, and again only when asked", async () => {

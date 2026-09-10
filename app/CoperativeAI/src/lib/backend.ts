@@ -3139,7 +3139,28 @@ export interface SandboxMode {
   /** Whether this mode runs anything at all yet. */
   built: boolean;
   summary: string;
+  /** Whether the app could build this mode's boundary here, now. Separate from
+   *  `built`: one is about the machine, the other about the app. */
+  canSetUp: boolean;
+  /** What setting it up would do, or why it cannot be — never empty, because
+   *  an unexplained disabled button is worse than no button. */
+  setUpDetail: string;
   protections: Protection[];
+}
+
+export interface SetUpStep {
+  name: string;
+  succeeded: boolean;
+  /** Whole, in the tool's own words. When a toolchain is missing this is the
+   *  only thing that names it. */
+  output: string;
+}
+
+export interface SetUpResult {
+  mode: string;
+  steps: SetUpStep[];
+  succeeded: boolean;
+  summary: string;
 }
 
 export interface SandboxReport {
@@ -3154,3 +3175,11 @@ export interface SandboxReport {
  *  seconds. Nothing is cached, because the configuration underneath can change
  *  outside this app between one look and the next. */
 export const sandboxReport = (): Promise<SandboxReport> => invoke("sandbox_report");
+
+/** Builds the boundary a mode needs — the one thing here that changes this
+ *  machine, so it happens on a press and hands back everything it printed.
+ *
+ *  Safe to press twice: it looks at the machine again first, and an existing
+ *  distribution is configured rather than made a second time. */
+export const setUpSandbox = (mode: string): Promise<SetUpResult> =>
+  invoke("set_up_sandbox", { mode });

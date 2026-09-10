@@ -88,6 +88,14 @@ This page is a containment surface, not an access-control one — the project ha
 - Frontend: the Admin card and its protections table; the run badge on the runs panel, in words rather than a padlock.
 - Tests: the nine above — cargo for detection, wrapping, path round-trip and the seam set; Vitest for the table never showing an unproved protection as on.
 
+**Technical debt after round 3:**
+- Provisioning cannot be cancelled. A slow `apt-get` leaves somebody watching a disabled button for minutes with no way out but closing the app.
+- Nothing streams. Each step's output arrives when the step ends, so the longest two look like nothing is happening while they are the ones worth watching.
+- The Dockerfile is a string in the binary. The starters follow a "shown before it runs" rule; this does not yet, and should once it grows.
+- `wsl --install` downloads from Microsoft's catalogue — a dependency the app can only report on when it is unreachable.
+- Three machine-changing presses now exist (npm install, WSL set-up, image build) and still share no path. This round made that debt bigger.
+- The live path is unproven on any machine.
+
 **Technical debt after round 2:**
 - The pure readers are pinned to two tools' output formats. Fixtures make a change visible rather than silent, but nothing warns when WSL or Docker changes its wording.
 - Telling "Docker is not installed" from "installed, engine stopped" rests on reading its error text, which is not a stable contract. Today it works against this machine's actual message.
@@ -110,7 +118,27 @@ This page is a containment surface, not an access-control one — the project ha
 - WSL too old to be given a distribution of its own reduces WSL mode to the borrowed-distribution form. That is reported rather than worked around, and it means the mode's protections differ by machine.
 - Four open questions remain above; none now changes the shape of the build, only its edges.
 
-**Status:** round 2 built (2026-09-10) — detection and the capability table
+**Status:** round 3 built (2026-09-10) — provisioning
+
+---
+
+## Report back — round 3
+
+**Tests:** `cargo test` 801 passed, 0 failed, 25 ignored. `npm test` 772 passed across 73 files. Thirteen new: ten in Rust, three in Vitest, plus one ignored live check that really does change the machine.
+
+**What it does.** `tooling/sandbox_provision.rs` creates the app's own WSL distribution from Ubuntu (`--no-launch`, so nothing interactive runs), writes `/etc/wsl.conf` to unmount this machine's drive and name a non-root user, adds that user, installs what the *agent* needs (git, Node, Claude Code), and **restarts the distribution** — without which `/etc/wsl.conf` is never read, the drive stays mounted, detection goes on saying so, and the whole feature looks broken. For Docker it writes the agent's Dockerfile and builds the image.
+
+**Deciding is separate from running**, as in the detector: `plan_wsl` and `plan_docker` are pure, so *an existing distribution is configured and never recreated* is a test rather than a hope. Somebody may have work in a distribution, and reaching a tidy state by destroying it is not this app's call.
+
+**It stops at the first failure** and names the step. Every step after a failed one would be working on a distribution that is not in the state it assumed, and four more failures caused by the first bury the one that matters. What each step printed is kept whole and shown — when a package is missing, that output is the only thing that names it.
+
+**A real bug the tests caught.** The `wsl.conf` contents travel to `sh -c` inside single quotes, and the first draft contained one, in the phrase "the app's own" — which would have ended the quoting early and written half a config file. The failure mode is the worst available here: a distribution that silently stays unbounded while the app reports it as set up. `no_single_quotes_survive_into_a_shell_argument` now holds it.
+
+**Node comes from the distribution's own packages**, not a shell script piped from the network and run as root. It may lag a release; fetching and executing a remote script *inside the boundary this exists to build* would be the worse trade.
+
+**Test scenarios created:** a machine with no distribution of ours is given one; an existing one is configured, never recreated; a mounted drive is unmounted and the distribution restarted last; an old WSL is told the truth (naming both its version and 2.4.4) rather than worked around; a machine without WSL is offered no set-up; the config really does disable automount and drop root; nothing embedded in a shell argument carries a quote of its own; the image carries git, Node and Claude Code and none of cargo/dotnet/python/go; nothing is built without an engine; a stopped set-up names its step and keeps its words. In the panel: a set-up that cannot run says why rather than only greying out; what each step printed survives to the screen; and the table is read again when a set-up finishes, because whether the verdicts changed is the entire point.
+
+**Not verified live.** The ignored `setting_up_for_real` exists and is written to be run, but running it registers a WSL distribution and downloads several hundred megabytes onto this machine — a change to somebody's computer rather than to this repository, so it waits for them to ask.
 
 ---
 

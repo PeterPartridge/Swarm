@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   sandboxReport,
+  setUpSandbox,
   type Protection,
+  type SandboxMode,
   type SandboxReport,
+  type SetUpResult,
 } from "../../lib/backend";
 
 /** What this machine can offer an agent, and what it cannot.
@@ -27,6 +30,9 @@ export default function SandboxTable() {
   const [report, setReport] = useState<SandboxReport | null>(null);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Which mode is being set up, so only its own button says so. */
+  const [building, setBuilding] = useState("");
+  const [result, setResult] = useState<SetUpResult | null>(null);
 
   const check = useCallback(async () => {
     setChecking(true);
@@ -43,6 +49,27 @@ export default function SandboxTable() {
   useEffect(() => {
     void check();
   }, [check]);
+
+  /** **The one press here that changes this computer.** It registers a
+   *  distribution or builds an image, so it says what it will do beforehand and
+   *  hands back everything it printed afterwards — a five-minute install
+   *  reduced to "done" is one whose failure nobody can act on.
+   *
+   *  The table is re-read when it finishes, because the point of the whole
+   *  thing is whether the verdicts changed. */
+  async function setUp(mode: SandboxMode) {
+    setBuilding(mode.id);
+    setResult(null);
+    try {
+      setResult(await setUpSandbox(mode.id));
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBuilding("");
+      await check();
+    }
+  }
 
   return (
     <section className="sandbox-table" aria-label="Where agents can run">
@@ -74,6 +101,21 @@ export default function SandboxTable() {
                   {!mode.built && <span className="badge">not built yet</span>}
                   {mode.id === report.chosen && <span className="badge">chosen</span>}
                   <span className="hint">{mode.summary}</span>
+                  {mode.id !== "off" && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => void setUp(mode)}
+                        disabled={!mode.canSetUp || building !== ""}
+                      >
+                        {building === mode.id ? "Setting up…" : "Set this up"}
+                      </button>
+                      {/* Always shown, enabled or not: what it would do, or
+                          why it cannot. A disabled button with no reason
+                          beside it is a dead end. */}
+                      <span className="hint">{mode.setUpDetail}</span>
+                    </>
+                  )}
                 </th>
               ))}
             </tr>
@@ -89,6 +131,25 @@ export default function SandboxTable() {
             ))}
           </tbody>
         </table>
+      )}
+
+      {result && (
+        <section className="set-up-result" aria-label="What setting up did">
+          <p>{result.summary}</p>
+          <ol>
+            {result.steps.map((step) => (
+              <li key={step.name}>
+                <span>
+                  {step.name} — {step.succeeded ? "done" : "failed"}
+                </span>
+                {/* Whole, and in the tool's own words. When a download fails
+                    or a package is missing, this is the only thing that says
+                    which one. */}
+                {step.output && <pre>{step.output}</pre>}
+              </li>
+            ))}
+          </ol>
+        </section>
       )}
     </section>
   );

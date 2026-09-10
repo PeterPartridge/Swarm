@@ -161,6 +161,12 @@ pub struct ModeReport {
     /// not say this cannot be read safely.
     pub built: bool,
     pub summary: String,
+    /// Whether this app could build the boundary this mode needs, here, now.
+    /// Separate from `built`: one is about the machine, the other about the app.
+    pub can_set_up: bool,
+    /// What setting it up would do, or why it cannot be done. Never empty — an
+    /// unexplained disabled button is worse than no button.
+    pub set_up_detail: String,
     pub protections: Vec<Protection>,
 }
 
@@ -202,6 +208,9 @@ fn off_column() -> ModeReport {
         label: SANDBOXES[0].1.into(),
         built: true,
         summary: "Runs here, exactly as it always has.".into(),
+        // Nothing to build: this is the machine you are already on.
+        can_set_up: false,
+        set_up_detail: "There is nothing to set up — this is your machine.".into(),
         protections: PROTECTIONS
             .iter()
             .map(|name| protection(name, State::Unavailable, here))
@@ -215,6 +224,7 @@ fn wsl_column(found: &crate::tooling::sandbox_detect::WslFindings) -> ModeReport
     // Everything below hangs off this: without the app's own distribution,
     // configured by the app, WSL mode has nothing it can promise.
     let ready = found.answered && found.own_distribution;
+    let set_up = crate::tooling::sandbox_provision::plan_wsl(found);
     let unmounted = found.drive_mounted == Some(false);
 
     let boundary = if !ready {
@@ -256,6 +266,16 @@ fn wsl_column(found: &crate::tooling::sandbox_detect::WslFindings) -> ModeReport
         id: "wsl".into(),
         label: SANDBOXES[1].1.into(),
         built: false,
+        can_set_up: set_up.is_ok(),
+        set_up_detail: match &set_up {
+            Ok(steps) => format!(
+                "{} step{} — it downloads a distribution and installs into it, so it takes 
+                 a while and prints everything it does.",
+                steps.len(),
+                if steps.len() == 1 { "" } else { "s" }
+            ),
+            Err(why) => why.clone(),
+        },
         summary: match (ready, found.detail.trim()) {
             (true, _) => {
                 format!("'{OWN_DISTRIBUTION}' is here. Running work inside it is not built yet.")
@@ -292,6 +312,7 @@ fn wsl_column(found: &crate::tooling::sandbox_detect::WslFindings) -> ModeReport
 
 fn docker_column(found: &crate::tooling::sandbox_detect::DockerFindings) -> ModeReport {
     let running = !found.server_version.is_empty();
+    let buildable = crate::tooling::sandbox_provision::plan_docker(found);
     let each = [
         "A container sees only what is mounted into it.",
         "One container per run, and containers do not share a filesystem.",
@@ -304,6 +325,13 @@ fn docker_column(found: &crate::tooling::sandbox_detect::DockerFindings) -> Mode
         id: "docker".into(),
         label: SANDBOXES[2].1.into(),
         built: false,
+        can_set_up: buildable.is_ok(),
+        set_up_detail: match &buildable {
+            Ok(()) => "Builds the agent's image — git, Node and Claude Code, and nothing of 
+                 any Solution's own toolchain."
+                .to_string(),
+            Err(why) => why.clone(),
+        },
         summary: match (running, found.detail.trim()) {
             (true, _) => format!(
                 "Docker {} is running. Running work inside it is not built yet.",
@@ -343,6 +371,8 @@ mod tests {
         WslFindings {
             installed: true,
             answered: true,
+            version: "2.7.13.0".into(),
+            can_own_distribution: true,
             distributions: vec![OWN_DISTRIBUTION.to_string()],
             own_distribution: true,
             drive_mounted: Some(false),

@@ -511,6 +511,33 @@ pub async fn sandbox_report(
     Ok(crate::tooling::sandbox::report(&chosen, &wsl, &docker))
 }
 
+/// Builds the boundary a mode needs — the one thing here that changes this
+/// machine.
+///
+/// **Detection runs again first, deliberately.** The panel's report is a
+/// moment old and the machine may have moved on: a distribution created in a
+/// terminal, an engine started, WSL updated. Planning from what is true now is
+/// what makes pressing this twice safe — an existing distribution gets
+/// configured rather than made again.
+#[tauri::command]
+pub async fn set_up_sandbox(
+    mode: String,
+) -> Result<crate::tooling::sandbox_provision::Provisioned, String> {
+    match crate::tooling::sandbox::Mode::from_setting(&mode) {
+        crate::tooling::sandbox::Mode::Wsl => {
+            let found = crate::tooling::sandbox_detect::wsl().await;
+            Ok(crate::tooling::sandbox_provision::provision_wsl(&found).await)
+        }
+        crate::tooling::sandbox::Mode::Docker => {
+            let found = crate::tooling::sandbox_detect::docker().await;
+            Ok(crate::tooling::sandbox_provision::provision_docker(&found).await)
+        }
+        crate::tooling::sandbox::Mode::Off => {
+            Err("there is nothing to set up for running on this machine".into())
+        }
+    }
+}
+
 #[tauri::command]
 pub async fn get_agent_run_mode(db: State<'_, AppDb>) -> Result<String, String> {
     let conn = db.0.lock().await;

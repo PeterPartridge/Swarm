@@ -10,6 +10,7 @@
 pub mod dev_runner;
 pub mod sandbox;
 pub mod sandbox_detect;
+pub mod sandbox_provision;
 pub mod scaffold;
 pub mod starter;
 pub mod test_runner;

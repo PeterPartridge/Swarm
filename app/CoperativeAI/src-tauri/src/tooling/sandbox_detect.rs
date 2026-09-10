@@ -50,10 +50,22 @@ pub enum Answered<T> {
     Silent,
 }
 
+/// The first WSL that can be told what to call a distribution.
+///
+/// Below this there is no `--name`, so the app cannot create one of its own
+/// without taking over the name of a distribution somebody else installed.
+/// That is not a thing to work around quietly — it is reported, and WSL mode
+/// stays on its borrowed footing.
+const NAMED_INSTALL_FROM: (u32, u32, u32) = (2, 4, 4);
+
 /// What WSL says about itself.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct WslFindings {
     pub installed: bool,
+    /// As reported by `wsl --version`. Empty when it would not say.
+    pub version: String,
+    /// Whether this WSL can be given a distribution of the app's own.
+    pub can_own_distribution: bool,
     /// False when it is installed but never answered.
     pub answered: bool,
     /// Distributions somebody could work in — Docker's own excluded.
@@ -135,6 +147,28 @@ pub fn drive_is_mounted(proc_mounts: &str) -> bool {
     })
 }
 
+/// The version out of `wsl --version`'s first line.
+pub fn wsl_version(said: &str) -> Option<String> {
+    said.lines()
+        .find_map(|line| line.trim().strip_prefix("WSL version:"))
+        .map(|rest| rest.trim().to_string())
+        .filter(|version| !version.is_empty())
+}
+
+/// Whether this WSL can be told what to call a distribution.
+///
+/// Compared number by number rather than as text: `2.10.0` is newer than
+/// `2.4.4` and sorts before it in every string comparison there is.
+pub fn supports_named_install(version: &str) -> bool {
+    let mut parts = version.split('.').map(|p| p.trim().parse::<u32>().unwrap_or(0));
+    let found = (
+        parts.next().unwrap_or(0),
+        parts.next().unwrap_or(0),
+        parts.next().unwrap_or(0),
+    );
+    found >= NAMED_INSTALL_FROM
+}
+
 /// The uid `id -u` printed, as "is this root".
 pub fn is_root(said: &str) -> Option<bool> {
     said.trim().lines().next()?.trim().parse::<u32>().ok().map(|uid| uid == 0)
@@ -159,7 +193,7 @@ pub fn server_version(said: &str) -> Option<String> {
 // ---------------------------------------------------------------------------
 
 /// Runs a tool and hands back what it printed, or why it could not be asked.
-async fn ask(program: &str, args: &[&str], patience: Duration) -> Answered<(bool, Vec<u8>)> {
+pub(crate) async fn ask(program: &str, args: &[&str], patience: Duration) -> Answered<(bool, Vec<u8>)> {
     let Some(exe) = crate::tooling::dev_runner::which(program) else {
         return Answered::NotInstalled;
     };
@@ -210,6 +244,17 @@ pub async fn wsl() -> WslFindings {
     findings.installed = true;
     findings.answered = true;
     findings.distributions = usable_distributions(&said);
+
+    // Asked separately because it decides whether this app can have a
+    // distribution of its own at all, and an old WSL is a fact to report
+    // rather than a thing to work around.
+    if let Answered::Yes((_, bytes)) = ask("wsl.exe", &["--version"], Duration::from_secs(20)).await
+    {
+        if let Some(version) = wsl_version(&decode_wsl(&bytes)) {
+            findings.can_own_distribution = supports_named_install(&version);
+            findings.version = version;
+        }
+    }
     findings.own_distribution = findings
         .distributions
         .iter()
