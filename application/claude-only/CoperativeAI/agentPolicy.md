@@ -37,7 +37,7 @@ Most capable tier (Claude Fable 5), high effort — it makes claims about what a
 
 | Item | What it looks like |
 |------|--------------------|
-| The policy | A file in the Solution's repository — what makes it shareable, reviewable and installable. A copy in this app's database is the one nobody else gets. |
+| The policy | **JSON, at `.coperativeai/policy.json`** in the Solution's repository. JSON because it must be reviewable in a pull request — a diff of a list of paths is something a person can read, and that review is the only safeguard against a hostile policy. In the repository because that is what makes it shareable and installable. |
 | The source | Where it came from and the commit it was pinned to, per Solution. |
 | A run's policy | What the run actually used, so its record stays true after the file moves on. |
 
@@ -78,8 +78,7 @@ This is the first thing in the app that claims an agent *cannot* do something, s
 - [ ] A run records its policy, its source and its commit, and still reports them afterwards.
 
 **Open questions**
-- **What is the policy file?** Not stated. It has to be readable enough to review in a pull request, because reviewing it is the only safeguard against a hostile one.
-- **May an installed policy come from a URL, or only from a file already looked at?** The brief names the safeguards but does not close this.
+- **May an installed policy come from a URL, or only from a file already looked at?** The brief names the safeguards but does not close this. *(Building the file route first, since it is the safer default and the URL route can be added on top of it.)*
 - **How much is "commands it must not run" worth?** A command is restricted by making its binary unreadable, which works and is far weaker than a file rule — an agent with a language runtime can rewrite most small tools. The page must not imply parity.
 - **The two backends fail differently.** Under WSL a protected file exists and is refused; under Docker it is absent. A build that expects a file behaves differently in each. Whether the page should warn about that, or the policy should be able to say which it wants, is not settled.
 

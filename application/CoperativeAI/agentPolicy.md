@@ -63,7 +63,7 @@ Anyone using the app — single-user local desktop application, no login. Roles 
 ## Part 3 — Building Details *(Developers answer)*
 
 ### data-stored — What information needs to be stored, and what does each bit look like?
-The policy lives in the Solution's repository as a file, because that is what makes it shareable, reviewable and installable — a copy in this app's database would be the one nobody else gets. The database holds only the pointer and what a run used, so a run's record still tells the truth after the file changes.
+**The policy is JSON, at `.coperativeai/policy.json` in the Solution's repository.** JSON because it has to be reviewable in a pull request — reviewing it is the only safeguard against a hostile one, and a diff of a list of paths is something a person can actually read. In the repository because that is what makes it shareable, reviewable and installable — a copy in this app's database would be the one nobody else gets. The database holds only the pointer and what a run used, so a run's record still tells the truth after the file changes.
 
 ### how-it-works — What actually happens, and when?
 **Under WSL**, after the run's copy is made and **before the agent is given anything to do**, the app applies the policy inside the distribution as root: a protected path is given to `root` and made unreadable to anyone else. The agent then works as its ordinary user with no way to become root.
