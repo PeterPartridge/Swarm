@@ -1,103 +1,114 @@
 # Page Spec — Agent Policy
 
 > Produced by `/translate` from [`../../CoperativeAI/agentPolicy.md`](../../CoperativeAI/agentPolicy.md). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
+>
+> Re-translated after Round 4, which replaced one mechanism with two.
 
 **Objective** _(unchanging)_
-Name the files an agent must not reach, in a file that lives with the code, and have that **enforced by the operating system** rather than requested of the agent. A policy script runs inside the boundary as root before the agent starts; the agent then works as an ordinary user that cannot become root, so what the script sets it cannot undo.
+Name the files an agent must not reach, in a file that lives with the code, and have that **enforced by the operating system** rather than requested of the agent. The policy says *what*; each boundary applies it its own way.
 
 **Model & effort**
 Most capable tier (Claude Fable 5), high effort — it makes claims about what an agent cannot do.
 
 **Depends on**
-- `CoperativeAI/agentSandbox.md` — **the whole feature rests on it.** Without a sandbox there is no separate user, so there is nothing to enforce anything against.
+- `CoperativeAI/agentSandbox.md` — **the whole feature rests on it.** With no sandbox there is no separate user and no container, so there is nothing to enforce anything against.
 - `CoperativeAI/adminArea.md`
-- `CoperativeAI/repositoryManagement.md` — *status says `filled`; see Open Questions.*
 
 **Actions**
 
 | User | Can do |
 |------|--------|
 | Anyone (no login) | Write a policy for a Solution: the folders and files an agent must not reach, and the commands it must not run. |
+| Anyone (no login) | Point at where a policy comes from — a GitHub location or a file on this machine — and the command that installs it, **inside the "Where agents run" card**. |
+| Anyone (no login) | Read the whole script before it runs, and see what installing would change before it takes effect. |
+| Anyone (no login) | Add a script of their own for what a list cannot express, and be told it takes effect **under WSL only**. |
 | Anyone (no login) | See, per rule, **which promise it keeps** — enforced by the system, or asked of the agent. |
-| Anyone (no login) | Save the policy into the Solution's repository, so it travels with the code. |
-| Anyone (no login) | Install a policy somebody else wrote, and see what it would change before it takes effect. |
-| Anyone (no login) | See, on a run, which policy was in force for it. |
-| Anyone (no login) | Be told plainly when a rule cannot be enforced here — the sandbox is off, or the rule is one only the agent can honour. |
+| Anyone (no login) | See, on a run, which policy was in force, from where, at which commit. |
+| Anyone (no login) | Be told plainly when a rule cannot be enforced here. |
 
 **Information shown / collected**
 - The rules: paths not to read, paths not to write, commands not to run.
-- Per rule, whether the system enforces it or the agent is merely asked.
-- What installing a file would change, before it changes anything.
-- Per run: the policy that was in force, kept with the run.
+- Where the policy came from, and at which commit.
+- Per rule: enforced by the system, or asked of the agent.
+- What installing would change, before it changes anything.
+- Per run: the policy in force, kept with the run.
 
 **Data to store**
 
 | Item | What it looks like |
 |------|--------------------|
-| The policy | A file in the Solution's repository. That is what makes it shareable, reviewable and installable — a copy in this app's database is the one nobody else gets. |
-| The pointer | Where that file is, per Solution. |
+| The policy | A file in the Solution's repository — what makes it shareable, reviewable and installable. A copy in this app's database is the one nobody else gets. |
+| The source | Where it came from and the commit it was pinned to, per Solution. |
 | A run's policy | What the run actually used, so its record stays true after the file moves on. |
 
-**How it works**
+**How it works — two mechanisms, because one of them does not exist in a container**
 
-After a run's copy is made and **before the agent is given anything to do**, the policy runs inside the boundary as root. A protected path is given to `root` and made unreadable to anyone else; the agent then works as its ordinary user with no way to become root.
+| | WSL | Docker |
+|---|---|---|
+| Mechanism | Permissions: the path is given to `root` and made unreadable | Mounts: the path is masked when the container is created |
+| Applied | Before the agent starts, as a script run as root | At container creation, as flags — earlier than any script could run |
+| Capabilities needed | Root inside the distribution | **None** |
+| The agent sees | The file, and is refused | Nothing at all |
 
-Established on the machine this was written on, not assumed:
+Established on a real machine, not assumed:
 
-- Reading a root-owned mode-`000` file as the agent: **Permission denied**.
-- `chmod` on it: **Operation not permitted**. `chown`: the same.
-- **Deleting it succeeded** — removal depends on write permission on the *directory*, not on the file.
-- The sticky bit does not fix that: it permits the directory's owner, and that is the agent.
-- With the **parent directory root-owned too**, deletion is refused as well — at the price that the agent can then create nothing in that directory.
+- **WSL.** Reading a root-owned mode-`000` file as the agent: *Permission denied*. `chmod` and `chown` on it: *Operation not permitted*. **Deleting it succeeded** — removal depends on write permission on the *directory*. The sticky bit does not help: it permits the directory's owner, which is the agent. With the parent root-owned too, deletion is refused — at the price that the agent can create nothing in that directory.
+- **Docker.** Root inside the container **cannot** give a file to another user: `chown` returns *Operation not permitted*, because `CAP_CHOWN` is dropped. The permissions route does not exist there. Masking with a mount does work, needs no capabilities, and gives *No such file or directory* through it.
+
+Granting the container those capabilities back would buy the permissions route at the cost of weakening the container. Bad trade, unnecessary — which is why the policy is a list of *what* rather than a script of *how*.
 
 **Access & security**
-This is the first thing in the app that claims an agent *cannot* do something, so the project's rule — never claim a protection that has not been proved — binds harder here than anywhere. Two promises, never blurred: **enforced** means the operating system refuses the agent, and **asked** means the agent has been requested and can be told to disregard it, which is worth nothing under "never ask". With the sandbox **off** there is no separate user at all: the agent runs as the person using the machine, and every rule must report as asked-only, because that is all any of them can be. A policy script runs **as root inside the boundary**, so it can weaken that boundary as easily as strengthen it — it is shown before it runs, the way the language starters already are. Roles gate visibility only and must never be described as controlling this.
+This is the first thing in the app that claims an agent *cannot* do something, so the project's rule — never claim a protection that has not been proved — binds harder here than anywhere. Two promises, never blurred: **enforced** means the operating system refuses the agent; **asked** means the agent has been requested and can be told to disregard it, which is worth nothing under "never ask". With the sandbox **off** there is no separate user and no container: the agent runs as the person using the machine, and every rule must report as asked-only, because that is all any of them can be. A policy script runs **as root inside the boundary**, so it can weaken that boundary as easily as strengthen it — hence: fetched on this machine so it can be read before it is used, shown whole before it runs, pinned to a commit and never a branch, and recorded with the run. Roles gate visibility only and must never be described as controlling this.
 
 **Tests**
 - [ ] A protected path **cannot be read by the agent** — tried from inside, as the agent, and refused.
 - [ ] The agent **cannot undo it**: `chmod` and `chown` are both refused.
-- [ ] Where the policy asks for it, the agent **cannot delete it either**; where that was not possible without taking the directory, the page said so rather than implying otherwise.
-- [ ] The policy runs **before** anything is handed to an agent, never after.
+- [ ] Where the policy asks for it, the agent **cannot delete it either**; where that needed the directory, the page said so rather than implying otherwise.
+- [ ] The policy takes effect **before** anything is handed to an agent — under WSL as permissions, under Docker as the container's mounts.
+- [ ] **The same policy file restricts under both backends**, checked from inside each rather than from the flags meant to cause it.
+- [ ] A user-supplied script is applied under WSL and reported as **not in effect** under Docker, never silently ignored.
 - [ ] With the sandbox off, every rule reports as asked-only.
 - [ ] A rule only the agent can honour is labelled as such and never described as enforced.
 - [ ] A policy saved in one repository and installed into another produces the same rules.
-- [ ] Installing shows what it would change, and applies nothing until it is confirmed.
+- [ ] Installing shows what it would change, and applies nothing until confirmed.
 - [ ] A malformed policy is refused naming the line that is wrong, and leaves the existing one alone.
 - [ ] A rule naming a path outside the repository is refused rather than silently ignored.
-- [ ] A run records the policy it used and still reports it after the file has changed.
+- [ ] A GitHub source given as a branch is refused, or pinned to the commit it resolves to.
+- [ ] The script is shown in full before it can run, and running is a separate press from fetching.
+- [ ] A run records its policy, its source and its commit, and still reports them afterwards.
 
 **Open questions**
-- **Does this work under Docker at all?** The container is started with `--cap-drop=ALL`, which drops `CAP_CHOWN` and `CAP_FOWNER` — the two capabilities root needs to take ownership and override permissions. Root inside that container may therefore be unable to apply a policy, and the fix (granting those capabilities back) would weaken the container to enforce a restriction. **Worth checking against a real container before any of this is built**, because if it does not work the feature is WSL-only and the table has to say so.
-- **What is the policy file?** The brief does not say what shape it takes or what it is called. It has to be readable enough to review in a pull request, since reviewing it is the safeguard against a hostile one.
-- **Where may an installed policy come from?** The brief flags this as a decision and does not make it. A shared policy is somebody else's root script; "a file you have looked at" and "a URL" are very different propositions.
-- **How much is "commands it must not run" actually worth?** The proven mechanism is file permissions, so a command is restricted by making its binary unreadable — which works, and is far weaker than a file rule: an agent with a language runtime can rewrite most small tools. The page should not imply parity between the two.
-- **`repositoryManagement.md` is `status: filled`.** The Code map records the feature as built (`components/vcs/`), so this looks like the stale frontmatter `terminal.md` had rather than unbuilt work. Either that status is corrected, or the dependency is dropped — the policy file needs a folder to live in, which is `solution.local_path`, not repository management as such.
+- **What is the policy file?** Not stated. It has to be readable enough to review in a pull request, because reviewing it is the only safeguard against a hostile one.
+- **May an installed policy come from a URL, or only from a file already looked at?** The brief names the safeguards but does not close this.
+- **How much is "commands it must not run" worth?** A command is restricted by making its binary unreadable, which works and is far weaker than a file rule — an agent with a language runtime can rewrite most small tools. The page must not imply parity.
+- **The two backends fail differently.** Under WSL a protected file exists and is refused; under Docker it is absent. A build that expects a file behaves differently in each. Whether the page should warn about that, or the policy should be able to say which it wants, is not settled.
 
 #### Page Skills
 | Skill | Why it's needed | How the AI will use it | New for this page? |
 |-------|------------------|--------------------------|----------------------|
-| Enforcing with the system rather than asking | The whole difference between this and a deny-list is who refuses. | Run the policy as root inside the boundary before the agent starts; give protected paths to root; leave the agent as an ordinary user that cannot become root. | Yes. |
-| Saying which promise a rule keeps | A rule the agent merely honours is worth nothing under "never ask", and must never be shown as though it were. | Two plainly different words per rule, decided from the sandbox in force and the kind of rule — never one icon for both. | Extends the sandbox's capability table. |
-| Reviewing a script before it runs | An installed policy is somebody else's root script inside the boundary. | Show it whole before it is applied, and show what it would change, the way the language starters are shown before they run. | Extends `starter`'s "shown before it runs" rule. |
+| One policy, two mechanisms | The permissions route does not exist in a container, and the mounts route does not need a script. | Read the policy once; apply it as permissions under WSL and as mount flags under Docker; prove each from inside rather than from the flags. | Yes. |
+| Saying which promise a rule keeps | A rule the agent merely honours is worth nothing under "never ask" and must never look like one that is enforced. | Two plainly different words per rule, from the sandbox in force and the kind of rule — never one icon for both. | Extends the sandbox's capability table. |
+| Reviewing a script before it runs | An installed policy is somebody else's root script inside the boundary. | Fetch on this machine, show it whole, pin it to a commit, record it with the run — and make running a separate press from fetching. | Extends `starter`'s "shown before it runs" rule. |
 
 ---
 
 ## PLAN
 
-**Summary:** A policy file per Solution, applied by a script that runs inside the boundary as root before the agent starts, and a panel that says per rule whether the system enforces it or the agent is merely asked.
+**Summary:** A policy file per Solution saying what an agent must not reach, applied as permissions under WSL and as container mounts under Docker, with a panel inside "Where agents run" that says per rule which promise is being kept.
 
 **Changes:**
 - A policy reader and writer for the Solution's repository, refusing a malformed file by line and leaving the existing one alone.
-- `tooling/sandbox_policy.rs`: pure — turn a policy into the commands that apply it; and the spawning half that runs them as root inside the boundary in force.
-- Applied from the run flow, **after the copy is made and before the brief is handed over**, for WSL and — subject to the capability question above — Docker.
-- `change_runs` records the policy a run used.
-- Admin: a card beside the sandbox panel, in the same shape, with the rules, their two-word verdicts, and save/install with a preview of what would change.
-- Tests: the eleven above, with the enforcement ones run against the real distribution rather than fixtures, because that is the only place the claim can be proved.
+- `tooling/sandbox_policy.rs`: pure — a policy plus the mode in force becomes either the commands to run as root or the flags to create the container with. Both halves testable without a machine.
+- WSL: applied from the run flow after the copy and before the brief. Docker: folded into `run_args`, since the container cannot exist unrestricted first.
+- A source (GitHub or file) with fetch and run as separate presses, the script shown whole, and branches pinned to commits.
+- `change_runs` records the policy, its source and its commit.
+- Admin: inside the sandbox card — the rules, their two-word verdicts, the source, and a preview of what installing would change.
+- Tests: the fifteen above, with every enforcement claim proved **from inside each backend** rather than from the flags meant to cause it.
 
 **Expected technical debt:**
-- Docker may not be able to enforce this at all under `--cap-drop=ALL`; if so the feature is WSL-only until that is resolved, and the table must say which.
-- Restricting a file the build needs will present as a broken build rather than as a policy.
-- Undeletable costs the directory, so single files at a working copy's root can be made unreadable but not undeletable.
-- Nothing here can keep anything from an agent that reaches the network.
+- Restricting a file the build needs will present as a broken build rather than as a policy — and differently in each backend, since one hides the file and the other refuses it.
+- Undeletable costs the directory, so a single file at a working copy's root can be made unreadable but not undeletable.
+- Nothing here keeps anything from an agent that reaches the network.
+- A user-supplied script is WSL-only, which is a real asymmetry between the two modes rather than an implementation detail.
 
-**Status:** translated — waiting for approval
+**Status:** re-translated — waiting for approval
