@@ -298,6 +298,33 @@ pub async fn fetch(from: &str, folder: &str, expected: &str) -> Result<Fetched, 
     })
 }
 
+/// What a run writes down about what bounded it.
+///
+/// **Two claims, kept in two fields.** `deny` and `digest` describe the
+/// Solution's own policy file, which was read for this run and enforced by the
+/// boundary in force. `script` describes something else entirely: an imperative
+/// policy script run into the distribution at some earlier moment, which
+/// produced no deny list and under Docker never ran at all. Folding them into
+/// one field would assert that this run's rules came from that source — untrue
+/// of both backends, and exactly the blurring this area exists to avoid.
+///
+/// **A script from a different boundary is left out rather than noted.** What
+/// was installed into WSL says nothing about a run in a container, and a record
+/// mentioning it would invite the reader to connect them.
+pub fn record_for(
+    sandbox: &str,
+    deny: &[String],
+    digest: &str,
+    script: Option<(&str, &str, i64)>,
+) -> String {
+    let mut record = serde_json::json!({ "sandbox": sandbox, "deny": deny, "digest": digest });
+    if let Some((from, script_digest, at)) = script {
+        record["script"] =
+            serde_json::json!({ "from": from, "digest": script_digest, "at": at });
+    }
+    record.to_string()
+}
+
 /// Runs the policy where the agent will run.
 ///
 /// **Only where a boundary already exists.** Under WSL the distribution is
@@ -644,6 +671,27 @@ mod tests {
             .await
             .expect_err("no container outside a run");
         assert!(later.contains("when a run starts"), "{later}");
+    }
+
+    /// **Two claims, two fields.** The deny list bounded the run; the script
+    /// was run into the distribution earlier and produced no deny list at all.
+    /// One field for both would say the run's rules came from that source.
+    #[test]
+    fn a_run_records_its_policy_and_the_script_separately() {
+        let deny = vec!["secrets".to_string()];
+        let plain = record_for("wsl", &deny, "aa", None);
+        let said: serde_json::Value = serde_json::from_str(&plain).expect("json");
+        assert_eq!(said["digest"], "aa");
+        assert_eq!(said["deny"][0], "secrets");
+        // Absent, not null and not empty: there is nothing to claim.
+        assert!(said.get("script").is_none(), "{plain}");
+
+        let both = record_for("wsl", &deny, "aa", Some(("https://e.com/p.sh", "bb", 7)));
+        let said: serde_json::Value = serde_json::from_str(&both).expect("json");
+        assert_eq!(said["digest"], "aa", "the policy file's own digest is untouched");
+        assert_eq!(said["script"]["digest"], "bb");
+        assert_eq!(said["script"]["from"], "https://e.com/p.sh");
+        assert_eq!(said["script"]["at"], 7);
     }
 
     /// **The whole loop, against the real distribution.**

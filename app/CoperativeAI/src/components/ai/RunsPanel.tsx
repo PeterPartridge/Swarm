@@ -549,6 +549,22 @@ function RanInside({ run }: { run: Run }) {
           Policy <code title={said.digest}>{said.digest.slice(0, 12)}</code>.
         </>
       )}
+      {/* **A second sentence, because it is a second claim.** The deny list
+          above bounded this run. A script run into the distribution weeks
+          earlier did not produce that list and is not why those paths were
+          refused — so it gets its own words, in the past tense, saying when it
+          ran rather than that it is in force. Nothing watches the distribution
+          afterwards, and root inside it can undo anything the script did. */}
+      {said.script !== null && (
+        <>
+          {" "}
+          Before this run, a policy script from {said.script.from} (
+          <code title={said.script.digest}>{said.script.digest.slice(0, 12)}</code>) had been run
+          into {said.sandbox === "docker" ? "that boundary" : "the distribution"} on{" "}
+          {new Date(said.script.at).toLocaleDateString()}. What it left in place is not checked
+          here.
+        </>
+      )}
     </p>
   );
 }

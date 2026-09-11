@@ -344,7 +344,24 @@ pub(crate) async fn prepare_run(
         let digest = std::fs::read(&at)
             .map(|bytes| crate::tooling::sandbox_policy::digest(&bytes))
             .unwrap_or_default();
-        serde_json::json!({ "sandbox": sandbox.id(), "deny": deny, "digest": digest }).to_string()
+
+        // **The script that was run into the boundary, recorded beside the
+        // policy and never folded into it.** These are two different claims:
+        // the deny list above bounded *this run*, while the script below was
+        // run into the distribution at some earlier moment and produced no
+        // deny list at all. Writing them as one field would assert that the
+        // run's rules came from that source, which is not true of either
+        // backend — and under Docker no script ever ran.
+        let script = crate::db::system_setting::installed_policy(conn)
+            .await
+            .unwrap_or_default();
+        let ran_here = !script.from.is_empty() && script.mode == sandbox.id();
+        crate::tooling::sandbox_policy::record_for(
+            sandbox.id(),
+            &deny,
+            &digest,
+            ran_here.then_some((script.from.as_str(), script.digest.as_str(), script.at)),
+        )
     };
     change_run::set_restriction(conn, run_id, &restricted_by)
         .await

@@ -251,6 +251,61 @@ pub async fn set_agent_policy_source(
     set(conn, AGENT_POLICY_KEY, &json).await
 }
 
+const AGENT_POLICY_INSTALLED_KEY: &str = "agentPolicyInstalled";
+
+/// The policy script that was last run into the boundary.
+///
+/// **A separate thing from the Solution's `policy.json`, and recorded
+/// separately because blurring the two would be a lie about cause.** The
+/// Solution's file is a deny list read on every run and enforced by whichever
+/// boundary is in force. This is an imperative script, app-wide, run as root
+/// into the WSL distribution by a press in Admin — it produces no deny list and
+/// under Docker it never runs at all. What bounded a run and what was once
+/// installed into the distribution are different claims, and a run's record has
+/// to keep them apart.
+///
+/// **What was run, never what is still in force.** Nothing here watches the
+/// distribution afterwards. Somebody with root inside it can undo every
+/// permission this set, and re-running set-up rewrites the user and the run
+/// space. So this says a script ran, when, and which one — and the panel says
+/// exactly that, rather than "the policy is applied".
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstalledPolicy {
+    /// Where the script came from. Empty means none has ever been run.
+    pub from: String,
+    /// The SHA-256 of what actually ran.
+    pub digest: String,
+    /// The boundary it was run into — only ever `wsl` today.
+    pub mode: String,
+    /// When it ran, in milliseconds since the epoch.
+    pub at: i64,
+}
+
+pub async fn installed_policy(conn: &Connection) -> Result<InstalledPolicy> {
+    Ok(match get(conn, AGENT_POLICY_INSTALLED_KEY).await? {
+        Some(json) => serde_json::from_str(&json).unwrap_or_default(),
+        None => InstalledPolicy::default(),
+    })
+}
+
+pub async fn set_installed_policy(conn: &Connection, ran: &InstalledPolicy) -> Result<()> {
+    let json = serde_json::to_string(ran).expect("struct serialize");
+    set(conn, AGENT_POLICY_INSTALLED_KEY, &json).await
+}
+
+/// Forgets what was installed, because the boundary it was installed into is
+/// being built again.
+///
+/// **Cleared rather than left to age.** Set-up rewrites the agent user and the
+/// run space, which is where a policy script does its work — so a record kept
+/// across it would go on naming a script whose effects may no longer exist.
+/// A blank record says "nothing was run into this boundary", which is the one
+/// thing that stays true.
+pub async fn forget_installed_policy(conn: &Connection) -> Result<()> {
+    set(conn, AGENT_POLICY_INSTALLED_KEY, "").await
+}
+
 pub async fn paid_api_allowed(conn: &Connection) -> Result<bool> {
     Ok(match get(conn, API_USAGE_KEY).await? {
         Some(json) => serde_json::from_str::<bool>(&json).unwrap_or(false),

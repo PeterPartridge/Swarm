@@ -88,7 +88,7 @@ describe("what a run says bounded it", () => {
     // A run recorded before digests were kept has none, and it stays blank for
     // the same reason the sandbox does not fall back to today's setting: an
     // honest gap beats a filled-in claim nobody can check.
-    expect(said).toEqual({ sandbox: "docker", deny: ["secrets"], digest: "" });
+    expect(said).toEqual({ sandbox: "docker", deny: ["secrets"], digest: "", script: null });
 
     // One recorded since carries the digest of the policy file that bounded it,
     // which is what lets somebody hold a file up against the record afterwards.
@@ -96,7 +96,23 @@ describe("what a run says bounded it", () => {
       restrictionOf({
         restrictedBy: `{"sandbox":"wsl","deny":["secrets"],"digest":"${"a".repeat(64)}"}`,
       }),
-    ).toEqual({ sandbox: "wsl", deny: ["secrets"], digest: "a".repeat(64) });
+    ).toEqual({ sandbox: "wsl", deny: ["secrets"], digest: "a".repeat(64), script: null });
+
+    // **Two claims, kept apart.** The deny list bounded this run; the script
+    // was run into the distribution at an earlier moment and produced no deny
+    // list at all. They are separate fields because folding them into one
+    // would assert that the run's rules came from that source.
+    const both = restrictionOf({
+      restrictedBy: JSON.stringify({
+        sandbox: "wsl",
+        deny: ["secrets"],
+        digest: "a".repeat(64),
+        script: { from: "https://example.com/lockdown.sh", digest: "b".repeat(64), at: 1 },
+      }),
+    });
+    expect(both?.digest).toBe("a".repeat(64));
+    expect(both?.script?.digest).toBe("b".repeat(64));
+    expect(both?.script?.from).toBe("https://example.com/lockdown.sh");
   });
 
   /** A record nobody can parse is not a claim to guess at. */

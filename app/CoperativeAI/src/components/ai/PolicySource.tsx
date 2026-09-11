@@ -2,11 +2,13 @@ import { useCallback, useEffect, useState } from "react";
 import {
   fetchAgentPolicy,
   getAgentPolicySource,
+  getInstalledPolicy,
   movingGithubRef,
   runAgentPolicy,
   setAgentPolicySource,
   type AgentPolicySource,
   type FetchedPolicy,
+  type InstalledPolicy,
 } from "../../lib/backend";
 
 /** Where an agent policy comes from, what installs it, and where it lands.
@@ -37,6 +39,10 @@ export default function PolicySource() {
   /** Which act is under way, so only its own button says so. */
   const [busy, setBusy] = useState("");
 
+  /** What was last run into the boundary — past tense, and not a claim that
+   *  it is still in force. */
+  const [installed, setInstalled] = useState<InstalledPolicy | null>(null);
+
   const load = useCallback(async () => {
     try {
       const got = await getAgentPolicySource();
@@ -45,6 +51,13 @@ export default function PolicySource() {
       setError(null);
     } catch (e) {
       setError(String(e));
+    }
+    // Separate from the source, and its failure is not the source's failure:
+    // not knowing what was installed must not make the panel look broken.
+    try {
+      setInstalled(await getInstalledPolicy());
+    } catch {
+      setInstalled(null);
     }
   }, []);
 
@@ -89,6 +102,13 @@ export default function PolicySource() {
       setRan(await runAgentPolicy(fetched));
       setNote("Policy run.");
       setError(null);
+      // Re-read rather than assumed: what is shown as installed should be what
+      // the backend actually wrote down, not what this component expected it to.
+      try {
+        setInstalled(await getInstalledPolicy());
+      } catch {
+        /* The run still happened; not knowing is not worth an alert here. */
+      }
     } catch (e) {
       setError(String(e));
       setRan("");
@@ -261,6 +281,30 @@ export default function PolicySource() {
           <pre>{ran || "(it said nothing)"}</pre>
         </div>
       )}
+
+      {/* **What was run, in the past tense, with the date.** A person looking
+          at this panel wants to know whether the boundary has had a policy put
+          into it — and the only honest answer available is "this script ran, on
+          this day". Nothing here watches the distribution afterwards, and root
+          inside it can undo every permission a script set, so present tense
+          would be a claim this app cannot support. */}
+      <div className="policy-read">
+        {installed !== null && installed.from !== "" ? (
+          <p className="hint">
+            Last run into the {installed.mode === "docker" ? "container" : "distribution"}:{" "}
+            {installed.from} (<code title={installed.digest}>{installed.digest.slice(0, 12)}</code>)
+            on {new Date(installed.at).toLocaleString()}. That says a script ran, not that what it
+            did is still in place — anything with root inside the boundary can undo it, and setting
+            the sandbox up again clears this record because it rebuilds what the script worked on.
+          </p>
+        ) : (
+          <p className="hint">
+            No policy script has been run into the boundary. A Solution&rsquo;s own{" "}
+            <code>.coperativeai/policy.json</code> is enforced on every run regardless — that is a
+            different mechanism from this one.
+          </p>
+        )}
+      </div>
 
       {/* **Said plainly rather than discovered.** A source that has been saved
           is not a policy in force, and the gap between the two is exactly where
