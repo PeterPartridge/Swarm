@@ -180,12 +180,27 @@ pub fn is_root(said: &str) -> Option<bool> {
 /// the commonest state of all on a machine that has Docker installed, and it
 /// answers questions about itself perfectly happily — so asking anything but
 /// the server reports a sandbox that cannot run a thing.
+/// **Judged by shape, not by hunting for the words a failure happens to use.**
+/// The first version of this rejected anything containing "error" or "Cannot
+/// connect", and a stopped engine on this machine answered *"failed to connect
+/// to the docker API at npipe:…"* — which contains neither, and was accepted as
+/// a version. The panel would then have said "Docker ‹that whole sentence› is
+/// running", which is precisely the claim this feature exists to prevent.
+///
+/// A version is digits and dots, possibly with a suffix like `-ce` or `+azure`.
+/// Anything else is not one, whatever it says about itself — and that test does
+/// not depend on Docker's choice of wording, which was the flaw before.
 pub fn server_version(said: &str) -> Option<String> {
     let line = said.trim().lines().next()?.trim();
-    if line.is_empty() || line.contains("error") || line.contains("Cannot connect") {
-        return None;
-    }
-    Some(line.to_string())
+    let looks_like_one = line
+        .split(['-', '+'])
+        .next()
+        .is_some_and(|number| {
+            !number.is_empty()
+                && number.split('.').count() >= 2
+                && number.split('.').all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()))
+        });
+    looks_like_one.then(|| line.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -425,6 +440,29 @@ proc /proc proc rw,nosuid 0 0
     #[test]
     fn a_running_engine_reports_its_version() {
         assert_eq!(server_version("27.3.1\n"), Some("27.3.1".into()));
+        assert_eq!(server_version("29.7.2"), Some("29.7.2".into()));
+        // Real versions carry suffixes, and those are still versions.
+        assert_eq!(server_version("20.10.7-ce"), Some("20.10.7-ce".into()));
+        assert_eq!(server_version("19.03.8+azure"), Some("19.03.8+azure".into()));
+    }
+
+    /// **This machine's actual answer with the engine stopped**, and the reason
+    /// the check is on shape rather than on wording: it contains neither
+    /// "error" nor "Cannot connect", so the first version of this took it for a
+    /// version and the panel would have reported the whole sentence as one.
+    #[test]
+    fn a_sentence_about_failing_to_connect_is_not_a_version() {
+        let said = "failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine; check if the path is correct and if the daemon is running: open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.";
+        assert_eq!(server_version(said), None);
+    }
+
+    /// Nothing that is not a version is one, whatever words it uses.
+    #[test]
+    fn only_something_shaped_like_a_version_counts_as_one() {
+        for not_one in ["", "  ", "unknown", "27", "v27.3.1", "latest", "the daemon is not running"]
+        {
+            assert_eq!(server_version(not_one), None, "accepted: {not_one:?}");
+        }
     }
 
     /// **The running half, against the machine it is on.**
