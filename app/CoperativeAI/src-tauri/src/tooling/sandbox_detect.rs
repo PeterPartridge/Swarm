@@ -203,6 +203,64 @@ pub fn server_version(said: &str) -> Option<String> {
     looks_like_one.then(|| line.to_string())
 }
 
+/// Where Windows keeps WSL's managed settings.
+///
+/// **Under `Policies\WSL`, not `Policies\Microsoft\Windows\WSL`.** The obvious
+/// guess is the wrong one — WSL's own ADMX puts it at the shorter path, and
+/// looking in the likely place would have reported every managed machine as
+/// unmanaged, which is the one answer that must never be given by accident.
+pub const WSL_POLICY_KEY: &str = r"HKLM\SOFTWARE\Policies\WSL";
+
+/// What an organisation's device policy says about WSL on this machine.
+///
+/// **Managed and permitted are different questions.** A machine with no policy
+/// at all permits WSL; so does a machine whose policy explicitly allows it. The
+/// panel says which of those it is, because "your organisation allows this" and
+/// "nobody has said anything" call for different conversations when it breaks.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PolicyFindings {
+    /// Whether any WSL device policy exists here at all.
+    pub managed: bool,
+    /// Whether WSL is permitted. **True when unmanaged** — an absent policy
+    /// forbids nothing, and defaulting the other way would have the app blame
+    /// an IT department that had done nothing.
+    pub allows_wsl: bool,
+    /// Every managed setting found, in the registry's own names, so the panel
+    /// can show what was actually read rather than this app's summary of it.
+    pub settings: Vec<(String, u32)>,
+}
+
+/// Judges `reg query` output. Pure, so every managed case is testable on a
+/// machine that is not managed — which is every developer machine here.
+///
+/// `found` is whether the command succeeded: a missing key exits non-zero, and
+/// that is the ordinary unmanaged case rather than a failure to report.
+pub fn read_policy_key(found: bool, said: &str) -> PolicyFindings {
+    if !found {
+        return PolicyFindings { managed: false, allows_wsl: true, settings: Vec::new() };
+    }
+    let mut settings = Vec::new();
+    for line in said.lines() {
+        let mut parts = line.split_whitespace();
+        let (Some(name), Some(kind), Some(value)) = (parts.next(), parts.next(), parts.next())
+        else {
+            continue;
+        };
+        if !kind.eq_ignore_ascii_case("REG_DWORD") {
+            continue;
+        }
+        // `reg` prints DWORDs as 0x1. Anything it prints that will not parse is
+        // skipped rather than guessed at.
+        let Ok(number) = u32::from_str_radix(value.trim_start_matches("0x"), 16) else {
+            continue;
+        };
+        settings.push((name.to_string(), number));
+    }
+    // Managed means the key exists, even if it sets nothing this app reads.
+    let allows_wsl = !settings.iter().any(|(name, v)| name == "AllowWSL" && *v == 0);
+    PolicyFindings { managed: true, allows_wsl, settings }
+}
+
 // ---------------------------------------------------------------------------
 // Running: the half that needs the tools installed.
 // ---------------------------------------------------------------------------
@@ -312,6 +370,23 @@ pub async fn wsl() -> WslFindings {
 }
 
 /// What Docker offers on this machine.
+/// What this machine's organisation has said about WSL.
+///
+/// **Unmanaged is the answer to every failure here.** `reg` missing, silent, or
+/// refusing all mean this app could not find a policy — and a policy it could
+/// not find is not one it may report as a restriction. Erring the other way
+/// would put "your organisation blocks this" in front of somebody whose
+/// organisation had done nothing at all.
+pub async fn device_policy() -> PolicyFindings {
+    let unmanaged = PolicyFindings { managed: false, allows_wsl: true, settings: Vec::new() };
+    // Short patience: this reads one local registry key. A `reg` that has not
+    // answered in five seconds is not going to.
+    match ask("reg.exe", &["query", WSL_POLICY_KEY], Duration::from_secs(5)).await {
+        Answered::Yes((ok, bytes)) => read_policy_key(ok, &String::from_utf8_lossy(&bytes)),
+        _ => unmanaged,
+    }
+}
+
 pub async fn docker() -> DockerFindings {
     let mut findings = DockerFindings::default();
     let asked = ask(
@@ -506,5 +581,77 @@ proc /proc proc rw,nosuid 0 0
         assert_eq!(is_root("0\n"), Some(true));
         assert_eq!(is_root("1000\n"), Some(false));
         assert_eq!(is_root("not a number"), None);
+    }
+
+    /// Real `reg query` output, spacing and all — a parser tested only on
+    /// tidied-up input is one that meets the real thing for the first time on
+    /// somebody else's managed laptop.
+    #[test]
+    fn a_managed_machine_is_read_from_what_reg_actually_prints() {
+        let said = "
+HKEY_LOCAL_MACHINESOFTWAREPoliciesWSL
+    AllowWSL    REG_DWORD    0x0
+    AllowInboxWSL    REG_DWORD    0x1
+";
+        let found = read_policy_key(true, said);
+        assert!(found.managed);
+        assert!(!found.allows_wsl, "AllowWSL=0 forbids it");
+        assert_eq!(found.settings, vec![("AllowWSL".to_string(), 0), ("AllowInboxWSL".to_string(), 1)]);
+    }
+
+    /// **A key that is not there forbids nothing.** The commonest machine of
+    /// all, and the one answer that must never be given by accident: erring
+    /// the other way blames an IT department that has done nothing.
+    #[test]
+    fn a_machine_with_no_policy_permits_everything() {
+        let missing = read_policy_key(false, "ERROR: The system was unable to find the specified registry key or value.");
+        assert!(!missing.managed);
+        assert!(missing.allows_wsl);
+        assert!(missing.settings.is_empty());
+    }
+
+    /// Managed is not the same as blocked: a policy that sets other things and
+    /// never mentions AllowWSL permits it.
+    #[test]
+    fn a_policy_that_never_mentions_wsl_still_permits_it() {
+        let found = read_policy_key(true, "    AllowWSL1    REG_DWORD    0x0
+");
+        assert!(found.managed);
+        assert!(found.allows_wsl);
+    }
+
+    /// Anything that will not parse is skipped rather than guessed at — a
+    /// misread value here becomes a claim about somebody's organisation.
+    #[test]
+    fn lines_that_are_not_settings_are_left_alone() {
+        let found = read_policy_key(true, "HKEY_LOCAL_MACHINESOFTWAREPoliciesWSL
+    Note    REG_SZ    hello
+    Broken    REG_DWORD    zzz
+    AllowWSL    REG_DWORD    0x1
+");
+        assert_eq!(found.settings, vec![("AllowWSL".to_string(), 1)]);
+        assert!(found.allows_wsl);
+    }
+
+    /// **Proves the spawn, which the pure tests above cannot.** The dangerous
+    /// failure here is silent: if `which` cannot find `reg.exe`, every machine
+    /// on earth reports as unmanaged and the panel quietly stops telling
+    /// anybody their organisation blocked WSL. Ignored by default because it
+    /// reports this machine rather than a fixture; run it to see what this one
+    /// actually says.
+    #[test]
+    #[ignore = "asks this machine what its organisation has said"]
+    fn what_this_machine_says_about_wsl_policy() {
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        let found = runtime.block_on(device_policy());
+        println!("managed: {}", found.managed);
+        println!("allows wsl: {}", found.allows_wsl);
+        println!("settings: {:?}", found.settings);
+        // The spawn itself is what is being proved: reg.exe has to be findable,
+        // or the unmanaged answer above means nothing at all.
+        assert!(
+            crate::tooling::dev_runner::which("reg.exe").is_some(),
+            "reg.exe must be findable, or every machine reads as unmanaged"
+        );
     }
 }

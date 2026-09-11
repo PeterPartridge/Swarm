@@ -284,6 +284,7 @@ pub const PROTECTIONS: &[&str] = &[
     "Reduced privileges",
     "Limits on what a run can use",
     "Control over what it can reach",
+    "Managed by your organisation",
 ];
 
 /// Whether one protection is actually doing anything.
@@ -368,10 +369,11 @@ pub fn report(
     chosen: &str,
     wsl: &crate::tooling::sandbox_detect::WslFindings,
     docker: &crate::tooling::sandbox_detect::DockerFindings,
+    policy: &crate::tooling::sandbox_detect::PolicyFindings,
 ) -> Report {
     Report {
         chosen: Mode::from_setting(chosen).id().to_string(),
-        modes: vec![off_column(), wsl_column(wsl), docker_column(docker)],
+        modes: vec![off_column(), wsl_column(wsl, policy), docker_column(docker)],
     }
 }
 
@@ -397,7 +399,10 @@ fn off_column() -> ModeReport {
     }
 }
 
-fn wsl_column(found: &crate::tooling::sandbox_detect::WslFindings) -> ModeReport {
+fn wsl_column(
+    found: &crate::tooling::sandbox_detect::WslFindings,
+    policy: &crate::tooling::sandbox_detect::PolicyFindings,
+) -> ModeReport {
     use crate::tooling::sandbox_detect::OWN_DISTRIBUTION;
 
     // Everything below hangs off this: without the app's own distribution,
@@ -441,6 +446,45 @@ fn wsl_column(found: &crate::tooling::sandbox_detect::WslFindings) -> ModeReport
         _ => protection(PROTECTIONS[2], State::Unavailable, "Nothing to look inside yet."),
     };
 
+    // **The one row that is not a promise to the agent.** Every other row says
+    // what the boundary keeps from a run. This one says whether somebody else
+    // decides the boundary may exist at all — a constraint on this app, not a
+    // protection it offers — so it is worded as management rather than as
+    // safety, and `Enforced` here means "a policy is in force", never "you are
+    // protected".
+    let organisation = if !policy.managed {
+        protection(
+            PROTECTIONS[5],
+            State::Unavailable,
+            "No device policy manages WSL on this machine — your organisation neither requires \
+             nor forbids anything here.",
+        )
+    } else if !policy.allows_wsl {
+        protection(
+            PROTECTIONS[5],
+            State::Unavailable,
+            "Your organisation's device policy turns WSL off on this machine (AllowWSL=0), so \
+             this mode cannot run at all — no amount of setting up will change that.",
+        )
+    } else {
+        let named = policy
+            .settings
+            .iter()
+            .map(|(name, value)| format!("{name}={value}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        protection(
+            PROTECTIONS[5],
+            State::Enforced,
+            &format!(
+                "Your organisation manages WSL here and allows it: {named}. These cover the \
+                 Windows side only — none of them reach inside the distribution, so they neither \
+                 add to nor take away from what a policy file does."
+            ),
+        )
+    };
+
+    let allowed = policy.allows_wsl;
     ModeReport {
         id: "wsl".into(),
         label: SANDBOXES[1].1.into(),
@@ -448,8 +492,12 @@ fn wsl_column(found: &crate::tooling::sandbox_detect::WslFindings) -> ModeReport
         // below may now say a protection is in force — but only where
         // detection proved it, never because the mode exists.
         built: true,
-        can_choose: ready && unmounted,
-        choose_detail: if ready && unmounted {
+        can_choose: ready && unmounted && allowed,
+        choose_detail: if !allowed {
+            "Your organisation's device policy turns WSL off on this machine, so there is \
+             nothing here to choose."
+                .to_string()
+        } else if ready && unmounted {
             "Ready — runs will happen inside it.".to_string()
         } else {
             "Set it up first: choosing it before there is a boundary would stop the terminal \n             working, with nothing gained."
@@ -465,15 +513,21 @@ fn wsl_column(found: &crate::tooling::sandbox_detect::WslFindings) -> ModeReport
             ),
             Err(why) => why.clone(),
         },
-        summary: match (ready, found.detail.trim()) {
-            (true, _) => format!(
+        summary: match (allowed, ready, found.detail.trim()) {
+            // **Ahead of everything detection found.** A machine can have a
+            // perfectly good WSL that policy forbids using, and reporting the
+            // distribution as ready would send somebody to set up a mode they
+            // are not permitted to run.
+            (false, _, _) => "Your organisation's device policy turns WSL off on this machine."
+                .to_string(),
+            (true, true, _) => format!(
                 "'{OWN_DISTRIBUTION}' is here, and runs happen inside it — each in a clone of \n                 its own, because a checkout made out here cannot be used in there."
             ),
             // Never left blank. A column with no summary is one whose verdict
             // has to be inferred from the rows, which is how a table stops
             // being read at all.
-            (false, "") => "WSL was not usable on this machine.".to_string(),
-            (false, said) => said.to_string(),
+            (true, false, "") => "WSL was not usable on this machine.".to_string(),
+            (true, false, said) => said.to_string(),
         },
         protections: vec![
             boundary,
@@ -495,6 +549,7 @@ fn wsl_column(found: &crate::tooling::sandbox_detect::WslFindings) -> ModeReport
                 State::Unavailable,
                 "A distribution reaches the network exactly as this machine does.",
             ),
+            organisation,
         ],
     }
 }
@@ -511,6 +566,14 @@ fn docker_column(found: &crate::tooling::sandbox_detect::DockerFindings) -> Mode
         "Capabilities dropped, and no new ones can be gained.",
         "Processor, memory and process limits apply per container.",
         "The container an agent works in keeps the network, because the agent needs its model. \n         Running tests in a throwaway container with none is the next step, not this one.",
+        // **Said rather than left blank, because the blank would be read as
+        // "fine".** Intune's WSL settings have no Docker equivalent; Docker
+        // Desktop's own admin settings file is the nearest thing, and this app
+        // does not read it. So nothing here is checked — which is a different
+        // statement from nothing here being managed.
+        "Intune's WSL settings have no Docker equivalent. Docker Desktop is managed through its \
+         own admin settings file instead, and this app does not read it — so nothing is checked \
+         here either way.",
     ];
 
     ModeReport {
@@ -543,6 +606,13 @@ fn docker_column(found: &crate::tooling::sandbox_detect::DockerFindings) -> Mode
             .iter()
             .zip(each)
             .map(|(name, detail)| {
+                // **True whether or not the engine is running.** Every other row
+                // depends on a container existing; this one is a statement about
+                // what manages Docker at all, and overwriting it with "no engine
+                // answered" would replace a fact with an irrelevance.
+                if *name == PROTECTIONS[5] {
+                    return protection(name, State::Unavailable, detail);
+                }
                 if ready {
                     // The fifth is the exception, and it says so rather than
                     // being quietly dropped from the list.
@@ -573,7 +643,16 @@ fn docker_column(found: &crate::tooling::sandbox_detect::DockerFindings) -> Mode
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tooling::sandbox_detect::{DockerFindings, WslFindings, OWN_DISTRIBUTION};
+    use crate::tooling::sandbox_detect::{
+        DockerFindings, PolicyFindings, WslFindings, OWN_DISTRIBUTION,
+    };
+
+    /// The ordinary machine: nobody's device policy has said anything about
+    /// WSL. Every test that is not about device policy uses this, so that a
+    /// managed machine can never be the silent default.
+    fn unmanaged() -> PolicyFindings {
+        PolicyFindings { managed: false, allows_wsl: true, settings: Vec::new() }
+    }
 
     fn ready_wsl() -> WslFindings {
         WslFindings {
@@ -600,7 +679,7 @@ mod tests {
             agent_image: true,
             detail: String::new(),
         };
-        let built = report("off", &ready_wsl(), &docker);
+        let built = report("off", &ready_wsl(), &docker, &unmanaged());
         for mode in &built.modes {
             if mode.built {
                 continue;
@@ -627,18 +706,23 @@ mod tests {
             client_installed: true,
             ..Default::default()
         };
-        let ready = report("off", &ready_wsl(), &docker);
+        let ready = report("off", &ready_wsl(), &docker, &unmanaged());
         let docker_column = ready.modes.iter().find(|m| m.id == "docker").unwrap();
+        // **Every row but the organisation one.** That row is not a protection
+        // waiting on a build — it says what manages Docker at all, which does
+        // not become true once an image exists, so it is never
+        // `AvailableNotBuilt`.
         assert!(docker_column
             .protections
             .iter()
+            .filter(|p| p.name != PROTECTIONS[5])
             .all(|p| p.state == State::AvailableNotBuilt));
 
         let stopped = report("off", &WslFindings::default(), &DockerFindings {
             client_installed: true,
             detail: "Docker is installed, but its engine is not running".into(),
             ..Default::default()
-        });
+        }, &unmanaged());
         let stopped_column = stopped.modes.iter().find(|m| m.id == "docker").unwrap();
         assert!(stopped_column
             .protections
@@ -653,7 +737,7 @@ mod tests {
     fn a_distribution_that_still_mounts_the_drive_is_given_no_boundary() {
         let mut found = ready_wsl();
         found.drive_mounted = Some(true);
-        let table = report("wsl", &found, &DockerFindings::default());
+        let table = report("wsl", &found, &DockerFindings::default(), &unmanaged());
         let wsl = table.modes.iter().find(|m| m.id == "wsl").unwrap();
         assert_eq!(wsl.protections[0].state, State::Unavailable);
         assert!(
@@ -671,13 +755,13 @@ mod tests {
     fn a_built_mode_still_only_claims_what_was_proved() {
         let mut mounted = ready_wsl();
         mounted.drive_mounted = Some(true);
-        let table = report("off", &mounted, &DockerFindings::default());
+        let table = report("off", &mounted, &DockerFindings::default(), &unmanaged());
         let wsl = table.modes.iter().find(|m| m.id == "wsl").expect("a wsl column");
         assert!(wsl.built, "it runs things now");
         assert_ne!(wsl.protections[0].state, State::Enforced);
         assert!(!wsl.can_choose, "choosing it would stop the terminal working for nothing");
 
-        let table = report("off", &ready_wsl(), &DockerFindings::default());
+        let table = report("off", &ready_wsl(), &DockerFindings::default(), &unmanaged());
         let wsl = table.modes.iter().find(|m| m.id == "wsl").expect("a wsl column");
         assert_eq!(wsl.protections[0].state, State::Enforced, "the drive really is unreachable");
         assert!(wsl.can_choose);
@@ -690,7 +774,7 @@ mod tests {
     /// Off is the machine you are on, stated rather than apologised for.
     #[test]
     fn off_says_plainly_that_nothing_is_bounded() {
-        let table = report("off", &WslFindings::default(), &DockerFindings::default());
+        let table = report("off", &WslFindings::default(), &DockerFindings::default(), &unmanaged());
         let off = table.modes.iter().find(|m| m.id == "off").unwrap();
         assert!(off.built);
         assert!(off.protections.iter().all(|p| p.state == State::Unavailable));
@@ -701,7 +785,7 @@ mod tests {
     /// to guess at, and guessing about a boundary is the failure this prevents.
     #[test]
     fn no_cell_is_left_without_a_reason() {
-        let table = report("off", &WslFindings::default(), &DockerFindings::default());
+        let table = report("off", &WslFindings::default(), &DockerFindings::default(), &unmanaged());
         for mode in &table.modes {
             assert!(!mode.summary.trim().is_empty(), "{} has no summary", mode.id);
             for row in &mode.protections {
@@ -712,7 +796,7 @@ mod tests {
 
     #[test]
     fn every_mode_answers_for_every_protection() {
-        let table = report("docker", &ready_wsl(), &DockerFindings::default());
+        let table = report("docker", &ready_wsl(), &DockerFindings::default(), &unmanaged());
         assert_eq!(table.modes.len(), SANDBOXES.len());
         assert_eq!(table.chosen, "docker");
         for mode in &table.modes {
@@ -771,14 +855,14 @@ mod tests {
             agent_image: false,
             detail: String::new(),
         };
-        let table = report("off", &WslFindings::default(), &engine_only);
+        let table = report("off", &WslFindings::default(), &engine_only, &unmanaged());
         let docker = table.modes.iter().find(|m| m.id == "docker").expect("a docker column");
         assert!(docker.built);
         assert!(!docker.can_choose, "there is nothing to start a container from");
         assert!(docker.protections.iter().all(|p| p.state != State::Enforced));
 
         let ready = DockerFindings { agent_image: true, ..engine_only };
-        let table = report("off", &WslFindings::default(), &ready);
+        let table = report("off", &WslFindings::default(), &ready, &unmanaged());
         let docker = table.modes.iter().find(|m| m.id == "docker").expect("a docker column");
         assert!(docker.can_choose);
         // **The row that has been "no" in every column for five rounds.**
@@ -854,6 +938,87 @@ mod tests {
             assert!(!label.trim().is_empty(), "{id} has no description");
         }
         assert_eq!(SANDBOXES.len(), 3);
+    }
+
+    /// **A machine nobody manages is not a machine that forbids anything.**
+    /// Defaulting the other way would have the app tell somebody their
+    /// organisation had blocked WSL when their organisation had done nothing.
+    #[test]
+    fn an_unmanaged_machine_is_not_reported_as_restricted() {
+        let table = report("off", &ready_wsl(), &DockerFindings::default(), &unmanaged());
+        let wsl = table.modes.iter().find(|m| m.id == "wsl").expect("a wsl column");
+        let row = wsl.protections.last().expect("the organisation row");
+        assert_eq!(row.name, PROTECTIONS[5]);
+        assert_eq!(row.state, State::Unavailable);
+        assert!(row.detail.contains("neither requires nor forbids"), "{}", row.detail);
+        // And it must not stop somebody choosing a mode that is otherwise ready.
+        assert!(wsl.can_choose, "{}", wsl.choose_detail);
+    }
+
+    /// **A policy that turns WSL off beats everything detection found.** A
+    /// machine can have a perfectly good distribution that policy forbids
+    /// using, and reporting it as ready would send somebody to set up a mode
+    /// they are not permitted to run.
+    #[test]
+    fn a_device_policy_that_blocks_wsl_is_said_rather_than_shown_as_a_failure() {
+        let blocked = PolicyFindings {
+            managed: true,
+            allows_wsl: false,
+            settings: vec![("AllowWSL".into(), 0)],
+        };
+        // Deliberately a *ready* WSL: the point is that policy overrides it.
+        let table = report("off", &ready_wsl(), &DockerFindings::default(), &blocked);
+        let wsl = table.modes.iter().find(|m| m.id == "wsl").expect("a wsl column");
+
+        assert!(!wsl.can_choose, "a mode the organisation forbids must not be choosable");
+        assert!(wsl.choose_detail.contains("device policy"), "{}", wsl.choose_detail);
+        assert!(wsl.summary.contains("turns WSL off"), "{}", wsl.summary);
+        let row = wsl.protections.last().expect("the organisation row");
+        assert_eq!(row.state, State::Unavailable);
+        assert!(row.detail.contains("AllowWSL=0"), "{}", row.detail);
+    }
+
+    /// A managed machine that permits WSL says so, and says what it read —
+    /// "your organisation allows this" and "nobody has said anything" call for
+    /// different conversations when something breaks.
+    #[test]
+    fn a_managed_machine_that_allows_wsl_says_what_it_found() {
+        let managed = PolicyFindings {
+            managed: true,
+            allows_wsl: true,
+            settings: vec![("AllowWSL".into(), 1), ("AllowInboxWSL".into(), 0)],
+        };
+        let table = report("off", &ready_wsl(), &DockerFindings::default(), &managed);
+        let wsl = table.modes.iter().find(|m| m.id == "wsl").expect("a wsl column");
+        let row = wsl.protections.last().expect("the organisation row");
+
+        assert_eq!(row.state, State::Enforced);
+        assert!(row.detail.contains("AllowWSL=1"), "{}", row.detail);
+        assert!(row.detail.contains("AllowInboxWSL=0"), "{}", row.detail);
+        // **The limit, on the row itself.** These settings are Windows-side
+        // only, and a reader must not take a managed machine for a bounded one.
+        assert!(row.detail.contains("none of them reach inside"), "{}", row.detail);
+        assert!(wsl.can_choose, "allowing it must not prevent choosing it");
+    }
+
+    /// Every column carries every row, or the table has a hole somebody reads
+    /// as "fine". Docker has no Intune equivalent, and says so rather than
+    /// leaving the cell to be guessed at.
+    #[test]
+    fn every_column_answers_the_organisation_row() {
+        let table = report("off", &ready_wsl(), &DockerFindings::default(), &unmanaged());
+        for mode in &table.modes {
+            assert_eq!(mode.protections.len(), PROTECTIONS.len(), "{} is short a row", mode.id);
+            let row = &mode.protections[5];
+            assert_eq!(row.name, PROTECTIONS[5]);
+            assert!(!row.detail.trim().is_empty(), "{} left the cell blank", mode.id);
+        }
+        let docker = table.modes.iter().find(|m| m.id == "docker").expect("a docker column");
+        assert!(
+            docker.protections[5].detail.contains("no Docker equivalent"),
+            "{}",
+            docker.protections[5].detail
+        );
     }
 
     /// **The test that stops a fourth caller slipping past the boundary.**
