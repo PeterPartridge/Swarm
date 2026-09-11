@@ -504,11 +504,12 @@ pub async fn sandbox_report(
     };
     // The lock is released first: both of these shell out, and holding the
     // database while a virtual machine boots would freeze the whole app.
-    let (wsl, docker) = tokio::join!(
+    let (wsl, docker, policy) = tokio::join!(
         crate::tooling::sandbox_detect::wsl(),
-        crate::tooling::sandbox_detect::docker()
+        crate::tooling::sandbox_detect::docker(),
+        crate::tooling::sandbox_detect::device_policy()
     );
-    Ok(crate::tooling::sandbox::report(&chosen, &wsl, &docker))
+    Ok(crate::tooling::sandbox::report(&chosen, &wsl, &docker, &policy))
 }
 
 /// Where an agent policy comes from, what installs it, and where it lands.
@@ -610,11 +611,12 @@ pub async fn get_installed_policy(
 #[tauri::command]
 pub async fn set_agent_sandbox(db: State<'_, AppDb>, mode: String) -> Result<(), String> {
     if crate::tooling::sandbox::Mode::from_setting(&mode) != crate::tooling::sandbox::Mode::Off {
-        let (wsl, docker) = tokio::join!(
+        let (wsl, docker, policy) = tokio::join!(
             crate::tooling::sandbox_detect::wsl(),
-            crate::tooling::sandbox_detect::docker()
+            crate::tooling::sandbox_detect::docker(),
+            crate::tooling::sandbox_detect::device_policy()
         );
-        let looked = crate::tooling::sandbox::report(&mode, &wsl, &docker);
+        let looked = crate::tooling::sandbox::report(&mode, &wsl, &docker, &policy);
         let Some(column) = looked.modes.iter().find(|m| m.id == mode) else {
             return Err(format!("'{mode}' is not a place this app can run things"));
         };
