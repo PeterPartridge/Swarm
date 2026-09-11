@@ -59,6 +59,19 @@ The call log holds time, tool name, Product, and outcome — **no arguments and 
 - **Writing is one weak tool.** `report_progress` appends a note. It cannot change state, approve a plan, or start a run — those are the app's own gates, and an outside agent is precisely who they exist for.
 - **Said plainly, not dressed up:** a loopback token stops other software on the machine stumbling in. It does not stop the person at the machine, who can read the credential store. The app has no logins, so this is one token for the machine and cannot be per-person.
 
+### Nothing here writes code — and the thing that is still true after that
+
+**No tool writes a file, touches a working copy, runs a command, or touches git.** Five tools read; the sixth appends a note to a row in the local database. Nothing here commits, branches, pushes, opens a pull request, or authenticates to GitHub at all — the GitHub token in the credential store is not reachable from any tool on this list.
+
+The app *does* write to the repository, through the run flow: worktrees, branches, pull requests. **`report_progress` cannot start a run**, which is stated as a rule above and asserted against the database in the tests — so the one path that reaches git stays behind the app's own gates, where a person presses Start and approves a plan. An outside agent is exactly who those gates exist for, which is why the write tool was made this weak rather than merely policed.
+
+There is no generic escape hatch to grow one by accident: the tool list is fixed and every entry is enumerated here.
+
+Two consequences that follow anyway, and must be on the page rather than found out:
+
+- **`list_solutions` hands over the map.** It returns where each Solution's code lives on this machine, which is the point — an outside agent has to find the repository the plan refers to. But a client like Claude Code has its own filesystem access, so what this server discloses is exactly what such a client needs in order to write there **by its own hands**. This server will not write your code back; it can tell something else where your code is. Those are different sentences and the panel must say the second one too. *(Which is why Product scope exists: a Product not offered discloses no paths.)*
+- **A progress note is untrusted text that the app's own AI may later read.** If notes are ever folded into a prompt pack, an outside agent could write instructions into one and have this app's AI treat them as input. The note is **data, never instruction**, wherever it is rendered — and anything that packs it for a model must carry that assumption rather than inherit it.
+
 ## Tests
 
 - [ ] No token is refused; a wrong token is refused **in the same words**.
@@ -72,6 +85,8 @@ The call log holds time, tool name, Product, and outcome — **no arguments and 
 - [ ] The call log contains no arguments and no returned content.
 - [ ] With the server off — the default — nothing is listening on the port.
 - [ ] A port already in use is refused **naming the port**, never a silent fallback to another.
+- [ ] **No tool reaches git.** After exercising every tool, the repository is unchanged: no commit, no branch, no new file in any working copy, and nothing staged — asserted with git itself, not by reading the tool list.
+- [ ] The GitHub token in the credential store is never read by any tool on this server.
 
 ## Open Questions
 
