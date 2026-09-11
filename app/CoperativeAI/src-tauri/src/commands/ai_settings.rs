@@ -591,6 +591,42 @@ pub async fn run_agent_policy(
     Ok(said)
 }
 
+/// The device-policy settings this app's sandbox wants, as a file to be read.
+///
+/// **Shown before it is saved, like everything else here.** What comes out of
+/// this goes to somebody's tenant and is applied to machines other than this
+/// one, so reading it first matters more rather than less.
+#[tauri::command]
+pub fn device_policy_export(kind: String) -> Result<String, String> {
+    let Some(kind) = crate::tooling::sandbox_intune::Kind::from_name(&kind) else {
+        return Err(format!("'{kind}' is not a form this app can export"));
+    };
+    Ok(crate::tooling::sandbox_intune::render(kind))
+}
+
+/// Writes the export into a folder somebody chose.
+///
+/// **Never installed from here.** This app cannot deploy an Intune policy —
+/// policies reach a device from its tenant over MDM — and writing the registry
+/// itself would make the machine read as managed to this app's own detection,
+/// so it would be manufacturing the evidence it then reports. The file is
+/// handed over; applying it belongs to somebody with the rights.
+#[tauri::command]
+pub fn save_device_policy_export(kind: String, folder: String) -> Result<String, String> {
+    let Some(kind) = crate::tooling::sandbox_intune::Kind::from_name(&kind) else {
+        return Err(format!("'{kind}' is not a form this app can export"));
+    };
+    let folder = folder.trim();
+    if folder.is_empty() {
+        return Err("say which folder it should be saved into".into());
+    }
+    let target = std::path::Path::new(folder).join(kind.file_name());
+    std::fs::create_dir_all(folder).map_err(|e| format!("could not make {folder}: {e}"))?;
+    std::fs::write(&target, crate::tooling::sandbox_intune::render(kind))
+        .map_err(|e| format!("could not write {}: {e}", target.display()))?;
+    Ok(target.to_string_lossy().to_string())
+}
+
 /// What was last run into the boundary, for the panel to say plainly.
 #[tauri::command]
 pub async fn get_installed_policy(

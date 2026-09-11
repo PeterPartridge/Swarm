@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import DevicePolicyExport from "./DevicePolicyExport";
 import PolicySource from "./PolicySource";
 import {
   sandboxReport,
@@ -196,6 +197,10 @@ export default function SandboxTable() {
               nothing from anybody, and a panel of its own would read as
               protection in its own right. */}
           <PolicySource />
+          {/* Below the policy file, in the order somebody meets them: what an
+              agent can reach is this app's to enforce, while whether WSL may
+              exist at all belongs to whoever manages the machine. */}
+          <DevicePolicyExport />
         </>
       )}
 
