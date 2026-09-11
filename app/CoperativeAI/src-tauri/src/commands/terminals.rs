@@ -15,7 +15,7 @@
 //! into a synchronous reader thread would buy nothing but a way to deadlock.
 
 use crate::terminal::{default_shell, Session};
-use crate::tooling::sandbox::Place;
+use crate::tooling::sandbox::{Mode, Place};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -155,6 +155,40 @@ pub async fn open_terminal(
     spawn_terminal(&place, &app, &terminals, solution_id, &cwd, cols, rows)
 }
 
+/// Where a sign-in should happen, and what to type there.
+///
+/// `None` means this machine, which is the only answer when nothing is
+/// sandboxed and the one the app gave for every mode until the distribution
+/// existed to sign into.
+///
+/// **Pure, because the decision is the part worth pinning.** It is also the
+/// part that was wrong: signing in out here while an agent works in there
+/// produces a green tick and an agent that cannot authenticate.
+fn sign_in_inside(mode: Mode) -> Result<Option<(Place, String)>, String> {
+    match mode {
+        Mode::Off => Ok(None),
+        Mode::Wsl => Ok(Some((
+            // The distribution's own home, and its own `claude` — not this
+            // machine's. Discovering an executable out here would type a
+            // Windows path into a Linux shell.
+            Place {
+                mode: Mode::Wsl,
+                inside: format!("/home/{}", crate::tooling::sandbox_provision::AGENT_USER),
+            },
+            "claude auth login --claudeai\r".to_string(),
+        ))),
+        // **A container has nowhere for a sign-in to live.** It is made for a
+        // run and removed after it, so anything signed in inside one is gone by
+        // the next. Said plainly rather than opening a terminal that would look
+        // like it worked and leave nothing behind.
+        Mode::Docker => Err(
+            "a container is made for a run and removed after it, so a sign-in inside one would \
+             not survive to the next run. Signing in for Docker is not built yet."
+                .into(),
+        ),
+    }
+}
+
 /// Opens a terminal and starts the Claude Code sign-in in it.
 ///
 /// **The answer to "why can't the app just do this?"** — it can, and this is
@@ -175,28 +209,44 @@ pub async fn open_terminal(
 #[tauri::command]
 pub async fn open_claude_sign_in(
     app: AppHandle,
+    db: State<'_, super::AppDb>,
     terminals: State<'_, Terminals>,
     executable: String,
     cols: u16,
     rows: u16,
 ) -> Result<OpenedTerminal, String> {
-    // Discovery runs first: a sign-in typed into a shell that has no `claude`
-    // on its PATH fails as "command not found", which reads as a broken app
-    // rather than a missing install.
-    let argv = crate::ai::claude_code::sign_in_command(&executable).await?;
+    // **Signs in where the agent will actually run.** This used to open on this
+    // machine whatever the sandbox said, which was true when there was nowhere
+    // else — and stopped being true the moment the app could make a
+    // distribution. The button then gave a green tick and an agent inside the
+    // boundary that still could not authenticate, which is the worst shape a
+    // sign-in can take: it looks done.
+    let mode = {
+        let conn = db.0.lock().await;
+        super::sandbox_mode(&conn).await
+    };
+
     let home = crate::ai::claude_code::home_dir()
         .ok_or_else(|| "this machine reports no home folder to open a terminal in".to_string())?;
 
-    // Solution zero: this terminal belongs to the machine, not to a repository.
-    let opened = spawn_terminal(&Place::here(), &app, &terminals, 0, &home.display().to_string(), cols, rows)?;
+    let (place, typed) = match sign_in_inside(mode)? {
+        Some(inside) => inside,
+        None => {
+            // Discovery runs first: a sign-in typed into a shell that has no
+            // `claude` on its PATH fails as "command not found", which reads as
+            // a broken app rather than a missing install.
+            let argv = crate::ai::claude_code::sign_in_command(&executable).await?;
+            (
+                Place::here(),
+                // Quoted, because the discovered path routinely contains spaces
+                // — the desktop app keeps its copy under `AppData\Roaming\…`.
+                format!("& \"{}\" {}\r", argv[0], argv[1..].join(" ")),
+            )
+        }
+    };
 
-    // Quoted, because the discovered path routinely contains spaces — the
-    // desktop app keeps its copy under `AppData\Roaming\Claude\...`.
-    let typed = format!(
-        "& \"{}\" {}\r",
-        argv[0],
-        argv[1..].join(" ")
-    );
+    // Solution zero: this terminal belongs to the machine, not to a repository.
+    let opened = spawn_terminal(&place, &app, &terminals, 0, &home.display().to_string(), cols, rows)?;
     {
         let mut sessions = terminals
             .0
@@ -534,6 +584,39 @@ mod tests {
         replay.push("vite ready in 412ms\r\n");
         replay.push("listening on :5173\r\n");
         assert_eq!(replay.text(), "vite ready in 412ms\r\nlistening on :5173\r\n");
+    }
+
+    /// **The sign-in has to happen where the agent will work.** Signing in out
+    /// here while an agent runs in the distribution gives a green tick and an
+    /// agent that cannot authenticate — which is the worst shape a sign-in can
+    /// take, because it looks done.
+    #[test]
+    fn a_sandboxed_sign_in_happens_inside_the_boundary() {
+        let (place, typed) = sign_in_inside(Mode::Wsl)
+            .expect("WSL can be signed into")
+            .expect("and not on this machine");
+
+        assert_eq!(place.mode, Mode::Wsl);
+        assert!(place.inside.starts_with("/home/"), "the agent's own home: {}", place.inside);
+        // The distribution's own `claude`, never a path discovered out here —
+        // a Windows path typed into a Linux shell is not a command.
+        assert!(typed.starts_with("claude auth login"), "{typed}");
+        assert!(!typed.contains(":\\"), "no Windows path may reach it: {typed}");
+    }
+
+    /// With nothing sandboxed there is only this machine, which is what the app
+    /// did for every mode before there was anywhere else.
+    #[test]
+    fn an_unsandboxed_sign_in_stays_on_this_machine() {
+        assert_eq!(sign_in_inside(Mode::Off).expect("always possible"), None);
+    }
+
+    /// A container is made for a run and removed after it, so a sign-in inside
+    /// one is gone by the next run. Refused rather than looking like it worked.
+    #[test]
+    fn a_container_is_not_offered_a_sign_in_that_would_not_last() {
+        let refused = sign_in_inside(Mode::Docker).expect_err("nowhere for it to live");
+        assert!(refused.contains("would not survive"), "{refused}");
     }
 
     /// Past the cap the front goes, so a dev server up for a day cannot grow
