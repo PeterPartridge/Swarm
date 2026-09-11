@@ -73,12 +73,15 @@ This is the first thing in the app that claims an agent *cannot* do something, s
 - [ ] Installing shows what it would change, and applies nothing until confirmed.
 - [ ] A malformed policy is refused naming the line that is wrong, and leaves the existing one alone.
 - [ ] A rule naming a path outside the repository is refused rather than silently ignored.
-- [ ] A GitHub source given as a branch is refused, or pinned to the commit it resolves to.
-- [ ] The script is shown in full before it can run, and running is a separate press from fetching.
-- [ ] A run records its policy, its source and its commit, and still reports them afterwards.
+- [x] A GitHub source given as a branch is refused, or pinned to the commit it resolves to. *(Refused, and named: `moving_github_ref` tells `.../blob/main/p.json` from `.../blob/<40 hex>/p.json` and the refusal says which part of the address to replace. A branch is allowed only once a digest pins it, which makes the same promise by a different route.)*
+- [x] The script is shown in full before it can run, and running is a separate press from fetching.
+- [x] A fetched policy is hashed, and a source can carry the digest it must have — checked before anything is written, and again before it is run.
+- [ ] A run records its policy, its source and its commit, and still reports them afterwards. *(The policy file's digest is recorded and reported. The **source** is not: the source is app-wide and the policy file is per-Solution, and the two have not been reconciled — see the open question below.)*
 
 **Open questions**
-- **May an installed policy come from a URL, or only from a file already looked at?** The brief names the safeguards but does not close this. *(Building the file route first, since it is the safer default and the URL route can be added on top of it.)*
+- **May an installed policy come from a URL, or only from a file already looked at?** The brief names the safeguards but does not close this. *(Closed: both, with the URL route carrying every safeguard — https only, fetched here, shown whole, run on a separate press, and a digest that can be pinned.)*
+- **The source is app-wide; the policy file is per-Solution.** A run records the digest of the Solution's `.coperativeai/policy.json`, which is the file that actually bounded it. The fetched source is a setting of the app and is not recorded per run, so "which source did this run's policy come from" has no honest answer yet. Reconciling the two — a source per Solution, or a source recorded on the run — is not settled and is the reason that checklist line stays open.
+- **The first fetch of an unpinned source is trust.** A digest can only be shown until somebody sets one to check it against. The panel says so in as many words; there is no way to do better without a channel the app does not have.
 - **How much is "commands it must not run" worth?** A command is restricted by making its binary unreadable, which works and is far weaker than a file rule — an agent with a language runtime can rewrite most small tools. The page must not imply parity.
 - **The two backends fail differently.** Under WSL a protected file exists and is refused; under Docker it is absent. A build that expects a file behaves differently in each. Whether the page should warn about that, or the policy should be able to say which it wants, is not settled.
 

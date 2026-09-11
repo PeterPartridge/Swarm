@@ -85,7 +85,18 @@ describe("what a run says bounded it", () => {
     const said = restrictionOf({
       restrictedBy: '{"sandbox":"docker","deny":["secrets"]}',
     });
-    expect(said).toEqual({ sandbox: "docker", deny: ["secrets"] });
+    // A run recorded before digests were kept has none, and it stays blank for
+    // the same reason the sandbox does not fall back to today's setting: an
+    // honest gap beats a filled-in claim nobody can check.
+    expect(said).toEqual({ sandbox: "docker", deny: ["secrets"], digest: "" });
+
+    // One recorded since carries the digest of the policy file that bounded it,
+    // which is what lets somebody hold a file up against the record afterwards.
+    expect(
+      restrictionOf({
+        restrictedBy: `{"sandbox":"wsl","deny":["secrets"],"digest":"${"a".repeat(64)}"}`,
+      }),
+    ).toEqual({ sandbox: "wsl", deny: ["secrets"], digest: "a".repeat(64) });
   });
 
   /** A record nobody can parse is not a claim to guess at. */

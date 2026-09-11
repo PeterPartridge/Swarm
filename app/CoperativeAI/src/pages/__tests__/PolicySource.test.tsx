@@ -21,6 +21,7 @@ const saved = {
   from: "https://example.com/policies/strict.json",
   folder: "C:\\policies",
   command: "sh apply.sh",
+  expectDigest: "",
 };
 
 describe("PolicySource", () => {
@@ -43,6 +44,8 @@ describe("PolicySource", () => {
       bytes: 42,
       text: '{"deny": ["secrets/**"]}',
       truncated: false,
+    digest: "a".repeat(64),
+    verified: false,
     });
     await userEvent.click(screen.getByRole("button", { name: "Fetch it" }));
 
@@ -59,6 +62,8 @@ describe("PolicySource", () => {
       bytes: 4,
       text: "{}",
       truncated: false,
+    digest: "a".repeat(64),
+    verified: false,
     });
 
     render(<PolicySource />);
@@ -76,6 +81,8 @@ describe("PolicySource", () => {
       bytes: 2,
       text: "{}",
       truncated: false,
+    digest: "a".repeat(64),
+    verified: false,
     });
     mocked.runAgentPolicy.mockRejectedValue(
       "with agents running on this machine there is no separate user to keep anything from",
@@ -112,5 +119,126 @@ describe("PolicySource", () => {
     expect(
       screen.getByText(/stays in the repository's history/),
     ).toBeInTheDocument();
+  });
+
+  /** **A digest on screen is not integrity.** Until something was set to check
+   *  it against, a fetch was checked against nothing — and the panel has to say
+   *  so, because the digest itself looks like proof either way. */
+  it("does not let an unchecked digest read as a verified one", async () => {
+    mocked.fetchAgentPolicy.mockResolvedValue({
+      path: "p",
+      bytes: 2,
+      text: "{}",
+      truncated: false,
+      digest: "b".repeat(64),
+      verified: false,
+    });
+
+    render(<PolicySource />);
+    await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
+    expect(screen.getByText(/checked against nothing/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Fetch it" }));
+    expect(await screen.findByText(/not checked against anything/)).toBeInTheDocument();
+  });
+
+  /** Pinning is what turns the digest from an observation into a check, and it
+   *  must save in the same press — a digest shown in a box and never stored is
+   *  the one state that looks pinned and checks nothing. */
+  it("pinning a fetched digest saves it, and the next fetch says it was checked", async () => {
+    mocked.fetchAgentPolicy.mockResolvedValue({
+      path: "p",
+      bytes: 2,
+      text: "{}",
+      truncated: false,
+      digest: "c".repeat(64),
+      verified: false,
+    });
+    mocked.setAgentPolicySource.mockResolvedValue(undefined);
+
+    render(<PolicySource />);
+    await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
+    await userEvent.click(screen.getByRole("button", { name: "Fetch it" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Pin this digest" }));
+
+    await waitFor(() =>
+      expect(mocked.setAgentPolicySource).toHaveBeenCalledWith(
+        expect.objectContaining({ expectDigest: "c".repeat(64) }),
+      ),
+    );
+    expect(await screen.findByText(/Every fetch is checked against this/)).toBeInTheDocument();
+  });
+
+  /** A policy that is not the one pinned comes back as a refusal, and the
+   *  refusal carries both digests — the useful question afterwards is whether
+   *  it changed on purpose, which is answered by comparing them. */
+  it("shows the refusal when what arrives is not what was pinned", async () => {
+    mocked.getAgentPolicySource.mockResolvedValue({ ...saved, expectDigest: "d".repeat(64) });
+    mocked.fetchAgentPolicy.mockRejectedValue(
+      `is not the policy that was pinned, so nothing was saved.\nexpected ${"d".repeat(64)}\n     got ${"e".repeat(64)}`,
+    );
+
+    render(<PolicySource />);
+    await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
+    await userEvent.click(screen.getByRole("button", { name: "Fetch it" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("not the policy that was pinned");
+    // And nothing is offered to run, because nothing was saved.
+    expect(screen.getByRole("button", { name: "Run it" })).toBeDisabled();
+  });
+
+  /** **A branch is a script that can change after somebody approved it**, and
+   *  saying so as it is typed beats a refusal that arrives on Save. */
+  it("warns as a branch address is typed, and stops once a digest pins it", async () => {
+    mocked.getAgentPolicySource.mockResolvedValue({
+      ...saved,
+      from: "https://raw.githubusercontent.com/o/r/main/policy.json",
+      expectDigest: "",
+    });
+
+    const { unmount } = render(<PolicySource />);
+    await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
+    expect(screen.getByText(/is a branch, so this would fetch/)).toBeInTheDocument();
+    unmount();
+
+    mocked.getAgentPolicySource.mockResolvedValue({
+      ...saved,
+      from: "https://raw.githubusercontent.com/o/r/main/policy.json",
+      expectDigest: "f".repeat(64),
+    });
+    render(<PolicySource />);
+    await waitFor(() => expect(screen.queryByText(/is a branch, so this would fetch/)).toBeNull());
+  });
+});
+
+/** The address rule itself, apart from the panel that shows it. This is the
+ *  hint, never the enforcement — `sandbox_policy.rs` is what refuses to store
+ *  one — but the two are meant to agree, so they are checked on the same
+ *  addresses. */
+describe("movingGithubRef", () => {
+  it("tells a branch from a commit", () => {
+    const commit = "a".repeat(40);
+    expect(backend.movingGithubRef("https://github.com/o/r/blob/main/policy.json")).toBe("main");
+    expect(backend.movingGithubRef("https://raw.githubusercontent.com/o/r/main/p.json")).toBe(
+      "main",
+    );
+    expect(backend.movingGithubRef("https://github.com/o/r/raw/release-2/deep/p.json")).toBe(
+      "release-2",
+    );
+    expect(
+      backend.movingGithubRef("https://raw.githubusercontent.com/o/r/refs/heads/main/p.json"),
+    ).toBe("main");
+
+    expect(backend.movingGithubRef(`https://github.com/o/r/blob/${commit}/p.json`)).toBeNull();
+    expect(
+      backend.movingGithubRef(`https://raw.githubusercontent.com/o/r/${commit}/p.json`),
+    ).toBeNull();
+  });
+
+  it("does not judge addresses that are not GitHub's", () => {
+    expect(backend.movingGithubRef("https://example.com/main/policy.json")).toBeNull();
+    expect(backend.movingGithubRef("C:\\work\\policy.json")).toBeNull();
+    expect(backend.movingGithubRef("")).toBeNull();
   });
 });

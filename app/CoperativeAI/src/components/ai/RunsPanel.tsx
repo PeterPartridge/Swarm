@@ -537,6 +537,18 @@ function RanInside({ run }: { run: Run }) {
         ? `, without ${said.deny.join(", ")}`
         : ", with nothing held back from it"}
       .
+      {/* **The record made checkable rather than merely readable.** The list
+          says what was enforced; the digest is what lets somebody hold a policy
+          file up against this run afterwards and say whether it is the same
+          one. Shortened because it is for recognising, not for typing — and a
+          run from before digests were kept shows nothing rather than a blank
+          that would read as "no policy". */}
+      {said.digest !== "" && (
+        <>
+          {" "}
+          Policy <code title={said.digest}>{said.digest.slice(0, 12)}</code>.
+        </>
+      )}
     </p>
   );
 }
