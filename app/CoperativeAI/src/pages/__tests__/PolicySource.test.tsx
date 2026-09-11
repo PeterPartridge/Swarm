@@ -13,6 +13,9 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     fetchAgentPolicy: vi.fn(),
     runAgentPolicy: vi.fn(),
     getInstalledPolicy: vi.fn(),
+    listSolutions: vi.fn(),
+    previewPolicyInstall: vi.fn(),
+    installPolicyIntoSolution: vi.fn(),
   };
 });
 
@@ -49,6 +52,7 @@ describe("PolicySource", () => {
       truncated: false,
     digest: "a".repeat(64),
     verified: false,
+    shape: "script" as const,
     });
     await userEvent.click(screen.getByRole("button", { name: "Fetch it" }));
 
@@ -67,6 +71,7 @@ describe("PolicySource", () => {
       truncated: false,
     digest: "a".repeat(64),
     verified: false,
+    shape: "script" as const,
     });
 
     render(<PolicySource />);
@@ -86,6 +91,7 @@ describe("PolicySource", () => {
       truncated: false,
     digest: "a".repeat(64),
     verified: false,
+    shape: "script" as const,
     });
     mocked.runAgentPolicy.mockRejectedValue(
       "with agents running on this machine there is no separate user to keep anything from",
@@ -135,6 +141,7 @@ describe("PolicySource", () => {
       truncated: false,
       digest: "b".repeat(64),
       verified: false,
+      shape: "script" as const,
     });
 
     render(<PolicySource />);
@@ -156,6 +163,7 @@ describe("PolicySource", () => {
       truncated: false,
       digest: "c".repeat(64),
       verified: false,
+      shape: "script" as const,
     });
     mocked.setAgentPolicySource.mockResolvedValue(undefined);
 
@@ -278,6 +286,7 @@ describe("what the boundary has had run into it", () => {
       truncated: false,
       digest: "b".repeat(64),
       verified: false,
+      shape: "script" as const,
     });
     mocked.runAgentPolicy.mockResolvedValue("done");
 
@@ -295,6 +304,136 @@ describe("what the boundary has had run into it", () => {
 
     expect(await screen.findByText(/Last run into the distribution/)).toBeInTheDocument();
     expect(mocked.getInstalledPolicy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("a fetched policy goes into a Solution", () => {
+  const policy = {
+    path: "C:\\policies\\shared.json",
+    bytes: 30,
+    text: '{"deny": ["secrets", ".env"]}',
+    truncated: false,
+    digest: "a".repeat(64),
+    verified: true,
+    shape: "policy" as const,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocked.getAgentPolicySource.mockResolvedValue(saved);
+    mocked.getInstalledPolicy.mockResolvedValue({ from: "", digest: "", mode: "", at: 0 });
+    mocked.fetchAgentPolicy.mockResolvedValue(policy);
+    mocked.listSolutions.mockResolvedValue([
+      { id: 4, name: "Checkout" },
+      { id: 7, name: "Billing" },
+    ] as never);
+  });
+
+  /** **The button that cannot act is gone, not present and failing.** Running a
+   *  deny list as a shell script would do nothing useful and might do something
+   *  harmful. */
+  it("does not offer to run a policy as a script", async () => {
+    render(<PolicySource />);
+    await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
+    await userEvent.click(screen.getByRole("button", { name: "Fetch it" }));
+
+    await screen.findByText(/This is a policy/);
+    expect(screen.getByRole("button", { name: "Run it" })).toBeDisabled();
+    // And it names the route a script never had.
+    expect(screen.getByText(/it works under Docker too/)).toBeInTheDocument();
+  });
+
+  /** **Applies nothing until it has been shown.** The removals are rules
+   *  somebody believed were being enforced, and one going without a decision is
+   *  the failure worth a second press. */
+  it("will not install until what would change has been shown", async () => {
+    mocked.previewPolicyInstall.mockResolvedValue({
+      added: [".env"],
+      removed: ["config/keys.json"],
+      kept: ["secrets"],
+      hadOne: true,
+    });
+
+    render(<PolicySource />);
+    await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
+    await userEvent.click(screen.getByRole("button", { name: "Fetch it" }));
+
+    const install = await screen.findByRole("button", { name: "Install it" });
+    expect(install).toBeDisabled();
+    expect(mocked.installPolicyIntoSolution).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "What would change?" }));
+
+    // The removal is stated, not buried among the additions.
+    expect(await screen.findByText(/Would stop enforcing: config\/keys\.json/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Install it" })).toBeEnabled();
+  });
+
+  /** The Solution chosen is the Solution written to. */
+  it("installs into the chosen Solution, and says so", async () => {
+    mocked.previewPolicyInstall.mockResolvedValue({
+      added: [".env"],
+      removed: [],
+      kept: [],
+      hadOne: false,
+    });
+    mocked.installPolicyIntoSolution.mockResolvedValue({
+      added: [".env"],
+      removed: [],
+      kept: [],
+      hadOne: false,
+    });
+
+    render(<PolicySource />);
+    await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
+    await userEvent.click(screen.getByRole("button", { name: "Fetch it" }));
+
+    await userEvent.selectOptions(await screen.findByLabelText("Install into"), "7");
+    await userEvent.click(screen.getByRole("button", { name: "What would change?" }));
+    await waitFor(() => expect(mocked.previewPolicyInstall).toHaveBeenCalledWith(7, policy));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Install it" }));
+    await waitFor(() =>
+      expect(mocked.installPolicyIntoSolution).toHaveBeenCalledWith(7, policy),
+    );
+    expect(await screen.findByText(/Written into Billing/)).toBeInTheDocument();
+    expect(screen.getByText(/That Solution has no policy today/)).toBeInTheDocument();
+  });
+
+  /** A plan belongs to the Solution it was computed for — leaving it on screen
+   *  after the picker moves would describe a change to somewhere else. */
+  it("forgets the plan when a different Solution is chosen", async () => {
+    mocked.previewPolicyInstall.mockResolvedValue({
+      added: [],
+      removed: ["config/keys.json"],
+      kept: [],
+      hadOne: true,
+    });
+
+    render(<PolicySource />);
+    await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
+    await userEvent.click(screen.getByRole("button", { name: "Fetch it" }));
+    await userEvent.click(await screen.findByRole("button", { name: "What would change?" }));
+    await screen.findByText(/Would stop enforcing/);
+
+    await userEvent.selectOptions(screen.getByLabelText("Install into"), "7");
+
+    expect(screen.queryByText(/Would stop enforcing/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Install it" })).toBeDisabled();
+  });
+
+  /** A script still gets the script route, and no Solution picker. */
+  it("offers the script route for a script", async () => {
+    mocked.fetchAgentPolicy.mockResolvedValue({ ...policy, shape: "script", text: "chmod 000 x" });
+
+    render(<PolicySource />);
+    await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
+    await userEvent.click(screen.getByRole("button", { name: "Fetch it" }));
+
+    expect(await screen.findByText("chmod 000 x")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run it" })).toBeEnabled();
+    expect(screen.queryByLabelText("Install into")).toBeNull();
+    expect(mocked.listSolutions).not.toHaveBeenCalled();
   });
 });
 

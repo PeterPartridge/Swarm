@@ -3,12 +3,17 @@ import {
   fetchAgentPolicy,
   getAgentPolicySource,
   getInstalledPolicy,
+  installPolicyIntoSolution,
+  listSolutions,
   movingGithubRef,
+  previewPolicyInstall,
   runAgentPolicy,
   setAgentPolicySource,
   type AgentPolicySource,
   type FetchedPolicy,
   type InstalledPolicy,
+  type PolicyChange,
+  type Solution,
 } from "../../lib/backend";
 
 /** Where an agent policy comes from, what installs it, and where it lands.
@@ -42,6 +47,13 @@ export default function PolicySource() {
   /** What was last run into the boundary — past tense, and not a claim that
    *  it is still in force. */
   const [installed, setInstalled] = useState<InstalledPolicy | null>(null);
+
+  /** Where a fetched *policy* could go. Only loaded when one arrives, because
+   *  a script has no Solution to be installed into. */
+  const [solutions, setSolutions] = useState<Solution[]>([]);
+  const [into, setInto] = useState<number | null>(null);
+  const [change, setChange] = useState<PolicyChange | null>(null);
+  const [applied, setApplied] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -78,17 +90,71 @@ export default function PolicySource() {
     }
   }
 
-  /** Brings it here so it can be read. Nothing is run by this. */
+  /** Brings it here so it can be read. Nothing is run or written by this. */
   async function bring() {
     setBusy("fetch");
     setRan("");
+    setChange(null);
+    setApplied("");
     try {
-      setFetched(await fetchAgentPolicy());
-      setNote("Fetched. Read it before running it.");
+      const got = await fetchAgentPolicy();
+      setFetched(got);
       setError(null);
+      // **What arrived decides what is offered.** A deny list goes into a
+      // Solution and is honoured by both backends; a script is run into the
+      // distribution and does nothing under Docker. Asking somebody to know
+      // which they have would be asking them to do this reading themselves.
+      if (got.shape === "policy") {
+        setNote("Fetched a policy. Read it, then choose where it goes.");
+        try {
+          const found = await listSolutions();
+          setSolutions(found);
+          setInto(found.length > 0 ? found[0].id : null);
+        } catch {
+          /* Not knowing the Solutions is not the fetch failing. */
+        }
+      } else {
+        setNote("Fetched a script. Read it before running it.");
+        setSolutions([]);
+        setInto(null);
+      }
     } catch (e) {
       setError(String(e));
       setFetched(null);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  /** What installing it into the chosen Solution would change. Writes nothing. */
+  async function preview() {
+    if (!fetched || into === null) return;
+    setBusy("preview");
+    setApplied("");
+    try {
+      setChange(await previewPolicyInstall(into, fetched));
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+      setChange(null);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  /** Writes it into the Solution's repository — only after it was previewed. */
+  async function applyToSolution() {
+    if (!fetched || into === null) return;
+    setBusy("install");
+    try {
+      const done = await installPolicyIntoSolution(into, fetched);
+      setChange(done);
+      const name = solutions.find((s) => s.id === into)?.name ?? "that Solution";
+      setApplied(`Written into ${name}. Runs there will honour it from now on.`);
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+      setApplied("");
     } finally {
       setBusy("");
     }
@@ -240,10 +306,15 @@ export default function PolicySource() {
         >
           {busy === "fetch" ? "Fetching…" : "Fetch it"}
         </button>
+        {/* **Offered only for what it can actually act on.** Running a deny
+            list as a shell script would do nothing useful and might do
+            something harmful, and installing a script as a policy is refused
+            by the backend anyway — so the button that does not apply is gone
+            rather than present and failing. */}
         <button
           type="button"
           onClick={() => void apply()}
-          disabled={!fetched || busy !== ""}
+          disabled={!fetched || fetched.shape === "policy" || busy !== ""}
         >
           {busy === "run" ? "Running…" : "Run it"}
         </button>
@@ -272,6 +343,86 @@ export default function PolicySource() {
             </button>
           )}
           <pre>{fetched.text}</pre>
+        </div>
+      )}
+
+      {/* **A policy goes into a repository, which is what makes it shareable
+          and reviewable and what both backends already honour.** This is the
+          route a script never had: a deny list restricts under Docker as
+          mounts and under WSL as permissions, where a script only ever worked
+          under one of them. */}
+      {fetched?.shape === "policy" && (
+        <div className="policy-read">
+          <p className="hint">
+            This is a policy — a list of what an agent may not reach. It goes
+            into a Solution&rsquo;s repository as <code>.coperativeai/policy.json</code>,
+            where it is read on every run and enforced by whichever boundary is
+            in force. Unlike a script, it works under Docker too.
+          </p>
+          {solutions.length === 0 ? (
+            <p className="hint">No Solutions to install it into yet.</p>
+          ) : (
+            <div className="policy-actions">
+              <label>
+                Install into
+                <select
+                  value={into ?? ""}
+                  onChange={(e) => {
+                    setInto(Number(e.target.value));
+                    // The plan belonged to the previous Solution; keeping it on
+                    // screen would describe a change to somewhere else.
+                    setChange(null);
+                    setApplied("");
+                  }}
+                >
+                  {solutions.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                onClick={() => void preview()}
+                disabled={into === null || busy !== ""}
+              >
+                {busy === "preview" ? "Checking…" : "What would change?"}
+              </button>
+              {/* **Applies nothing until it has been shown.** The removals are
+                  rules somebody believed were being enforced, and one going
+                  without a decision is the failure worth a second press. */}
+              <button
+                type="button"
+                onClick={() => void applyToSolution()}
+                disabled={change === null || applied !== "" || busy !== ""}
+              >
+                {busy === "install" ? "Writing…" : "Install it"}
+              </button>
+            </div>
+          )}
+
+          {change && (
+            <div className="policy-read">
+              {!change.hadOne && (
+                <p className="hint">That Solution has no policy today.</p>
+              )}
+              {/* Removals first and named, because they are the half that
+                  takes protection away rather than adding it. */}
+              {change.removed.length > 0 && (
+                <p role="status">
+                  Would stop enforcing: {change.removed.join(", ")}.
+                </p>
+              )}
+              <p className="hint">
+                {change.added.length > 0
+                  ? `Would start enforcing: ${change.added.join(", ")}.`
+                  : "Nothing new would be enforced."}
+                {change.kept.length > 0 && ` Unchanged: ${change.kept.join(", ")}.`}
+              </p>
+              {applied && <p className="hint">{applied}</p>}
+            </div>
+          )}
         </div>
       )}
 

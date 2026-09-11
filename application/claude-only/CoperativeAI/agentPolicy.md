@@ -69,9 +69,9 @@ This is the first thing in the app that claims an agent *cannot* do something, s
 - [ ] A user-supplied script is applied under WSL and reported as **not in effect** under Docker, never silently ignored.
 - [ ] With the sandbox off, every rule reports as asked-only.
 - [ ] A rule only the agent can honour is labelled as such and never described as enforced.
-- [ ] A policy saved in one repository and installed into another produces the same rules.
-- [ ] Installing shows what it would change, and applies nothing until confirmed.
-- [ ] A malformed policy is refused naming the line that is wrong, and leaves the existing one alone.
+- [x] A policy saved in one repository and installed into another produces the same rules. *(Installed as the parsed rules re-serialised, never copied verbatim — so what lands is exactly what was previewed, and anything its author put beside `deny` does not travel into somebody else’s repository having been reviewed as a deny list.)*
+- [x] Installing shows what it would change, and applies nothing until confirmed. *(Two presses: what-would-change, then install, with the **removals named first** — they are rules somebody believed were being enforced, and one going without a decision is the failure worth a second press. Rules are compared after tidying, so `secrets/` and `secrets` are one rule rather than false movement in the diff.)*
+- [x] A malformed policy is refused naming the line that is wrong, and leaves the existing one alone. *(And a file that is not a policy at all is refused by name, saying which button it wants instead. The check requires a `deny` array to be **present**: `Policy` defaults its one field, so every JSON object on earth would otherwise deserialize into an empty policy and a `package.json` could install as a boundary that looks applied and holds nothing.)*
 - [ ] A rule naming a path outside the repository is refused rather than silently ignored.
 - [x] A GitHub source given as a branch is refused, or pinned to the commit it resolves to. *(Refused, and named: `moving_github_ref` tells `.../blob/main/p.json` from `.../blob/<40 hex>/p.json` and the refusal says which part of the address to replace. A branch is allowed only once a digest pins it, which makes the same promise by a different route.)*
 - [x] The script is shown in full before it can run, and running is a separate press from fetching.
@@ -80,7 +80,9 @@ This is the first thing in the app that claims an agent *cannot* do something, s
 
 **Open questions**
 - **May an installed policy come from a URL, or only from a file already looked at?** The brief names the safeguards but does not close this. *(Closed: both, with the URL route carrying every safeguard — https only, fetched here, shown whole, run on a separate press, and a digest that can be pinned.)*
-- **Closed as a finding: there are two mechanisms here, not one.** The brief imagined a single thing — a policy you fetch and install. The build produced two, and they are different in kind:
+- **Closed, and then unified where it could honestly be unified.** The finding below stands — a deny list and a script are different in kind — but the *source* no longer has to be one or the other. One fetch, one digest, one reading-before-use, and then the destination follows from what actually arrived: a file with a `deny` list is installed into a Solution’s `.coperativeai/policy.json`, which both backends already honour on every run; anything else is a script, run into the WSL distribution as before. That makes the shareable thing the same thing the runs enforce, which is what this brief wanted from the start, and it gives the shared route something the script never had — it works under Docker. The script route is kept because it was asked for on purpose, not left behind. What is still **not** unified, and deliberately: the *source setting* remains app-wide while policy files are per-Solution, so a run still records which policy file bounded it rather than which source it came from.
+
+- **The finding this round was built on: there are two mechanisms here, not one.** The brief imagined a single thing — a policy you fetch and install. The build produced two, and they are different in kind:
   - The Solution's `.coperativeai/policy.json` is **declarative**: a deny list, in the repository, read on every run and enforced by permissions under WSL or mount masking under Docker. This is what bounds a run.
   - The fetched source is **imperative**: a script, app-wide, run as root into the WSL distribution by a press in Admin. It produces no deny list, is not read per run, and under Docker never runs at all.
 

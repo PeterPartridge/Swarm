@@ -3320,7 +3320,40 @@ export interface FetchedPolicy {
   digest: string;
   /** Whether it was checked against a digest set beforehand, or only shown. */
   verified: boolean;
+  /** What arrived, which decides what can be done with it. */
+  shape: PolicyShape;
 }
+
+/** What a fetched file turned out to be.
+ *
+ *  **One fetch, two honest destinations.** A deny list is written into a
+ *  Solution and honoured by both backends; a script is run as root into the WSL
+ *  distribution and does nothing at all under Docker. */
+export type PolicyShape = "policy" | "script";
+
+/** What installing one policy over another would change. */
+export interface PolicyChange {
+  added: string[];
+  /** The half that matters: rules this would stop enforcing. */
+  removed: string[];
+  kept: string[];
+  /** Whether the Solution has a policy at all today. */
+  hadOne: boolean;
+}
+
+/** What installing the fetched policy into a Solution would change. Writes
+ *  nothing — the removals are what somebody needs to see before they happen. */
+export const previewPolicyInstall = (
+  solutionId: number,
+  fetched: FetchedPolicy,
+): Promise<PolicyChange> => invoke("preview_policy_install", { solutionId, fetched });
+
+/** Writes the fetched policy into a Solution's repository, as the same file
+ *  both backends already honour on every run. */
+export const installPolicyIntoSolution = (
+  solutionId: number,
+  fetched: FetchedPolicy,
+): Promise<PolicyChange> => invoke("install_policy_into_solution", { solutionId, fetched });
 
 /** Brings the policy here so it can be read. Fetching and running are separate
  *  presses on purpose: what is fetched runs as root inside the boundary, and a
