@@ -175,6 +175,14 @@ pub struct AgentPolicySource {
     pub command: String,
     /// The folder it is downloaded into.
     pub folder: String,
+    /// The SHA-256 it is expected to have, or empty for "whatever arrives".
+    ///
+    /// **Defaulted, because it was added after sources were already saved.**
+    /// Without this a stored source from before the field existed would fail to
+    /// parse, and the parse failure is swallowed into a default — so somebody's
+    /// policy source would quietly empty itself on upgrade.
+    #[serde(default)]
+    pub expect_digest: String,
 }
 
 pub async fn agent_policy_source(conn: &Connection) -> Result<AgentPolicySource> {
@@ -213,6 +221,30 @@ pub async fn set_agent_policy_source(
             return Err(crate::db::DbError::Validation(
                 "say which folder it should be downloaded into".into(),
             ));
+        }
+        // **A mistyped digest and a changed policy must not arrive as the same
+        // message.** One of them is somebody's thumb; the other is the thing
+        // this whole mechanism exists to catch, and they would be indis-
+        // tinguishable if a typo were allowed to be stored and fail at fetch.
+        let expected = source.expect_digest.trim();
+        if !expected.is_empty() && !crate::tooling::sandbox_policy::is_digest(expected) {
+            return Err(crate::db::DbError::Validation(
+                "a digest is 64 hexadecimal characters — that is not one, so it was not stored"
+                    .into(),
+            ));
+        }
+        // **A branch is refused unless a digest pins it.** What is fetched runs
+        // as root inside the boundary, and a branch means "whatever that points
+        // at when the button is next pressed" — which is a different file from
+        // the one somebody read, on whatever day its author chooses.
+        if expected.is_empty() {
+            if let Some(moving) = crate::tooling::sandbox_policy::moving_github_ref(from) {
+                return Err(crate::db::DbError::Validation(format!(
+                    "'{moving}' is a branch, and this is fetched and run as root — so it would be \
+                     whatever that branch points at next, not what you read. Put the commit id in \
+                     the address instead of '{moving}', or fetch it once and pin its digest."
+                )));
+            }
         }
     }
     let json = serde_json::to_string(source).expect("struct serialize");

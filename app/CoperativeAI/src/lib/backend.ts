@@ -2802,6 +2802,12 @@ export interface Run {
 export interface RunRestriction {
   sandbox: string;
   deny: string[];
+  /** SHA-256 of the policy file this run was bounded by, when it had one.
+   *
+   *  **What makes the record checkable rather than merely readable.** The deny
+   *  list says what was enforced; the digest is what lets somebody hold a
+   *  policy file up against an old run and say whether it is the same one. */
+  digest: string;
 }
 
 /** Reads a run's record of what bounded it.
@@ -2813,7 +2819,9 @@ export function restrictionOf(run: { restrictedBy: string }): RunRestriction | n
   if (!run.restrictedBy.trim()) return null;
   try {
     const said = JSON.parse(run.restrictedBy) as Partial<RunRestriction>;
-    return { sandbox: said.sandbox ?? "off", deny: said.deny ?? [] };
+    // A run recorded before digests were kept has none, and that stays blank
+    // for the same reason the sandbox does not fall back to today's setting.
+    return { sandbox: said.sandbox ?? "off", deny: said.deny ?? [], digest: said.digest ?? "" };
   } catch {
     return null;
   }
@@ -3234,10 +3242,42 @@ export interface AgentPolicySource {
   command: string;
   /** The folder it is downloaded into. */
   folder: string;
+  /** The SHA-256 it must have, or empty for "whatever arrives".
+   *
+   *  Empty is trust-on-first-use and nothing more: the digest can be shown so
+   *  it can be compared against what the policy's author said, but until it is
+   *  set here, every fetch is checked against nothing. */
+  expectDigest: string;
 }
 
 export const getAgentPolicySource = (): Promise<AgentPolicySource> =>
   invoke("get_agent_policy_source");
+
+/** The moving part of a GitHub address, when it has one — `main`, a branch
+ *  name, a tag — or null when it names a commit or is not GitHub at all.
+ *
+ *  **A hint as it is typed, never the enforcement.** `sandbox_policy.rs` has
+ *  the same rule and is what actually refuses to store a branch; this copy
+ *  exists so the refusal is not a surprise on Save. If the two ever disagree,
+ *  the backend's answer is the one that decides, and the worst this one can do
+ *  is fail to warn early. */
+export function movingGithubRef(from: string): string | null {
+  const rest = from.trim().split("://")[1];
+  if (!rest) return null;
+  const cut = rest.indexOf("/");
+  if (cut < 0) return null;
+  const host = rest.slice(0, cut).toLowerCase();
+  const hosts = ["github.com", "www.github.com", "raw.githubusercontent.com", "raw.github.com"];
+  if (!hosts.includes(host)) return null;
+  const parts = rest.slice(cut + 1).split("/").filter((p) => p !== "");
+  const at =
+    parts[2] === "blob" || parts[2] === "raw" ? 3 : host.startsWith("raw.") ? 2 : -1;
+  if (at < 0) return null;
+  // `refs/heads/main` names a branch just as plainly as `main` does.
+  const named = parts[at] === "refs" ? parts[at + 2] : parts[at];
+  if (!named) return null;
+  return /^[0-9a-f]{40}$/i.test(named) ? null : named;
+}
 
 /** Refused when it cannot be honoured — a bad source caught here rather than
  *  when a run is starting. */
@@ -3253,6 +3293,10 @@ export interface FetchedPolicy {
   text: string;
   /** Whether that is only the beginning of it. */
   truncated: boolean;
+  /** SHA-256 of the whole file, lowercase hex — of the bytes, not of `text`. */
+  digest: string;
+  /** Whether it was checked against a digest set beforehand, or only shown. */
+  verified: boolean;
 }
 
 /** Brings the policy here so it can be read. Fetching and running are separate

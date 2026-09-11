@@ -12,6 +12,10 @@ reqwest = { version = "0.12", features = ["json"] }
 rmcp = { version = "3.1.1", features = ["server"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
+# A policy is somebody else's root script; its digest is how it is recognised
+# again. Already compiled for tauri's own codegen, so this costs no new
+# supply chain — see tooling/sandbox_policy.rs.
+sha2 = "0.10"
 tauri = { version = "2.11.5", features = [] }
 tauri-plugin-dialog = "2"
 tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros", "process", "io-util", "time"] }

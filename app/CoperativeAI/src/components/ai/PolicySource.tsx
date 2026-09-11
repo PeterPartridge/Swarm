@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   fetchAgentPolicy,
   getAgentPolicySource,
+  movingGithubRef,
   runAgentPolicy,
   setAgentPolicySource,
   type AgentPolicySource,
@@ -22,7 +23,12 @@ import {
  *  safeguard there is against a policy somebody else wrote, given that it runs
  *  as root inside the boundary and can weaken it as easily as strengthen it. */
 export default function PolicySource() {
-  const [source, setSource] = useState<AgentPolicySource>({ from: "", command: "", folder: "" });
+  const [source, setSource] = useState<AgentPolicySource>({
+    from: "",
+    command: "",
+    folder: "",
+    expectDigest: "",
+  });
   const [saved, setSaved] = useState<AgentPolicySource | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState("");
@@ -91,8 +97,34 @@ export default function PolicySource() {
     }
   }
 
+  /** Pins what was just fetched, so every fetch after this one is checked.
+   *
+   *  **Saved in the same press, not left as a field somebody meant to save.**
+   *  A digest typed into a box and not stored is the most misleading state this
+   *  panel could be in: it looks pinned and checks nothing. */
+  async function pin() {
+    if (!fetched) return;
+    const next = { ...source, expectDigest: fetched.digest };
+    setBusy("pin");
+    try {
+      await setAgentPolicySource(next);
+      setSource(next);
+      setSaved(next);
+      setNote("Pinned. Fetches after this one are checked against it.");
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy("");
+    }
+  }
+
   const changed = saved !== null && JSON.stringify(saved) !== JSON.stringify(source);
   const isUrl = /^https?:\/\//i.test(source.from.trim());
+  const pinned = source.expectDigest.trim() !== "";
+  /** Recognised where it is typed, because "put the commit in instead" is only
+   *  useful advice if it says which part of the address to replace. */
+  const branch = movingGithubRef(source.from);
 
   return (
     <section className="policy-source" aria-label="Agent policy">
@@ -122,6 +154,34 @@ export default function PolicySource() {
         {isUrl
           ? "An address must be https — this is fetched and then run."
           : "A file on this machine is the safer choice: you can read it first."}
+      </span>
+      {/* **Said as it is typed rather than found on Save.** A branch means
+          "whatever that points at when the button is next pressed", which is a
+          different file from the one somebody read, on a day its author picks. */}
+      {branch !== null && !pinned && (
+        <span className="hint" role="status">
+          “{branch}” is a branch, so this would fetch whatever it points at next
+          — not what you read. Put the commit id in the address instead, or
+          fetch it once and pin its digest below.
+        </span>
+      )}
+
+      <label>
+        Expected digest
+        <input
+          type="text"
+          value={source.expectDigest}
+          placeholder="optional — the SHA-256 it must have"
+          onChange={(e) => setSource({ ...source, expectDigest: e.target.value })}
+        />
+      </label>
+      {/* **The gap named rather than left to be assumed.** A digest on screen
+          looks like integrity whether or not anything was checked against it,
+          and that assumption is the whole failure this field exists to end. */}
+      <span className="hint">
+        {pinned
+          ? "Every fetch is checked against this, and a policy that does not match is not saved or run."
+          : "Nothing is pinned, so a fetch is checked against nothing. Fetch it once, read it, then pin what you read."}
       </span>
 
       <label>
@@ -176,6 +236,21 @@ export default function PolicySource() {
             {fetched.bytes} bytes, at {fetched.path}. Read it before running it.
             {fetched.truncated && " Shown as far as it is worth reading."}
           </p>
+          {/* **Two plainly different words, never one icon** — the rule this
+              area was built on. "Checked" means a digest set beforehand matched;
+              "not checked" means this is the first sight of it and nothing
+              verified anything. Both show the digest; only one is a claim. */}
+          <p className="hint">
+            <code>{fetched.digest}</code>{" "}
+            {fetched.verified
+              ? "— checked against the pinned digest."
+              : "— not checked against anything. Compare it with what the policy’s author published."}
+          </p>
+          {!fetched.verified && (
+            <button type="button" onClick={() => void pin()} disabled={busy !== ""}>
+              {busy === "pin" ? "Pinning…" : "Pin this digest"}
+            </button>
+          )}
           <pre>{fetched.text}</pre>
         </div>
       )}

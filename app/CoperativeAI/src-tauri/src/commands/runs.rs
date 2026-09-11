@@ -332,10 +332,19 @@ pub(crate) async fn prepare_run(
     // run — and the point of writing it is to be able to say afterwards what
     // the agent could and could not reach while it worked.
     let restricted_by = {
+        let at = std::path::Path::new(&root)
+            .join(crate::tooling::sandbox_policy::POLICY_FILE.replace('/', std::path::MAIN_SEPARATOR_STR));
         let policy = crate::tooling::sandbox_policy::read_policy(std::path::Path::new(&root))
             .unwrap_or_default();
         let deny = crate::tooling::sandbox_policy::deny_paths(&policy).unwrap_or_default();
-        serde_json::json!({ "sandbox": sandbox.id(), "deny": deny }).to_string()
+        // **The file's digest, not the list's.** The list is what was enforced;
+        // the digest is what lets somebody put the record next to a policy file
+        // later and say whether it is the same one. A record that can only be
+        // read, never checked, is a claim rather than evidence.
+        let digest = std::fs::read(&at)
+            .map(|bytes| crate::tooling::sandbox_policy::digest(&bytes))
+            .unwrap_or_default();
+        serde_json::json!({ "sandbox": sandbox.id(), "deny": deny, "digest": digest }).to_string()
     };
     change_run::set_restriction(conn, run_id, &restricted_by)
         .await

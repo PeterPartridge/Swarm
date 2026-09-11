@@ -551,7 +551,7 @@ pub async fn fetch_agent_policy(
             .await
             .map_err(to_message)?
     };
-    crate::tooling::sandbox_policy::fetch(&source.from, &source.folder).await
+    crate::tooling::sandbox_policy::fetch(&source.from, &source.folder, &source.expect_digest).await
 }
 
 /// Runs the policy where the agent will run.
