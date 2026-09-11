@@ -117,16 +117,13 @@ pub fn file_name_for(from: &str) -> String {
     // has no name to take, and taking one anyway gives files called
     // `example.com`, which tells nobody anything about what they are reading.
     let source = if is_address(from) {
-        match from
-            .splitn(2, "://")
-            .nth(1)
+        from.split_once("://")
+            .map(|(_scheme, rest)| rest)
             .unwrap_or("")
             .trim_end_matches('/')
             .split_once('/')
-        {
-            Some((_host, path)) => path,
-            None => "",
-        }
+            .map(|(_host, path)| path)
+            .unwrap_or("")
     } else {
         from
     };

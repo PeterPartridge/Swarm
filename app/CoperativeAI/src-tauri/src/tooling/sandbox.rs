@@ -38,8 +38,12 @@ pub const SANDBOXES: &[(&str, &str)] = &[
 ];
 
 /// Which of the three is in force.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Mode {
+    /// The default, and deliberately the least protected of the three — see
+    /// `from_setting` for why landing here is the honest answer rather than the
+    /// timid one.
+    #[default]
     Off,
     Wsl,
     Docker,
@@ -92,12 +96,6 @@ pub struct Place {
     /// Empty for `Off`, and empty is refused for anything else — a sandboxed
     /// command with nowhere to be is a bug, not a default.
     pub inside: String,
-}
-
-impl Default for Mode {
-    fn default() -> Self {
-        Mode::Off
-    }
 }
 
 impl Place {

@@ -349,7 +349,7 @@ mod tests {
             let look = |script: &'static str| {
                 let name = container.clone();
                 async move {
-                    let args = vec!["exec".to_string(), name, "sh".into(), "-c".into(), script.into()];
+                    let args = ["exec".to_string(), name, "sh".into(), "-c".into(), script.into()];
                     let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
                     match ask("docker", &borrowed, Duration::from_secs(60)).await {
                         Answered::Yes((_, said)) => String::from_utf8_lossy(&said).trim().to_string(),
@@ -402,7 +402,7 @@ mod tests {
             let look = |script: &'static str| {
                 let name = container.clone();
                 async move {
-                    let args = vec!["exec".to_string(), name, "sh".into(), "-c".into(), script.into()];
+                    let args = ["exec".to_string(), name, "sh".into(), "-c".into(), script.into()];
                     let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
                     match ask("docker", &borrowed, Duration::from_secs(60)).await {
                         Answered::Yes((_, said)) => String::from_utf8_lossy(&said).trim().to_string(),
