@@ -591,6 +591,58 @@ pub async fn run_agent_policy(
     Ok(said)
 }
 
+/// Where a fetched policy could be installed, and what it would change there.
+///
+/// **A Solution with no working copy cannot receive one**, and says so rather
+/// than being offered and failing — the policy file lives in the repository,
+/// which is what makes it shareable and reviewable, so there has to be one.
+async fn repo_of(db: &State<'_, AppDb>, solution_id: i64) -> Result<std::path::PathBuf, String> {
+    let conn = db.0.lock().await;
+    let solution = crate::db::solution::find_by_id(&conn, solution_id)
+        .await
+        .map_err(to_message)?
+        .ok_or("that Solution no longer exists")?;
+    let path = solution.local_path.unwrap_or_default();
+    if path.trim().is_empty() {
+        return Err(format!(
+            "'{}' has no working copy on this machine, and a policy lives in the repository — \
+             point it at one first.",
+            solution.name
+        ));
+    }
+    Ok(std::path::PathBuf::from(path))
+}
+
+/// What installing the fetched policy into a Solution would change.
+///
+/// **Nothing is written by this.** Separate from applying on purpose: the
+/// removals are the half somebody needs to see before they happen.
+#[tauri::command]
+pub async fn preview_policy_install(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+    fetched: crate::tooling::sandbox_policy::Fetched,
+) -> Result<crate::tooling::sandbox_policy::Change, String> {
+    let root = repo_of(&db, solution_id).await?;
+    crate::tooling::sandbox_policy::preview_install(&root, &fetched)
+}
+
+/// Writes the fetched policy into a Solution's repository.
+///
+/// **The same file both backends already honour.** This is what makes a policy
+/// shareable without a script: a deny list in the repository is read on every
+/// run and enforced as permissions under WSL or as mount masking under Docker,
+/// where a script only ever worked under one of them.
+#[tauri::command]
+pub async fn install_policy_into_solution(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+    fetched: crate::tooling::sandbox_policy::Fetched,
+) -> Result<crate::tooling::sandbox_policy::Change, String> {
+    let root = repo_of(&db, solution_id).await?;
+    crate::tooling::sandbox_policy::install_into(&root, &fetched)
+}
+
 /// The device-policy settings this app's sandbox wants, as a file to be read.
 ///
 /// **Shown before it is saved, like everything else here.** What comes out of

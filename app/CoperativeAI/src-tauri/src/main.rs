@@ -142,6 +142,8 @@ fn main() {
             commands::ai_settings::fetch_agent_policy,
             commands::ai_settings::run_agent_policy,
             commands::ai_settings::get_installed_policy,
+            commands::ai_settings::preview_policy_install,
+            commands::ai_settings::install_policy_into_solution,
             commands::ai_settings::device_policy_export,
             commands::ai_settings::save_device_policy_export,
             commands::ai_settings::get_agent_run_mode,

@@ -116,6 +116,78 @@ pub struct Fetched {
     pub digest: String,
     /// Whether it was checked against a digest set beforehand, or only shown.
     pub verified: bool,
+    /// What kind of thing arrived — which decides what can be done with it.
+    pub shape: Shape,
+}
+
+/// What a fetched file turned out to be.
+///
+/// **One fetch, two honest destinations.** A policy and a script are both
+/// things somebody shares to restrict an agent, and both deserve the same
+/// fetching, digest and reading-before-use. What they cannot share is what
+/// happens next: a deny list is written into a Solution and honoured by both
+/// backends, while a script is run as root into the WSL distribution and does
+/// nothing at all under Docker. Telling them apart here is what lets the panel
+/// offer the right one rather than asking somebody to know.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Shape {
+    /// A deny list: installable into a Solution, enforced by either backend.
+    Policy,
+    /// Anything else — treated as a script, which only WSL can run.
+    Script,
+}
+
+/// Whether what arrived is a policy, judged from the whole file.
+///
+/// **The `deny` key has to be there, not merely parse.** `Policy` defaults its
+/// one field, so `{}` — and in fact every JSON object in existence — would
+/// deserialize into an empty policy quite happily. Accepting that would let a
+/// `package.json` be installed as a policy denying nothing, which is the most
+/// dangerous shape of wrong answer available here: a boundary that looks
+/// applied and holds nothing.
+pub fn shape_of(bytes: &[u8]) -> Shape {
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(bytes) else {
+        return Shape::Script;
+    };
+    match value.get("deny") {
+        Some(serde_json::Value::Array(_)) => Shape::Policy,
+        _ => Shape::Script,
+    }
+}
+
+/// What installing one policy over another would change.
+///
+/// **Computed and shown before anything is written.** A policy is the list of
+/// things somebody believes an agent cannot reach, and replacing it silently
+/// is how a rule disappears without anybody deciding it should.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Change {
+    /// Rules this would start enforcing.
+    pub added: Vec<String>,
+    /// Rules this would stop enforcing — the half that matters most.
+    pub removed: Vec<String>,
+    /// Rules already there, unchanged.
+    pub kept: Vec<String>,
+    /// Whether the Solution has a policy at all today.
+    pub had_one: bool,
+}
+
+/// What would change, rule by rule.
+///
+/// Compares the tidied forms rather than the raw text, so `secrets/` and
+/// `secrets` are recognised as the same rule and do not show up as one removal
+/// and one addition — a diff full of false movement is one nobody reads.
+pub fn plan_install(current: &Policy, incoming: &Policy, had_one: bool) -> Result<Change, String> {
+    let now = deny_paths(current)?;
+    let next = deny_paths(incoming)?;
+    Ok(Change {
+        added: next.iter().filter(|r| !now.contains(r)).cloned().collect(),
+        removed: now.iter().filter(|r| !next.contains(r)).cloned().collect(),
+        kept: next.iter().filter(|r| now.contains(r)).cloned().collect(),
+        had_one,
+    })
 }
 
 /// What a file is, said in a way it can be recognised by again.
@@ -295,7 +367,81 @@ pub async fn fetch(from: &str, folder: &str, expected: &str) -> Result<Fetched, 
         truncated,
         digest: got,
         verified: !expected.is_empty(),
+        // Judged from the whole file rather than from `text`, which stops at
+        // what is worth reading — a policy just over the line would otherwise
+        // read as a script and be offered the wrong destination.
+        shape: shape_of(&bytes),
     })
+}
+
+/// Reads a fetched policy back, checked, ready to be compared or written.
+///
+/// **Re-read and re-hashed, never trusted from the struct.** The same reason
+/// `install` does it: fetching and using are separate presses, and between them
+/// the file sits on this machine under a predictable name.
+fn fetched_policy(fetched: &Fetched) -> Result<Policy, String> {
+    let bytes = std::fs::read(&fetched.path)
+        .map_err(|e| format!("could not read back {}: {e}", fetched.path))?;
+    if !fetched.digest.is_empty() && digest(&bytes) != fetched.digest {
+        return Err(format!(
+            "{} has changed since it was fetched, so nothing was installed. Fetch it again and \
+             read it.",
+            fetched.path
+        ));
+    }
+    if shape_of(&bytes) != Shape::Policy {
+        return Err(
+            "that file is not a policy — a policy is JSON with a \"deny\" list in it. A script is \
+             run into the distribution instead, which is the other button."
+                .into(),
+        );
+    }
+    serde_json::from_slice(&bytes).map_err(|e| {
+        // The line is the useful part: a policy nobody can parse is one nobody
+        // can fix, and "invalid" says nothing about where to look.
+        format!("that policy could not be read — {e}")
+    })
+}
+
+/// What installing the fetched policy into this repository would change.
+///
+/// **Nothing is written by this.** The whole point of computing it separately
+/// is that somebody sees the removals before they happen.
+pub fn preview_install(repo_root: &Path, fetched: &Fetched) -> Result<Change, String> {
+    let incoming = fetched_policy(fetched)?;
+    // Checked here so a bad *incoming* rule is refused while previewing, rather
+    // than after somebody has agreed to apply it.
+    deny_paths(&incoming)?;
+    let at = repo_root.join(POLICY_FILE.replace('/', std::path::MAIN_SEPARATOR_STR));
+    let had_one = at.is_file();
+    let current = read_policy(repo_root)?;
+    plan_install(&current, &incoming, had_one)
+}
+
+/// Writes the fetched policy into a Solution's repository.
+///
+/// **Written as this app spells it, not as it arrived.** Re-serialising from
+/// the parsed policy means what lands in the repository is exactly the rules
+/// that were previewed — a file copied verbatim could carry anything else its
+/// author put alongside `deny`, which would then sit in somebody's repository
+/// having been reviewed as a deny list.
+pub fn install_into(repo_root: &Path, fetched: &Fetched) -> Result<Change, String> {
+    let change = preview_install(repo_root, fetched)?;
+    let incoming = fetched_policy(fetched)?;
+    let tidied = Policy { deny: deny_paths(&incoming)? };
+
+    let at = repo_root.join(POLICY_FILE.replace('/', std::path::MAIN_SEPARATOR_STR));
+    if let Some(folder) = at.parent() {
+        std::fs::create_dir_all(folder)
+            .map_err(|e| format!("could not make {}: {e}", folder.display()))?;
+    }
+    let mut text = serde_json::to_string_pretty(&tidied)
+        .map_err(|e| format!("could not write that policy out: {e}"))?;
+    // A trailing newline, because this lands in somebody's repository and every
+    // diff of it for the rest of its life would otherwise say "no newline".
+    text.push('\n');
+    std::fs::write(&at, text).map_err(|e| format!("could not write {}: {e}", at.display()))?;
+    Ok(change)
 }
 
 /// What a run writes down about what bounded it.
@@ -627,6 +773,7 @@ mod tests {
             truncated: false,
             digest: digest(b"chmod 000 secrets"),
             verified: true,
+            shape: Shape::Script,
         };
         // Swapped after it was shown, before it is run.
         std::fs::write(&at, b"chmod 777 /").expect("what would run instead");
@@ -659,6 +806,7 @@ mod tests {
             truncated: false,
             digest: digest(b"{}"),
             verified: false,
+            shape: Shape::Script,
         };
         let refused = install(&fetched, crate::tooling::sandbox::Mode::Off, "sh p.json")
             .await
@@ -692,6 +840,150 @@ mod tests {
         assert_eq!(said["script"]["digest"], "bb");
         assert_eq!(said["script"]["from"], "https://e.com/p.sh");
         assert_eq!(said["script"]["at"], 7);
+    }
+
+    /// **The most dangerous wrong answer available here.** `Policy` defaults
+    /// its one field, so every JSON object on earth deserializes into an empty
+    /// policy quite happily — accepting that would let a `package.json` install
+    /// as a policy denying nothing: a boundary that looks applied and holds
+    /// nothing at all.
+    #[test]
+    fn only_a_file_with_a_deny_list_counts_as_a_policy() {
+        assert_eq!(shape_of(br#"{"deny": ["secrets"]}"#), Shape::Policy);
+        assert_eq!(shape_of(br#"{"deny": []}"#), Shape::Policy);
+
+        assert_eq!(shape_of(br#"{"name": "my-app", "version": "1.0.0"}"#), Shape::Script);
+        assert_eq!(shape_of(b"{}"), Shape::Script);
+        // Present but the wrong kind of thing is not a deny list either.
+        assert_eq!(shape_of(br#"{"deny": "secrets"}"#), Shape::Script);
+        assert_eq!(shape_of(b"#!/bin/sh\nchmod 000 secrets\n"), Shape::Script);
+    }
+
+    /// **The removals are the half that matters.** A policy is the list of
+    /// things somebody believes an agent cannot reach, and one disappearing
+    /// without a decision is the failure worth showing before it happens.
+    #[test]
+    fn a_plan_says_what_would_stop_being_enforced() {
+        let current = Policy { deny: vec!["secrets".into(), "config/keys.json".into()] };
+        let incoming = Policy { deny: vec!["secrets".into(), ".env".into()] };
+        let change = plan_install(&current, &incoming, true).expect("ordinary rules");
+
+        assert_eq!(change.added, vec![".env".to_string()]);
+        assert_eq!(change.removed, vec!["config/keys.json".to_string()]);
+        assert_eq!(change.kept, vec!["secrets".to_string()]);
+        assert!(change.had_one);
+    }
+
+    /// Compared after tidying, so `secrets/` and `secrets` are one rule rather
+    /// than a removal and an addition — a diff full of false movement is one
+    /// nobody reads.
+    #[test]
+    fn the_same_rule_spelled_differently_is_not_a_change() {
+        let current = Policy { deny: vec!["  secrets/ ".into()] };
+        let incoming = Policy { deny: vec!["secrets".into()] };
+        let change = plan_install(&current, &incoming, true).expect("ordinary rules");
+        assert!(change.added.is_empty(), "{change:?}");
+        assert!(change.removed.is_empty(), "{change:?}");
+        assert_eq!(change.kept, vec!["secrets".to_string()]);
+    }
+
+    /// **Installed as this app spells it, never copied verbatim.** A file
+    /// copied whole could carry anything its author put beside `deny`, which
+    /// would then sit in somebody's repository having been reviewed as a deny
+    /// list — and a rule that climbs out is refused while previewing, before
+    /// anybody has agreed to apply it.
+    #[tokio::test]
+    async fn a_policy_is_installed_as_the_rules_that_were_previewed() {
+        let root = std::env::temp_dir().join("coperativeai-install-into");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("a repository");
+
+        // A Solution that already has a policy, so there is something to lose.
+        let at = root.join(POLICY_FILE.replace('/', std::path::MAIN_SEPARATOR_STR));
+        std::fs::create_dir_all(at.parent().expect("a parent")).expect("the folder");
+        std::fs::write(&at, br#"{"deny": ["old-secret"]}"#).expect("an existing policy");
+
+        let folder = root.join("incoming");
+        let source = root.join("shared.json");
+        std::fs::write(&source, br#"{"deny": ["secrets", ".env"], "note": "hello"}"#)
+            .expect("a shared policy");
+        let fetched = fetch(&source.to_string_lossy(), &folder.to_string_lossy(), "")
+            .await
+            .expect("fetching a policy");
+        assert_eq!(fetched.shape, Shape::Policy);
+
+        // Previewed first, and the preview writes nothing.
+        let planned = preview_install(&root, &fetched).expect("a preview");
+        assert_eq!(planned.removed, vec!["old-secret".to_string()]);
+        assert_eq!(
+            std::fs::read_to_string(&at).expect("still there"),
+            r#"{"deny": ["old-secret"]}"#,
+            "previewing must not write"
+        );
+
+        let done = install_into(&root, &fetched).expect("installing");
+        assert_eq!(done.added, vec!["secrets".to_string(), ".env".to_string()]);
+
+        // What landed is the rules, and nothing that travelled beside them.
+        let written = std::fs::read_to_string(&at).expect("written");
+        assert!(!written.contains("hello"), "only the deny list is installed: {written}");
+        assert!(written.ends_with('\n'), "a repository file ends with a newline");
+        let read_back = read_policy(&root).expect("reads back");
+        assert_eq!(read_back.deny, vec!["secrets".to_string(), ".env".to_string()]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// **A script is not installable as a policy, and says which button it
+    /// wants.** Both arrive through the same fetch, so the refusal has to name
+    /// the difference rather than only rejecting.
+    #[tokio::test]
+    async fn a_script_is_refused_as_a_policy_and_the_existing_one_is_left_alone() {
+        let root = std::env::temp_dir().join("coperativeai-install-script");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("a repository");
+        let at = root.join(POLICY_FILE.replace('/', std::path::MAIN_SEPARATOR_STR));
+        std::fs::create_dir_all(at.parent().expect("a parent")).expect("the folder");
+        std::fs::write(&at, br#"{"deny": ["kept"]}"#).expect("an existing policy");
+
+        let source = root.join("apply.sh");
+        std::fs::write(&source, b"chmod 000 secrets\n").expect("a script");
+        let fetched = fetch(
+            &source.to_string_lossy(),
+            &root.join("incoming").to_string_lossy(),
+            "",
+        )
+        .await
+        .expect("fetching a script");
+        assert_eq!(fetched.shape, Shape::Script);
+
+        let refused = install_into(&root, &fetched).expect_err("not a policy");
+        assert!(refused.contains("not a policy"), "{refused}");
+        assert!(refused.contains("other button"), "{refused}");
+        // **Left alone**, which is the part worth asserting.
+        assert_eq!(read_policy(&root).expect("still there").deny, vec!["kept".to_string()]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A rule that climbs out of the working copy is refused while previewing,
+    /// so nobody agrees to apply something that was never going to be applied.
+    #[tokio::test]
+    async fn a_policy_with_a_rule_that_climbs_out_is_refused_before_it_is_offered() {
+        let root = std::env::temp_dir().join("coperativeai-install-bad-rule");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("a repository");
+        let source = root.join("bad.json");
+        std::fs::write(&source, br#"{"deny": ["../../etc/passwd"]}"#).expect("a bad policy");
+        let fetched = fetch(
+            &source.to_string_lossy(),
+            &root.join("incoming").to_string_lossy(),
+            "",
+        )
+        .await
+        .expect("fetching it");
+
+        let refused = preview_install(&root, &fetched).expect_err("that rule reaches outside");
+        assert!(refused.contains("reaches outside"), "{refused}");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// **The whole loop, against the real distribution.**
@@ -742,6 +1034,7 @@ mod tests {
             // Nothing to re-check against, so the command is the only refusal.
             digest: String::new(),
             verified: false,
+            shape: Shape::Script,
         };
         assert!(install(&fetched, crate::tooling::sandbox::Mode::Wsl, "   ").await.is_err());
     }
