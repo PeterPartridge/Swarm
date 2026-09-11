@@ -12,6 +12,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     setAgentPolicySource: vi.fn(),
     fetchAgentPolicy: vi.fn(),
     runAgentPolicy: vi.fn(),
+    getInstalledPolicy: vi.fn(),
   };
 });
 
@@ -28,6 +29,8 @@ describe("PolicySource", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocked.getAgentPolicySource.mockResolvedValue(saved);
+    // Nothing run into the boundary is the ordinary starting state.
+    mocked.getInstalledPolicy.mockResolvedValue({ from: "", digest: "", mode: "", at: 0 });
   });
 
   /** **Three presses, not one.** A single button would make the reading
@@ -209,6 +212,89 @@ describe("PolicySource", () => {
     });
     render(<PolicySource />);
     await waitFor(() => expect(screen.queryByText(/is a branch, so this would fetch/)).toBeNull());
+  });
+});
+
+describe("what the boundary has had run into it", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocked.getAgentPolicySource.mockResolvedValue(saved);
+  });
+
+  /** **What was run, never what is in force.** Nothing watches the distribution
+   *  afterwards and root inside it can undo anything the script did, so present
+   *  tense would be a claim this app cannot support. */
+  it("says a script ran and when, without claiming it is still in force", async () => {
+    mocked.getInstalledPolicy.mockResolvedValue({
+      from: "https://example.com/lockdown.sh",
+      digest: "a".repeat(64),
+      mode: "wsl",
+      at: Date.UTC(2026, 2, 4, 9, 30),
+    });
+
+    render(<PolicySource />);
+
+    expect(await screen.findByText(/Last run into the distribution/)).toBeInTheDocument();
+    expect(screen.getByText(/says a script ran, not that what it did is still in place/))
+      .toBeInTheDocument();
+    // And the record's own fragility is said, not left to be discovered.
+    expect(screen.getByText(/setting the sandbox up again clears this record/)).toBeInTheDocument();
+  });
+
+  /** **The two mechanisms are never blurred.** A Solution's own policy file is
+   *  enforced on every run whether or not a script was ever installed, and a
+   *  panel that went quiet here would invite reading "no script" as "nothing
+   *  protects anything". */
+  it("distinguishes no script run from a Solution's own policy file", async () => {
+    mocked.getInstalledPolicy.mockResolvedValue({ from: "", digest: "", mode: "", at: 0 });
+
+    render(<PolicySource />);
+
+    expect(await screen.findByText(/No policy script has been run into the boundary/))
+      .toBeInTheDocument();
+    expect(screen.getByText(/that is a different mechanism from this one/)).toBeInTheDocument();
+  });
+
+  /** Not knowing what was installed is not the source panel failing, and must
+   *  not present as though the whole card were broken. */
+  it("still shows the source when what was installed cannot be read", async () => {
+    mocked.getInstalledPolicy.mockRejectedValue("no answer");
+
+    render(<PolicySource />);
+
+    await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("button", { name: "Fetch it" })).toBeInTheDocument();
+  });
+
+  /** Read back from the backend rather than assumed, so what is shown is what
+   *  was actually written down. */
+  it("re-reads what was installed after running one", async () => {
+    mocked.getInstalledPolicy.mockResolvedValue({ from: "", digest: "", mode: "", at: 0 });
+    mocked.fetchAgentPolicy.mockResolvedValue({
+      path: "p",
+      bytes: 2,
+      text: "{}",
+      truncated: false,
+      digest: "b".repeat(64),
+      verified: false,
+    });
+    mocked.runAgentPolicy.mockResolvedValue("done");
+
+    render(<PolicySource />);
+    await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
+    await userEvent.click(screen.getByRole("button", { name: "Fetch it" }));
+
+    mocked.getInstalledPolicy.mockResolvedValue({
+      from: "https://example.com/lockdown.sh",
+      digest: "b".repeat(64),
+      mode: "wsl",
+      at: Date.UTC(2026, 2, 4),
+    });
+    await userEvent.click(await screen.findByRole("button", { name: "Run it" }));
+
+    expect(await screen.findByText(/Last run into the distribution/)).toBeInTheDocument();
+    expect(mocked.getInstalledPolicy).toHaveBeenCalledTimes(2);
   });
 });
 

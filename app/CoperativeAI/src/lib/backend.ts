@@ -2808,6 +2808,21 @@ export interface RunRestriction {
    *  list says what was enforced; the digest is what lets somebody hold a
    *  policy file up against an old run and say whether it is the same one. */
   digest: string;
+  /** The policy script that had been run into this boundary, if any.
+   *
+   *  **Recorded beside the policy, never folded into it.** The deny list above
+   *  bounded this run; the script was run into the distribution at some earlier
+   *  moment and produced no deny list at all. One field for both would assert
+   *  that the run's rules came from that source, which is true of neither
+   *  backend — and under Docker no script ever runs. */
+  script: RunScript | null;
+}
+
+export interface RunScript {
+  from: string;
+  digest: string;
+  /** Milliseconds since the epoch. */
+  at: number;
 }
 
 /** Reads a run's record of what bounded it.
@@ -2821,7 +2836,15 @@ export function restrictionOf(run: { restrictedBy: string }): RunRestriction | n
     const said = JSON.parse(run.restrictedBy) as Partial<RunRestriction>;
     // A run recorded before digests were kept has none, and that stays blank
     // for the same reason the sandbox does not fall back to today's setting.
-    return { sandbox: said.sandbox ?? "off", deny: said.deny ?? [], digest: said.digest ?? "" };
+    return {
+      sandbox: said.sandbox ?? "off",
+      deny: said.deny ?? [],
+      digest: said.digest ?? "",
+      // Absent means no script had been run into that boundary — or the run
+      // predates the record. Either way there is nothing to claim, and null
+      // says that where a blank object would read as "a script with no name".
+      script: said.script ?? null,
+    };
   } catch {
     return null;
   }
@@ -3309,3 +3332,27 @@ export const fetchAgentPolicy = (): Promise<FetchedPolicy> => invoke("fetch_agen
  *  between runs. */
 export const runAgentPolicy = (fetched: FetchedPolicy): Promise<string> =>
   invoke("run_agent_policy", { fetched });
+
+/** The policy script that was last run into the boundary.
+ *
+ *  **A different thing from a Solution's `policy.json`.** That file is a deny
+ *  list, read on every run and enforced by whichever boundary is in force.
+ *  This is an imperative script, app-wide, run as root into the WSL
+ *  distribution by a press — it produces no deny list, and under Docker it
+ *  never runs at all.
+ *
+ *  **What was run, never what is still in force.** Nothing watches the
+ *  distribution afterwards; root inside it can undo anything this did. */
+export interface InstalledPolicy {
+  /** Where the script came from. Empty means none has ever been run. */
+  from: string;
+  /** The SHA-256 of what actually ran. */
+  digest: string;
+  /** The boundary it was run into — only ever "wsl" today. */
+  mode: string;
+  /** When it ran, in milliseconds since the epoch. */
+  at: number;
+}
+
+export const getInstalledPolicy = (): Promise<InstalledPolicy> =>
+  invoke("get_installed_policy");

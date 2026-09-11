@@ -569,7 +569,36 @@ pub async fn run_agent_policy(
             crate::commands::sandbox_mode(&conn).await,
         )
     };
-    crate::tooling::sandbox_policy::install(&fetched, mode, &source.command).await
+    let said = crate::tooling::sandbox_policy::install(&fetched, mode, &source.command).await?;
+
+    // **Written only after it ran, and only because it ran.** A record made
+    // before the command would name a script that may have failed halfway, and
+    // the whole value of this record is that somebody can later ask a run what
+    // had been done to the boundary it worked in.
+    let conn = db.0.lock().await;
+    crate::db::system_setting::set_installed_policy(
+        &conn,
+        &crate::db::system_setting::InstalledPolicy {
+            from: source.from.trim().to_string(),
+            digest: fetched.digest.clone(),
+            mode: mode.id().to_string(),
+            at: crate::db::now_millis(),
+        },
+    )
+    .await
+    .map_err(to_message)?;
+    Ok(said)
+}
+
+/// What was last run into the boundary, for the panel to say plainly.
+#[tauri::command]
+pub async fn get_installed_policy(
+    db: State<'_, AppDb>,
+) -> Result<crate::db::system_setting::InstalledPolicy, String> {
+    let conn = db.0.lock().await;
+    crate::db::system_setting::installed_policy(&conn)
+        .await
+        .map_err(to_message)
 }
 
 /// Chooses where agents run.
@@ -609,21 +638,36 @@ pub async fn set_agent_sandbox(db: State<'_, AppDb>, mode: String) -> Result<(),
 /// configured rather than made again.
 #[tauri::command]
 pub async fn set_up_sandbox(
+    db: State<'_, AppDb>,
     mode: String,
 ) -> Result<crate::tooling::sandbox_provision::Provisioned, String> {
-    match crate::tooling::sandbox::Mode::from_setting(&mode) {
+    let done = match crate::tooling::sandbox::Mode::from_setting(&mode) {
         crate::tooling::sandbox::Mode::Wsl => {
             let found = crate::tooling::sandbox_detect::wsl().await;
-            Ok(crate::tooling::sandbox_provision::provision_wsl(&found).await)
+            crate::tooling::sandbox_provision::provision_wsl(&found).await
         }
         crate::tooling::sandbox::Mode::Docker => {
             let found = crate::tooling::sandbox_detect::docker().await;
-            Ok(crate::tooling::sandbox_provision::provision_docker(&found).await)
+            crate::tooling::sandbox_provision::provision_docker(&found).await
         }
         crate::tooling::sandbox::Mode::Off => {
-            Err("there is nothing to set up for running on this machine".into())
+            return Err("there is nothing to set up for running on this machine".into())
         }
+    };
+
+    // **Set-up rewrites the ground a policy script worked on.** It recreates
+    // the agent user and the run space, which is exactly where a policy puts
+    // its permissions — so a record surviving this would go on naming a script
+    // whose effects may be gone. Forgetting it is the honest state: nothing was
+    // run into *this* boundary. Cleared only on success, because a set-up that
+    // failed may have changed nothing at all.
+    if done.succeeded {
+        let conn = db.0.lock().await;
+        crate::db::system_setting::forget_installed_policy(&conn)
+            .await
+            .map_err(to_message)?;
     }
+    Ok(done)
 }
 
 #[tauri::command]
