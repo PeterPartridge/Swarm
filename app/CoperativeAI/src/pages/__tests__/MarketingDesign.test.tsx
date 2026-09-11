@@ -181,12 +181,15 @@ describe("Marketing & Design", () => {
 
   /// The 403 from a non-Enterprise plan is the expected case, and its
   /// explanation must reach the user whole rather than becoming "failed".
-  // 15s rather than the default 5: this one renders the heaviest component in
-  // the file and takes ~1.5s on its own, which crosses 5s once enough files run
-  // in parallel on a busy machine. Nothing here is slow because it is wrong —
-  // it is contention, and a timeout that fails on load rather than on behaviour
-  // teaches people to ignore a red suite.
-  it("shows the plan explanation when a token push is refused", { timeout: 15_000 }, async () => {
+  // This carried a 15s timeout, on the stated grounds that it "renders the
+  // heaviest component in the file and takes ~1.5s on its own". Measured, it
+  // takes 119ms — the raise was put on the wrong test. The one that was slow is
+  // "writes the design files" above, and it was slow because of the `vmThreads`
+  // pool stalling jsdom's timers, not because of anything in this file. Pool
+  // reverted, timeout removed: the whole suite now passes with `testTimeout`
+  // squeezed to 2000ms, so a special case here would only hide the next
+  // regression. See vite.config.ts.
+  it("shows the plan explanation when a token push is refused", async () => {
     const user = userEvent.setup();
     mocked.listDesignAssets.mockResolvedValue([asset({})]);
     mocked.pushDesignTokens.mockRejectedValue(
