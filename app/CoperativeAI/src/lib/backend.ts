@@ -3356,3 +3356,21 @@ export interface InstalledPolicy {
 
 export const getInstalledPolicy = (): Promise<InstalledPolicy> =>
   invoke("get_installed_policy");
+
+/** Which form of device-policy export somebody wants. */
+export type DevicePolicyExportKind = "registry" | "script";
+
+/** The device-policy settings this app's sandbox wants, as a file to read.
+ *
+ *  **Exported, never installed.** This app cannot deploy an Intune policy —
+ *  policies reach a device from its tenant over MDM — and writing the registry
+ *  itself would make the machine read as managed to this app's own detection,
+ *  which would be manufacturing the evidence it then reports back. */
+export const devicePolicyExport = (kind: DevicePolicyExportKind): Promise<string> =>
+  invoke("device_policy_export", { kind });
+
+/** Writes that export into a folder, and says where it landed. */
+export const saveDevicePolicyExport = (
+  kind: DevicePolicyExportKind,
+  folder: string,
+): Promise<string> => invoke("save_device_policy_export", { kind, folder });
