@@ -14,5 +14,9 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test-setup.ts"],
+    // Building jsdom once per worker rather than once per file. Vitest reports
+    // the environment as roughly half of the run, across 74 files, and this
+    // keeps per-file isolation while paying for it once.
+    pool: "vmThreads",
   },
 });
