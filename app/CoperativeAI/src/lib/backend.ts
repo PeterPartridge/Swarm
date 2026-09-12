@@ -3407,3 +3407,47 @@ export const saveDevicePolicyExport = (
   kind: DevicePolicyExportKind,
   folder: string,
 ): Promise<string> => invoke("save_device_policy_export", { kind, folder });
+
+/** Which AI runs one area's work, in one slot. */
+export interface AreaProvider {
+  area: string;
+  slot: string;
+  /** The platform, or `"none"` — the honest state of a cell nobody has set. */
+  platform: string;
+  providerId: number | null;
+  providerName: string;
+  apiBaseUrl: string;
+  /** Whether using this cell spends money. Shown, never inferred. */
+  metered: boolean;
+  models: string[];
+}
+
+/** All six cells — two slots by three areas — set or not.
+ *
+ *  Every cell comes back even when empty: a page that received only the
+ *  configured ones would have to invent the shape of the grid, and a missing
+ *  area reads as one that does not exist rather than one nobody has set. */
+export const getAiRouting = (productId: number): Promise<AreaProvider[]> =>
+  invoke("get_ai_routing", { productId });
+
+/** Points one cell at a platform, making the provider row if it is needed.
+ *
+ *  The address and key are checked against the real server before anything is
+ *  stored, so a wrong one is a refusal rather than a provider that fails the
+ *  first time work depends on it. */
+export const setAreaProvider = (
+  productId: number,
+  area: string,
+  slot: string,
+  platform: string,
+  apiBaseUrl: string,
+  apiKey: string,
+): Promise<number> =>
+  invoke("set_area_provider", { productId, area, slot, platform, apiBaseUrl, apiKey });
+
+/** Empties one cell. The provider row is left alone — another cell may use it. */
+export const clearAreaProvider = (
+  productId: number,
+  area: string,
+  slot: string,
+): Promise<void> => invoke("clear_area_provider", { productId, area, slot });
