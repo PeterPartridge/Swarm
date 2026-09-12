@@ -81,6 +81,96 @@ Implements the project's key-handling security rule directly. The key value exis
 
 ---
 
+## Round 4 — Main and Secondary AI, per area
+
+> Produced by `/translate` from [`../../CoperativeAI/aiSettings.md`](../../CoperativeAI/aiSettings.md) Part 4, Round 4.
+
+### Page Spec
+
+**Objective.** Replace the flat list of providers with two named slots — **Main AI** and **Secondary AI** — each configured per area (**Product**, **Develop**, **QA**), so the page says what a provider is *for* rather than asking somebody to learn the app's routing model before they can add one.
+
+**Six cells, one shape.** Slot × area. Every cell holds a platform choice and the fields that platform actually needs:
+
+| Platform | Fields | Cost |
+|---|---|---|
+| Claude Code | none — it uses the signed-in plan | not metered |
+| Ollama (local) | base URL | not metered |
+| Ollama (hosted) | base URL + API key | **metered** — same budget and ledger as Claude |
+
+Fields appear only for the platform chosen. Showing all of them at once is what makes the page look harder than the decision.
+
+**What decides which model runs a job.** This page defines what is *available* per slot and area. The **effort level on the work item** picks which of the available models is used, through the existing cheapest / mid / most-capable tiers. There is no per-Product provider order on top of that — one answer, not two.
+
+**Secondary assumes nothing.** A fresh install has no Secondary, in any area. Nothing on the page implies one is missing, and every behaviour that depends on one says plainly that it is unavailable rather than silently not happening.
+
+### Product's routing moves here
+
+The routing table's areas were `develop` and `test`; Product was excluded because its planning was gated *and* routed by the Product policy. Product is now routed here with the other two, which puts the line where it belongs:
+
+- **A policy decides whether the AI may act at all** — the Product policy keeps `allow_read`, `allow_generate`, `allow_edit`.
+- **This page decides which AI acts** — so the Product policy gives up its `provider_id` and `effort_tier`.
+
+**The version to avoid** is the one where both places still hold a provider and behaviour depends on which code path runs first. That is invisible until somebody changes a setting and nothing happens, so the old fields go rather than being left unread.
+
+Three production call sites read routing from the Product policy today and must read it from the area instead:
+
+| Site | Currently |
+|---|---|
+| `commands/architecture.rs:187` | `ai_run::plan(.., provider_id, &policy.effort_tier, ..)` |
+| `commands/design.rs:299` | same |
+| `commands/workspace.rs:211` | same |
+
+### Peer review
+
+**On every completed run, not on request.** A review nobody remembers to ask for is a review that does not happen.
+
+**A second opinion, not a second gate.** `agent/review.rs` already checks a diff against the Developer Rules; that is rules-based and stays. This adds the Secondary model reading the same diff and saying what it thinks.
+
+**Attributed, always.** A local model reviewing work done by a far more capable one is worth having and is *not* the same as that model reviewing itself. So the run records and reports **which model reviewed it**, and the page never says merely "reviewed". Where there is no Secondary for that area, the run says the review did not happen rather than showing an empty result that reads like approval.
+
+### Fallback when the budget runs out
+
+**A change of quality, not just of provider.** Work finished by the cheaper model after the budget ran out is not the same work. So a run records **which model did what** rather than leaving somebody to assume one model did all of it.
+
+Stopping dead when the budget runs out is what the local-Ollama option already exists to avoid, so the fallback is the point rather than a nicety. `ai/router.rs` already decides this purely from budget, spend and available providers — the Secondary becomes the provider it falls back *to*, per area.
+
+### Tests
+
+- [ ] A fresh install has no Secondary in any area, and the page says so without implying something is missing.
+- [ ] Choosing a platform shows that platform's fields and no others.
+- [ ] A hosted Ollama is stored **metered**; a local one is not — asserted on the stored row, not on the form.
+- [ ] The effort level on a work item selects the model; the same item at a different effort selects a different one.
+- [ ] Product's routing is read from the area, and the Product policy's provider field is gone — asserted by the absence of the column, so a stale reader cannot compile.
+- [ ] A completed run with a Secondary carries a review **naming the model**; with no Secondary it says the review did not happen.
+- [ ] A run that exhausted its budget records which model did which part.
+- [ ] Removing a Secondary stops reviews happening and does not break runs.
+
+### Open questions
+
+- **Does the Secondary review its own fallback work?** When the Main runs out and the Secondary finishes the job, the reviewer and the author are the same model. That is the one case where the attribution above is not enough — it needs saying on the run, and whether the review is worth running at all then is not settled.
+- **Six cells is six chances to configure nothing.** Whether an unset area falls back to another area's setting, or simply has no AI, is not decided. Falling back quietly would be the app choosing a provider nobody named.
+
+### PLAN
+
+**Summary:** Two named slots per area, configured on one page, with the effort level on the work item choosing the model; Product's routing moved out of the Product policy; the Secondary used for an attributed peer review on every run and as the budget fallback.
+
+**Changes:**
+- `routing_default`: add `product` to `AREAS`, and a slot dimension (`main` | `secondary`) to the key.
+- `product_policy`: drop `provider_id` and `effort_tier`; keep the three permissions.
+- The three call sites above read the area instead.
+- `ai/router.rs`: the Secondary for the area becomes the fallback target.
+- Review: after a run completes, ask the area's Secondary to read the diff; store the finding **with the model name**.
+- `change_run`: record which model did which part of the work, and which reviewed it.
+- UI: two tabs, three area tabs inside each, a platform dropdown per cell, fields per platform.
+- Tests: the eight above.
+
+**Expected technical debt:**
+- Six cells is a lot of configuration for a single-user app; the shape is right and the volume may want a "same as Develop" shortcut later.
+- The Secondary reviewing its own fallback work is a real hole, recorded above rather than papered over.
+- Dropping the Product policy's provider column is a migration, and any Product that had a provider set there loses that choice — it has to be set again in Admin, which the release note has to say.
+
+---
+
 ## Round 3 — Model detection, capability packs, and validation
 
 ### My Feedback

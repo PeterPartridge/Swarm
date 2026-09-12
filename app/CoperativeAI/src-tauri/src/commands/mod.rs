@@ -22,6 +22,7 @@ pub mod policies;
 pub mod products;
 pub mod recommendations;
 pub mod mcp;
+pub mod routing;
 pub mod runs;
 pub mod repositories;
 pub mod roles;

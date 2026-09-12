@@ -1,6 +1,7 @@
 import { useState } from "react";
 import Card from "../common/Card";
 import SectionTabs from "../common/SectionTabs";
+import { opinionOf } from "../../lib/backend";
 import type { ChangeReview, FileChange, Run, Solution } from "../../lib/backend";
 import { clearFailure, useLastFailure } from "../../lib/failures";
 
@@ -237,6 +238,44 @@ export default function ReviewShipRail({
               This Product has no Developer Rules, so nothing was checked against
               them. Set them in Admin.
             </p>
+          )}
+
+          {/* **A second opinion, not a second gate.** The rules check above
+              blocks; this is a different model reading the same diff. It is
+              always attributed, and where nothing gave one the panel says so —
+              an empty box here would read exactly like a reviewer that found
+              nothing, which is the difference between "nobody looked" and "it
+              is fine". */}
+          {review && (
+            <Card title="Second opinion">
+              {/* The sentence comes from the backend so the attribution cannot
+                  be reworded here. An older backend sends none, and saying
+                  nothing is better than inventing a verdict for it. */}
+              <p className="hint">
+                {review.secondOpinionSummary ?? "This build did not record one."}
+              </p>
+              {opinionOf(review.secondOpinion) ? (
+                <>
+                  <pre className="second-opinion">
+                    {opinionOf(review.secondOpinion)?.notes}
+                  </pre>
+                  {opinionOf(review.secondOpinion)?.truncated && (
+                    <p className="hint">
+                      The change was larger than could be sent, so this is an
+                      opinion about the beginning of it.
+                    </p>
+                  )}
+                  <p className="hint">
+                    It does not block anything, and it is not the rules check
+                    above.
+                  </p>
+                </>
+              ) : (
+                <p className="hint">
+                  Set a Secondary AI for Develop in Admin to get one.
+                </p>
+              )}
+            </Card>
           )}
 
           <Card title="Where it lands">

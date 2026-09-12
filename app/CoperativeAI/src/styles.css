@@ -9808,3 +9808,160 @@ button.ready-action.link:hover {
   overflow: auto;
   white-space: pre-wrap;
 }
+
+/* --- Which AI runs each area: two slots, three areas ---------------------- */
+
+/* **Two rows of tabs that mean different things, so they must not look alike.**
+   The first draft gave both rows one style and six pixels between them, which
+   read as five buttons in a squashed line rather than "pick a slot, then pick
+   an area inside it". The hierarchy is now carried by size, enclosure and
+   space: slots are a segmented control, areas sit inside a panel belonging to
+   the chosen slot. */
+
+.ai-routing > .hint:first-of-type {
+  margin-bottom: 22px;
+}
+
+/* The slot row: the primary choice, so it is the largest thing here. */
+.ai-routing .routing-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--line, rgba(128, 128, 128, 0.3));
+  border-radius: 12px;
+  /* A segmented control rather than free-standing buttons: two mutually
+     exclusive choices read better joined than scattered. */
+  width: fit-content;
+  max-width: 100%;
+}
+.ai-routing .routing-tabs .routing-tab {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.ai-routing .routing-tabs .routing-tab:hover {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+/* Marked by weight and a filled ground, never by colour alone — colour alone
+   is the one cue some readers do not get. */
+.ai-routing .routing-tabs .routing-tab.here {
+  font-weight: 650;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 25%, transparent);
+}
+
+/* The sentence explaining the slot, between the two rows — it needs room on
+   both sides or it reads as a caption for the wrong thing. */
+.ai-routing .slot-blurb {
+  margin: 14px 0 20px;
+  max-width: 62ch;
+}
+
+/* The area row and its fields, enclosed so they visibly belong to the slot
+   chosen above rather than floating beside it. */
+.ai-routing .area-panel {
+  border: 1px solid var(--line, rgba(128, 128, 128, 0.3));
+  border-radius: 12px;
+  padding: 18px 20px 20px;
+}
+.ai-routing .area-label {
+  margin: 0 0 10px;
+  font-size: 0.74rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+.ai-routing .routing-tabs.areas {
+  border: none;
+  padding: 0;
+  gap: 8px;
+  width: auto;
+  margin-bottom: 20px;
+}
+/* Areas are the second-level choice: smaller, and underlined rather than
+   filled, so the two rows cannot be mistaken for each other. */
+.ai-routing .routing-tabs.areas .routing-tab {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 14px;
+  border: 1px solid var(--line, rgba(128, 128, 128, 0.3));
+  border-radius: 9px;
+  font-size: 0.95rem;
+  background: transparent;
+  box-shadow: none;
+}
+.ai-routing .routing-tabs.areas .routing-tab.here {
+  font-weight: 650;
+  background: transparent;
+  box-shadow: inset 0 -3px 0 currentColor;
+  border-color: color-mix(in srgb, currentColor 45%, transparent);
+}
+/* "set" / "not set" in words under the name. A dot would be read as
+   reassurance before it is read at all, and half of these are deliberately
+   empty. */
+.ai-routing .tab-state {
+  font-size: 0.72rem;
+  opacity: 0.65;
+  font-weight: 400;
+}
+
+/* Stacked fields with real space between them — three controls in a row is
+   what made the first version feel cramped. */
+.ai-routing .area-panel label {
+  display: block;
+  margin: 0 0 14px;
+  font-weight: 550;
+}
+.ai-routing .area-panel label select,
+.ai-routing .area-panel label input {
+  display: block;
+  margin-top: 6px;
+  width: 100%;
+  max-width: 34rem;
+  padding: 9px 11px;
+  border: 1px solid var(--line, rgba(128, 128, 128, 0.35));
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+.ai-routing .area-panel > .hint {
+  margin: 0 0 16px;
+  max-width: 62ch;
+}
+.ai-routing .routing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line, rgba(128, 128, 128, 0.22));
+}
+.ai-routing .routing-actions + .hint {
+  margin-top: 14px;
+}
+
+/* The second opinion's text, wherever it is shown: a model's prose, so it
+   wraps rather than scrolling sideways like code. */
+.second-opinion {
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 10px 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line, rgba(128, 128, 128, 0.3));
+  font: inherit;
+  max-height: 22rem;
+  overflow-y: auto;
+}

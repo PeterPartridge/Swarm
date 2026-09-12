@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import AiConcurrencySetting from "../components/ai/AiConcurrencySetting";
 import ClaudeSetup from "../components/ai/ClaudeSetup";
 import GithubCard from "../components/product/GithubCard";
+import AiRouting from "../components/ai/AiRouting";
 import ModelInstalls from "../components/ai/ModelInstalls";
 import SshCard from "../components/product/SshCard";
 import ProductAiPolicy from "../components/ai/ProductAiPolicy";
@@ -204,6 +205,7 @@ export default function AdminArea() {
               It decides what every routed call costs. */}
           <ClaudeTiers />
           {policyProduct !== "" && <ClaudeSetup productId={Number(policyProduct)} />}
+          <AiRouting productId={policyProduct === "" ? null : Number(policyProduct)} />
           <ModelInstalls productId={policyProduct === "" ? null : Number(policyProduct)} />
           <AiConcurrencySetting />
           {/* Beside the concurrency: both are about how work actually runs,
