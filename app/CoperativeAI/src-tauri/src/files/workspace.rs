@@ -205,6 +205,29 @@ fn place_for_new(root: &str, relative: &str) -> Result<std::path::PathBuf, Strin
     let root_path = Path::new(root)
         .canonicalize()
         .map_err(|_| format!("the folder for this Solution is not there any more: {root}"))?;
+    // **A backslash is refused on every platform, including the one where it is
+    // legal.** On Windows it separates folders, so `..\escaped.txt` walks out of
+    // the Solution and the check below catches it. On Linux it is an ordinary
+    // character in a filename, so the same string is a contained file that
+    // happens to be called `..\escaped.txt` — nothing escapes, and the check
+    // below correctly allows it.
+    //
+    // That difference is the problem rather than the answer. This app builds
+    // repositories used on both, and a file created on Linux under a name that
+    // Windows reads as a path is a repository somebody cannot check out. So the
+    // two platforms are made to agree by refusing it everywhere, which also
+    // means one fewer way for the same input to mean two things.
+    //
+    // Found by running the test suite on Linux for the first time: this was the
+    // single failure out of 883.
+    if relative.contains('\\') {
+        return Err(
+            "a backslash is a folder separator on Windows and part of the name on Linux, so this \
+             app refuses it in a new path rather than creating something that means two different \
+             things. Use forward slashes."
+                .into(),
+        );
+    }
     let candidate = Path::new(relative);
     if candidate.is_absolute() {
         return Err("that path is outside the Solution’s folder".into());
@@ -593,6 +616,16 @@ mod tests {
         // the escapes
         for attempt in ["../escaped.txt", "src/../../escaped.txt", "..\\escaped.txt"] {
             assert!(create_file(&root, attempt).is_err(), "{attempt} must be refused");
+        }
+        // **Refused on both platforms, for different reasons on each.** On
+        // Windows a backslash walks out of the Solution; on Linux it is a legal
+        // character, so the same string would be a contained file with a very
+        // confusing name — and a repository built on one and opened on the
+        // other is the thing that breaks. This asserts the agreement rather
+        // than each platform's local truth.
+        for backslashed in ["a\\b.txt", "src\\new.rs", "..\\escaped.txt"] {
+            let refused = create_file(&root, backslashed).expect_err("backslashes are refused");
+            assert!(refused.contains("backslash"), "{backslashed}: {refused}");
         }
         assert!(create_file(&root, "/etc/passwd").is_err());
         assert!(create_file(&root, ".git/hooks/pre-commit").is_err());
