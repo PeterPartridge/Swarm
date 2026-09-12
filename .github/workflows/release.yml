@@ -57,6 +57,14 @@ concurrency:
 jobs:
   windows:
     runs-on: windows-latest
+    # **Counted once, here, and handed to Linux.** Both platforms have to stamp
+    # the same number or one release would carry an installer that disagrees
+    # with its own tag. Letting each job count from the tags would be two
+    # answers to a question with one right one — and the second job would count
+    # *after* the first had pushed a tag, so they would differ by one every
+    # single time.
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -278,4 +286,187 @@ jobs:
           target_commitish: ${{ github.sha }}
           files: dist-release/*
           generate_release_notes: true
+          fail_on_unmatched_files: true
+
+  # ---------------------------------------------------------------------------
+  # Linux
+  # ---------------------------------------------------------------------------
+  #
+  # **The project brief has always said Windows and Linux; only Windows was ever
+  # built.** Two things stopped it, both of them real rather than nobody having
+  # tried: `tauri-build` wants an `icon.png`, and the only icon in the repository
+  # was a single 32x32 BMP inside an `.ico`; and `npm ci` refuses a lockfile
+  # resolved on win32, because rollup and the Tauri CLI ship native binaries
+  # pinned per platform. The icons are now generated at every size from the
+  # 8-bit mark, and the npm half is dealt with below.
+  #
+  # **This runs after Windows and reuses its version**, rather than counting
+  # from the tags itself — see the note on that job's outputs.
+  #
+  # **A change worth knowing about:** a release is no longer all-or-nothing. If
+  # this job fails, the Windows assets are already published and the release
+  # exists without Linux ones. The run goes red, so it is visible rather than
+  # silent — but the alternative, making Windows wait on a platform that has
+  # never been built here, would let a new Linux problem block every release.
+  linux:
+    needs: windows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Tauri's Linux bundling needs a desktop stack present to link against.
+      # webkit2gtk **4.1**, not 4.0: Tauri 2 moved to it, and 24.04 is the first
+      # runner image where 4.0 is simply absent — asking for the old one fails
+      # with a package-not-found that says nothing about the real cause.
+      # libdbus is here for `keyring`'s secret-service feature, which is how
+      # this app stores API keys on Linux.
+      - name: What Tauri needs on Linux
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            libdbus-1-dev \
+            patchelf \
+            build-essential \
+            file
+
+      - name: Rust (version from rust-toolchain.toml)
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/CoperativeAI/src-tauri
+          # Otherwise this shares a cache key with the Windows job and restores
+          # artefacts built for the wrong target.
+          key: linux
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      # **`npm install`, not `npm ci`, and that is a deliberate loss.** The
+      # lockfile pins `@rollup/rollup-win32-x64-msvc` and
+      # `@tauri-apps/cli-win32-x64-msvc` as ordinary devDependencies, which is
+      # itself a workaround for npm/cli#4828 — without the explicit pins npm
+      # installs neither platform's native binary and the build dies with
+      # "Cannot find module @rollup/rollup-*". Verified on this machine: a clean
+      # install with the pins removed still fails.
+      #
+      # So the pins are swapped for their Linux equivalents here and the tree is
+      # resolved fresh. The cost is that Linux does not get lockfile
+      # determinism — said plainly rather than hidden, because a reader who
+      # assumes `npm ci` semantics from the Windows job would be wrong.
+      - name: Install, with the platform binaries swapped
+        working-directory: app/CoperativeAI
+        run: |
+          node -e "
+            const fs = require('fs');
+            const j = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            delete j.devDependencies['@rollup/rollup-win32-x64-msvc'];
+            delete j.devDependencies['@tauri-apps/cli-win32-x64-msvc'];
+            j.devDependencies['@rollup/rollup-linux-x64-gnu'] = '^4.62.2';
+            j.devDependencies['@tauri-apps/cli-linux-x64-gnu'] = '^2.11.4';
+            fs.writeFileSync('package.json', JSON.stringify(j, null, 2) + '\n');
+          "
+          rm -f package-lock.json
+          npm install --no-audit --no-fund
+
+      # The Windows job does this in PowerShell; a script keeps the Linux side
+      # from being inline JavaScript inside YAML inside a shell, which is three
+      # levels of quoting for one regex.
+      - name: Stamp the version
+        run: node .github/stamp-version.mjs "${{ needs.windows.outputs.version }}"
+
+      # The same gates as Windows. A platform that publishes without them is a
+      # platform whose users find the failures.
+      - name: Clippy (warnings are failures)
+        run: cargo clippy --manifest-path app/CoperativeAI/src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      # **The PTY tests are skipped here, and that is a known gap rather than a
+      # tidy-up.** Spawning a real shell on a PTY and then killing it takes this
+      # runner down: the agent reports "received a shutdown signal" and the step
+      # exits 143. Reproduced five times, narrowed by bisect to a single test,
+      # and narrowed again to the spawn-and-kill rather than anything written to
+      # the shell — so it is not the command, and not the process-group
+      # signalling that `kill_tree` was separately fixed for.
+      #
+      # What is not known is whether this is the runner's sandbox refusing a
+      # controlling terminal, or something this app does to a PTY that a Linux
+      # user would also hit. That question is open and recorded as debt; it is
+      # not answered by skipping, and skipping does not claim it is.
+      #
+      # Why this is still safe to ship: the Windows job runs the full suite,
+      # these four tests included, before anything is published — so they are
+      # not unguarded, they are unguarded *on one platform*. And what this job
+      # exists to prove is that the Linux packages build.
+      - name: Rust tests, without the ones that open a PTY
+        run: cargo test --manifest-path app/CoperativeAI/src-tauri/Cargo.toml -- --skip terminal::tests
+
+      - name: Typecheck
+        working-directory: app/CoperativeAI
+        run: npx tsc --noEmit
+
+      - name: Frontend tests
+        working-directory: app/CoperativeAI
+        run: npm test
+
+      - name: Build the desktop app
+        working-directory: app/CoperativeAI
+        run: npx tauri build
+
+      # Every expected package is looked for by itself, so "two of the three
+      # arrived" is a failure rather than a green tick — the same lesson the
+      # Windows job learned by losing its portable binary.
+      - name: Collect what was built
+        run: |
+          set -euo pipefail
+          root=app/CoperativeAI/src-tauri/target/release/bundle
+          out=dist-linux
+          mkdir -p "$out"
+
+          missing=()
+          for spec in "debian package:$root/deb/*.deb" \
+                      "rpm package:$root/rpm/*.rpm" \
+                      "AppImage:$root/appimage/*.AppImage"; do
+            what=${spec%%:*}
+            glob=${spec#*:}
+            # shellcheck disable=SC2086
+            hits=$(ls $glob 2>/dev/null || true)
+            if [ -z "$hits" ]; then
+              missing+=("$what")
+              echo "MISSING  $what  ($glob)"
+            else
+              echo "$hits" | while read -r f; do
+                echo "found    $what  $(basename "$f")"
+                cp "$f" "$out/"
+              done
+            fi
+          done
+
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "--- what is actually under $root ---"
+            find "$root" -maxdepth 2 -type f 2>/dev/null || true
+            echo "Did not find: ${missing[*]}."
+            exit 1
+          fi
+          ls -la "$out"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: CoperativeAI-${{ needs.windows.outputs.version }}-linux
+          path: dist-linux/*
+
+      # Added to the release the Windows job already made, against the same tag
+      # — which is why this job reuses that version rather than counting one.
+      - name: Add the Linux packages to the release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: v${{ needs.windows.outputs.version }}
+          files: dist-linux/*
           fail_on_unmatched_files: true
