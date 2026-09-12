@@ -40,11 +40,14 @@ pub struct ChangeRun {
     /// What bounded this run and what its policy denied, as JSON, as it was at
     /// the time. Empty for a run that predates any of it.
     pub restricted_by: String,
+    /// The Secondary AI's opinion of the change, as JSON — or empty on a run
+    /// from before this existed. Never blank once a review has run.
+    pub second_opinion: String,
     pub created_at: i64,
     pub updated_at: i64,
 }
 
-const SELECT: &str = "SELECT id, workItemId, solutionId, state, briefPath, findings, filesChanged, worktreePath, terminalId, pullRequestUrl, restrictedBy, createdAt, updatedAt FROM change_runs";
+const SELECT: &str = "SELECT id, workItemId, solutionId, state, briefPath, findings, filesChanged, worktreePath, terminalId, pullRequestUrl, restrictedBy, secondOpinion, createdAt, updatedAt FROM change_runs";
 
 pub async fn create_table(conn: &Connection) -> Result<()> {
     conn.execute(
@@ -89,6 +92,10 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             // being a record of anything.
             "restrictedBy",
             "ALTER TABLE change_runs ADD COLUMN restrictedBy TEXT NOT NULL DEFAULT ''",
+        ),
+        (
+            "secondOpinion",
+            "ALTER TABLE change_runs ADD COLUMN secondOpinion TEXT NOT NULL DEFAULT ''",
         ),
     ] {
         if has_table && !columns.iter().any(|c| c == name) {
@@ -269,6 +276,30 @@ pub async fn record_review(
     Ok(())
 }
 
+/// Records the Secondary AI's second opinion, or why there is not one.
+///
+/// **Separate from `record_review`, because they can fail independently.** The
+/// rules check is local and always produces something; asking another model is
+/// a network call that can fail on its own. Writing them together would mean a
+/// model that timed out took the rules report down with it.
+///
+/// **Empty is not "fine".** A run that was never asked and a run whose reviewer
+/// found nothing must not read alike, which is why the stored value always
+/// carries a reason rather than being blank.
+pub async fn record_second_opinion(conn: &Connection, id: i64, outcome_json: &str) -> Result<()> {
+    if find_by_id(conn, id).await?.is_none() {
+        return Err(DbError::Validation(format!("no change run with id {id}")));
+    }
+    serde_json::from_str::<serde_json::Value>(outcome_json)
+        .map_err(|e| DbError::Validation(format!("a second opinion must be JSON: {e}")))?;
+    conn.execute(
+        "UPDATE change_runs SET secondOpinion = ?1, updatedAt = ?2 WHERE id = ?3",
+        (outcome_json, now_millis(), id),
+    )
+    .await?;
+    Ok(())
+}
+
 /// What the developer decided. The app does not decide this — it cannot see
 /// whether the change was actually committed, so it records what it is told.
 pub async fn settle(conn: &Connection, id: i64, state: &str) -> Result<()> {
@@ -353,8 +384,9 @@ fn row_to_run(row: turso::Row) -> Result<ChangeRun> {
         terminal_id: row.get(8)?,
         pull_request_url: row.get(9)?,
         restricted_by: row.get(10)?,
-        created_at: row.get(11)?,
-        updated_at: row.get(12)?,
+        second_opinion: row.get(11)?,
+        created_at: row.get(12)?,
+        updated_at: row.get(13)?,
     })
 }
 

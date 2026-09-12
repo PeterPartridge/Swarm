@@ -296,7 +296,7 @@ pub async fn generate_design_strategy(
                 );
             }
         };
-        let routed = ai_run::plan(&conn, product_id, provider_id, &policy.effort_tier, purpose).await?;
+        let routed = ai_run::plan_in_area(&conn, product_id, Some("product"), provider_id, &policy.effort_tier, purpose).await?;
         let product_strategy = strategy::get(&conn, product_id, "product")
             .await
             .map_err(to_message)?;

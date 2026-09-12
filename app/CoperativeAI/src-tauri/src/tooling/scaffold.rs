@@ -83,6 +83,7 @@ fn render_project_brief(product_name: &str, answers_json: &str) -> String {
 ### repo-structure — Is this a single repo or multi purpose repo?\n\n\
 ### solutions — List each solution and where its code lives.\n\n\
 ### dev-rules — Software development rules for the codebase.\n\n\
+### testing — What has to be true before a change counts as tested?\n\n\
 ### roles — List the roles or claims used across the application.\n\n\
 ### hosting — What technology will host these solutions?\n\n\
 ### database-technology — What database technology will the solution(s) use?\n\n\

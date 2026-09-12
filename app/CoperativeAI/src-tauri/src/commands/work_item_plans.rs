@@ -289,7 +289,7 @@ async fn run_change_plan_inner(
         let (policy_provider, effort_tier) =
             super::work_items::resolve_item_ai_gate(&conn, work_item_id, &item.title).await?;
         let routed =
-            ai_run::plan(&conn, product_id, policy_provider.id, &effort_tier, PURPOSE).await?;
+            ai_run::plan_in_area(&conn, product_id, Some("develop"), policy_provider.id, &effort_tier, PURPOSE).await?;
 
         // Only a model someone has confirmed can see gets shown the pictures.
         // Sending them to a text-only model wastes a paid call on an error; the

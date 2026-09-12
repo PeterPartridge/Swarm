@@ -162,6 +162,11 @@ const review = (over: Partial<ChangeReview> = {}): ChangeReview => ({
   noRules: false,
   runId: 3,
   runState: "prepared",
+  // The ordinary case for a fixture: no Secondary is set, so nothing gave an
+  // opinion — and the summary says that rather than being blank.
+  secondOpinion: { notGiven: { why: "noSecondary" } },
+  secondOpinionSummary:
+    "No Secondary AI is set for Develop, so nothing gave a second opinion",
   ...over,
 });
 

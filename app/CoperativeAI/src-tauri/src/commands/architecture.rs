@@ -184,7 +184,7 @@ pub async fn generate_architecture_doc(
             }
         };
         let routed =
-            ai_run::plan(&conn, product_id, provider_id, &policy.effort_tier, PURPOSE).await?;
+            ai_run::plan_in_area(&conn, product_id, Some("product"), provider_id, &policy.effort_tier, PURPOSE).await?;
 
         let solutions = solution::list_by_product(&conn, product_id)
             .await

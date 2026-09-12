@@ -10,4 +10,5 @@ pub mod handover;
 pub mod jobs;
 pub mod record;
 pub mod review;
+pub mod second_opinion;
 pub mod sections;
