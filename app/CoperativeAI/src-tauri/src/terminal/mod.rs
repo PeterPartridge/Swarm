@@ -187,15 +187,54 @@ fn kill_tree(pid: u32) -> std::io::Result<()> {
             .status()
             .map(|_| ())
     } else {
-        // A negative PID is the process group. The shell leads its own group,
-        // so this reaches everything it started.
-        std::process::Command::new("kill")
-            .args(["-TERM", &format!("-{pid}")])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .map(|_| ())
+        // **The group is signalled only once the shell is known to lead one.**
+        //
+        // This used to send `kill -TERM -<pid>` unconditionally, on a comment
+        // that asserted "the shell leads its own group" and never checked. When
+        // that is not true, the negative pid names *whatever* group holds that
+        // id — which may be the one this process is in. Found by building on
+        // Linux for the first time: the terminal tests killed the CI runner
+        // outright, three runs in a row, and the runner's own step was sitting
+        // in a process group it had inherited (pgid 2074, sid 2074) that
+        // anything mis-signalled could reach.
+        //
+        // Checking costs one small file read and turns an assumption into a
+        // fact. Where the shell does not lead its own group, no group is
+        // signalled at all and `kill` falls through to ending the child
+        // directly — fewer descendants reached, which is the right way to be
+        // wrong.
+        if leads_its_own_group(pid) == Some(true) {
+            std::process::Command::new("kill")
+                .args(["-TERM", &format!("-{pid}")])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .map(|_| ())
+        } else {
+            Ok(())
+        }
     }
+}
+
+/// Whether a process is the leader of its own process group.
+///
+/// `None` when it cannot be established — a process that has already gone, or a
+/// platform with no `/proc`. **`None` is not "yes"**: every caller here treats
+/// anything but a definite yes as a refusal to signal a group, because the cost
+/// of being wrong is signalling somebody else's processes.
+///
+/// Read from `/proc/<pid>/stat` rather than through a crate: the field is the
+/// fifth, and the only subtlety is that the second is a command name which may
+/// itself contain spaces and brackets — so parsing starts after the last `)`.
+fn leads_its_own_group(pid: u32) -> Option<bool> {
+    if cfg!(windows) {
+        return None;
+    }
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let after_name = &stat[stat.rfind(')')? + 1..];
+    // After the name: state, ppid, pgrp — so the third field along.
+    let pgrp: u32 = after_name.split_whitespace().nth(2)?.parse().ok()?;
+    Some(pgrp == pid)
 }
 
 #[cfg(test)]
@@ -325,6 +364,40 @@ mod tests {
         session.kill().expect("kill");
         assert!(session.finished(), "the shell outlived the panel");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// **This process must never be mistaken for a group leader it is not.**
+    ///
+    /// The whole reason `kill_tree` now checks: signalling a process group by
+    /// an unverified id can reach anything that happens to share that id. The
+    /// test binary is the honest subject — started from a shell it does not
+    /// lead its own group, and answering "yes" for it is exactly the bug that
+    /// killed three CI runners in a row.
+    #[test]
+    #[cfg(unix)]
+    fn a_process_that_does_not_lead_its_group_is_not_claimed_to() {
+        let me = std::process::id();
+        let answer = leads_its_own_group(me);
+        assert!(answer.is_some(), "our own stat file should be readable");
+
+        // Checked against the system's own answer rather than against itself.
+        let said = std::process::Command::new("ps")
+            .args(["-o", "pgid=", "-p", &me.to_string()])
+            .output()
+            .expect("ps");
+        let pgid: u32 = String::from_utf8_lossy(&said.stdout)
+            .trim()
+            .parse()
+            .expect("a process group id");
+        assert_eq!(answer, Some(pgid == me), "disagreed with ps: pgid {pgid}, pid {me}");
+    }
+
+    /// A process that is not there cannot be claimed to lead anything — and the
+    /// caller must never read that `None` as a yes.
+    #[test]
+    #[cfg(unix)]
+    fn a_process_that_is_gone_answers_nothing() {
+        assert_eq!(leads_its_own_group(u32::MAX), None);
     }
 
     /// A folder that is not there is refused with a message rather than
