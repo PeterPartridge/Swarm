@@ -296,3 +296,99 @@ Three adopters: `terminal::Session::spawn`, `test_runner::spawn`, `starter::run`
 **Test scenarios created:** off returns program, args and cwd unchanged; an unbuilt mode refuses and names itself; unknown, empty and mis-cased stored values read as off while the three real names parse; every offered sandbox is one the code knows; a fresh install reports `off` by name; a chosen sandbox is kept and `chroot` is refused without disturbing the previous choice; and **the seam test** — the source tree is read, every file that starts a process must appear as either sandboxed or outside-with-a-reason, and each sandboxed file is checked to actually reach `wrap` rather than merely claiming to.
 
 **Technical debt:** in the closing section below.
+
+---
+
+## Round 12 — an honest panel on Linux, and Docker finished
+
+> Produced by `/translate` from [`../../CoperativeAI/agentSandbox.md`](../../CoperativeAI/agentSandbox.md) Part 4, Round 12. The sections above number their own build rounds 1–5; from here the number is the brief's, so the two stop diverging.
+
+### Page Spec
+
+**Objective.** Two halves, in order. **The ladder shown is the machine's own**, so a Linux install is never offered a Windows rung nor told a Windows rung is missing. **And Docker goes all the way round**, because on Linux it is the only rung there is: an agent inside a container can sign in, a run's branch comes back into the repository, and the files a run writes belong to the person who ran it.
+
+**Model & effort.** Most capable tier, high effort — unchanged, and for the same reason: this is the page whose only product is a true statement.
+
+#### Half 1 — the ladder is the machine's, not Windows'
+
+- **`sandbox::available_here()`** (new, `cfg`-gated) is the list of rungs this platform has: Windows `off | wsl | docker`; Linux `off | docker`. `report()` builds a column per available rung, so on Linux the WSL column is **absent rather than failed**. A rung that cannot exist is not a rung that is broken, and greying it out says the wrong thing in the one place whose whole job is to say the right one.
+- **`Mode::from_setting` stays pure and stays as it is.** The platform question belongs to the callers that act: `set_agent_sandbox` refuses a rung this machine's ladder does not have, and `sandbox_mode` treats a stored rung that is not available here as `Off` **and says so on the page** — a settings file carried from a Windows machine must produce "runs happen on this machine until you choose again", never a boundary nobody can see.
+- **Detection is asked only where the question means something.** `sandbox_detect::wsl()` and `policy()` become Windows-only; nothing on Linux spawns `wsl.exe` or `reg.exe`. Today `reg.exe` is simply absent there, so every Linux machine reads back *unmanaged, WSL permitted* — an answer about a boundary that cannot exist, produced by a lookup that failed. That is the exact shape of claim this page exists to prevent.
+- **The organisation row on Linux says what is not checked.** SELinux, AppArmor and the user-namespace sysctls are Linux's equivalents and this app reads none of them yet, so the row says that in those words. *Not checked* is a different statement from *not managed*, and a blank would be read as the second.
+
+#### Half 2 — Docker, all the way round
+
+1. **Somewhere for a sign-in to live.** A named volume of the app's own — `coperativeai-agent-home` — is mounted at the agent's home in **every** run container, and the sign-in terminal is a container with that volume and **nothing else**: no repository, no run folder. Claude Code is signed in once, and every later run finds its credentials.
+   - **The hole is named where the choice is made**, as the mounted credentials already are for WSL: one home shared by every run means any run's agent can read the credentials every other run uses. Smaller than the host keyring, larger than nothing, and said out loud rather than arriving quietly with the mode that finally works.
+2. **The branch comes back.** `bring_back` and `open_pull_request` ask `is_inside_view`, which matches the `\\wsl.localhost` spelling only — so a container run's clone looks like an ordinary host checkout, its branch never reaches the repository, and a pull request would be opened from a clone whose only remote is a folder. The question becomes **what the run recorded**: `restricted_by` already carries `"sandbox"`, written at the moment it was true, which is the property the path check was chosen for in the first place. A run whose recorded rung is not `off` has its branch fetched from wherever it worked; the path spelling stays as the WSL-side detail it is.
+3. **The files belong to the person who ran them.** On Unix the container runs as `--user <uid>:<gid>` of the person running the app, with `HOME` on the agent volume and the run's git identity supplied, because a container writing into a bound host folder has to agree with that folder's owner. Docker Desktop's virtual filesystem hides the mismatch; native Linux does not, and the failure is either a run that cannot write or a folder the app cannot clear up.
+4. **The limits row is read back, not assumed.** `docker info` states whether this engine can apply them — `MemoryLimit`, `CpuCfsQuota`, `CpuCfsPeriod`, `PidsLimit`, `CgroupVersion` — and a rootless engine on undelegated cgroups answers *no* while accepting every flag in silence. The row goes `Enforced` only where the engine says it can, and names what is missing where it cannot. The same fault as the mounted drive, one rung up: a flag passed is not a limit applied.
+5. **The column stops contradicting itself.** Its summary still says running work inside it is not built yet, while `built: true` sits beside it and containers run work.
+
+**Actions** — changed rows only.
+
+| User | Can do |
+|------|--------|
+| Anyone (no login) | Sign in to Claude Code **for Docker**, from a terminal the app opens into a container holding the agent's home volume and nothing else. |
+| Anyone (no login) | Finish a container run from outside it: the branch comes back into the repository, and the diff, the commit and the pull request work as they do for WSL. |
+| Anyone (no login) | See a ladder that is this machine's — on Linux, two rungs rather than three with one greyed out. |
+
+**Information shown / collected** — added.
+- What this platform's ladder is, and — when the stored rung is not on it — that runs are happening on this machine until a choice is made.
+- Whether this engine can apply processor, memory and process limits at all, from what it said about itself.
+- On Linux, that the organisation row's Linux equivalents are **not read** by this app.
+
+**Data to store.** Nothing new, and no migration. `agentSandbox` is unchanged; the per-run `restricted_by` record already carries the rung; the agent-home volume has a fixed name of the app's own, so it is not a setting — the same reasoning as the distribution and the image.
+
+**Access & security.** Two claims get stronger and one gets weaker, and all three are said. Stronger: a container run's work leaves the boundary by the repository fetching a branch, which is the WSL route and needs nothing of this machine inside the container. Stronger: the files a run writes are the running person's, so nothing needs root to clear up after it. Weaker, and named: credentials now persist in a volume every run container mounts, so the sign-in hole this page already names for WSL exists for Docker too, and is shared between runs. None of this is access control — there is still no authentication and roles are still visibility only — and no row claims what detection has not proved, the new one about limits included.
+
+**Tests**
+- [ ] On Linux the report has no WSL column at all; on Windows it has three.
+- [ ] Nothing spawns `wsl.exe` or `reg.exe` on Linux — asserted over the source, the way the seam's caller set is.
+- [ ] A stored rung this platform does not have resolves to `Off`, and the panel says the setting is not available here rather than showing a boundary.
+- [ ] `set_agent_sandbox` refuses a rung that is not on this platform's ladder.
+- [ ] On Linux the organisation row reads "not checked", never "unmanaged, permitted".
+- [ ] A run recorded under Docker has its branch fetched into the repository; a run recorded under `off` is left alone.
+- [ ] A pull request for a container run is opened from the repository, not from the clone.
+- [ ] The `docker run` line names the caller's uid and gid on Unix, and does not on Windows.
+- [ ] A file written inside a container is owned by the person running the app, and the app can delete the run folder afterwards *(live)*.
+- [ ] An engine that says it cannot apply memory or process limits gets `Unavailable` on that row with the reason, and the other rows are unaffected.
+- [ ] The sign-in container mounts the agent volume and neither the repository nor any run folder.
+- [ ] A run container mounts the same volume, so a sign-in done once is found by a later run *(live)*.
+- [ ] No column's words contradict its own `built` flag.
+
+**Open questions**
+- **One shared agent home, or one per Product?** Shared is what makes a single sign-in work and is what this round builds; per-Product would narrow the hole and multiply the sign-ins. Recorded rather than guessed.
+- **What to offer a Linux machine whose rootless engine cannot limit anything.** It is a real boundary for files and processes and not one for resources, so it is offered with that row red — whether that is the right default is a product question this round does not settle.
+- **Podman.** The nearer answer on Linux for both ownership and daemon privilege, and out of scope here; the container backend should take its binary name as a variable so that stays cheap.
+- **Still open from earlier rounds:** a container's network, which the agent keeps because it needs its model; and nothing removing a run's container, its folder, or now its volume.
+
+#### Page Skills — new for this round
+| Skill | Why it's needed | How the AI will use it | New? |
+|---|---|---|---|
+| Platform-conditional reporting | One panel is compiled for two operating systems with different ladders. | `cfg`-gated `available_here()` and Windows-only detection, with the platform difference tested rather than assumed. | Yes. |
+| Reading an engine's own capability statement | A flag accepted is not a limit applied, and rootless engines accept everything. | Parse `docker info` for the limit fields and report what it answered — the pure-function treatment `server_version` already gets. | Extends round 4's detection. |
+| Host and container identity agreement | A container writing into a bound host folder must agree with that folder's owner. | Pass the caller's uid and gid on Unix, keep `HOME` on the app's own volume, and prove it by what lands on disk. | Yes. |
+
+---
+
+## PLAN — round 12
+
+**Summary.** Make the ladder a property of the platform, stop asking Windows questions on Linux, and close the three gaps that stop a container run finishing: signing in, bringing the branch back, and who the files belong to. Two honesty faults found beside them are fixed with them. No new rung, no schema change, no new setting.
+
+**Changes**
+- `tooling/sandbox.rs`: `available_here()`; `report()` builds only available columns; the Docker summary stops contradicting `built`; the limits row takes what the engine said about itself.
+- `tooling/sandbox_detect.rs`: `wsl()` and `policy()` become Windows-only; `engine_limits()` (new, a pure parse of `docker info`); the Linux wording for the organisation row.
+- `tooling/sandbox_docker.rs`: `--user <uid>:<gid>` on Unix, the agent-home volume in every run container, and the sign-in container's argument list.
+- `commands/terminals.rs`: `sign_in_inside` answers for Docker instead of refusing.
+- `commands/runs.rs` and `commands/vcs_ops.rs`: ask the run's recorded rung rather than the shape of its path.
+- `commands/ai_settings.rs` and `db/system_setting.rs`: refuse a rung this platform does not have; report a stored-but-unavailable rung as `Off`, with the reason.
+- Frontend `SandboxTable.tsx` and `PolicySource.tsx`: render the columns the backend sends rather than three fixed ones, and show the stored-but-unavailable notice.
+- Tests: the thirteen above — cargo for the platform ladder, the recorded-rung gate, the uid arguments and the engine-limits parse; Vitest for a two-column table and for the notice.
+
+**Expected technical debt**
+- One agent home shared by every container run: a real hole, named on the page, narrower than the host keyring rather than absent.
+- Nothing removes the volume, the containers or the run folders; this round adds a third thing nothing cleans up.
+- The Linux organisation row reports *not checked* rather than reading SELinux, AppArmor or the userns sysctls — honest, and still a gap.
+- The container backend hard-codes `docker`; Podman would be that name plus `--userns=keep-id`, and is not done here.
+- Everything Linux is unproven until it is run on Linux. The panel half is testable in CI; the ownership and sign-in halves need a real Linux machine with an engine, and until then this round claims nothing it has not seen.
