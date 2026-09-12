@@ -188,15 +188,20 @@ export default function AiRouting({ productId }: { productId: number | null }) {
             type="button"
             role="tab"
             aria-selected={slot === s.id}
-            className={slot === s.id ? "tab here" : "tab"}
+            className={slot === s.id ? "routing-tab here" : "routing-tab"}
             onClick={() => setSlot(s.id)}
           >
             {s.label}
           </button>
         ))}
       </div>
-      <p className="hint">{slotInfo?.blurb}</p>
+      <p className="hint slot-blurb">{slotInfo?.blurb}</p>
 
+      {/* Enclosed so the areas and their fields visibly belong to the slot
+          chosen above. Two rows of bare tabs read as one squashed line of five
+          buttons, which is exactly how the first version of this felt. */}
+      <div className="area-panel">
+      <p className="area-label">Area</p>
       <div className="routing-tabs areas" role="tablist" aria-label="Area">
         {AREAS.map((a) => {
           const cell = cells.find((c) => c.area === a.id && c.slot === slot);
@@ -206,7 +211,7 @@ export default function AiRouting({ productId }: { productId: number | null }) {
               type="button"
               role="tab"
               aria-selected={area === a.id}
-              className={area === a.id ? "tab here" : "tab"}
+              className={area === a.id ? "routing-tab here" : "routing-tab"}
               onClick={() => setArea(a.id)}
             >
               {a.label}
@@ -290,6 +295,7 @@ export default function AiRouting({ productId }: { productId: number | null }) {
             : "Nothing set for this area, so its AI work has no provider to use."}
         </p>
       )}
+      </div>
     </section>
   );
 }
