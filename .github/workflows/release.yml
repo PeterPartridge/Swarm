@@ -1,7 +1,13 @@
 name: Release
 
-# Builds the Windows desktop app and publishes it, with the version worked out
-# here rather than typed into three files by hand.
+# Builds the desktop app for Windows and Linux and publishes both, with the
+# version worked out here rather than typed into three files by hand.
+#
+# **Four jobs: count, build twice in parallel, publish once.** The version is
+# counted before either platform starts, because both have to stamp the same
+# number; the platforms then run at the same time rather than one waiting on the
+# other for a number; and a single publish job gathers both sets of artefacts,
+# so a release is all-or-nothing rather than whichever platform finished.
 #
 # **Every commit to main releases.** This used to be tag-driven, on the argument
 # that a version which moves when nobody decided it should is noise. The call
@@ -55,14 +61,20 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  windows:
-    runs-on: windows-latest
-    # **Counted once, here, and handed to Linux.** Both platforms have to stamp
-    # the same number or one release would carry an installer that disagrees
-    # with its own tag. Letting each job count from the tags would be two
-    # answers to a question with one right one — and the second job would count
-    # *after* the first had pushed a tag, so they would differ by one every
-    # single time.
+  # **Counted once, before either platform starts.** Both have to stamp the same
+  # number, or a release carries an installer that disagrees with its own tag.
+  #
+  # This used to live inside the Windows job, with Linux depending on that job
+  # purely to borrow the answer — so every Linux build waited twelve minutes for
+  # a number it could have had in twenty seconds, and a release took as long as
+  # both platforms end to end. Counting here lets them run at the same time.
+  #
+  # An ubuntu runner rather than Windows: this reads tags and does arithmetic.
+  # The logic moved into a script so it could be tested on a laptop instead of
+  # only by cutting releases — nine cases, including the one that mattered
+  # (0.2.9 must not outrank 0.2.10).
+  version:
+    runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -72,56 +84,24 @@ jobs:
           # shallow clone fetches none of them.
           fetch-depth: 0
 
-      # **The last release plus one.** Tags carry a leading `v` and the three
-      # files do not; Cargo and Tauri both reject `v0.3.0`, and finding that out
-      # from a failed release build would be a poor way to learn it.
-      - name: Work out the version
-        id: version
-        shell: pwsh
-        run: |
-          if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch') {
-            $version = '${{ inputs.version }}'
-          } else {
-            # Compared as version numbers rather than as text — sorted as text,
-            # v0.2.9 outranks v0.2.10 and the next release would go backwards.
-            $tags = @(
-              git tag --list 'v*' |
-                ForEach-Object { $_ -replace '^v', '' } |
-                Where-Object { $_ -match '^\d+\.\d+\.\d+$' } |
-                ForEach-Object { [version] $_ } |
-                Sort-Object
-            )
-            if ($tags.Count -eq 0) {
-              $version = '0.1.0'
-            } else {
-              $last = $tags[-1]
-              $version = '{0}.{1}.{2}' -f $last.Major, $last.Minor, ($last.Build + 1)
-            }
-          }
-          # Tauri and Cargo both want major.minor.patch. A version that is not
-          # that shape fails here, loudly, rather than producing an installer
-          # that will not install.
-          if ($version -notmatch '^\d+\.\d+\.\d+$') {
-            throw "Version '$version' is not major.minor.patch."
-          }
-          # Belt and braces behind the concurrency group. If this version is
-          # already tagged then something raced anyway, and publishing would
-          # overwrite installers that are already released — which is exactly
-          # what happened at 0.2.4, with both runs reporting success. Fail here
-          # instead, where it is visible.
-          if ($env:GITHUB_EVENT_NAME -eq 'push') {
-            $clash = git tag --list "v$version"
-            if ($clash) {
-              throw "v$version is already tagged. Refusing to overwrite a published release."
-            }
-          }
-          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          Write-Host "Building $version"
+      - id: version
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: node .github/next-version.mjs
+
+  windows:
+    needs: version
+    runs-on: windows-latest
+    steps:
+      # No tags needed here any more — the version job counted them, so a
+      # shallow clone is enough and quicker.
+      - uses: actions/checkout@v5
 
       - name: Stamp the version into all three files
         shell: pwsh
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           $ErrorActionPreference = 'Stop'
           # Each file is read, checked to contain the field, and rewritten.
@@ -265,51 +245,10 @@ jobs:
       # windows-latest is.
       - uses: actions/upload-artifact@v7
         with:
-          name: CoperativeAI-${{ steps.version.outputs.version }}-windows
+          name: CoperativeAI-${{ needs.version.outputs.version }}-windows
           path: dist-release/*
-
-      # **Only a push to main publishes.** A manual run builds and leaves the
-      # result as an artifact, so the pipeline can be tried without a release
-      # appearing — which is how the missing portable binary was caught.
-      #
-      # The tag does not exist yet; the action creates it against this commit.
-      # That is also what stops this from looping: a tag push does not match the
-      # branch trigger above, so publishing cannot start another run.
-      - name: Publish the release
-        if: github.event_name == 'push'
-        # v3 is the same action on Node 24 — the release notes describe it as a
-        # runtime move and nothing else. Every input below is unchanged from v2.
-        uses: softprops/action-gh-release@v3
-        with:
-          name: CoperativeAI ${{ steps.version.outputs.version }}
-          tag_name: v${{ steps.version.outputs.version }}
-          target_commitish: ${{ github.sha }}
-          files: dist-release/*
-          generate_release_notes: true
-          fail_on_unmatched_files: true
-
-  # ---------------------------------------------------------------------------
-  # Linux
-  # ---------------------------------------------------------------------------
-  #
-  # **The project brief has always said Windows and Linux; only Windows was ever
-  # built.** Two things stopped it, both of them real rather than nobody having
-  # tried: `tauri-build` wants an `icon.png`, and the only icon in the repository
-  # was a single 32x32 BMP inside an `.ico`; and `npm ci` refuses a lockfile
-  # resolved on win32, because rollup and the Tauri CLI ship native binaries
-  # pinned per platform. The icons are now generated at every size from the
-  # 8-bit mark, and the npm half is dealt with below.
-  #
-  # **This runs after Windows and reuses its version**, rather than counting
-  # from the tags itself — see the note on that job's outputs.
-  #
-  # **A change worth knowing about:** a release is no longer all-or-nothing. If
-  # this job fails, the Windows assets are already published and the release
-  # exists without Linux ones. The run goes red, so it is visible rather than
-  # silent — but the alternative, making Windows wait on a platform that has
-  # never been built here, would let a new Linux problem block every release.
   linux:
-    needs: windows
+    needs: version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -380,7 +319,7 @@ jobs:
       # from being inline JavaScript inside YAML inside a shell, which is three
       # levels of quoting for one regex.
       - name: Stamp the version
-        run: node .github/stamp-version.mjs "${{ needs.windows.outputs.version }}"
+        run: node .github/stamp-version.mjs "${{ needs.version.outputs.version }}"
 
       # The same gates as Windows. A platform that publishes without them is a
       # platform whose users find the failures.
@@ -458,15 +397,67 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: CoperativeAI-${{ needs.windows.outputs.version }}-linux
+          name: CoperativeAI-${{ needs.version.outputs.version }}-linux
           path: dist-linux/*
 
-      # Added to the release the Windows job already made, against the same tag
-      # — which is why this job reuses that version rather than counting one.
-      - name: Add the Linux packages to the release
+  # ---------------------------------------------------------------------------
+  # Publish
+  # ---------------------------------------------------------------------------
+  #
+  # **One release, made once, from both platforms' artefacts.**
+  #
+  # Each platform used to publish its own assets to the same tag. That worked
+  # while Linux ran after Windows, but the two now run at the same time, and two
+  # concurrent calls creating the same release is a race worth not having.
+  #
+  # It also restores something the previous arrangement had given up: a release
+  # is all-or-nothing again. Before this, a Linux failure left a release that
+  # existed with Windows assets only. Now nothing is published unless both
+  # platforms got there — which is what the rest of this workflow has always
+  # claimed about partial builds.
+  publish:
+    needs: [version, windows, linux]
+    # **The job runs on a dispatch; only the last step publishes.** Gating the
+    # whole job on `push` would mean the gathering and the counting below were
+    # never exercised until the first real release depended on them — which is
+    # the wrong moment to find out that `merge-multiple` puts the files
+    # somewhere else. So a trial proves everything up to the release, and the
+    # release itself is the one thing held behind `push`.
+    runs-on: ubuntu-latest
+    steps:
+      # Both artefacts into one folder. `merge-multiple` is what makes them land
+      # side by side rather than in a directory each, which `files:` below would
+      # then miss.
+      - uses: actions/download-artifact@v6
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: What is about to be published
+        run: |
+          set -euo pipefail
+          ls -la dist
+          # Six assets, or something upstream went quiet: two Windows
+          # installers, the portable binary, and three Linux packages. Counted
+          # rather than trusted, because "the artefact downloaded" is not the
+          # same as "the artefact had anything in it".
+          count=$(find dist -type f | wc -l)
+          echo "found $count files"
+          if [ "$count" -lt 6 ]; then
+            echo "Expected at least six assets. Refusing to publish a partial release."
+            exit 1
+          fi
+
+      # The tag does not exist yet; the action creates it against this commit.
+      # That is also what stops this looping: a tag push does not match the
+      # branch trigger above, so publishing cannot start another run.
+      - name: Publish the release
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: v${{ needs.windows.outputs.version }}
-          files: dist-linux/*
+          name: CoperativeAI ${{ needs.version.outputs.version }}
+          tag_name: v${{ needs.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          files: dist/*
+          generate_release_notes: true
           fail_on_unmatched_files: true
