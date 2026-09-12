@@ -306,6 +306,49 @@ pub async fn forget_installed_policy(conn: &Connection) -> Result<()> {
     set(conn, AGENT_POLICY_INSTALLED_KEY, "").await
 }
 
+const MCP_SERVER_KEY: &str = "mcpServer";
+
+/// What the MCP server is offering, as stored.
+///
+/// **The token is not in here, and that is the point of `tokenAlias`.** This
+/// struct is written to the database; the bearer token goes to the OS
+/// credential store like every other key in this app, and only the name it is
+/// filed under is kept alongside the rest of the setting.
+pub async fn mcp_offering(conn: &Connection) -> Result<crate::mcp::decide::Offering> {
+    Ok(match get(conn, MCP_SERVER_KEY).await? {
+        // A stored value that cannot be parsed reads as "offering nothing",
+        // which is the same as a fresh install — the safe direction, since the
+        // alternative is a half-read setting that serves something.
+        Some(json) => serde_json::from_str(&json).unwrap_or_default(),
+        None => crate::mcp::decide::Offering::default(),
+    })
+}
+
+pub async fn set_mcp_offering(
+    conn: &Connection,
+    offering: &crate::mcp::decide::Offering,
+) -> Result<()> {
+    if offering.enabled {
+        // **Refused here rather than at the moment somebody connects.** A
+        // server switched on with nothing to check against would admit the
+        // first caller to guess an empty token.
+        if offering.token_alias.trim().is_empty() {
+            return Err(crate::db::DbError::Validation(
+                "this server cannot be switched on without a token".into(),
+            ));
+        }
+        if offering.port < 1024 {
+            return Err(crate::db::DbError::Validation(
+                "choose a port above 1023 — the low ones need privileges this app does not have \
+                 and should not want"
+                    .into(),
+            ));
+        }
+    }
+    let json = serde_json::to_string(offering).expect("struct serialize");
+    set(conn, MCP_SERVER_KEY, &json).await
+}
+
 pub async fn paid_api_allowed(conn: &Connection) -> Result<bool> {
     Ok(match get(conn, API_USAGE_KEY).await? {
         Some(json) => serde_json::from_str::<bool>(&json).unwrap_or(false),

@@ -12,6 +12,7 @@ mod db;
 mod debug;
 mod design;
 mod files;
+mod mcp;
 mod git;
 mod terminal;
 /// Scratch folders for the tests that need a real filesystem. Test-only, so it
@@ -144,6 +145,11 @@ fn main() {
             commands::ai_settings::get_installed_policy,
             commands::ai_settings::preview_policy_install,
             commands::ai_settings::install_policy_into_solution,
+            commands::mcp::get_mcp_offering,
+            commands::mcp::set_mcp_offering,
+            commands::mcp::mcp_token,
+            commands::mcp::rotate_mcp_token,
+            commands::mcp::forget_mcp_token,
             commands::ai_settings::device_policy_export,
             commands::ai_settings::save_device_policy_export,
             commands::ai_settings::get_agent_run_mode,

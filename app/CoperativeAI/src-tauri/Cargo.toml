@@ -16,6 +16,11 @@ serde_json = "1.0.150"
 # again. Already compiled for tauri's own codegen, so this costs no new
 # supply chain — see tooling/sandbox_policy.rs.
 sha2 = "0.10"
+# The MCP server's bearer token has to be the operating system's randomness on
+# both Windows and Linux. Already in the tree, so this costs nothing new — and
+# the alternative, reading /dev/urandom directly, is a panic on the primary
+# platform. See mcp/decide.rs.
+getrandom = "0.3"
 tauri = { version = "2.11.5", features = [] }
 tauri-plugin-dialog = "2"
 tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros", "process", "io-util", "time"] }
