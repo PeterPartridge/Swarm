@@ -57,6 +57,36 @@ jobs:
       - name: Tests
         run: cargo test --manifest-path app/CoperativeAI/src-tauri/Cargo.toml
 
+  # **The documents the AI builds from are checked, not trusted.** Two of them
+  # are read before code is written and are worse than useless once untrue: the
+  # code map, whose stale row sends the next build looking in the wrong place —
+  # the exact token-burning it exists to prevent — and an item's deliverable,
+  # which decides when a build stops. Both scripts have no dependencies on
+  # purpose, so this needs no install step and costs seconds.
+  #
+  # **ubuntu, unlike every other job here.** The Windows runners above are about
+  # building a Windows desktop app; reading Markdown and checking that paths and
+  # names exist is platform-agnostic, and this is the cheap runner.
+  #
+  # **Pull requests only, and deliberately not a release gate.** Drift here is a
+  # documentation failure, not a broken binary — it should block the change that
+  # caused it, not a release of code that works.
+  documents:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: The code map matches the code
+        run: node tools/code-map-lint.mjs
+      # **A misspelled deliverable is the quiet failure.** An item naming one
+      # the Project Brief does not list looks aimed at something, and the
+      # deliverable it was meant to finish never finishes — /build counts the
+      # last item and there isn't one. Nothing else would notice.
+      - name: Every brief's deliverable exists
+        run: node tools/brief-lint.mjs
+
   frontend:
     runs-on: windows-latest
     defaults:
