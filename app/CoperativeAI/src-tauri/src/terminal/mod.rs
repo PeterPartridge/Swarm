@@ -151,10 +151,10 @@ impl Session {
     /// port, which is a leak that only shows up after an afternoon's work and
     /// then presents as "port already in use" with nothing visible using it.
     ///
-    /// The tree is ended through the platform's own tool rather than a crate,
-    /// because both spellings are one command and neither needs a dependency:
-    /// `taskkill /T` on Windows walks the child tree, and on Unix the shell is
-    /// a process-group leader so a negative PID signals the whole group.
+    /// On Windows the tree is ended through `taskkill /T`, which walks the
+    /// child tree. On Unix the shell leads its own process group, so the group
+    /// is signalled by its negative id — through the system call itself, never
+    /// through a `kill` command, for the reason written out at `kill_tree`.
     ///
     /// Best effort by design. A child that has already exited, or one this
     /// process may not signal, must not stop the panel from closing — so the
@@ -178,42 +178,75 @@ impl Session {
 }
 
 /// Ends a process and its descendants, as far as the OS will allow.
+#[cfg(windows)]
 fn kill_tree(pid: u32) -> std::io::Result<()> {
-    if cfg!(windows) {
-        std::process::Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .map(|_| ())
-    } else {
-        // **The group is signalled only once the shell is known to lead one.**
-        //
-        // This used to send `kill -TERM -<pid>` unconditionally, on a comment
-        // that asserted "the shell leads its own group" and never checked. When
-        // that is not true, the negative pid names *whatever* group holds that
-        // id — which may be the one this process is in. Found by building on
-        // Linux for the first time: the terminal tests killed the CI runner
-        // outright, three runs in a row, and the runner's own step was sitting
-        // in a process group it had inherited (pgid 2074, sid 2074) that
-        // anything mis-signalled could reach.
-        //
-        // Checking costs one small file read and turns an assumption into a
-        // fact. Where the shell does not lead its own group, no group is
-        // signalled at all and `kill` falls through to ending the child
-        // directly — fewer descendants reached, which is the right way to be
-        // wrong.
-        if leads_its_own_group(pid) == Some(true) {
-            std::process::Command::new("kill")
-                .args(["-TERM", &format!("-{pid}")])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status()
-                .map(|_| ())
-        } else {
-            Ok(())
-        }
+    std::process::Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|_| ())
+}
+
+/// Ends a process and its descendants, as far as the OS will allow.
+///
+/// **The group is signalled by a system call, never by running `kill`.** The
+/// negative-pid spelling — `kill -TERM -1234` — is *shell-builtin* behaviour.
+/// Debian's `/usr/bin/kill` is a different program with different parsing: it
+/// reads `-1234` as an option, keeps the first digit and signals `-1`, which in
+/// `kill(2)` means **every process this user may signal**. Traced, not guessed:
+///
+/// ```text
+/// execve("/usr/bin/kill", ["kill", "-TERM", "-1234"], …)
+/// kill(-1, SIGTERM)                                        ← what happened
+/// kill -TERM -- -99999  →  kill(-99999, SIGTERM)           ← what `--` gives
+/// ```
+///
+/// That is the real cause of the three dead CI runners this function's previous
+/// comment recorded, and on a developer's machine it is their whole session —
+/// editor, browser, this app. `--` would fix the parsing; a call has no
+/// parsing to fix, and no dependence on which distribution's `kill` is first on
+/// the path. The only thing the earlier check got wrong was its layer: it made
+/// the app certain it wanted a group, then handed that certainty to a parser.
+///
+/// **What may be signalled, in order.** The pid must lead its own group — that
+/// check is kept and is why `leads_its_own_group` still exists — and it must be
+/// a pid that can be negated into a target at all. `0` and `1` cannot:
+/// `kill(0, …)` means this process's own group and `kill(-1, …)` is the
+/// wildcard above, so both are refused rather than sent.
+#[cfg(unix)]
+fn kill_tree(pid: u32) -> std::io::Result<()> {
+    if let Some(group) = group_to_signal(pid, leads_its_own_group(pid)) {
+        // Best effort, as the caller's own documentation promises: a group that
+        // has gone in the meantime is not a reason to keep a panel open. The
+        // result is deliberately not read, and there is nothing here that can
+        // reach a process this one does not own.
+        unsafe { libc::kill(group, libc::SIGTERM) };
     }
+    Ok(())
+}
+
+/// Which group id, if any, may be signalled for this pid.
+///
+/// Pure, so the rule that matters — **the wildcard is never sent** — is a test
+/// rather than a hope, on a machine of any platform. `leads` is the answer from
+/// `leads_its_own_group`, passed in rather than read here for the same reason.
+#[cfg(unix)]
+fn group_to_signal(pid: u32, leads: Option<bool>) -> Option<libc::pid_t> {
+    if leads != Some(true) {
+        return None;
+    }
+    // `kill(0, …)` is this process's own group and `kill(-1, …)` is every
+    // process this user owns. Neither is a shell, and both are catastrophic
+    // where a pid was expected.
+    if pid <= 1 {
+        return None;
+    }
+    // A pid that does not fit the system's own pid type cannot be negated into
+    // a target; refusing is the only honest answer, and it cannot happen on a
+    // running system.
+    let signed = libc::pid_t::try_from(pid).ok()?;
+    signed.checked_neg()
 }
 
 /// Whether a process is the leader of its own process group.
@@ -226,10 +259,8 @@ fn kill_tree(pid: u32) -> std::io::Result<()> {
 /// Read from `/proc/<pid>/stat` rather than through a crate: the field is the
 /// fifth, and the only subtlety is that the second is a command name which may
 /// itself contain spaces and brackets — so parsing starts after the last `)`.
+#[cfg(unix)]
 fn leads_its_own_group(pid: u32) -> Option<bool> {
-    if cfg!(windows) {
-        return None;
-    }
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     let after_name = &stat[stat.rfind(')')? + 1..];
     // After the name: state, ppid, pgrp — so the third field along.
@@ -398,6 +429,39 @@ mod tests {
     #[cfg(unix)]
     fn a_process_that_is_gone_answers_nothing() {
         assert_eq!(leads_its_own_group(u32::MAX), None);
+    }
+
+    /// **The wildcard must never be sent, whatever the rest of the state says.**
+    ///
+    /// `kill(-1, …)` is every process this user may signal. It arrived here not
+    /// as a bug in this file's logic but through `/usr/bin/kill`, which reads
+    /// `-1234` as an option and signals `-1` — so the app asked for one shell's
+    /// group and ended everything the user owned, three CI runners included.
+    /// The call takes a number now, and these are the numbers it may take.
+    #[test]
+    #[cfg(unix)]
+    fn the_wildcard_and_this_processs_own_group_are_never_signalled() {
+        assert_eq!(group_to_signal(1, Some(true)), None, "-1 is every process this user owns");
+        assert_eq!(group_to_signal(0, Some(true)), None, "0 is this process's own group");
+    }
+
+    /// A shell that leads its group is signalled by its own negated pid, and by
+    /// nothing else — no first digit, no rounding, no string in between.
+    #[test]
+    #[cfg(unix)]
+    fn a_group_leader_is_signalled_by_its_whole_negated_pid() {
+        assert_eq!(group_to_signal(1234, Some(true)), Some(-1234));
+        assert_eq!(group_to_signal(99999, Some(true)), Some(-99999));
+    }
+
+    /// Anything short of a definite yes signals nothing at all — the shell is
+    /// then ended directly, which reaches fewer descendants and no strangers.
+    #[test]
+    #[cfg(unix)]
+    fn a_pid_that_does_not_definitely_lead_a_group_is_left_alone() {
+        assert_eq!(group_to_signal(1234, Some(false)), None);
+        assert_eq!(group_to_signal(1234, None), None);
+        assert_eq!(group_to_signal(u32::MAX, Some(true)), None, "not a pid this system can hold");
     }
 
     /// A folder that is not there is refused with a message rather than

@@ -30,5 +30,16 @@ tauri-plugin-dialog = "2"
 tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros", "process", "io-util", "time"] }
 turso = "0.6.1"
 
+# Signalling a process group, by the number rather than by a sentence.
+#
+# `kill -TERM -<pid>` is shell-builtin behaviour; Debian's `/usr/bin/kill` is a
+# different program that reads `-1234` as an *option* and signals `-1` — every
+# process the user may signal. Proved by strace, and it is why this is a call
+# and no longer a command. Already in the tree beneath `portable-pty`, so it
+# costs no new supply chain — the same reasoning as `sha2` and `getrandom`.
+# See terminal/mod.rs.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [build-dependencies]
 tauri-build = { version = "2.6.3", features = [] }
