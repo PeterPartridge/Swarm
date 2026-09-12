@@ -599,7 +599,128 @@ pub struct ChangeReviewDto {
     /// with the run, so accepting over a violation is recorded as exactly that.
     pub run_id: Option<i64>,
     pub run_state: Option<String>,
+    /// What the Develop area's Secondary AI made of the change, or why it did
+    /// not say. **Never absent** — an empty panel reads exactly like a review
+    /// that found nothing, which is the difference between "nobody looked" and
+    /// "it is fine".
+    pub second_opinion: crate::agent::second_opinion::Outcome,
+    /// The same thing in one sentence, worded here rather than in the page.
+    ///
+    /// **So the attribution cannot be lost on the way out.** Every rendering of
+    /// this has to name the model that gave the opinion, or say plainly that
+    /// nothing did; leaving each caller to compose that is leaving each caller
+    /// somewhere to drop it.
+    pub second_opinion_summary: String,
 }
+
+/// Asks the Develop area's Secondary AI what it makes of the change.
+///
+/// **Every path returns a reason rather than nothing.** "Nobody looked" and
+/// "it looked fine" must never read alike, so there is no route through here
+/// that produces an empty result — an absent Secondary, an empty change, a
+/// refusal and a failure each say something different.
+///
+/// **Never an error.** A second opinion that could not be got must not fail the
+/// review it accompanies: the rules check is the thing that blocks, and this is
+/// commentary beside it.
+async fn second_opinion_on(
+    db: &State<'_, AppDb>,
+    solution_id: i64,
+    run_id: Option<i64>,
+    changes: &[workspace::FileChange],
+    rules: &crate::db::developer_rules::DeveloperRules,
+) -> crate::agent::second_opinion::Outcome {
+    use crate::agent::second_opinion::{NotGiven, Outcome, SecondOpinion};
+    use crate::ai::{backend, client};
+    use crate::commands::ai_run;
+
+    if changes.is_empty() {
+        return Outcome::NotGiven(NotGiven::NothingChanged);
+    }
+    let _ = run_id;
+
+    let (routed, prompt, product_id) = {
+        let conn = db.0.lock().await;
+        let Ok(Some(row)) = solution::find_by_id(&conn, solution_id).await else {
+            return Outcome::NotGiven(NotGiven::Failed("that Solution is gone".into()));
+        };
+        // **Develop, because this is a code change.** Product and QA have their
+        // own Secondary for their own work; borrowing one of theirs would be
+        // the app choosing a provider nobody named for this job.
+        let secondary =
+            crate::db::routing_default::secondary_for(&conn, row.product_id, "develop").await;
+        let Ok(Some(slot)) = secondary else {
+            return Outcome::NotGiven(NotGiven::NoSecondary);
+        };
+        let Some(provider_id) = slot.provider_id else {
+            return Outcome::NotGiven(NotGiven::NoSecondary);
+        };
+        let routed = match ai_run::plan(
+            &conn,
+            row.product_id,
+            provider_id,
+            &slot.effort_tier,
+            SECOND_OPINION_PURPOSE,
+        )
+        .await
+        {
+            Ok(routed) => routed,
+            // A budget that has run out is a real answer and not a fault: the
+            // reason the router gives is kept as it is.
+            Err(why) => return Outcome::NotGiven(NotGiven::Failed(why)),
+        };
+        let rules_doc = crate::files::pack::developer_rules_doc(rules);
+        let (diff, truncated) = crate::agent::second_opinion::diff_text(changes);
+        let prompt = crate::agent::second_opinion::build_prompt(&diff, &rules_doc, truncated);
+        (routed, prompt, row.product_id)
+    };
+
+    let truncated = prompt.context.contains("larger than could be sent");
+    let started = std::time::Instant::now();
+    let result =
+        backend::generate_pal(&routed.provider, &routed.model, &routed.effort, &prompt).await;
+    let latency_ms = started.elapsed().as_millis() as i64;
+
+    let conn = db.0.lock().await;
+    let call = ai_run::Call {
+        product_id,
+        work_item_id: None,
+        routed: &routed,
+        purpose: SECOND_OPINION_PURPOSE,
+        prompt: &prompt,
+    };
+    match result {
+        // The pal shape is reused rather than a second one invented: its
+        // `explanation` is always present and is exactly "what it thinks",
+        // while `replacement` is empty for a question that only talks.
+        Ok((client::GeneratedPal::Answer(draft), usage)) => {
+            let _ = ai_run::record_ok(&conn, &call, latency_ms, &usage, &draft.explanation).await;
+            Outcome::Given(SecondOpinion {
+                model: routed.model.clone(),
+                provider: routed.provider.name.clone(),
+                notes: draft.explanation.clone(),
+                truncated,
+            })
+        }
+        Ok((client::GeneratedPal::Blocked { reason, what_is_needed }, usage)) => {
+            let _ = ai_run::record_ok(&conn, &call, latency_ms, &usage, &reason).await;
+            // A model is allowed to decline, and its reason is its own.
+            Outcome::NotGiven(NotGiven::Declined(if what_is_needed.trim().is_empty() {
+                reason
+            } else {
+                format!("{reason} — it needs: {what_is_needed}")
+            }))
+        }
+        Err(why) => {
+            let _ = ai_run::record_failure(&conn, &call, latency_ms, why.clone()).await;
+            Outcome::NotGiven(NotGiven::Failed(why))
+        }
+    }
+}
+
+/// What the ledger calls this call, so a second opinion is visible as its own
+/// line of spend rather than hidden inside whatever else ran.
+const SECOND_OPINION_PURPOSE: &str = "secondOpinion";
 
 #[tauri::command]
 pub async fn review_solution_changes(
@@ -649,7 +770,30 @@ pub async fn review_solution_changes(
         }
         None => (None, None),
     };
-    Ok(ChangeReviewDto { changes, report, no_rules, run_id, run_state })
+    drop(conn);
+
+    // **The second opinion is asked for here, on every review, rather than
+    // behind a button.** The transition to `reviewed` is what this app means by
+    // a run completing, so this is the completion hook — and a review somebody
+    // has to remember to request is one that does not happen.
+    let second_opinion = second_opinion_on(&db, solution_id, run_id, &changes, &rules).await;
+    if let Some(id) = run_id {
+        let conn = db.0.lock().await;
+        let json = serde_json::to_string(&second_opinion).unwrap_or_else(|_| "null".into());
+        // **Recorded separately, and a failure here does not undo the review.**
+        // The rules check is local and always produces something; asking
+        // another model is a network call that can fail on its own.
+        let _ = crate::db::change_run::record_second_opinion(&conn, id, &json).await;
+    }
+    Ok(ChangeReviewDto {
+        changes,
+        report,
+        no_rules,
+        run_id,
+        run_state,
+        second_opinion_summary: second_opinion.says(),
+        second_opinion,
+    })
 }
 
 /// Facts about the selected file, for the explorer's properties panel.

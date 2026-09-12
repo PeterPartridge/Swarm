@@ -122,6 +122,49 @@ export interface ChangeReview {
    *  exactly that. */
   runId: number | null;
   runState: string | null;
+  /** What the Develop area's Secondary AI made of the change, or why it did not
+   *  say. **Never absent** — an empty panel reads exactly like a review that
+   *  found nothing, which is the difference between "nobody looked" and "it is
+   *  fine". */
+  secondOpinion: SecondOpinionOutcome;
+  /** The same in one sentence, worded by the backend.
+   *
+   *  **So the attribution cannot be lost on the way out.** Every rendering has
+   *  to name the model that gave the opinion, or say plainly that nothing did;
+   *  composing that in the page is somewhere to drop it. */
+  secondOpinionSummary: string;
+}
+
+/** A second opinion always carries who gave it. There is no shape here that
+ *  holds one without the model — that is the point of the type. */
+export interface SecondOpinion {
+  model: string;
+  provider: string;
+  notes: string;
+  /** Whether the diff it read was only the beginning of the change. */
+  truncated: boolean;
+}
+
+/** Why there is no second opinion. Each reads differently on purpose. */
+export type NotGiven =
+  | { why: "noSecondary" }
+  | { why: "nothingChanged" }
+  | { why: "failed"; detail: string }
+  | { why: "declined"; detail: string };
+
+export type SecondOpinionOutcome = { given: SecondOpinion } | { notGiven: NotGiven };
+
+/** The opinion when there is one, else null — so a caller cannot mistake a
+ *  refusal for an opinion that said nothing.
+ *
+ *  **Tolerates a missing outcome, because this crosses a process boundary.**
+ *  The type says it is always there and the type is right about the backend
+ *  this ships with; it is not right about an older backend, or about anything
+ *  else handing this object in. Throwing here would take a whole review panel
+ *  down over an absent field, which is a worse answer than "no opinion". */
+export function opinionOf(outcome: SecondOpinionOutcome | null | undefined): SecondOpinion | null {
+  if (!outcome || typeof outcome !== "object") return null;
+  return "given" in outcome ? outcome.given : null;
 }
 
 /** A work item assembled into one brief and written into its working copy.

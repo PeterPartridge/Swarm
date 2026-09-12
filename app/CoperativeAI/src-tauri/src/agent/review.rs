@@ -93,7 +93,7 @@ pub fn review(changes: &[FileChange], rules: &DeveloperRules) -> ReviewReport {
 /// The lines a change adds — the `+` side of a diff, or the whole file when it
 /// is new. The diff markers themselves are stripped so a `+` in the source is
 /// not confused with a `+` that means "added".
-fn added_text(change: &FileChange) -> String {
+pub(crate) fn added_text(change: &FileChange) -> String {
     if change.status == "added" {
         return change.diff.clone();
     }

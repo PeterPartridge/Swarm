@@ -57,6 +57,11 @@ function review(overrides: Partial<ChangeReview> = {}): ChangeReview {
     noRules: false,
     runId: null,
     runState: null,
+    // The ordinary case for a fixture: no Secondary is set, so nothing gave an
+    // opinion — and the summary says that rather than being blank.
+    secondOpinion: { notGiven: { why: "noSecondary" } },
+    secondOpinionSummary:
+      "No Secondary AI is set for Develop, so nothing gave a second opinion",
     ...overrides,
   };
 }
