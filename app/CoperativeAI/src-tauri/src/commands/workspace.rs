@@ -208,7 +208,7 @@ pub async fn ask_coding_pal(
                 );
             }
         };
-        let routed = ai_run::plan(&conn, product_id, provider_id, &policy.effort_tier, PURPOSE).await?;
+        let routed = ai_run::plan_in_area(&conn, product_id, Some("develop"), provider_id, &policy.effort_tier, PURPOSE).await?;
         let root = root_for(&conn, solution_id).await?;
         // The same containment rule as every read — the pal cannot be pointed
         // at a file outside the Solution's folder.

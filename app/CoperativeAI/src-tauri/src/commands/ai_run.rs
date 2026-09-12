@@ -33,12 +33,88 @@ pub(crate) struct Routed {
     pub reason: String,
 }
 
+/// The handover chain with the area's Secondary on the end of it.
+///
+/// **Deduplicated, because a chain that repeats a provider hands over to
+/// itself.** If the Secondary is already the head — the provider doing the work
+/// — or already somewhere in the Product's chain, appending it again would
+/// produce a handover that changes nothing while reporting that it did.
+///
+/// **An empty chain gains a head as well as a tail.** The router treats an
+/// empty chain as "no handover plan", so a Product with a Secondary and no
+/// configured chain would never reach it. Seeding the chain with the provider
+/// actually in use makes the Secondary reachable without inventing an order
+/// nobody asked for.
+pub(crate) fn chain_with_secondary(
+    chain: Vec<i64>,
+    fallback_provider_id: i64,
+    secondary_id: Option<i64>,
+) -> Vec<i64> {
+    let Some(secondary) = secondary_id else {
+        return chain;
+    };
+    if secondary == fallback_provider_id || chain.contains(&secondary) {
+        return chain;
+    }
+    let mut chain = chain;
+    if chain.is_empty() {
+        chain.push(fallback_provider_id);
+    }
+    chain.push(secondary);
+    chain
+}
+
+/// Reads the area's Secondary and puts it on the end of the chain.
+async fn with_secondary(
+    conn: &Connection,
+    product_id: i64,
+    area: Option<&str>,
+    fallback_provider_id: i64,
+    chain: Vec<i64>,
+) -> Vec<i64> {
+    let Some(area) = area else {
+        return chain;
+    };
+    // A failure to read it is the same as not having one: a fallback nobody
+    // could look up must not become a refusal to do the work.
+    let secondary = crate::db::routing_default::secondary_for(conn, product_id, area)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|r| r.provider_id);
+    chain_with_secondary(chain, fallback_provider_id, secondary)
+}
+
 /// Decides how a call should run, or refuses it. A refusal is written to the
 /// ledger with outcome `blocked` before the error is returned, so "we chose not
 /// to spend" is as visible in the history as spending would have been.
 pub(crate) async fn plan(
     conn: &Connection,
     product_id: i64,
+    fallback_provider_id: i64,
+    effort: &str,
+    purpose: &str,
+) -> Result<Routed, String> {
+    plan_in_area(conn, product_id, None, fallback_provider_id, effort, purpose).await
+}
+
+/// The same decision, with the area's Secondary AI available to hand over to.
+///
+/// **The Secondary is where work goes when the budget runs out.** Stopping dead
+/// is the thing a Secondary exists to avoid, and the router already knows how
+/// to walk a chain — so this appends the area's Secondary to the end of it
+/// rather than inventing a second mechanism beside one that works.
+///
+/// **Appended, never inserted.** It is the last resort, so it goes last: a
+/// Secondary that pushed ahead of a Product's own configured chain would be
+/// quietly overriding a decision somebody made deliberately.
+///
+/// `None` for the area means no Secondary is available — which is what every
+/// caller that does not know its area gets, and is the same as not having one.
+pub(crate) async fn plan_in_area(
+    conn: &Connection,
+    product_id: i64,
+    area: Option<&str>,
     fallback_provider_id: i64,
     effort: &str,
     purpose: &str,
@@ -72,7 +148,14 @@ pub(crate) async fn plan(
                 warn_pct: budget.warn_pct,
                 handover_pct: budget.handover_pct,
                 hard_stop_pct: budget.hard_stop_pct,
-                chain: budget.provider_chain.clone(),
+                chain: with_secondary(
+                    conn,
+                    product_id,
+                    area,
+                    fallback_provider_id,
+                    budget.provider_chain.clone(),
+                )
+                .await,
             })
         }
         None => None,
@@ -617,5 +700,38 @@ mod tests {
         let spend = ai_usage::spend_for_product(&conn, product_id, 0).await.expect("spend");
         assert_eq!(spend.micropence, 0, "a local model costs nothing");
         assert_eq!(spend.tokens, 15_000, "but its tokens are still counted");
+    }
+
+    /// **A Secondary that is already the provider doing the work is not a
+    /// fallback.** Appending it would make a chain that hands over to itself:
+    /// the router would report a handover and change nothing.
+    #[test]
+    fn a_secondary_that_is_already_in_use_is_not_appended() {
+        assert_eq!(chain_with_secondary(vec![], 7, Some(7)), Vec::<i64>::new());
+        assert_eq!(chain_with_secondary(vec![7, 9], 7, Some(9)), vec![7, 9]);
+    }
+
+    /// **An empty chain gains a head as well as a tail.** The router reads an
+    /// empty chain as no handover plan, so a Product with a Secondary and no
+    /// configured chain would never reach it. Seeding with the provider
+    /// actually in use makes it reachable without inventing an order.
+    #[test]
+    fn a_product_with_no_chain_still_reaches_its_secondary() {
+        assert_eq!(chain_with_secondary(vec![], 7, Some(3)), vec![7, 3]);
+    }
+
+    /// **Appended, never inserted.** It is the last resort, so it goes last:
+    /// pushing ahead of a Product’s configured chain would quietly override a
+    /// decision somebody made deliberately.
+    #[test]
+    fn a_secondary_goes_on_the_end_of_a_configured_chain() {
+        assert_eq!(chain_with_secondary(vec![7, 9], 7, Some(3)), vec![7, 9, 3]);
+    }
+
+    /// No Secondary leaves the chain exactly as the Product configured it.
+    #[test]
+    fn no_secondary_changes_nothing() {
+        assert_eq!(chain_with_secondary(vec![7, 9], 7, None), vec![7, 9]);
+        assert_eq!(chain_with_secondary(vec![], 7, None), Vec::<i64>::new());
     }
 }
