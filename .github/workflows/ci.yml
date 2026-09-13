@@ -84,6 +84,12 @@ jobs:
       # fail is worse than no check, so the faults it must catch are tested.
       - name: The checks still catch what they are for
         run: node --test tools/lint.test.mjs
+      # Not that the commands behave — they are prompts, and that pass is
+      # tools/QA.md, run by a person against a real agent. This is that every
+      # command exists, calls a skill that exists, names paths that are really
+      # there, and travels into a project `coperativeai init` creates.
+      - name: Every command still points at something that exists
+        run: node --test tools/commands.test.mjs
       - name: The code map matches the code
         run: node tools/code-map-lint.mjs
       # **A misspelled deliverable is the quiet failure.** An item naming one
