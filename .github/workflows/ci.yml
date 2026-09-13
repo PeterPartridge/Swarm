@@ -78,6 +78,12 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
+      # **The checks are checked first.** Both of these have passed while
+      # reading nothing at all — once on a CRLF checkout, once on a brief whose
+      # deliverables were its last section. A green run from a check that cannot
+      # fail is worse than no check, so the faults it must catch are tested.
+      - name: The checks still catch what they are for
+        run: node --test tools/lint.test.mjs
       - name: The code map matches the code
         run: node tools/code-map-lint.mjs
       # **A misspelled deliverable is the quiet failure.** An item naming one
