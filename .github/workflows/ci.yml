@@ -75,6 +75,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          # **Depth, because one check needs a base to diff against.** The
+          # round record is the only rule here whose fault is an absence, and
+          # an absence is only visible next to what changed.
+          fetch-depth: 0
       - uses: actions/setup-node@v5
         with:
           node-version: 24
@@ -98,6 +103,14 @@ jobs:
       # last item and there isn't one. Nothing else would notice.
       - name: Every brief's deliverable exists
         run: node tools/brief-lint.mjs
+      # **The record is the only feedback that runs back from the AI, and by
+      # its own account the rule it is least able to keep: adherence to
+      # administrative rules degrades exactly when a task got long, which is
+      # when the debt was worth having. This cannot check the record is true —
+      # a step nobody noticed skipping is invisible to any reader — but a round
+      # of work that brought no record at all is now loud rather than silent.
+      - name: A round of work brought a record with it
+        run: node tools/round-record-lint.mjs --since ${{ github.event.pull_request.base.sha }}
 
   frontend:
     runs-on: windows-latest
