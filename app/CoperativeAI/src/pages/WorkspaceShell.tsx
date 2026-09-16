@@ -19,13 +19,6 @@ import {
   type TabColors,
 } from "../lib/theme";
 
-const ENVIRONMENT_PLACEHOLDERS: Record<EnvironmentId, string> = {
-  product: "Plan products: work items, feature designs, and specifications.",
-  develop: "Build developments: repositories, code editor, terminal, and AI.",
-  test: "Design QA tests around work items for the AI to implement.",
-  admin: "Manage team members, roles, and what each role can see.",
-};
-
 export default function WorkspaceShell() {
   const [active, setActive] = useState<EnvironmentId>("product");
   const [colors, setColors] = useState<TabColors>(() => loadTabColors());
@@ -173,6 +166,14 @@ export default function WorkspaceShell() {
         style={{ "--env-color": colors[active] } as CSSProperties}
       >
         <h1>{activeLabel}</h1>
+        {/* `EnvironmentId` is these four and nothing else, so the tail of this
+            chain is unreachable. It used to render a paragraph of placeholder
+            text describing each environment — text no one could ever see, which
+            read as though the areas were still unbuilt.
+
+            `null` rather than letting the last branch be a bare `<AdminArea />`:
+            a fifth environment added later should show nothing visible, not
+            silently render Admin to someone who asked for something else. */}
         {active === "product" ? (
           <ProductPlanning />
         ) : active === "develop" ? (
@@ -181,9 +182,7 @@ export default function WorkspaceShell() {
           <TestArea />
         ) : active === "admin" ? (
           <AdminArea />
-        ) : (
-          <p>{ENVIRONMENT_PLACEHOLDERS[active]}</p>
-        )}
+        ) : null}
       </main>
       <footer className="colour-settings" aria-label="Colour settings">
         {ENVIRONMENTS.map(({ id, label }) => (

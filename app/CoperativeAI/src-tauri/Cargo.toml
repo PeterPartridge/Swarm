@@ -9,11 +9,14 @@ base64 = "0.22"
 keyring = { version = "3", features = ["windows-native", "sync-secret-service"] }
 portable-pty = "0.9.0"
 reqwest = { version = "0.12", features = ["json"] }
-# The MCP server, and the transport it is actually reachable over.
-# streamable-http rather than stdio: a client cannot spawn this server, because
-# the data lives in a turso database the running app already holds — a spawned
-# child would fail to open it or fight the app for it. See mcp/serve.rs.
-rmcp = { version = "3.1.1", features = ["server", "transport-streamable-http-server"] }
+# `rmcp` was removed on 2026-09-15: it was declared for the MCP server, which is
+# not built — `mcp/mod.rs` is one line, the listener does not exist, and this
+# comment pointed at an `mcp/serve.rs` that was never written. The brief
+# (application/CoperativeAI/mcpServer.md) says to remove it while the page is
+# unbuilt, and carries what to restore when it is:
+#   rmcp = { version = "3.1.1", features = ["server", "transport-streamable-http-server"] }
+# streamable-http rather than stdio, because a client cannot spawn this server —
+# the data lives in a turso database the running app already holds.
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 # A policy is somebody else's root script; its digest is how it is recognised

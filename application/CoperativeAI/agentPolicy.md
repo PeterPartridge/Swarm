@@ -3,7 +3,7 @@ form: page-brief
 page: "Agent Policy"
 solution: "CoperativeAI"
 depends-on: ["agentSandbox.md", "adminArea.md", "repositoryManagement.md"]
-status: filled            # blank | filled | approved | built
+status: approved          # blank | filled | approved | built
 ---
 
 # Page Brief — Agent Policy

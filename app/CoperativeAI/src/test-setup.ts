@@ -11,3 +11,15 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn().mockResolvedValue(() => {}),
   emit: vi.fn().mockResolvedValue(undefined),
 }));
+
+// jsdom does not implement `getContext`, and `@xterm/xterm` measures character
+// cells with it on every render. Unstubbed it prints six "Not implemented"
+// dumps per run — noise that is indistinguishable from a real failure at a
+// glance, which is the cost: a suite whose normal output contains errors trains
+// everyone to skim past the one that matters.
+//
+// Returns null rather than a fake 2D context **deliberately**. Null is a value
+// the canvas API genuinely returns when a context cannot be had, so callers are
+// obliged to handle it; a hand-rolled fake would let a test pass against
+// measurements no browser would ever produce.
+HTMLCanvasElement.prototype.getContext = (() => null) as typeof HTMLCanvasElement.prototype.getContext;

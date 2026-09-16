@@ -3,10 +3,10 @@ form: page-brief
 page: "Create Solution"
 solution: "CoperativeAI"
 depends-on: ["CoperativeAIdb/SolutionManagement-model.json","workspaceShell.md"]           # briefs that must be built first, e.g. [ClothingAPI/Login.json]
-status: filled            # blank | filled | approved | built
+status: built             # blank | filled | approved | built
 ---
 
-# Page Brief — <Page Name>
+# Page Brief — Create Solution
 
 > **Who fills this in:** Product describes what the page is for; Developers add the building details. One of these per page (a page is one screen or section of the project).
 >
