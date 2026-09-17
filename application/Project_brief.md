@@ -31,6 +31,22 @@ At the moment not many tools give developers and Product a unified platform to w
 ### users — Who will use this software?
 Developers, QA, Product Manager, Designers — as a single local user on their own machine; there are no logins or user accounts. The main window has a top menu with four tabs — **Product**, **Develop**, **Test**, **Admin** — each with its own colour; clicking a tab enters that environment. Team members are named in Admin and given a role; a "Working as…" picker in the header sets who you are currently acting as, which decides the tabs and the cost/profit fields you see.
 
+### deliverables — What are we working towards, in order? Name the first one.
+> A **deliverable** is a stopping point worth evaluating direction at — not a
+> release date and not a list of features. The first is usually the **MVP**: the
+> smallest version that is genuinely worth putting in front of someone.
+>
+> Everything the AI builds is building towards the deliverable the item names,
+> and when the last item for a deliverable is built the work **stops there** so
+> people can look at it before the next one starts. That pause is the point of
+> naming these at all.
+
+- Deliverable: **MVP — the cooperative loop, end to end** — done when: a work item can go from planned by Product, to planned and approved by Develop, to built by an agent in a bounded workspace, to reviewed and merged, to covered by a QA test case, without leaving the app.
+- Deliverable: **Agent governance** — done when: what an agent may read, edit and reach is decided per work item and enforced rather than requested — deny-by-default policy, the sandbox boundary, per-file agent policy, and the MCP server as the enforcement layer rather than a prompt.
+- Deliverable: **Feature Designer** — done when: Product can lay a feature out on the drag-and-drop canvas named in this brief's purpose, and the design it produces is what generates the work items.
+
+> drafted · guessed · from README.md, AGENTS.md, and the 33 item briefs already `built` under application/CoperativeAI/. **The names and the split are inferred; the ordering is inferred.** Nothing in the repository states a deliverable anywhere, so this is the AI reading what has been built and guessing at the stopping points it was building towards. Delete this line to accept an answer; rewrite the bullets if the guess is wrong. Until a person accepts these, `/build` step 5 has nothing trustworthy to stop at.
+
 ### apps-you-like — Are there any apps or websites you like?
 VS Code, Claude Code, Cursor, Jira 
 
@@ -58,6 +74,24 @@ single
 - Use the SOLID principles, creating code with single responsibility with Objects, and use dependency injection and interfaces where practical. Plan for code changes on production code to be small or the code will be extended by a new version file.
 - Keep the code simple and only do enough code to finish the job.
 - Always create a test that fails then write just enough code to get a passed test. The tests should start simple and get more complex as we add more functionality. 
+
+### testing — What has to be true before a change counts as tested?
+> **A rule the AI applies to every change, not a list of tests.** Two halves:
+> the level of cover you expect, and what is **not** worth testing here.
+>
+> That way round on purpose. A list of things to test reads to an AI as
+> permission to skip everything not on the list — name a threshold and the
+> exceptions instead, and everything else is included by default.
+
+New and changed code needs a test that fails first, for the reason the change exists. **Anything that decides something — a branch, a guard, a permission check, a gate, a policy refusal — has a test naming the decision**, and that is the floor: a decision without a test naming it is not done, regardless of line count.
+
+These gates must pass, run from `app/CoperativeAI` and its `src-tauri` manifest: `cargo clippy --all-targets -- -D warnings` (warnings are failures), `cargo test`, `tsc --noEmit`, `npm test`.
+
+Not worth testing here: generated files, plain data holders, framework glue, and anything whose only assertion would be that a library works. **Live-integration paths** — a real debugger, a running Ollama, a WSL distribution, a Docker engine, anything that spends money or changes this machine — are marked `#[ignore]` and run by a person, not by CI; a change that relies on one says so in its debt note.
+
+A change that cannot reach this floor says so in its debt note rather than lowering it.
+
+> drafted · confident · from AGENTS.md (the four gates, verbatim), the `dev-rules` answer above (TDD), and the 35 `#[ignore]`d live-only Rust tests already on disk. **The threshold is the inferred half** — the gates and the TDD rule were already written down; "a test naming the decision" and the exceptions list are the AI's reading of how this repository already behaves, not a rule anyone stated. Delete this line to accept.
 
 ### roles — List the roles or claims used across the application.
 Roles exist, but they are **not a security boundary** — the app still has no logins or accounts, and anyone can change who they are working as. They organise the workspace; they do not protect it.

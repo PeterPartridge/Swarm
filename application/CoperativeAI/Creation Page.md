@@ -6,7 +6,7 @@ depends-on: ["SolutionManagement.md"]           # briefs that must be built firs
 status: built            # blank | filled | approved | built
 ---
 
-# Page Brief — <Page Name>
+# Page Brief — Creation Page
 
 > **Who fills this in:** Product describes what the page is for; Developers add the building details. One of these per page (a page is one screen or section of the project).
 >

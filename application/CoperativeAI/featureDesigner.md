@@ -69,3 +69,4 @@ Most capable model, high effort (interactive canvas work).
 
 > Each time you come back to improve the page, add a bullet describing what you want to change. Keep changes small.
 > - Round 2: …
+- Round 2 (record correction, 2026-09-15): **Still `filled`, and deliberately so.** `src-tauri/src/db/feature_design.rs` creates the table and has save/load, but no Tauri command registers it and nothing in the frontend references it — the Code Map already records this as "a schema with nothing on top of it". The canvas named in this brief and in the Project Brief's purpose does not exist. This bullet exists because the status was audited and found correct.
