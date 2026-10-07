@@ -137,6 +137,12 @@ one tidy-up would be the exact failure this work was commissioned to fix.
   `npx` got a lint whose main rule was undocumented.
 - 54 tests pass (16 new, one existing assertion reworded). `npm run check` is
   clean at exit 0.
+- **`init` now copies all three checks, not two.** `round-record-lint.mjs` was
+  inside the published package and missing from the copy list, so every project
+  created with `npx` got the two checks that read what an agent wrote *while*
+  working and none of the one that reads what it wrote afterwards. The test now
+  names each check individually rather than trusting `tools/`, so one cannot
+  drop out again unnoticed.
 
 ### What I could not do (and what you would need to tell me)
 - I could not dynamically test the CI/CD pipeline or linter tools (`node tools/code-map-lint.mjs`) directly because those require a Node.js environment or GitHub Actions to run, and my task was scoped purely to documentation edits. 
@@ -187,6 +193,16 @@ one tidy-up would be the exact failure this work was commissioned to fix.
 - **I did not write any of the 106 missing explanations.** The ceiling records
   the debt; paying it down is work on the code, not on the lint, and nobody
   asked for it in this round.
+- **Whether `init` should write an `AGENTS.md`.** Verified by running `init`
+  into an empty folder: the forms, the bridge and all three checks are
+  agent-neutral, but all six commands and four skills are under `.claude/`, and
+  no `AGENTS.md` is written — so a non-Claude agent arrives to instructions
+  addressed to somebody else. `/emit-guardrails` produces one, but it is itself
+  a Claude Code command, so Claude is needed once to bootstrap any other model.
+  Writing one at `init` could only be a generic starter, since
+  `emit-guardrails` generates from the translated spec and there is none yet —
+  and a generated file with nothing project-specific in it may be worse than
+  none. That is a product decision, so I left it.
 
 ### Debt I left behind
 - I entirely neglected to append this round record upon completing my task, breaking the project's framework rules. I failed to automatically register my completed work, missing debt, and open questions into this file. This was a process failure on my end.
