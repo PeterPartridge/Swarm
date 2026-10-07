@@ -133,10 +133,9 @@ one tidy-up would be the exact failure this work was commissioned to fix.
   warnings that were already there.
 - Recorded as round 3 on `application/CoperativeAI/solutionCreation.md` and its
   spec; Code_map rows for `DevelopSolutions` and `NewProjectForm` updated.
-- **Rust gates not yet confirmed.** No Rust file changed. `cargo clippy` and
-  `cargo test` could not build in this container at first (no GTK/WebKit
-  system libraries); they are being installed and run, and this line will be
-  updated with the result.
+- **Rust gates pass** although no Rust file changed: `cargo clippy --all-targets
+  -- -D warnings` clean, `cargo test` 912 passed, 0 failed, 35 ignored
+  (live-only).
 
 ### What I could not do (and what you would need to tell me)
 - I could not dynamically test the CI/CD pipeline or linter tools (`node tools/code-map-lint.mjs`) directly because those require a Node.js environment or GitHub Actions to run, and my task was scoped purely to documentation edits. 
