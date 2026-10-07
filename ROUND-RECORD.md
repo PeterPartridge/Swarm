@@ -219,8 +219,10 @@ one tidy-up would be the exact failure this work was commissioned to fix.
   `status` or `deliverable`, so brief-lint and `/build` cannot see what state
   it is in, though its spec says built (round 8).
 
-- **The Rust gates had not finished when this was first committed.**
-  `cargo clippy --all-targets -- -D warnings` and the scaffold tests were
-  still compiling. Their result is recorded in the next commit. `tsc --noEmit`
-  and `npm test` were not run; no frontend file changed. `npm run check` (49
-  tests, both lints, the round-record lint) passes.
+- **Only the scaffold's tests were run locally, not the full Rust suite.**
+  `cargo clippy --all-targets -- -D warnings` is clean, and the four
+  `tooling::scaffold` tests pass, including the one asserting
+  `.CoperativeAI/ai-only/` exists. The other Rust changes are doc comments
+  only, so I relied on CI for the full `cargo test`. `tsc --noEmit` and
+  `npm test` were not run, since no frontend file changed. `npm run check`
+  (49 tests, both lints, the round-record lint) passes.
