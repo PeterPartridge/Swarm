@@ -64,3 +64,4 @@ Mid-range model, medium effort.
 
 > Each time you come back to improve the page, add a bullet describing what you want to change. Keep changes small.
 - Round 2 (my feedback): For Developers we can create a solution **or import a solution**, link it to a Product, and then **link it to a GitHub repository or create one in GitHub as private or public**.
+- Round 3 (my feedback, 2026-10-07): **Developers can create their own projects in the Develop tab, and Solutions around them.** Decided when asked: a project is an ordinary Product (it also shows in the Product tab); "their own area" means the Develop tab, with no ownership recorded; AI stays off for a new project until an Admin allows it in Admin → AI.
