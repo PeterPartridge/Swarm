@@ -137,6 +137,41 @@ one tidy-up would be the exact failure this work was commissioned to fix.
   `npx` got a lint whose main rule was undocumented.
 - 54 tests pass (16 new, one existing assertion reworded). `npm run check` is
   clean at exit 0.
+- **The six procedures moved out of `.claude/` into
+  `template/ai-only/procedures/`.** Their text was never Claude-specific — each
+  is a procedure written in English — but their location was, so an agent that
+  was not Claude Code arrived to find the framework's instructions filed under
+  `.claude/` and addressed to somebody else. 31 KB of procedure, one copy.
+- **All six commands and all four skills are now pointers**, 575–1,129 bytes
+  each, down from up to 7.4 KB. Each keeps its front matter, because that is what
+  makes Claude Code trigger it, and its body says which procedure to follow.
+- **`init` writes an `AGENTS.md`.** It carries the procedures table, the working
+  agreement, the checks and the honest limits — all true on day one — and marks
+  house rules, security, testing and deliverables as *not yet filled in* rather
+  than inventing them. It has the generated-file header, so `/emit-guardrails`
+  replaces it once there is a spec to generate from.
+- **`emit-guardrails` emits the procedures table into every format** and no
+  longer claims the procedures do not travel. They do; what does not travel is
+  enforcement, which is narrower and true.
+- **Four new checks, two of which found real faults on their first run.** Every
+  procedure must be reachable from some tool; a pointer may not grow past 2 KB
+  (how a procedure creeps back into one tool's folder); every procedure a
+  pointer names must exist; and every path the starter `AGENTS.md` names must
+  exist in a fresh project. That last one caught `ai-only/Project_system.md` and
+  `ai-only/Code_map.md` being named as though they were there on day one, when
+  both are outputs — the document now says so, and the check reads the same
+  admission rather than carrying its own exception list.
+- **Repointed a test that had quietly stopped checking anything.** "Every skill
+  a command asks for exists" matched `run the \`x\` skill`, which no command says
+  any more, so it passed on an empty set. It now checks the unrooted
+  `ai-only/procedures/…` form — the path a project actually uses, which the
+  rooted-path test skips by design.
+- **One piece of real drift found and fixed while doing this.** The `brief-lint`
+  deliverable check lived only in `.claude/commands/translate.md`, so an agent
+  following the procedure was never told to run it. It is in the procedure now.
+- 57 tests pass; `npm run check` clean at exit 0. Verified by running `init`
+  into an empty folder: `AGENTS.md` is at the root and every path it names
+  resolves.
 - **`init` now copies all three checks, not two.** `round-record-lint.mjs` was
   inside the published package and missing from the copy list, so every project
   created with `npx` got the two checks that read what an agent wrote *while*
@@ -305,3 +340,23 @@ one tidy-up would be the exact failure this work was commissioned to fix.
   argument, and none of them is detected. Adding each is a row in `SURFACES`,
   but choosing which ones count is a judgement about what a build could rebuild
   by accident, so I did not decide it alone.
+
+- **A pointer can still drift, just more slowly.** The 2 KB ceiling catches a
+  procedure being copied back into a tool's folder; it cannot catch a single
+  sentence of behaviour added to a pointer. Two of the commands were at 2,008
+  and 2,017 bytes before I converted them — one sentence from failing — and they
+  were that size precisely because they had been restating their procedures.
+  Nothing stops that recurring except the ceiling and somebody reading diffs.
+
+- **`AGENTS.md` is written once and never reconciled.** `init` writes the
+  starter, `/emit-guardrails` replaces it from the spec, and in between nothing
+  notices if a person edits the generated copy by hand — their edits are lost on
+  the next run, silently, because the header says it is safe to overwrite. The
+  alternative was a protected file that goes stale instead. Both are wrong in
+  different directions and the choice was made deliberately.
+
+- **The procedures are reachable, not enforced.** Any agent can be pointed at
+  `ai-only/procedures/build.md`; nothing checks that it read it, and no check
+  can. The approval gate is the only part that does not depend on the model
+  cooperating, which is why every emitted file now says so plainly instead of
+  implying the framework carries over whole.
