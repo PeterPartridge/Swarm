@@ -111,6 +111,32 @@ one tidy-up would be the exact failure this work was commissioned to fix.
   plain statement that they are drafted and not yet accepted. Until now it said
   the brief named none.
 
+**2026-10-07 — developers start their own projects**
+
+- **Asked:** "Can we allow developers to create their own projects in their own
+  area and solutions around it." Every Solution needs a Product, and only the
+  Product tab could make one. The seeded Developer role cannot see that tab, and
+  Develop's empty state still sent people there.
+- **Asked three questions before building, and you picked the smallest option
+  each time:** a project is an ordinary Product; "their own area" means the
+  Develop tab, with no ownership recorded; AI policy stays deny-by-default and
+  Admin's.
+- **Built** `NewProjectForm` (name only, through the existing `create_product`)
+  as a "Create a project" card on Develop → Map, above "Create a Solution". The
+  new project is selected in the Develop picker and the Solution form. With no
+  Products, the Develop bar now offers a "Create a project" button instead of
+  pointing at the Product tab. No Rust change.
+- **TDD:** four Vitest cases written first and seen failing (one replaces the
+  old "create a Product first" test). `npm test` (tsc --noEmit + Vitest)
+  814/814 across 76 files (installed with `npm ci --force` on this Linux
+  container: the lockfile is resolved on win32, as `ci.yml` explains); `npm run check` clean apart from the deliverable
+  warnings that were already there.
+- Recorded as round 3 on `application/CoperativeAI/solutionCreation.md` and its
+  spec; Code_map rows for `DevelopSolutions` and `NewProjectForm` updated.
+- **Rust gates pass** although no Rust file changed: `cargo clippy --all-targets
+  -- -D warnings` clean, `cargo test` 912 passed, 0 failed, 35 ignored
+  (live-only).
+
 ### What I could not do (and what you would need to tell me)
 - I could not dynamically test the CI/CD pipeline or linter tools (`node tools/code-map-lint.mjs`) directly because those require a Node.js environment or GitHub Actions to run, and my task was scoped purely to documentation edits. 
 
@@ -145,6 +171,15 @@ one tidy-up would be the exact failure this work was commissioned to fix.
   the `drafted` marker on them. Only a person can accept them.
 - **Whether a `DeveloperRules-model.json` brief should be written.** The table is
   built with no brief behind it. Writing one is a person's call, not mine.
+
+**2026-10-07 — developers start their own projects**
+
+- **Which deliverable this belongs to.** It does not clearly fit MVP, Agent
+  governance or Feature Designer, so the brief names none. Tell me if it is MVP.
+- **Whether developers should own their projects** (recorded per team member,
+  "mine" shown first). You chose not to for now. If wanted later it needs an
+  owner column and a statement that it is visibility only, not access control.
+- **Not run in the real Tauri window.** The form is covered by mocked tests only.
 
 ### Debt I left behind
 - I entirely neglected to append this round record upon completing my task, breaking the project's framework rules. I failed to automatically register my completed work, missing debt, and open questions into this file. This was a process failure on my end.
@@ -226,3 +261,21 @@ one tidy-up would be the exact failure this work was commissioned to fix.
   only, so I relied on CI for the full `cargo test`. `tsc --noEmit` and
   `npm test` were not run, since no frontend file changed. `npm run check`
   (49 tests, both lints, the round-record lint) passes.
+
+
+**2026-10-07 — developers start their own projects**
+
+- **A developer cannot fill in their project's brief.** The Product questions
+  (purpose, problem, users) are edited in Product → Strategy, which the
+  Developer role cannot see. A project made in Develop keeps empty answers until
+  someone with Product access fills them in, and anything that reads those
+  answers (generation, briefs) gets nothing.
+
+- **No framework-file scaffold from Develop.** The Product tab's form can
+  scaffold a Product's framework files into a folder when it creates one. The
+  Develop form does not offer that, so a developer's project has no scaffolded
+  files unless someone generates them afterwards.
+
+- **Two Product-creation forms.** `ProductPlanning` and `NewProjectForm` both
+  call `createProduct`. They differ on purpose: questions and scaffold, versus a
+  name only. A third would trip the DRY rule and should become one shared form.
