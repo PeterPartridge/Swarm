@@ -63,9 +63,28 @@ threshold.
 
 ## What we are working towards
 
-**The brief has not yet named its deliverables.** Until it does, there is no
-stopping point to build towards — so keep changes small, finish what is asked,
-and do not start adjacent work on the assumption it is next.
+In order. The first is the one everything is currently building towards.
+
+1. **MVP — the cooperative loop, end to end.** Done when a work item can go
+   from planned by Product, to planned and approved by Develop, to built by an
+   agent in a bounded workspace, to reviewed and merged, to covered by a QA
+   test case, without leaving the app.
+2. **Agent governance.** Done when what an agent may read, edit and reach is
+   decided per work item and enforced rather than requested: deny-by-default
+   policy, the sandbox boundary, per-file agent policy, and the MCP server as
+   the enforcement layer rather than a prompt.
+3. **Feature Designer.** Done when Product can lay a feature out on the
+   drag-and-drop canvas, and the design it produces is what generates the work
+   items.
+
+When the last item naming a deliverable is built, **stop there** and say the
+deliverable is complete, rather than starting the next one.
+
+**These are drafted, not yet accepted.** The brief's answer still carries the
+`drafted · guessed` marker: the names, the split and the order were inferred
+from what has been built. Treat them as the working target, but if an item's
+work does not fit any of them, say so rather than picking one. Most item briefs
+do not yet name a deliverable at all.
 
 ## The working agreement
 

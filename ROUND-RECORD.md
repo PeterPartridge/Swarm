@@ -106,6 +106,10 @@ one tidy-up would be the exact failure this work was commissioned to fix.
 - Left history alone: earlier round records and round narratives still say
   `claude-only/`, because that is what the folder was called when they happened.
 - Fixed README's "three Claude Code slash commands", which listed six.
+- **AGENTS.md now lists the three deliverables** (MVP, Agent governance,
+  Feature Designer) with what makes each done, the stop-at-the-end rule, and a
+  plain statement that they are drafted and not yet accepted. Until now it said
+  the brief named none.
 
 ### What I could not do (and what you would need to tell me)
 - I could not dynamically test the CI/CD pipeline or linter tools (`node tools/code-map-lint.mjs`) directly because those require a Node.js environment or GitHub Actions to run, and my task was scoped purely to documentation edits. 
