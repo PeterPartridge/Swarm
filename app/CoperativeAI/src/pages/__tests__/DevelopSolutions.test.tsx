@@ -9,6 +9,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
   return {
     ...original,
     listProducts: vi.fn(),
+    createProduct: vi.fn(),
     listSolutions: vi.fn(),
     // The Solution git panel loads its own state wherever it is shown.
     solutionGitState: vi.fn(),
@@ -422,14 +423,72 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     expect(within(list).getByText(/\(api\) — Shop App/)).toBeInTheDocument();
   });
 
-  it("asks to create a Product first when none exist", async () => {
+  /// **A developer can start a project without the Product tab.** The Developer
+  /// role cannot see that tab, so pointing there was pointing at a door they
+  /// did not have. The empty state now leads to Develop's own form.
+  it("offers to create a project here when no Products exist", async () => {
     const user = userEvent.setup();
     mocked.listProducts.mockResolvedValue([]);
     render(<DevelopSolutions />);
-    await openSection(user, "Map");
+
+    await user.click(await screen.findByRole("button", { name: "Create a project" }));
+
+    const card = await screen.findByRole("region", { name: "Create a project" });
+    expect(within(card).getByLabelText("Project name")).toBeInTheDocument();
+    // Nothing points at a tab a developer cannot open.
+    expect(screen.queryByText(/create one in the Product tab/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\(Product tab\)/i)).not.toBeInTheDocument();
     expect(
-      await screen.findByText(/create a Product first/i),
+      within(screen.getByRole("region", { name: "Create a Solution" })).getByText(
+        /create a project first/i,
+      ),
     ).toBeInTheDocument();
+  });
+
+  /// A project is an ordinary Product — the same record the Product tab makes —
+  /// and the new one is selected, so a Solution can be made for it straight away.
+  it("creates a project as a Product and selects it for the next Solution", async () => {
+    const user = userEvent.setup();
+    const created: Product = { id: 7, name: "Side Tool", answers: "{}" };
+    mocked.listProducts.mockResolvedValueOnce([product]).mockResolvedValue([product, created]);
+    mocked.createProduct.mockResolvedValue(7);
+    render(<DevelopSolutions />);
+    await openSection(user, "Map");
+
+    const card = await screen.findByRole("region", { name: "Create a project" });
+    await user.type(within(card).getByLabelText("Project name"), "Side Tool");
+    await user.click(within(card).getByRole("button", { name: "Create project" }));
+
+    await waitFor(() => expect(mocked.createProduct).toHaveBeenCalledWith("Side Tool", "{}"));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Develop product")).toHaveValue("7"),
+    );
+    const solutionForm = screen.getByRole("form", { name: "New Solution" });
+    expect(within(solutionForm).getByRole("combobox", { name: "Product" })).toHaveValue("7");
+    expect(within(card).getByLabelText("Project name")).toHaveValue("");
+  });
+
+  it("does not create a project without a name", async () => {
+    const user = userEvent.setup();
+    render(<DevelopSolutions />);
+    await openSection(user, "Map");
+
+    const card = await screen.findByRole("region", { name: "Create a project" });
+    await user.type(within(card).getByLabelText("Project name"), "   ");
+    await user.click(within(card).getByRole("button", { name: "Create project" }));
+
+    expect(mocked.createProduct).not.toHaveBeenCalled();
+  });
+
+  /// AI policy stays deny-by-default and stays Admin's. The form says so, so a
+  /// developer is not left wondering why the AI refuses their new project.
+  it("says AI stays off for a new project until an Admin allows it", async () => {
+    const user = userEvent.setup();
+    render(<DevelopSolutions />);
+    await openSection(user, "Map");
+
+    const card = await screen.findByRole("region", { name: "Create a project" });
+    expect(card).toHaveTextContent(/AI is off for a new project until an Admin allows it/i);
   });
 
   it("generates the framework files and reports what it wrote", async () => {

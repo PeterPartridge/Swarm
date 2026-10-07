@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import DeveloperPlanning from "../components/planning/DeveloperPlanning";
 import FrameworkFiles from "../components/product/FrameworkFiles";
+import NewProjectForm from "../components/product/NewProjectForm";
 import NewSolutionForm from "../components/product/NewSolutionForm";
 import RulesView from "../components/planning/RulesView";
 import SolutionBox from "../components/product/SolutionBox";
@@ -145,9 +146,14 @@ export default function DevelopSolutions({
           onSelect={(id) => setView(id as DevelopView)}
         />
 
+        {/* Points at Develop's own form, not the Product tab: the Developer
+            role cannot see that tab, so sending them there was a dead end. */}
         {products.length === 0 ? (
           <p className="develop-no-product">
-            No Products yet — create one in the Product tab to develop against it.
+            No projects yet —{" "}
+            <button type="button" onClick={() => setView("architecture")}>
+              Create a project
+            </button>
           </p>
         ) : (
           <label className="develop-product-picker">
@@ -229,10 +235,23 @@ export default function DevelopSolutions({
         />
       )}
       {activeProduct !== "" && <FrameworkFiles productId={Number(activeProduct)} />}
+      <section className="develop-card" aria-label="Create a project">
+        <h2>Create a project</h2>
+        <NewProjectForm
+          onCreated={(id) =>
+            run(async () => {
+              // Selected in both places, so the next step — a Solution for
+              // it — needs no hunting through a dropdown.
+              setActiveProduct(id);
+              setSolutionProduct(id);
+            })
+          }
+        />
+      </section>
       <section className="develop-card" aria-label="Create a Solution">
         <h2>Create a Solution</h2>
         {products.length === 0 || solutionProduct === "" ? (
-          <p>Solutions link to a Product — create a Product first (Product tab).</p>
+          <p>Solutions belong to a project — create a project first (above).</p>
         ) : (
           // The same form the build plan opens from its Solution dropdown.
           // Two copies were two answers to "which types are there".
