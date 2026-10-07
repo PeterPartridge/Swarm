@@ -1,5 +1,5 @@
 //! The `AIProvider` model — see
-//! application/claude-only/CoperativeAIdb/AIProvider-model.md.
+//! application/ai-only/CoperativeAIdb/AIProvider-model.md.
 //!
 //! Security rule: the API key value never enters this table — only `keyAlias`,
 //! the name of the entry in the OS credential store. Key storage itself lives

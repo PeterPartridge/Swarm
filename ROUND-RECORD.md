@@ -63,6 +63,50 @@ one tidy-up would be the exact failure this work was commissioned to fix.
 - Added **4 tests** for the new coverage rule, including the one that keeps it
   safe to ship: a project with none of these surfaces is untouched by it.
 
+**2026-10-07 — `claude-only/` becomes `ai-only/`, the AI's workspace for any model.**
+
+- **Renamed the folder everywhere it is named.** `template/claude-only/` and
+  `application/claude-only/` are now `ai-only/` (git moves, so history follows).
+  The bridge is `1-translate-for-ai.md` and the spec shape is
+  `2-ai-system.template.md`. Every reference follows: the commands, the
+  translate, emit-guardrails and pipeline skills, AGENTS.md, GEMINI.md, README,
+  HOW-TO-USE, the forms, both briefs, `tools/` (both lints, their tests, QA.md),
+  the `init` CLI, the Rust doc comments, and `scaffold_product`, which now
+  creates `.CoperativeAI/ai-only/` (its test and Code_map row updated with it).
+- **Wrote `template/ai-only/README.md`**, which says what the folder is: the
+  AI's workspace, where specs, plans and round reports live. Any model can use
+  it, and it explains how one works there without Claude Code. The code map is
+  described as one supporting index inside it, with its cost and what it buys
+  stated. The template README, the main README and the code-map template now
+  say the same.
+- **Made the bridge and spec template model-neutral** ("the AI", not "Claude").
+  Model-tier examples now read "e.g. Claude Haiku, or your provider's smallest
+  model".
+- **Brought the three descriptions of a spec into agreement.** The bridge, the
+  template and the translate skill disagreed: the template lacked a Testing
+  floor heading, Prompt B lacked Deliverable, Prompt A's working agreement
+  lacked the token-cost rule, and the skill's System Spec list lacked
+  Deliverables and Testing floor. All three now list the same headings.
+- **Reviewed every file in `application/ai-only/`** and corrected what was wrong:
+  - `Project_system.md` claimed `anything-else` was unanswered (it is answered).
+    It omitted Deliverables and the Testing floor; both are now there, marked
+    drafted, along with the digest lines for them. It also silently resolved a
+    contradiction about production deploys; that is now an Open Question.
+  - Nine specs (four pages, five models) still read "translated — waiting for
+    approval" or "approved — waiting for build" although their briefs are
+    `built` and their code is in the map. Those lines are corrected without
+    inventing build reports.
+  - `developerWorkspace.md` depended on a `DeveloperRules-model.json` brief that
+    has never existed; it now says so.
+  - A stale "(round 2 …)" is gone from `productPlanning.md`'s title.
+- **Fixed every broken relative link in the repository's Markdown (16).**
+  application/'s briefs pointed at a bridge and `_forms/` that only exist under
+  `template/`, and both Project Briefs pointed at a non-existent `example/`.
+  A link check now reports none.
+- Left history alone: earlier round records and round narratives still say
+  `claude-only/`, because that is what the folder was called when they happened.
+- Fixed README's "three Claude Code slash commands", which listed six.
+
 ### What I could not do (and what you would need to tell me)
 - I could not dynamically test the CI/CD pipeline or linter tools (`node tools/code-map-lint.mjs`) directly because those require a Node.js environment or GitHub Actions to run, and my task was scoped purely to documentation edits. 
 
@@ -84,6 +128,19 @@ one tidy-up would be the exact failure this work was commissioned to fix.
   there was nothing to fix**: `application/claude-only/CoperativeAI/developerWorkspace.md`
   is not an orphan. It is the spec for round 8b and `developerArea.md:116` links
   to it explicitly. Left alone.
+
+**2026-10-07**
+
+- **Who may deploy to production.** The Project Brief's `environments` answer
+  says the AI may deploy to production and development; the CoperativeAI
+  solution spec says people deploy production after review. `Project_system.md`
+  follows the stricter solution spec and lists this as an Open Question. Tell me
+  which is meant.
+- **Accepting the drafted deliverables and testing floor.** Both are in
+  `Project_system.md` now, but marked drafted, because the brief still carries
+  the `drafted` marker on them. Only a person can accept them.
+- **Whether a `DeveloperRules-model.json` brief should be written.** The table is
+  built with no brief behind it. Writing one is a person's call, not mine.
 
 ### Debt I left behind
 - I entirely neglected to append this round record upon completing my task, breaking the project's framework rules. I failed to automatically register my completed work, missing debt, and open questions into this file. This was a process failure on my end.
@@ -124,3 +181,42 @@ one tidy-up would be the exact failure this work was commissioned to fix.
   are now dated so a reader can tell how old they are — but no check compares that
   line to a real run, so it will drift again. It is the same one-directional
   blindness the surfaces rule just fixed for rows, in a different sentence.
+
+**2026-10-07**
+
+- **Projects made before this change still have `claude-only/`.** Products the
+  app scaffolded earlier, and projects created by an older `coperativeai init`,
+  keep the old folder name and their old copies of the commands and lints.
+  Re-running `init` adds an empty `ai-only/` beside it rather than moving
+  anything, because `init` never overwrites. There is no migration step. A
+  project that wants the new layout renames the folder and refreshes
+  `.claude/` and `tools/` by hand.
+
+- **About half the item specs are thinner than the template.** No spec has a
+  Deliverable heading. 23 of 41 lack Model & effort, and most of those also lack Open questions and
+  Skills, and most database-model specs lack Tests. The template grew after
+  they were written. Filling them in means re-running `/translate` per brief,
+  and the briefs themselves name no deliverable (brief-lint warns on all 21
+  models). That is a re-translation round, not a documentation fix.
+
+- **Nine built specs have no build report.** I corrected their status lines,
+  but what was built, and how each use case was implemented, was never
+  appended to these specs. The code map shows the code exists. The spec does
+  not say how it maps onto the brief.
+
+- **`developerArea.md` is 5,582 lines and `qaTestDesigner.md` 530.** The
+  bridge's token-efficiency argument assumes a spec is cheap to read before
+  building. For developerArea it is not: about 50 rounds of reports, newest
+  near the top, sit in the file a build reads. Splitting finished rounds into
+  a history file beside it would keep the spec readable. That is a structural
+  change people should decide, so I did not make it.
+
+- **`marketingDesign.md` (the brief) has no front matter.** It has no `form`,
+  `status` or `deliverable`, so brief-lint and `/build` cannot see what state
+  it is in, though its spec says built (round 8).
+
+- **The Rust gates had not finished when this was first committed.**
+  `cargo clippy --all-targets -- -D warnings` and the scaffold tests were
+  still compiling. Their result is recorded in the next commit. `tsc --noEmit`
+  and `npm test` were not run; no frontend file changed. `npm run check` (49
+  tests, both lints, the round-record lint) passes.

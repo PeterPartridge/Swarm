@@ -80,7 +80,7 @@ The hash is FNV-1a, not `DefaultHasher`: the standard hasher is explicitly not s
 ### Your Feedback
 - **The conflict report is the feature.** The UI names each file it left alone and states the edits are safe — a silent skip would be worse than an overwrite, because the user would not know the file had stopped tracking the app.
 - **Emission is one-way.** A hand edit is preserved but never read back into the database, so the two drift apart deliberately. Reconciling them is a real design problem (which side wins?) and belongs in its own round rather than being smuggled into this one.
-- Recommendation: emit `claude-only/` translations next, so `/build` has its spec beside the brief. That is the honest next step toward the loop running from the app.
+- Recommendation: emit `ai-only/` translations next, so `/build` has its spec beside the brief. That is the honest next step toward the loop running from the app.
 
 ### Technical Debt
 - **Model JSONs are not emitted** — only solution specs and page briefs. A Product's data models still exist only in the app.

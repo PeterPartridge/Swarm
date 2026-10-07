@@ -47,4 +47,4 @@ Not marked sensitive.
 
 **Expected technical debt:** the `Version` field's real meaning is unresolved; whatever it's used for downstream should be treated as provisional until clarified.
 
-**Status:** approved — waiting for build
+**Status:** built. The brief is marked `built` and its methods are in [`../Code_map.md`](../Code_map.md), but no build report was appended to this spec. (Until the 2026-10-07 documentation review, this line still read "approved — waiting for build".)

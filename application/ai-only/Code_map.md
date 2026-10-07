@@ -1,6 +1,6 @@
 # Code Map — CooperativeAI Solution
 
-> The AI's running inventory of methods it has created. See [`template/claude-only/3-code-map.template.md`](../../template/claude-only/3-code-map.template.md) for the shape and rules.
+> The AI's running inventory of methods it has created. See [`template/ai-only/3-code-map.template.md`](../../template/ai-only/3-code-map.template.md) for the shape and rules.
 
 ---
 
@@ -62,7 +62,7 @@
 | `emitted_file::{record, list_for_product}` | src-tauri/src/db/emitted_file.rs | The hash of each file **as the app wrote it** — the record that makes conflict detection possible. Its own table so `solution_management`'s scaffold rows survive | — |
 | `commands::emit::generate_framework_files` | src-tauri/src/commands/emit.rs | Builds the file set from Solutions and planned features, writes under the Product's scaffold root, records hashes, returns written/unchanged/conflicts | `emit`, `db::emitted_file` |
 | `FrameworkFiles` | src/components/product/FrameworkFiles.tsx | Develop-area action: generates the files and names any it left alone, stating the edits are safe | backend.ts `generateFrameworkFiles` |
-| `scaffold::scaffold_product` | src-tauri/src/tooling/scaffold.rs | Generates `<folder>/<name>/.CoperativeAI/` — Project_brief.md prefilled from the Product's answers (Part 1 + Part 3), claude-only/, README — with validated parent and filesystem-safe naming | serde_json, std::fs |
+| `scaffold::scaffold_product` | src-tauri/src/tooling/scaffold.rs | Generates `<folder>/<name>/.CoperativeAI/` — Project_brief.md prefilled from the Product's answers (Part 1 + Part 3), ai-only/, README — with validated parent and filesystem-safe naming | serde_json, std::fs |
 | `solutions::{list_solutions, create_solution, delete_solution}` | src-tauri/src/commands/solutions.rs | Solution Creation commands + `SolutionDto` (incl. origin / githubUrl / githubVisibility) | `db::solution`, `AppDb` |
 | `test_cases::{list_test_cases, create_test_case, update_test_case, delete_test_case}` | src-tauri/src/commands/test_cases.rs | Test-case commands + `TestCaseDto` | `db::test_case`, `AppDb` |
 | `test_runner::{suite_for, narrowed, outcome_for}` | src-tauri/src/tooling/test_runner.rs | Running **one scenario's** test rather than a whole repository. `suite_for` picks the deepest suite containing the file (whole segments, so `src-tauri2` is not inside `src-tauri`); `narrowed` filters by path for vitest/jest/pytest and by a single name for cargo, and refuses to guess for go/dotnet/npm — a wrong filter matches nothing, exits zero, and reports a pass; `outcome_for` finds this scenario's own verdict inside a whole-suite run by suffix-matching the recorded names, the same match `cargo test <filter>` performs | `Suite`, `SuiteRun` |

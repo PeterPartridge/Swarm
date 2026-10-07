@@ -6,7 +6,7 @@
 Open a Solution's working copy, read it, and review what has changed in it against the Developer Rules — so an agent's output is reviewed rather than merely accepted.
 
 **Depends on**
-- `CoperativeAIdb/Solution-model.json` (gains `localPath`), `CoperativeAIdb/DeveloperRules-model.json`
+- `CoperativeAIdb/Solution-model.json` (gains `localPath`), and the developer rules table. **No `CoperativeAIdb/DeveloperRules-model.json` brief exists:** the table is built (`src-tauri/src/db/developer_rules.rs`) without a database-model brief behind it. Open question: should one be written?
 
 **Tests**
 - [x] The tree skips generated directories, sorts predictably, and uses forward slashes everywhere (cargo).

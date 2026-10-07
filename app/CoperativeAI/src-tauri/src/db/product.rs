@@ -1,5 +1,5 @@
 //! The `Product` model — see
-//! application/claude-only/CoperativeAIdb/Product-model.md.
+//! application/ai-only/CoperativeAIdb/Product-model.md.
 
 use crate::db::{now_millis, solution_management::last_insert_id, DbError, Result};
 use turso::Connection;

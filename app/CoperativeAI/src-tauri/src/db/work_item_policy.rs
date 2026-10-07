@@ -1,5 +1,5 @@
 //! The `WorkItemPolicy` model — see
-//! application/claude-only/CoperativeAIdb/WorkItemPolicy-model.md.
+//! application/ai-only/CoperativeAIdb/WorkItemPolicy-model.md.
 //!
 //! Security-enforcing table: a work item with no row here (or with a flag set
 //! to false) is closed to that AI use — deny-by-default. Every AI call must

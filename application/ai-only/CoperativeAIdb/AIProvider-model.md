@@ -50,4 +50,4 @@ The key value lives only in the OS credential store (keyring plugin) under keyAl
 
 **Expected technical debt:** none acceptable on the alias-only rule.
 
-**Status:** translated — waiting for approval
+**Status:** built. The brief is marked `built` and its methods are in [`../Code_map.md`](../Code_map.md), but no build report was appended to this spec. (Until the 2026-10-07 documentation review, this line still read "translated — waiting for approval".)

@@ -1,5 +1,5 @@
 //! The `Repository` model — see
-//! application/claude-only/CoperativeAIdb/Repository-model.md.
+//! application/ai-only/CoperativeAIdb/Repository-model.md.
 
 use crate::db::{now_millis, solution_management::last_insert_id, DbError, Result};
 use std::path::Path;
