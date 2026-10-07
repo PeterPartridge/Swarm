@@ -61,4 +61,4 @@ No login (project security model). File access is scoped to the active repositor
 
 **Expected technical debt:** no search, no git integration, no large-file streaming in the first iteration — flagged as future rounds.
 
-**Status:** translated — waiting for approval
+**Status:** built. The brief is marked `built` and its methods are in [`../Code_map.md`](../Code_map.md), but no build report was appended to this spec. (Until the 2026-10-07 documentation review, this line still read "translated — waiting for approval".)

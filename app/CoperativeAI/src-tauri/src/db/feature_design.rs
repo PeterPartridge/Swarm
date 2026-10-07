@@ -1,5 +1,5 @@
 //! The `FeatureDesign` model — see
-//! application/claude-only/CoperativeAIdb/FeatureDesign-model.md.
+//! application/ai-only/CoperativeAIdb/FeatureDesign-model.md.
 //!
 //! Canvas JSON shape (app-defined):
 //! `{ "blocks": [{ "type": "ui|endpoint|model", "name": "...",

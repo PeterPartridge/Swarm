@@ -23,8 +23,8 @@ pub fn scaffold_product(parent_dir: &str, product_name: &str, answers_json: &str
     }
     let root: PathBuf = parent.join(&safe_name);
     let framework_dir = root.join(".CoperativeAI");
-    let claude_only = framework_dir.join("claude-only");
-    fs::create_dir_all(&claude_only)
+    let ai_only = framework_dir.join("ai-only");
+    fs::create_dir_all(&ai_only)
         .map_err(|e| format!("could not create the Product's folders: {e}"))?;
 
     let brief = render_project_brief(product_name, answers_json);
@@ -34,7 +34,7 @@ pub fn scaffold_product(parent_dir: &str, product_name: &str, answers_json: &str
     let readme = format!(
         "# {product_name}\n\nThis folder was scaffolded by CoperativeAI.\n\n\
          - `.CoperativeAI/Project_brief.md` — the Product's brief, prefilled from the answers given in the app. Developers complete Part 2.\n\
-         - `.CoperativeAI/claude-only/` — where the AI's translated specs and code map live.\n\n\
+         - `.CoperativeAI/ai-only/` — the AI's workspace: the specs it translates from the briefs, its plans and round reports, and the index of methods it can reuse.\n\n\
          Each solution created for this Product gets its own folder beside this file.\n"
     );
     fs::write(root.join("README.md"), readme)
@@ -125,7 +125,7 @@ mod tests {
         assert!(brief.contains("Minimal"));
         assert!(brief.contains("Part 2 — How Should We Build"));
 
-        assert!(Path::new(&root).join(".CoperativeAI").join("claude-only").is_dir());
+        assert!(Path::new(&root).join(".CoperativeAI").join("ai-only").is_dir());
         assert!(Path::new(&root).join("README.md").is_file());
     }
 

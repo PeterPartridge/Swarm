@@ -1,5 +1,5 @@
 //! The `Sprint` model — see
-//! application/claude-only/CoperativeAIdb/Sprint-model.md. Dates are optional:
+//! application/ai-only/CoperativeAIdb/Sprint-model.md. Dates are optional:
 //! teams that don't plan with times still get named sprints.
 
 use crate::db::{now_millis, solution_management::last_insert_id, DbError, Result};

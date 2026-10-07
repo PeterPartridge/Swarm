@@ -1,5 +1,5 @@
 //! The `Solution` model — see
-//! application/claude-only/CoperativeAIdb/Solution-model.md. The planning-level
+//! application/ai-only/CoperativeAIdb/Solution-model.md. The planning-level
 //! Solution a developer links to a Product (distinct from SolutionManagement,
 //! which tracks generated solution files on disk).
 

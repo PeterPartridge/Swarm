@@ -48,4 +48,4 @@ Not sensitive.
 
 **Expected technical debt:** canvas JSON shape is app-defined — document it beside the module.
 
-**Status:** translated — waiting for approval
+**Status:** built. The brief is marked `built` and its methods are in [`../Code_map.md`](../Code_map.md), but no build report was appended to this spec. (Until the 2026-10-07 documentation review, this line still read "translated — waiting for approval".)

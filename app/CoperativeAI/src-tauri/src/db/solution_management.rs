@@ -1,5 +1,5 @@
 //! The `SolutionManagement` model — see
-//! application/claude-only/CoperativeAIdb/SolutionManagement-model.md.
+//! application/ai-only/CoperativeAIdb/SolutionManagement-model.md.
 //! Column names stay PascalCase exactly as the brief wrote them (flagged
 //! there, deliberately not normalised).
 

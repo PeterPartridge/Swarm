@@ -1,4 +1,4 @@
-# Claude System Spec — CooperativeAI Solution
+# AI System Spec — CooperativeAI Solution
 
 > Produced by `/translate` from [`../Project_brief.md`](../Project_brief.md). Read back against the brief to confirm nothing was invented.
 
@@ -19,6 +19,15 @@ A Product / Development / QA workspace: a desktop app where teams plan products,
 
 All of them use the app as a **single local user** — no logins or accounts. The main window is a top menu with four tabs — Product, Develop, Test, Admin — each with its own colour; clicking a tab enters that environment.
 
+**Deliverables** _(in order — drafted, not yet accepted)_
+> The brief lists three, but its answer still carries the `drafted · guessed` marker: they were inferred from what has been built, and no person has accepted them yet. Until someone does, `/build` has no trusted stopping point (see Open Questions).
+
+| # | Deliverable | Done when |
+|---|-------------|-----------|
+| 1 | MVP — the cooperative loop, end to end | A work item can go from planned by Product, to planned and approved by Develop, to built by an agent in a bounded workspace, to reviewed and merged, to covered by a QA test case, without leaving the app. |
+| 2 | Agent governance | What an agent may read, edit and reach is decided per work item and enforced rather than requested — deny-by-default policy, the sandbox boundary, per-file agent policy, and the MCP server as the enforcement layer rather than a prompt. |
+| 3 | Feature Designer | Product can lay a feature out on the drag-and-drop canvas, and the design it produces is what generates the work items. |
+
 **Platforms & technology constraints**
 - Rust application, single repo, distributed as a native executable — Windows and Linux.
 - Coded for low memory usage and good performance on low-spec machines.
@@ -34,7 +43,7 @@ All of them use the app as a **single local user** — no logins or accounts. Th
 
 **Infrastructure & environments**
 - Project Brief's `infrastructure-policy` answer is "N/A." The solution specs fill in the detail: no server-side infrastructure; the pipeline (GitHub Actions) builds, tests, and produces downloadable release artifacts — nothing is provisioned or hosted.
-- Environments: development (AI may build and deploy debug builds) and production (people deploy after review) — development favours debuggability, production favours performance.
+- Environments: development (debug builds) and production (performance-focused release builds). **Who may deploy to production is contradictory**: the Project Brief says the AI may deploy to both; the CoperativeAI solution spec says people deploy production after review. This spec follows the stricter solution spec until that is settled (see Open Questions).
 
 **Coding house rules**
 
@@ -45,6 +54,13 @@ All of them use the app as a **single local user** — no logins or accounts. Th
 | Small production changes | Changes to production code should be small; if a change would be large, extend via a new version file instead of a big rewrite. |
 | Keep it simple | Only write enough code to finish the job — no speculative extra scope. |
 | TDD | Always write a failing test first, then just enough code to pass it. Tests start simple and grow more complex as functionality is added. |
+
+**Testing floor** _(drafted, not yet accepted)_
+- New and changed code needs a test that fails first, for the reason the change exists. Anything that decides something (a branch, a guard, a permission check, a gate, a policy refusal) has a test naming the decision. That is the floor.
+- Gates, run from `app/CoperativeAI` and its `src-tauri` manifest: `cargo clippy --all-targets -- -D warnings` (warnings are failures), `cargo test`, `tsc --noEmit`, `npm test`.
+- Not worth testing: generated files, plain data holders, framework glue, anything whose only assertion would be that a library works. Live-integration paths (a real debugger, Ollama, WSL, Docker, anything that spends money or changes the machine) are `#[ignore]`d and run by a person; a change relying on one says so in its debt note.
+- A change that cannot reach the floor says so in its debt note rather than lowering it.
+- The brief's answer carries the `drafted · confident` marker: the gates and TDD rule were already written down, but the threshold and exceptions are inferred. Not yet accepted by a person.
 
 **Access & security**
 - **No authentication**: single-user local desktop app — no logins or accounts. The app opens straight into the workspace.
@@ -73,7 +89,9 @@ Minimal and easy to use. A top menu with four tabs — Product, Develop, Test, A
 **Open questions**
 - Cheapest and mid-range model tiers both name "Claude Sonnet 5" — confirm this is intentional (i.e., two effort levels of the same model rather than two different models).
 - `CoperativeAI/application-spec.json` carries its own open question: should the embedded terminal (a real shell) be restricted in any way, or is full OS-user shell access intended?
-- `apps-to-avoid` and `anything-else` in the Project Brief are unanswered.
+- `apps-to-avoid` in the Project Brief is unanswered.
+- The **deliverables** and **testing** answers are still marked `drafted`. A person needs to read them and delete the marker line to accept them (or rewrite them). Until then, `/build` step 5 has no trusted stopping point.
+- **Production deployment:** the Project Brief's `environments` answer says the AI may deploy to production; the CoperativeAI solution spec says people deploy production after review. Which one holds?
 
 ---
 
@@ -81,7 +99,9 @@ Minimal and easy to use. A top menu with four tabs — Product, Develop, Test, A
 
 - **Platform / tech:** Rust, single repo, Windows + Linux native executable, low memory/low-spec target. Tauri GUI + React 19/Vite/TypeScript frontend (Monaco editor, dnd-kit drag-drop, xterm.js terminal), portable-pty real shell. turso embedded database.
 - **Solutions & repos:** CoperativeAI (application) → github.com/PeterPartridge/CooperativeAICoding, local path `app/CoperativeAI`; CoperativeAIdb (database, embedded in CoperativeAI) → same repo, `app/CoperativeAI/db`.
-- **Infra & environments:** No hosted infrastructure — release artifacts only, via GitHub Actions. dev = AI may build/deploy debug builds; production = people deploy after review, performance-focused.
+- **Infra & environments:** No hosted infrastructure — release artifacts only, via GitHub Actions. dev = AI may build/deploy debug builds; production = performance-focused release builds, people deploy after review (solution spec; the brief says the AI may — open question).
+- **Testing floor (drafted):** a failing test first; every decision (branch, guard, permission check, gate, policy refusal) has a test naming it; clippy -D warnings, cargo test, tsc --noEmit, npm test must pass; live-integration paths are `#[ignore]`d and run by a person.
+- **Deliverables (drafted):** MVP (the cooperative loop end to end) → Agent governance → Feature Designer.
 - **House rules:** DRY, SOLID (DI + interfaces), small production changes (or a new version file), keep it simple, TDD (failing test first).
 - **Security model:** No authentication (single-user local app). API keys and the GitHub token in the OS credential store via keyring, aliases/URLs only in DB. AI policies deny-by-default, checked before every AI call — per work item, and per Product for Deliverable planning.
 - **Roles:** Admin, Product, Developer, QA (editable in the Admin area) decide which of the four tabs and which commercial fields are visible for the active team member. **Visibility only — not authentication and not an access-control boundary**, since anyone can switch member. Everything is visible when no member is selected.

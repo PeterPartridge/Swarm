@@ -1,4 +1,4 @@
-# Page Spec — Product Planning (round 2: the Product home + workspace)
+# Page Spec — Product Planning (the Product home + workspace)
 
 > Produced by `/translate` from [`../../CoperativeAI/productPlanning.md`](../../CoperativeAI/productPlanning.md). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 

@@ -51,4 +51,4 @@ Security-enforcing table: every AI call must check it first, through the single 
 
 **Expected technical debt:** none acceptable — this backs the enforcement path.
 
-**Status:** translated — waiting for approval
+**Status:** built. The brief is marked `built` and its methods are in [`../Code_map.md`](../Code_map.md), but no build report was appended to this spec. (Until the 2026-10-07 documentation review, this line still read "translated — waiting for approval".)

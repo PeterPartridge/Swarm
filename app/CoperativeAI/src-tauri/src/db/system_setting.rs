@@ -1,5 +1,5 @@
 //! The `SystemSetting` model — see
-//! application/claude-only/CoperativeAIdb/SystemSetting-model.md.
+//! application/ai-only/CoperativeAIdb/SystemSetting-model.md.
 //! Never store secrets here (solution security rule — keys live in the OS
 //! credential store).
 

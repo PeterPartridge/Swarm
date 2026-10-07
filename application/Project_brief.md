@@ -10,12 +10,12 @@ status: filled            # blank | filled | approved
 >
 > **How:** answer each question in plain English directly under its heading. Lines starting with `>` are guidance for you — anything else you write under a heading is your answer. Write like you're explaining it to a new colleague; no technical wording needed. Leave a question unanswered if you genuinely don't know yet, but try. When you're done, set `status: filled` at the top.
 >
-> Then the brief gets handed to Claude using the bridge in [`claude-only/1-translate-to-claude.md`](claude-only/1-translate-to-claude.md), which turns your answers into instructions the AI can follow.
+> Then the brief gets handed to your AI using the bridge in [`template/ai-only/1-translate-for-ai.md`](../template/ai-only/1-translate-for-ai.md), which turns your answers into instructions the AI can follow.
 >
-> **How the folders are laid out:** this project brief lives at the root. Each **solution** gets its own folder, with a spec file at its root that defines the solution's technology, plus one file per page/endpoint/model. See [`example/`](example/) for a worked Clothing project. Every solution folder's spec is a copy of the same [`_forms/application-spec.json`](_forms/application-spec.json) — set its `solutionType` to `website`, `api`, `database`, or `application`:
-> - **Website / front-end** → `application-spec.json` (`solutionType: website`) + pages from [`_forms/page.md`](_forms/page.md) (e.g. `ClothingWebsite/userLogin.md`)
-> - **API** → `application-spec.json` (`solutionType: api`) + resources from [`_forms/endpoint.json`](_forms/endpoint.json) (e.g. `ClothingAPI/Login.json`)
-> - **Database** → `application-spec.json` (`solutionType: database`) + tables from [`_forms/database-model.json`](_forms/database-model.json) (e.g. `ClothingDatabase/UserCredentials.json`)
+> **How the folders are laid out:** this project brief lives at the root. Each **solution** gets its own folder, with a spec file at its root that defines the solution's technology, plus one file per page/endpoint/model. See [`example/`](../example/) for a worked Clothing project. Every solution folder's spec is a copy of the same [`_forms/application-spec.json`](../template/_forms/application-spec.json) — set its `solutionType` to `website`, `api`, `database`, or `application`:
+> - **Website / front-end** → `application-spec.json` (`solutionType: website`) + pages from [`_forms/page.md`](../template/_forms/page.md) (e.g. `ClothingWebsite/userLogin.md`)
+> - **API** → `application-spec.json` (`solutionType: api`) + resources from [`_forms/endpoint.json`](../template/_forms/endpoint.json) (e.g. `ClothingAPI/Login.json`)
+> - **Database** → `application-spec.json` (`solutionType: database`) + tables from [`_forms/database-model.json`](../template/_forms/database-model.json) (e.g. `ClothingDatabase/UserCredentials.json`)
 > - **Standalone application (CLI/TUI/desktop)** → `application-spec.json` (`solutionType: application`) + screens from `page.md` (e.g. `CoperativeAI/mainScreen.md`)
 
 ---

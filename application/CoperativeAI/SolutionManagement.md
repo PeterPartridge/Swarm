@@ -12,7 +12,7 @@ status: built             # blank | filled | approved | built
 >
 > **Where it goes:** copy this file into the website **solution folder**, named after the page — e.g. `ClothingWebsite/userLogin.md`. Fill in `page` and `solution` at the top.
 >
-> **How:** answer each question in plain English directly under its heading, same as the Project Brief. Lines starting with `>` are guidance — anything else you write under a heading is your answer. When you're done, set `status: filled` and hand it to Claude using the bridge in [`claude-only/1-translate-to-claude.md`](../claude-only/1-translate-to-claude.md).
+> **How:** answer each question in plain English directly under its heading, same as the Project Brief. Lines starting with `>` are guidance — anything else you write under a heading is your answer. When you're done, set `status: filled` and hand it to your AI using the bridge in [`template/ai-only/1-translate-for-ai.md`](../../template/ai-only/1-translate-for-ai.md).
 
 ---
 
@@ -41,7 +41,7 @@ Anyone using the app — it is a single-user local desktop application with no l
 
 ## Part 3 — Building Details *(Developers answer)*
 
-> For each endpoint this page needs, copy [`_forms/endpoint.json`](../_forms/endpoint.json) into this solution folder. For each data model it stores, copy [`_forms/database-model.json`](../_forms/database-model.json). Link them from here.
+> For each endpoint this page needs, copy [`_forms/endpoint.json`](../../template/_forms/endpoint.json) into this solution folder. For each data model it stores, copy [`_forms/database-model.json`](../../template/_forms/database-model.json). Link them from here.
 
 ### data-stored — What information needs to be stored, and what does each bit look like?
 If we create a new solution the name and file location are stored in the SolutionManagement table.

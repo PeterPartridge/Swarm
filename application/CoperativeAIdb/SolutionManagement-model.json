@@ -10,7 +10,7 @@
   "instructions": {
     "whoFillsThisIn": "Developers (Product can sanity-check the information being stored).",
     "when": "Whenever a page needs to store data. One of these per model/table. Copy it into the same solution folder as the page it belongs to and link it from that page.",
-    "how": "Answer in plain English where you can. Then hand it to Claude using the bridge in claude-only/1-translate-to-claude.md along with the page it serves.",
+    "how": "Answer in plain English where you can. Then hand it to your AI using the bridge in template/ai-only/1-translate-for-ai.md along with the page it serves.",
     "note": "Solution = the folder this file sits in. Table / object name = this file's name. The database engine is set once for the whole solution in that folder's application-spec.json."
   },
   "whatThisModelIs": {
