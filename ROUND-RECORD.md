@@ -136,6 +136,73 @@ one tidy-up would be the exact failure this work was commissioned to fix.
 - **Rust gates pass** although no Rust file changed: `cargo clippy --all-targets
   -- -D warnings` clean, `cargo test` 912 passed, 0 failed, 35 ignored
   (live-only).
+**2026-10-07**
+
+- **Measured what the 229 surfaces actually owed before changing anything.**
+  Of 206 unmapped Tauri commands, 139 already carried a doc comment; of 21
+  unmapped database tables, 21 did. Paying the count down with rows would have
+  been transcribing ~160 explanations into a table — a third copy of prose that
+  already lives in the brief and the item spec.
+- **`code-map-lint` now reports two numbers instead of one.** *No explanation
+  anywhere* (106) is ratcheted and fails when it rises. *Explained in the code
+  but not indexed* (123) is reported and never fails — the explanation exists,
+  and where it is indexed is a judgement about reuse rather than a gap.
+- **A doc comment counts as an explanation**, in any language: `///`, `//!`,
+  `/** */`, `#`, `--`, `"""`. Tables are read from the module header, because a
+  comment above `CREATE TABLE` describes the `create_table` function, not the
+  table. `commentAbove` refuses to borrow a preceding declaration's comment —
+  `claude_code_status` has a `const PROBE_FRESH` doc comment two lines up and is
+  correctly counted as unexplained.
+- **An 80-character floor**, because `// TODO: tidy this up` would otherwise
+  discharge the rule. This is why the honest ceiling is **106, not 67**: 44 of
+  the doc comments are one line restating the name. `/// Writes to the
+  terminal.` is 30 characters and tells a reuse scan nothing.
+- **`3-code-map.template.md` documents the surface check for the first time** —
+  it had never been updated when the check landed, so projects installing via
+  `npx` got a lint whose main rule was undocumented.
+- 54 tests pass (16 new, one existing assertion reworded). `npm run check` is
+  clean at exit 0.
+- **The six procedures moved out of `.claude/` into
+  `template/ai-only/procedures/`.** Their text was never Claude-specific — each
+  is a procedure written in English — but their location was, so an agent that
+  was not Claude Code arrived to find the framework's instructions filed under
+  `.claude/` and addressed to somebody else. 31 KB of procedure, one copy.
+- **All six commands and all four skills are now pointers**, 575–1,129 bytes
+  each, down from up to 7.4 KB. Each keeps its front matter, because that is what
+  makes Claude Code trigger it, and its body says which procedure to follow.
+- **`init` writes an `AGENTS.md`.** It carries the procedures table, the working
+  agreement, the checks and the honest limits — all true on day one — and marks
+  house rules, security, testing and deliverables as *not yet filled in* rather
+  than inventing them. It has the generated-file header, so `/emit-guardrails`
+  replaces it once there is a spec to generate from.
+- **`emit-guardrails` emits the procedures table into every format** and no
+  longer claims the procedures do not travel. They do; what does not travel is
+  enforcement, which is narrower and true.
+- **Four new checks, two of which found real faults on their first run.** Every
+  procedure must be reachable from some tool; a pointer may not grow past 2 KB
+  (how a procedure creeps back into one tool's folder); every procedure a
+  pointer names must exist; and every path the starter `AGENTS.md` names must
+  exist in a fresh project. That last one caught `ai-only/Project_system.md` and
+  `ai-only/Code_map.md` being named as though they were there on day one, when
+  both are outputs — the document now says so, and the check reads the same
+  admission rather than carrying its own exception list.
+- **Repointed a test that had quietly stopped checking anything.** "Every skill
+  a command asks for exists" matched `run the \`x\` skill`, which no command says
+  any more, so it passed on an empty set. It now checks the unrooted
+  `ai-only/procedures/…` form — the path a project actually uses, which the
+  rooted-path test skips by design.
+- **One piece of real drift found and fixed while doing this.** The `brief-lint`
+  deliverable check lived only in `.claude/commands/translate.md`, so an agent
+  following the procedure was never told to run it. It is in the procedure now.
+- 57 tests pass; `npm run check` clean at exit 0. Verified by running `init`
+  into an empty folder: `AGENTS.md` is at the root and every path it names
+  resolves.
+- **`init` now copies all three checks, not two.** `round-record-lint.mjs` was
+  inside the published package and missing from the copy list, so every project
+  created with `npx` got the two checks that read what an agent wrote *while*
+  working and none of the one that reads what it wrote afterwards. The test now
+  names each check individually rather than trusting `tools/`, so one cannot
+  drop out again unnoticed.
 
 ### What I could not do (and what you would need to tell me)
 - I could not dynamically test the CI/CD pipeline or linter tools (`node tools/code-map-lint.mjs`) directly because those require a Node.js environment or GitHub Actions to run, and my task was scoped purely to documentation edits. 
@@ -180,6 +247,30 @@ one tidy-up would be the exact failure this work was commissioned to fix.
   "mine" shown first). You chose not to for now. If wanted later it needs an
   owner column and a statement that it is visibility only, not access control.
 - **Not run in the real Tauri window.** The form is covered by mocked tests only.
+**2026-10-07**
+
+- **Whether 80 characters is the right floor.** It admits every doc comment in
+  this repository over one line and rejects every one-liner, which is the
+  behaviour I wanted. But it is a number I chose from this codebase's own median
+  of 236, and a project whose house style is terser would be judged unfairly by
+  it. If it should be configurable per project rather than fixed, say so.
+- **Whether the unindexed 123 should ever fail.** I made it a note, on the
+  argument that a doc comment is a better home than a table row. If you want the
+  map to be a complete index — every surface named, prose or not — that is a
+  different rule and I have not built it.
+- **I did not write any of the 106 missing explanations.** The ceiling records
+  the debt; paying it down is work on the code, not on the lint, and nobody
+  asked for it in this round.
+- **Whether `init` should write an `AGENTS.md`.** Verified by running `init`
+  into an empty folder: the forms, the bridge and all three checks are
+  agent-neutral, but all six commands and four skills are under `.claude/`, and
+  no `AGENTS.md` is written — so a non-Claude agent arrives to instructions
+  addressed to somebody else. `/emit-guardrails` produces one, but it is itself
+  a Claude Code command, so Claude is needed once to bootstrap any other model.
+  Writing one at `init` could only be a generic starter, since
+  `emit-guardrails` generates from the translated spec and there is none yet —
+  and a generated file with nothing project-specific in it may be worse than
+  none. That is a product decision, so I left it.
 
 ### Debt I left behind
 - I entirely neglected to append this round record upon completing my task, breaking the project's framework rules. I failed to automatically register my completed work, missing debt, and open questions into this file. This was a process failure on my end.
@@ -279,3 +370,43 @@ one tidy-up would be the exact failure this work was commissioned to fix.
 - **Two Product-creation forms.** `ProductPlanning` and `NewProjectForm` both
   call `createProduct`. They differ on purpose: questions and scaffold, versus a
   name only. A third would trip the DRY rule and should become one shared form.
+**2026-10-07**
+
+- **The ceiling is 106 and the right number is 0.** One hundred and six surfaces
+  in this app have nothing written about them anywhere. The check now says so
+  honestly rather than blurring them with 123 that were already explained, but
+  the explanations still have to be written, and 106 of them is somebody's week.
+  Each is its own small work item: what the command is for, and why it is the
+  way it is.
+
+- **`EXPLANATION_MIN` is a constant, not a setting.** A project installing this
+  via `npx` inherits 80 characters whether or not it suits their house style.
+  Making it configurable means deciding where per-project lint configuration
+  lives, which does not exist yet — so it is hard-coded with its reasoning
+  beside it.
+
+- **The surface list is still only Tauri commands and database tables.** An HTTP
+  endpoint, a CLI subcommand and a React route are all surfaces by the same
+  argument, and none of them is detected. Adding each is a row in `SURFACES`,
+  but choosing which ones count is a judgement about what a build could rebuild
+  by accident, so I did not decide it alone.
+
+- **A pointer can still drift, just more slowly.** The 2 KB ceiling catches a
+  procedure being copied back into a tool's folder; it cannot catch a single
+  sentence of behaviour added to a pointer. Two of the commands were at 2,008
+  and 2,017 bytes before I converted them — one sentence from failing — and they
+  were that size precisely because they had been restating their procedures.
+  Nothing stops that recurring except the ceiling and somebody reading diffs.
+
+- **`AGENTS.md` is written once and never reconciled.** `init` writes the
+  starter, `/emit-guardrails` replaces it from the spec, and in between nothing
+  notices if a person edits the generated copy by hand — their edits are lost on
+  the next run, silently, because the header says it is safe to overwrite. The
+  alternative was a protected file that goes stale instead. Both are wrong in
+  different directions and the choice was made deliberately.
+
+- **The procedures are reachable, not enforced.** Any agent can be pointed at
+  `ai-only/procedures/build.md`; nothing checks that it read it, and no check
+  can. The approval gate is the only part that does not depend on the model
+  cooperating, which is why every emitted file now says so plainly instead of
+  implying the framework carries over whole.
