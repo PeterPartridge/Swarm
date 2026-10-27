@@ -5,6 +5,8 @@ import StandaloneBuildPane from "./pages/StandaloneBuildPane";
 import StandaloneConsole from "./pages/StandaloneConsole";
 import StandaloneScreen from "./pages/StandaloneScreen";
 import "./styles.css";
+// After this app's own styles, which is where the sandbox panels' rules sat.
+import "@cells/cells.css";
 
 // Pulled-out OS windows load index.html?window=<screen>&productId=<id> and
 // render just that screen; the main window renders the full shell.

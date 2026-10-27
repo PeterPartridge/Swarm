@@ -1,15 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import DevicePolicyExport from "./DevicePolicyExport";
 import PolicySource from "./PolicySource";
-import {
-  sandboxReport,
-  setAgentSandbox,
-  setUpSandbox,
-  type Protection,
-  type SandboxMode,
-  type SandboxReport,
-  type SetUpResult,
-} from "../../lib/backend";
+import type {
+  CellsBackend,
+  Protection,
+  SandboxMode,
+  SandboxReport,
+  SetUpResult,
+} from "./types";
 
 /** Where agents run, and what that really enforces on this machine.
  *
@@ -33,7 +31,8 @@ import {
  *  somebody opened a terminal. So it appears, disabled, with the reason beside
  *  it: the app saying no and saying why beats a setting that quietly breaks
  *  something two screens away. */
-export default function SandboxTable() {
+export default function SandboxTable({ backend }: { backend: CellsBackend }) {
+  const { sandboxReport, setAgentSandbox, setUpSandbox } = backend;
   const [report, setReport] = useState<SandboxReport | null>(null);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -196,11 +195,11 @@ export default function SandboxTable() {
           {/* Inside this card on purpose: a policy without a boundary keeps
               nothing from anybody, and a panel of its own would read as
               protection in its own right. */}
-          <PolicySource />
+          <PolicySource backend={backend} />
           {/* Below the policy file, in the order somebody meets them: what an
               agent can reach is this app's to enforce, while whether WSL may
               exist at all belongs to whoever manages the machine. */}
-          <DevicePolicyExport />
+          <DevicePolicyExport backend={backend} />
         </>
       )}
 

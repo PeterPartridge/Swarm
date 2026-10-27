@@ -1,10 +1,5 @@
 import { useState } from "react";
-import {
-  devicePolicyExport,
-  pickFolder,
-  saveDevicePolicyExport,
-  type DevicePolicyExportKind,
-} from "../../lib/backend";
+import type { DevicePolicyBackend, DevicePolicyExportKind } from "./types";
 
 /** The device-policy settings this app's sandbox wants, as a file to hand over.
  *
@@ -21,7 +16,8 @@ import {
  *  **Shown before it is saved**, like the policy file beside it. This one goes
  *  to somebody's tenant and is applied to machines other than this one, so
  *  reading it first matters more rather than less. */
-export default function DevicePolicyExport() {
+export default function DevicePolicyExport({ backend }: { backend: DevicePolicyBackend }) {
+  const { devicePolicyExport, pickFolder, saveDevicePolicyExport } = backend;
   const [kind, setKind] = useState<DevicePolicyExportKind>("registry");
   const [text, setText] = useState("");
   const [saved, setSaved] = useState("");

@@ -487,7 +487,7 @@ pub fn record_for(
 /// to swap it. So what runs is checked to be what was shown.
 pub async fn install(
     fetched: &Fetched,
-    mode: crate::tooling::sandbox::Mode,
+    mode: crate::sandbox::Mode,
     command: &str,
 ) -> Result<String, String> {
     let command = command.trim();
@@ -495,17 +495,17 @@ pub async fn install(
         return Err("there is no command to run — say what installs the policy".into());
     }
     match mode {
-        crate::tooling::sandbox::Mode::Off => Err(
+        crate::sandbox::Mode::Off => Err(
             "with agents running on this machine there is no separate user to keep anything \
              from, so a policy would restrict nothing. Choose a sandbox first."
                 .into(),
         ),
-        crate::tooling::sandbox::Mode::Docker => Err(
+        crate::sandbox::Mode::Docker => Err(
             "a container belongs to a run and does not exist between runs, so there is nothing \
              here to install into. Under Docker the policy is applied when a run starts."
                 .into(),
         ),
-        crate::tooling::sandbox::Mode::Wsl => {
+        crate::sandbox::Mode::Wsl => {
             // Checked here rather than at fetch alone: the mode refusals above
             // are about whether it would run at all, and there is no sense
             // asking whether a file is unchanged before asking that.
@@ -529,13 +529,13 @@ pub async fn install(
 
             // Put it where the command will find it, through the same view of
             // the distribution the rest of this app already uses.
-            let landing = crate::tooling::sandbox::windows_view(inside_dir);
+            let landing = crate::sandbox::windows_view(inside_dir);
             std::fs::create_dir_all(&landing)
                 .map_err(|e| format!("could not make {inside_dir} inside the sandbox: {e}"))?;
             std::fs::copy(&fetched.path, Path::new(&landing).join(&name))
                 .map_err(|e| format!("could not put the policy inside the sandbox: {e}"))?;
 
-            crate::tooling::sandbox_run::run_as_root(&format!(
+            crate::sandbox_run::run_as_root(&format!(
                 "cd '{inside_dir}' && {command}"
             ))
             .await
@@ -778,7 +778,7 @@ mod tests {
         // Swapped after it was shown, before it is run.
         std::fs::write(&at, b"chmod 777 /").expect("what would run instead");
 
-        let refused = install(&fetched, crate::tooling::sandbox::Mode::Wsl, "sh p.json")
+        let refused = install(&fetched, crate::sandbox::Mode::Wsl, "sh p.json")
             .await
             .expect_err("what runs must be what was shown");
         assert!(refused.contains("has changed since it was fetched"), "{refused}");
@@ -808,14 +808,14 @@ mod tests {
             verified: false,
             shape: Shape::Script,
         };
-        let refused = install(&fetched, crate::tooling::sandbox::Mode::Off, "sh p.json")
+        let refused = install(&fetched, crate::sandbox::Mode::Off, "sh p.json")
             .await
             .expect_err("nothing to restrict against");
         assert!(refused.contains("no separate user"), "{refused}");
 
         // And a container does not exist between runs, so there is nothing
         // here to install into.
-        let later = install(&fetched, crate::tooling::sandbox::Mode::Docker, "sh p.json")
+        let later = install(&fetched, crate::sandbox::Mode::Docker, "sh p.json")
             .await
             .expect_err("no container outside a run");
         assert!(later.contains("when a run starts"), "{later}");
@@ -1005,13 +1005,13 @@ mod tests {
             println!("fetched {} bytes to {}", fetched.bytes, fetched.path);
             assert!(fetched.text.contains("chmod 000"), "it should be readable before it runs");
 
-            let said = install(&fetched, crate::tooling::sandbox::Mode::Wsl, "sh apply.sh")
+            let said = install(&fetched, crate::sandbox::Mode::Wsl, "sh apply.sh")
                 .await
                 .expect("the policy runs");
             println!("{said}");
 
             // The claim, asked of the agent rather than of the flags.
-            let tried = crate::tooling::sandbox_run::read_as_agent(
+            let tried = crate::sandbox_run::read_as_agent(
                 "cat /work/runs/secrets/keys.txt 2>&1; echo ---; ls /work/runs/secrets 2>&1",
             )
             .await
@@ -1036,6 +1036,6 @@ mod tests {
             verified: false,
             shape: Shape::Script,
         };
-        assert!(install(&fetched, crate::tooling::sandbox::Mode::Wsl, "   ").await.is_err());
+        assert!(install(&fetched, crate::sandbox::Mode::Wsl, "   ").await.is_err());
     }
 }

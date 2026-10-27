@@ -1,0 +1,19 @@
+[package]
+name = "cells"
+version = "0.1.0"
+edition = "2021"
+description = "Where a command an app runs on somebody's behalf actually runs — this machine, an app-owned WSL distribution, or a container per run."
+license = "MIT"
+publish = false
+
+# The same versions and features Swarm declares, so a build of Swarm resolves
+# each of these to the one copy it already has rather than a second.
+[dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+# A policy is somebody else's root script; its digest is how it is recognised
+# again. Already compiled for tauri's own codegen in Swarm, so this costs no
+# new supply chain — see sandbox_policy.rs.
+sha2 = "0.10"
+tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros", "process", "io-util", "time"] }

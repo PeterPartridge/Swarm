@@ -19,10 +19,9 @@ reqwest = { version = "0.12", features = ["json"] }
 # the data lives in a turso database the running app already holds.
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
-# A policy is somebody else's root script; its digest is how it is recognised
-# again. Already compiled for tauri's own codegen, so this costs no new
-# supply chain — see tooling/sandbox_policy.rs.
-sha2 = "0.10"
+# Where agents run — the sandbox seam, detection, set-up and both backends.
+# A crate of its own beside this one; see app/Cells.
+cells = { path = "../../Cells" }
 # The MCP server's bearer token has to be the operating system's randomness on
 # both Windows and Linux. Already in the tree, so this costs nothing new — and
 # the alternative, reading /dev/urandom directly, is a panic on the primary

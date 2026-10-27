@@ -1,6 +1,15 @@
 // Thin wrapper over Tauri invoke so pages depend on one mockable module.
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import type {
+  AgentPolicySource,
+  DevicePolicyExportKind,
+  FetchedPolicy,
+  InstalledPolicy,
+  PolicyChange,
+  SandboxReport,
+  SetUpResult,
+} from "@cells/types";
 
 /** Opens the OS folder picker; returns the chosen path, or null if cancelled. */
 export async function pickFolder(): Promise<string | null> {
@@ -3234,60 +3243,6 @@ export const getAgentRunMode = (): Promise<string> => invoke("get_agent_run_mode
 export const setAgentRunMode = (mode: string): Promise<void> =>
   invoke("set_agent_run_mode", { mode });
 
-/** Whether one protection is actually doing anything.
- *
- *  Three states, and the middle one carries the weight: a machine that *could*
- *  run containers is not a machine that is running one. Neither sandbox is
- *  built, so nothing is `enforced` — and a tick against a mode that refuses
- *  every command would be the exact claim this panel exists to prevent. */
-export type ProtectionState = "enforced" | "availableNotBuilt" | "unavailable";
-
-export interface Protection {
-  name: string;
-  state: ProtectionState;
-  /** Why. Never empty — an unexplained verdict is one you have to guess at. */
-  detail: string;
-}
-
-export interface SandboxMode {
-  id: string;
-  label: string;
-  /** Whether this mode runs anything at all yet. */
-  built: boolean;
-  summary: string;
-  /** Whether this mode can be chosen here, now — not the same as `built`. */
-  canChoose: boolean;
-  /** Why it cannot be chosen, when it cannot. Never empty. */
-  chooseDetail: string;
-  /** Whether the app could build this mode's boundary here, now. Separate from
-   *  `built`: one is about the machine, the other about the app. */
-  canSetUp: boolean;
-  /** What setting it up would do, or why it cannot be — never empty, because
-   *  an unexplained disabled button is worse than no button. */
-  setUpDetail: string;
-  protections: Protection[];
-}
-
-export interface SetUpStep {
-  name: string;
-  succeeded: boolean;
-  /** Whole, in the tool's own words. When a toolchain is missing this is the
-   *  only thing that names it. */
-  output: string;
-}
-
-export interface SetUpResult {
-  mode: string;
-  steps: SetUpStep[];
-  succeeded: boolean;
-  summary: string;
-}
-
-export interface SandboxReport {
-  modes: SandboxMode[];
-  chosen: string;
-}
-
 /** What this machine can actually offer, established by running the tools
  *  rather than by looking for them on PATH.
  *
@@ -3312,94 +3267,13 @@ export const setUpSandbox = (mode: string): Promise<SetUpResult> =>
 export const setAgentSandbox = (mode: string): Promise<void> =>
   invoke("set_agent_sandbox", { mode });
 
-/** Where an agent policy comes from, what installs it, and where it lands.
- *
- *  Three fields rather than one, because fetching and running are two
- *  different acts — and keeping them apart is what lets the thing be read
- *  before it is run, which is the only safeguard against a policy somebody
- *  else wrote. */
-export interface AgentPolicySource {
-  /** An https address, or a file on this machine. Empty means no policy. */
-  from: string;
-  /** The command that installs it, run where the agent will run. */
-  command: string;
-  /** The folder it is downloaded into. */
-  folder: string;
-  /** The SHA-256 it must have, or empty for "whatever arrives".
-   *
-   *  Empty is trust-on-first-use and nothing more: the digest can be shown so
-   *  it can be compared against what the policy's author said, but until it is
-   *  set here, every fetch is checked against nothing. */
-  expectDigest: string;
-}
-
 export const getAgentPolicySource = (): Promise<AgentPolicySource> =>
   invoke("get_agent_policy_source");
-
-/** The moving part of a GitHub address, when it has one — `main`, a branch
- *  name, a tag — or null when it names a commit or is not GitHub at all.
- *
- *  **A hint as it is typed, never the enforcement.** `sandbox_policy.rs` has
- *  the same rule and is what actually refuses to store a branch; this copy
- *  exists so the refusal is not a surprise on Save. If the two ever disagree,
- *  the backend's answer is the one that decides, and the worst this one can do
- *  is fail to warn early. */
-export function movingGithubRef(from: string): string | null {
-  const rest = from.trim().split("://")[1];
-  if (!rest) return null;
-  const cut = rest.indexOf("/");
-  if (cut < 0) return null;
-  const host = rest.slice(0, cut).toLowerCase();
-  const hosts = ["github.com", "www.github.com", "raw.githubusercontent.com", "raw.github.com"];
-  if (!hosts.includes(host)) return null;
-  const parts = rest.slice(cut + 1).split("/").filter((p) => p !== "");
-  const at =
-    parts[2] === "blob" || parts[2] === "raw" ? 3 : host.startsWith("raw.") ? 2 : -1;
-  if (at < 0) return null;
-  // `refs/heads/main` names a branch just as plainly as `main` does.
-  const named = parts[at] === "refs" ? parts[at + 2] : parts[at];
-  if (!named) return null;
-  return /^[0-9a-f]{40}$/i.test(named) ? null : named;
-}
 
 /** Refused when it cannot be honoured — a bad source caught here rather than
  *  when a run is starting. */
 export const setAgentPolicySource = (source: AgentPolicySource): Promise<void> =>
   invoke("set_agent_policy_source", { source });
-
-/** A policy brought to this machine, and what it says. */
-export interface FetchedPolicy {
-  /** Where it landed here. */
-  path: string;
-  bytes: number;
-  /** What it says, for reading before it is run. */
-  text: string;
-  /** Whether that is only the beginning of it. */
-  truncated: boolean;
-  /** SHA-256 of the whole file, lowercase hex — of the bytes, not of `text`. */
-  digest: string;
-  /** Whether it was checked against a digest set beforehand, or only shown. */
-  verified: boolean;
-  /** What arrived, which decides what can be done with it. */
-  shape: PolicyShape;
-}
-
-/** What a fetched file turned out to be.
- *
- *  **One fetch, two honest destinations.** A deny list is written into a
- *  Solution and honoured by both backends; a script is run as root into the WSL
- *  distribution and does nothing at all under Docker. */
-export type PolicyShape = "policy" | "script";
-
-/** What installing one policy over another would change. */
-export interface PolicyChange {
-  added: string[];
-  /** The half that matters: rules this would stop enforcing. */
-  removed: string[];
-  kept: string[];
-  /** Whether the Solution has a policy at all today. */
-  hadOne: boolean;
-}
 
 /** What installing the fetched policy into a Solution would change. Writes
  *  nothing — the removals are what somebody needs to see before they happen. */
@@ -3426,32 +3300,8 @@ export const fetchAgentPolicy = (): Promise<FetchedPolicy> => invoke("fetch_agen
 export const runAgentPolicy = (fetched: FetchedPolicy): Promise<string> =>
   invoke("run_agent_policy", { fetched });
 
-/** The policy script that was last run into the boundary.
- *
- *  **A different thing from a Solution's `policy.json`.** That file is a deny
- *  list, read on every run and enforced by whichever boundary is in force.
- *  This is an imperative script, app-wide, run as root into the WSL
- *  distribution by a press — it produces no deny list, and under Docker it
- *  never runs at all.
- *
- *  **What was run, never what is still in force.** Nothing watches the
- *  distribution afterwards; root inside it can undo anything this did. */
-export interface InstalledPolicy {
-  /** Where the script came from. Empty means none has ever been run. */
-  from: string;
-  /** The SHA-256 of what actually ran. */
-  digest: string;
-  /** The boundary it was run into — only ever "wsl" today. */
-  mode: string;
-  /** When it ran, in milliseconds since the epoch. */
-  at: number;
-}
-
 export const getInstalledPolicy = (): Promise<InstalledPolicy> =>
   invoke("get_installed_policy");
-
-/** Which form of device-policy export somebody wants. */
-export type DevicePolicyExportKind = "registry" | "script";
 
 /** The device-policy settings this app's sandbox wants, as a file to read.
  *

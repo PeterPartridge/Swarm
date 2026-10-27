@@ -254,6 +254,38 @@ one tidy-up would be the exact failure this work was commissioned to fix.
   **From Develop** or **From QA**. The six database tests written red before
   this round are what the database code was written to.
 
+**2026-10-27 — Cells, Round A: the sandboxing moves into a folder of its own.**
+The user asked for the sandboxing to become a bolt-on in a new folder called
+Cells, with Sandboxie and a Linux / WSL Linux cell to follow. The plan was
+approved in rounds; this is Round A, the move, with nothing a person sees
+changing. Spec and report: `application/ai-only/Cells/cells.md`.
+
+- **A crate of its own at `app/Cells`.** The seven `tooling/sandbox*.rs`
+  modules moved there with only their `crate::` paths changed. Swarm depends on
+  it by path and re-exports the seven modules under `tooling::`, so no caller in
+  Swarm changed. `which`, the only thing they borrowed from Swarm, moved with
+  them and `dev_runner` re-exports it. So did `sha2`, which only the policy
+  digest used.
+- **The seam test stayed in Swarm**, because it guards Swarm's callers. Its
+  scanner is now `cells::seam::spawners`, and Cells uses the same scanner to
+  check its own two spawning files. That way there's one scanner rather than
+  two copies drifting apart.
+- **The three panels moved to `app/Cells/ui`** with their types, their CSS and
+  their tests. Each now takes its host's calls as a prop through a small
+  interface. Swarm passes in its own Tauri wrappers as `cellsBackend` and
+  resolves the folder through an `@cells` alias.
+- **CI runs Cells' clippy and tests** in `ci.yml` and both release jobs.
+  AGENTS.md, the Project Brief and the Project Digest list Cells as a solution
+  and name its gates.
+- **A drafted brief for Cells** (`application/Cells/application-spec.json`),
+  marked `drafted · guessed` throughout, and a Round 13 bullet in the Agent
+  Sandbox brief recording the request.
+- **Proved:** Cells' clippy is clean, and 97 of its tests pass with 11 ignored.
+  That is all 108, 107 moved plus 1 new. Swarm's `tsc` and `npm test` pass (76
+  files, 814 tests; the 36 moved panel tests are the same 36). `npm run build`
+  succeeds and the panels' CSS lands where it sat in the cascade. The code-map
+  lint has 0 errors.
+
 ### What I could not do (and what you would need to tell me)
 - I could not dynamically test the CI/CD pipeline or linter tools (`node tools/code-map-lint.mjs`) directly because those require a Node.js environment or GitHub Actions to run, and my task was scoped purely to documentation edits. 
 
@@ -346,6 +378,27 @@ one tidy-up would be the exact failure this work was commissioned to fix.
 - **What I did not test:** the screens in the running app. The frontend
   tests prove the Product home hides an un-sent Project and marks a sent one,
   and that Develop and Test send it; nobody has pressed the button in Swarm.
+
+**2026-10-27 — Cells, Round A.**
+- **I could not run Swarm's cargo gates.** This machine has no Visual Studio
+  build tools, so there is no MSVC linker and no Windows SDK, and no Rust crate
+  builds natively here. WSL Ubuntu has Rust but not the GTK/WebKit libraries
+  Tauri needs. Cells' gates ran in WSL. Swarm's clippy and `cargo test` run in
+  CI on the pull request. I checked by hand for the ways a crate split usually
+  breaks (restricted visibility, `cfg(test)` helpers, relative paths, test-only
+  coupling) and found none, but that is a reading, not a build.
+- **Rounds B to D need answers before they start.** How a Sandboxie run's work
+  leaves the box (opened through to the disk, or recovered afterwards). Whether
+  the native Linux cell is bubblewrap. Whether Round 12 of the Agent Sandbox
+  brief is built before the Linux cell. And whether this goes ahead of the MVP,
+  which the project's goals put first. All four are in the Cells brief's
+  `openQuestions`.
+- **The Cells brief's answers are mine, not Product's.** Its purpose, framework
+  and security answers are drafted from what was asked in chat and are marked
+  as such.
+- **What I did not test:** whether the moved panels look identical in the
+  running app. The CSS rules are byte-identical and land in the same cascade
+  position in the built bundle, but nobody looked at the Admin area afterwards.
 
 ### Debt I left behind
 - I entirely neglected to append this round record upon completing my task, breaking the project's framework rules. I failed to automatically register my completed work, missing debt, and open questions into this file. This was a process failure on my end.
@@ -524,3 +577,26 @@ one tidy-up would be the exact failure this work was commissioned to fix.
   Project.** Develop and Test both list every Product, and the button simply
   does not appear on a Project the other area made. That was the decision, but
   nothing on screen says why the button is missing.
+
+- **Cells still carries Swarm's names (2026-10-27, Cells Round A).** The
+  distribution it creates is `swarm`, the agent image and the policy file
+  (`.swarm/policy.json`) are Swarm's, and the panels' wording says "this app".
+  Cells is a separate folder but not yet usable by a second host. Making those
+  names the host's choice is a round of its own, if anyone wants a second host.
+
+- **Cells is built twice in CI.** It is its own crate with its own lockfile and
+  target folder, so CI compiles tokio, reqwest and the rest once for Swarm and
+  again for Cells' own tests. The two lockfiles also have to be kept in step by
+  hand: Cells' started as a copy of Swarm's. A Cargo workspace would fix both,
+  at the cost of moving where Swarm's lockfile and target live.
+
+- **The panels borrow Swarm's `node_modules`.** Cells has no `package.json`, so
+  Swarm's tsconfig points four packages (`react`, `@testing-library/*`,
+  `vitest`) at its own `node_modules`, and Vite dedupes them. A new package
+  imported by a Cells panel needs a line in both places, or it fails to resolve
+  with an error that does not say why.
+
+- **AGENTS.md was edited by hand again.** Its header says to edit the brief and
+  run `/emit-guardrails`. The Project Brief and Project Digest now carry the
+  Cells lines too, so a regeneration should keep them, but that has not been
+  run to prove it.

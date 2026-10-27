@@ -15,7 +15,18 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "types": ["vitest/globals", "@testing-library/jest-dom"]
+    "types": ["vitest/globals", "@testing-library/jest-dom"],
+    // `@cells` is the sandbox panels in app/Cells/ui. The other four are the
+    // only packages those panels import: nothing above app/Cells has a
+    // node_modules, so they are pointed at this one. Kept to that list rather
+    // than a catch-all, which would change how every import here resolves.
+    "paths": {
+      "@cells/*": ["../Cells/ui/*"],
+      "react": ["./node_modules/@types/react"],
+      "react/*": ["./node_modules/@types/react/*"],
+      "@testing-library/*": ["./node_modules/@testing-library/*"],
+      "vitest": ["./node_modules/vitest"]
+    }
   },
-  "include": ["src"]
+  "include": ["src", "../Cells/ui"]
 }

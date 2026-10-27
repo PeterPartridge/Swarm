@@ -142,7 +142,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: app/Swarm/src-tauri
+          workspaces: |
+            app/Swarm/src-tauri
+            app/Cells
 
       - uses: actions/setup-node@v5
         with:
@@ -162,6 +164,13 @@ jobs:
 
       - name: Rust tests
         run: cargo test --manifest-path app/Swarm/src-tauri/Cargo.toml
+
+      # Cells is its own crate, so the step above never runs its tests.
+      - name: Cells clippy (warnings are failures)
+        run: cargo clippy --manifest-path app/Cells/Cargo.toml --all-targets -- -D warnings
+
+      - name: Cells tests
+        run: cargo test --manifest-path app/Cells/Cargo.toml
 
       - name: Typecheck
         working-directory: app/Swarm
@@ -279,7 +288,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: app/Swarm/src-tauri
+          workspaces: |
+            app/Swarm/src-tauri
+            app/Cells
           # Otherwise this shares a cache key with the Windows job and restores
           # artefacts built for the wrong target.
           key: linux
@@ -345,6 +356,13 @@ jobs:
       # exists to prove is that the Linux packages build.
       - name: Rust tests, without the ones that open a PTY
         run: cargo test --manifest-path app/Swarm/src-tauri/Cargo.toml -- --skip terminal::tests
+
+      # Cells is its own crate, so the step above never runs its tests.
+      - name: Cells clippy (warnings are failures)
+        run: cargo clippy --manifest-path app/Cells/Cargo.toml --all-targets -- -D warnings
+
+      - name: Cells tests
+        run: cargo test --manifest-path app/Cells/Cargo.toml
 
       - name: Typecheck
         working-directory: app/Swarm

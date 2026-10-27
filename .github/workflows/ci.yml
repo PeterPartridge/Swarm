@@ -47,7 +47,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: app/Swarm/src-tauri
+          workspaces: |
+            app/Swarm/src-tauri
+            app/Cells
 
       # The codebase is warning-free; -D warnings is what keeps it that way.
       # Three lints accumulated unnoticed before this gate existed.
@@ -56,6 +58,14 @@ jobs:
 
       - name: Tests
         run: cargo test --manifest-path app/Swarm/src-tauri/Cargo.toml
+
+      # **Cells is its own crate, so Swarm's `cargo test` never runs its tests.**
+      # The sandbox seam, detection and both backends live there (app/Cells).
+      - name: Cells clippy (warnings are failures)
+        run: cargo clippy --manifest-path app/Cells/Cargo.toml --all-targets -- -D warnings
+
+      - name: Cells tests
+        run: cargo test --manifest-path app/Cells/Cargo.toml
 
   # **The documents the AI builds from are checked, not trusted.** Two of them
   # are read before code is written and are worse than useless once untrue: the
