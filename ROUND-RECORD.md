@@ -218,6 +218,28 @@ one tidy-up would be the exact failure this work was commissioned to fix.
   push to main, so the first release from here is named Swarm rather than
   0.2.53 going out as CoperativeAI. The manual trial build still works and
   still publishes nothing.
+- **The app is Swarm.** Product name, window title, identifier
+  (`com.swarm.app`), crate and package names, the `app/Swarm` folder, the
+  briefs (`application/Swarm`, `application/Swarmdb` and their `ai-only`
+  mirrors), the database file (`Swarm.db`), `SWARM_DATA_DIR`, the keyring
+  service, the WSL distribution and agent image, the folders the app writes
+  into a user's repository (`.Swarm/`, `.swarm/`), the SSH key name and the
+  browser-storage keys. Nothing carries data across from the old names — the
+  app has no users yet, so there was nothing to carry. Three things keep the
+  old name on purpose: `coperativeai init`, which is the framework's own CLI; a
+  real local folder path in a sandbox test; and the checks in `tools/`, left
+  byte-identical to the framework's so a later copy shows only real changes.
+- **One name, one place.** The keyring service was typed out in three files
+  and is now `ai::keys::SERVICE`; the database file name was typed in five and
+  is now `db::DB_FILE`.
+- **Releases run again on a push to main,** so the next merge publishes
+  0.2.53 as Swarm. That also ends the gap the previous round left, where main
+  was checked by nothing.
+- **The guardrails stop describing a repository this is not.** `AGENTS.md`
+  said the framework was "in this same repository" and listed `template/`,
+  `example/` and `site/`; twelve brief and code-map links pointed at those
+  folders with relative paths. They now point at CooperativeAICoding on GitHub,
+  and each target was checked to exist there.
 
 ### What I could not do (and what you would need to tell me)
 - I could not dynamically test the CI/CD pipeline or linter tools (`node tools/code-map-lint.mjs`) directly because those require a Node.js environment or GitHub Actions to run, and my task was scoped purely to documentation edits. 
@@ -294,6 +316,15 @@ one tidy-up would be the exact failure this work was commissioned to fix.
   CooperativeAICoding keeps, splits or drops its copy of this record, and
   whether it gets guardrails of its own once `AGENTS.md` and `GEMINI.md` have
   left with the app.
+- **The rename was not tested by a test of its own.** It is a rename: the
+  existing suites passing under the new names is the evidence, and a test that
+  a constant equals a literal would only restate it. Nothing checks that the
+  built installer is called Swarm or that a fresh start creates `Swarm.db` in
+  the `com.swarm.app` folder; that is seen by running it.
+- **`AGENTS.md` was edited by hand, not regenerated.** Its header says to edit
+  the brief and run `/emit-guardrails`; the lines that were wrong are not in
+  `Project_system.md`, so regenerating would not have fixed them, and may drop
+  them on the next run.
 
 ### Debt I left behind
 - I entirely neglected to append this round record upon completing my task, breaking the project's framework rules. I failed to automatically register my completed work, missing debt, and open questions into this file. This was a process failure on my end.
@@ -444,3 +475,16 @@ one tidy-up would be the exact failure this work was commissioned to fix.
   runs on pull requests only, on the grounds that the release build covers
   main; with the release trigger off, a direct push to main is checked by
   nothing until the rename turns the trigger back on.
+
+- **A machine that ran CoperativeAI keeps what it made.** The renamed app
+  creates its own WSL distribution (`swarm`), agent image, SSH key
+  (`id_ed25519_swarm`), credential entries and data folder, and leaves the old
+  ones where they are. On a developer machine that means a `coperativeai` WSL
+  distribution, an `id_ed25519_coperativeai` key registered with GitHub, and a
+  `com.coperativeai.app` data folder, all still present and now unused.
+  Removing them is a person's call, because removing a distribution or a key
+  cannot be undone.
+
+- **Folders written into users' repositories changed name.** `.CoperativeAI/`
+  and `.coperativeai/` are now `.Swarm/` and `.swarm/`. A repository the old
+  app already wrote into keeps its old folder, which Swarm will not read.

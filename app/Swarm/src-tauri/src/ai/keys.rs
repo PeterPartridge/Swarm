@@ -1,0 +1,41 @@
+//! API-key storage in the OS credential store (Windows Credential Manager /
+//! Linux Secret Service) via the keyring crate. The database stores only the
+//! alias these functions are called with.
+
+/// The one service name every secret is filed under — AI keys here, and the
+/// GitHub and Figma tokens alongside them.
+pub const SERVICE: &str = "Swarm";
+
+fn entry(alias: &str) -> Result<keyring::Entry, String> {
+    keyring::Entry::new(SERVICE, alias).map_err(|e| format!("credential store unavailable: {e}"))
+}
+
+pub fn store(alias: &str, value: &str) -> Result<(), String> {
+    entry(alias)?
+        .set_password(value)
+        .map_err(|e| format!("could not store the API key in the OS credential store: {e}"))
+}
+
+pub fn read(alias: &str) -> Result<String, String> {
+    entry(alias)?.get_password().map_err(|e| match e {
+        keyring::Error::NoEntry => {
+            "no API key is stored for this provider — re-enter it in AI Settings".to_string()
+        }
+        other => format!("could not read the API key from the OS credential store: {other}"),
+    })
+}
+
+pub fn stored(alias: &str) -> bool {
+    entry(alias).map(|e| e.get_password().is_ok()).unwrap_or(false)
+}
+
+/// Removing a provider must also remove its credential-store entry
+/// (AIProvider retention rule). Missing entries are fine.
+pub fn delete(alias: &str) -> Result<(), String> {
+    match entry(alias)?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(format!(
+            "could not remove the API key from the OS credential store: {e}"
+        )),
+    }
+}

@@ -27,13 +27,9 @@ name: Release
 # and ship an installer that says 0.1.0.
 
 on:
-  # **Held until the app is renamed to Swarm.** The push-to-main trigger is off
-  # so the first release from this repository carries the new name rather than
-  # publishing 0.2.53 as CoperativeAI and renaming it a version later. The
-  # rename puts back:
-  #   push:
-  #     branches:
-  #       - main
+  push:
+    branches:
+      - main
   # So a build can be tried without cutting a release. Nothing is published on
   # this path — see the `if` on the release step.
   workflow_dispatch:
@@ -111,9 +107,9 @@ jobs:
           # Each file is read, checked to contain the field, and rewritten.
           # A silent no-op here would ship an installer with the old number,
           # which is the one failure this whole step exists to prevent.
-          $pkg = 'app/CoperativeAI/package.json'
-          $tau = 'app/CoperativeAI/src-tauri/tauri.conf.json'
-          $car = 'app/CoperativeAI/src-tauri/Cargo.toml'
+          $pkg = 'app/Swarm/package.json'
+          $tau = 'app/Swarm/src-tauri/tauri.conf.json'
+          $car = 'app/Swarm/src-tauri/Cargo.toml'
 
           # [regex]::Replace rather than the -replace operator throughout: only
           # the .NET call takes a count, and "just the first one" is the whole
@@ -146,40 +142,40 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: app/CoperativeAI/src-tauri
+          workspaces: app/Swarm/src-tauri
 
       - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: app/CoperativeAI/package-lock.json
+          cache-dependency-path: app/Swarm/package-lock.json
 
       - name: Install
-        working-directory: app/CoperativeAI
+        working-directory: app/Swarm
         run: npm ci
 
       # **The same gates as CI, before anything is published.** A release build
       # that skipped them could ship code that main would have rejected — and
       # the tag is usually cut from main without a second look.
       - name: Clippy (warnings are failures)
-        run: cargo clippy --manifest-path app/CoperativeAI/src-tauri/Cargo.toml --all-targets -- -D warnings
+        run: cargo clippy --manifest-path app/Swarm/src-tauri/Cargo.toml --all-targets -- -D warnings
 
       - name: Rust tests
-        run: cargo test --manifest-path app/CoperativeAI/src-tauri/Cargo.toml
+        run: cargo test --manifest-path app/Swarm/src-tauri/Cargo.toml
 
       - name: Typecheck
-        working-directory: app/CoperativeAI
+        working-directory: app/Swarm
         run: npx tsc --noEmit
 
       - name: Frontend tests
-        working-directory: app/CoperativeAI
+        working-directory: app/Swarm
         run: npm test
 
       # Builds the frontend and bundles it into an installer. The bundle is
       # configured for `.ico`, which is why this only runs on Windows — see the
       # note at the top of ci.yml.
       - name: Build the desktop app
-        working-directory: app/CoperativeAI
+        working-directory: app/Swarm
         run: npx tauri build
 
       # Each expected asset is looked for by itself, so "two of the three
@@ -189,13 +185,13 @@ jobs:
         id: collect
         shell: pwsh
         run: |
-          $root = 'app/CoperativeAI/src-tauri/target/release'
+          $root = 'app/Swarm/src-tauri/target/release'
           $out = 'dist-release'
           New-Item -ItemType Directory -Force -Path $out | Out-Null
 
           # Verified against a real `tauri build`, both locally and on a runner:
-          #   bundle/msi/CoperativeAI_<version>_x64_en-US.msi   ~17 MB
-          #   bundle/nsis/CoperativeAI_<version>_x64-setup.exe  ~13 MB
+          #   bundle/msi/Swarm_<version>_x64_en-US.msi   ~17 MB
+          #   bundle/nsis/Swarm_<version>_x64-setup.exe  ~13 MB
           #   <the binary>.exe                                  ~45 MB, portable
           #
           # **The portable binary is globbed, not named.** Cargo names it after
@@ -249,7 +245,7 @@ jobs:
       # windows-latest is.
       - uses: actions/upload-artifact@v7
         with:
-          name: CoperativeAI-${{ needs.version.outputs.version }}-windows
+          name: Swarm-${{ needs.version.outputs.version }}-windows
           path: dist-release/*
   linux:
     needs: version
@@ -283,7 +279,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: app/CoperativeAI/src-tauri
+          workspaces: app/Swarm/src-tauri
           # Otherwise this shares a cache key with the Windows job and restores
           # artefacts built for the wrong target.
           key: linux
@@ -305,7 +301,7 @@ jobs:
       # determinism — said plainly rather than hidden, because a reader who
       # assumes `npm ci` semantics from the Windows job would be wrong.
       - name: Install, with the platform binaries swapped
-        working-directory: app/CoperativeAI
+        working-directory: app/Swarm
         run: |
           node -e "
             const fs = require('fs');
@@ -328,7 +324,7 @@ jobs:
       # The same gates as Windows. A platform that publishes without them is a
       # platform whose users find the failures.
       - name: Clippy (warnings are failures)
-        run: cargo clippy --manifest-path app/CoperativeAI/src-tauri/Cargo.toml --all-targets -- -D warnings
+        run: cargo clippy --manifest-path app/Swarm/src-tauri/Cargo.toml --all-targets -- -D warnings
 
       # **The PTY tests are skipped here, and that is a known gap rather than a
       # tidy-up.** Spawning a real shell on a PTY and then killing it takes this
@@ -348,18 +344,18 @@ jobs:
       # not unguarded, they are unguarded *on one platform*. And what this job
       # exists to prove is that the Linux packages build.
       - name: Rust tests, without the ones that open a PTY
-        run: cargo test --manifest-path app/CoperativeAI/src-tauri/Cargo.toml -- --skip terminal::tests
+        run: cargo test --manifest-path app/Swarm/src-tauri/Cargo.toml -- --skip terminal::tests
 
       - name: Typecheck
-        working-directory: app/CoperativeAI
+        working-directory: app/Swarm
         run: npx tsc --noEmit
 
       - name: Frontend tests
-        working-directory: app/CoperativeAI
+        working-directory: app/Swarm
         run: npm test
 
       - name: Build the desktop app
-        working-directory: app/CoperativeAI
+        working-directory: app/Swarm
         run: npx tauri build
 
       # Every expected package is looked for by itself, so "two of the three
@@ -368,7 +364,7 @@ jobs:
       - name: Collect what was built
         run: |
           set -euo pipefail
-          root=app/CoperativeAI/src-tauri/target/release/bundle
+          root=app/Swarm/src-tauri/target/release/bundle
           out=dist-linux
           mkdir -p "$out"
 
@@ -401,7 +397,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: CoperativeAI-${{ needs.version.outputs.version }}-linux
+          name: Swarm-${{ needs.version.outputs.version }}-linux
           path: dist-linux/*
 
   # ---------------------------------------------------------------------------
@@ -459,7 +455,7 @@ jobs:
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v3
         with:
-          name: CoperativeAI ${{ needs.version.outputs.version }}
+          name: Swarm ${{ needs.version.outputs.version }}
           tag_name: v${{ needs.version.outputs.version }}
           target_commitish: ${{ github.sha }}
           files: dist/*
