@@ -240,6 +240,10 @@ one tidy-up would be the exact failure this work was commissioned to fix.
   `example/` and `site/`; twelve brief and code-map links pointed at those
   folders with relative paths. They now point at CooperativeAICoding on GitHub,
   and each target was checked to exist there.
+- **Swarm has a README.** It is the app half of CooperativeAICoding's old
+  `INSTALL.md` — downloads, Windows and Linux installs, what the app needs,
+  building from source — moved here with the new names, since the framework's
+  install page now covers only the framework.
 
 ### What I could not do (and what you would need to tell me)
 - I could not dynamically test the CI/CD pipeline or linter tools (`node tools/code-map-lint.mjs`) directly because those require a Node.js environment or GitHub Actions to run, and my task was scoped purely to documentation edits. 
