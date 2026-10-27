@@ -27,9 +27,13 @@ name: Release
 # and ship an installer that says 0.1.0.
 
 on:
-  push:
-    branches:
-      - main
+  # **Held until the app is renamed to Swarm.** The push-to-main trigger is off
+  # so the first release from this repository carries the new name rather than
+  # publishing 0.2.53 as CoperativeAI and renaming it a version later. The
+  # rename puts back:
+  #   push:
+  #     branches:
+  #       - main
   # So a build can be tried without cutting a release. Nothing is published on
   # this path — see the `if` on the release step.
   workflow_dispatch:

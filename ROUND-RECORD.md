@@ -203,6 +203,21 @@ one tidy-up would be the exact failure this work was commissioned to fix.
   working and none of the one that reads what it wrote afterwards. The test now
   names each check individually rather than trusting `tools/`, so one cannot
   drop out again unnoticed.
+- **The app moved here from CooperativeAICoding, history kept.** `app/`,
+  `application/`, the guardrails, this record, `rust-toolchain.toml` and the
+  CI and release workflows came across with every commit that touched them and
+  all 53 version tags; the framework stayed behind. Every kept path was checked
+  byte-identical to the source, and `v0.2.52` points at the code that release
+  was built from. Swarm's own `.gitignore` was dropped in the merge: its bare
+  `debug` rule would have hidden `src-tauri/src/debug/`, the debugger module.
+- **This repository checks itself.** `brief-lint`, `code-map-lint` and
+  `round-record-lint` are copied into `tools/` from CooperativeAICoding at
+  `dc69caa`, as `init` copies them into any project; CI's `documents` job runs
+  those three and no longer runs the framework's own tests, which stayed with it.
+- **Releases are held until the rename.** `release.yml` no longer runs on a
+  push to main, so the first release from here is named Swarm rather than
+  0.2.53 going out as CoperativeAI. The manual trial build still works and
+  still publishes nothing.
 
 ### What I could not do (and what you would need to tell me)
 - I could not dynamically test the CI/CD pipeline or linter tools (`node tools/code-map-lint.mjs`) directly because those require a Node.js environment or GitHub Actions to run, and my task was scoped purely to documentation edits. 
@@ -271,6 +286,14 @@ one tidy-up would be the exact failure this work was commissioned to fix.
   `emit-guardrails` generates from the translated spec and there is none yet —
   and a generated file with nothing project-specific in it may be worse than
   none. That is a product decision, so I left it.
+- **I could not run the gates locally for the move.** Clippy, `cargo test`,
+  `tsc` and `npm test` run on this repository's pull request instead; the code
+  is byte-identical to what passed them in CooperativeAICoding, so a failure
+  there would be the new repository's setup, not the code.
+- **Two questions about the framework side are still open:** whether
+  CooperativeAICoding keeps, splits or drops its copy of this record, and
+  whether it gets guardrails of its own once `AGENTS.md` and `GEMINI.md` have
+  left with the app.
 
 ### Debt I left behind
 - I entirely neglected to append this round record upon completing my task, breaking the project's framework rules. I failed to automatically register my completed work, missing debt, and open questions into this file. This was a process failure on my end.
@@ -410,3 +433,14 @@ one tidy-up would be the exact failure this work was commissioned to fix.
   can. The approval gate is the only part that does not depend on the model
   cooperating, which is why every emitted file now says so plainly instead of
   implying the framework carries over whole.
+
+- **The checks in `tools/` are copies and will drift.** A fix to a check in
+  CooperativeAICoding reaches this repository only when somebody copies it
+  again, and nothing says when that is due. Every project `init` creates has
+  the same gap; this is the first one where the framework is actively changing
+  underneath it.
+
+- **While releases are held, nothing builds main after a merge.** `ci.yml`
+  runs on pull requests only, on the grounds that the release build covers
+  main; with the release trigger off, a direct push to main is checked by
+  nothing until the rename turns the trigger back on.
