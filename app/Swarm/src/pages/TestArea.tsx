@@ -3,6 +3,8 @@ import StrategyEditor from "../components/planning/StrategyEditor";
 import TestCases from "../components/testing/TestCases";
 import TestWorkItems from "../components/testing/TestWorkItems";
 import LifecycleSteps from "../components/planning/LifecycleSteps";
+import NewProjectForm from "../components/product/NewProjectForm";
+import SendToProduct from "../components/product/SendToProduct";
 import { listProducts, TEST_STRATEGY_FIELDS, type Product } from "../lib/backend";
 
 /** The Test environment: pick a Product to see its Testing Strategy, the work
@@ -33,7 +35,7 @@ export default function TestArea() {
       {error && <p role="alert">{error}</p>}
 
       {products.length === 0 ? (
-        <p>No Products yet — create one in the Product tab to design tests against it.</p>
+        <p>No Products yet — create a project here, or a Product in the Product tab, to design tests against it.</p>
       ) : (
         <>
           <label className="develop-product-picker">
@@ -50,6 +52,11 @@ export default function TestArea() {
               ))}
             </select>
           </label>
+          {products
+            .filter((p) => p.id === activeProduct)
+            .map((p) => (
+              <SendToProduct key={p.id} product={p} area="test" onSent={() => void refresh()} />
+            ))}
 
           {activeProduct !== "" && (
             <>
@@ -72,6 +79,17 @@ export default function TestArea() {
           )}
         </>
       )}
+
+      <section className="develop-card" aria-label="Create a project">
+        <h2>Create a project</h2>
+        <NewProjectForm
+          origin="test"
+          onCreated={(id) => {
+            setActiveProduct(id);
+            void refresh();
+          }}
+        />
+      </section>
     </div>
   );
 }

@@ -24,6 +24,8 @@
       { "fieldName": "id", "type": "id / key", "nullable": false, "default": "auto", "rules": "unique", "description": "The unique identifier" },
       { "fieldName": "name", "type": "text", "nullable": false, "default": "", "rules": "unique; not empty", "description": "The Product's title, shown at the top of its workspace" },
       { "fieldName": "answers", "type": "text", "nullable": false, "default": "{}", "rules": "valid JSON keyed by Project_brief question ids (purpose, problem, users, appsYouLike, appsToAvoid, designs)", "description": "The Product's brief answers, in the person's plain English" },
+      { "fieldName": "origin", "type": "text", "nullable": false, "default": "product", "rules": "one of: product, develop, test", "description": "The area the Product was created in. Develop and QA can start a Project; it keeps this marker after it is handed over" },
+      { "fieldName": "handedOverAt", "type": "date", "nullable": true, "default": "", "rules": "set once, by Send to Product; never on a Product made in the Product area", "description": "When a Develop or QA Project was sent to the Product area. Empty until then" },
       { "fieldName": "createdAt", "type": "date", "nullable": false, "default": "now", "rules": "", "description": "When the Product was created" },
       { "fieldName": "updatedAt", "type": "date", "nullable": false, "default": "now", "rules": "updated on every change", "description": "When the Product last changed" }
     ]
@@ -47,11 +49,13 @@
     },
     "invariants": {
       "question": "Anything that must always be true?",
-      "answer": "name is unique and non-empty; answers always parses as JSON."
+      "answer": "name is unique and non-empty; answers always parses as JSON; origin is product, develop or test; a Product is in the Product area when its origin is product or it has been handed over, and a Product already there cannot be handed over again."
     }
   },
   "changesOverTime": {
     "guidance": "Each time you come back to change this model, add an entry describing what should change.",
-    "rounds": []
+    "rounds": [
+      { "round": 1, "change": "Develop and QA can create a Project (a Product) that stays theirs until somebody presses Send to Product; it then appears in the Product area, marked with where it came from. Adds origin and handedOverAt. Existing Products were all made in the Product area." }
+    ]
   }
 }

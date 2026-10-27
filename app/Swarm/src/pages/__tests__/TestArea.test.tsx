@@ -23,6 +23,8 @@ vi.mock("../../lib/backend", async (importOriginal) => {
 
     setWorkItemStep: vi.fn(),
     listProducts: vi.fn(),
+    createProduct: vi.fn(),
+    handOverProduct: vi.fn(),
     getStrategy: vi.fn(),
     saveStrategy: vi.fn(),
     listTestCases: vi.fn(),
@@ -41,7 +43,14 @@ import * as backend from "../../lib/backend";
 
 const mocked = vi.mocked(backend);
 
-const product: Product = { id: 1, name: "Shop App", answers: "{}" };
+const product: Product = {
+  id: 1,
+  name: "Shop App",
+  answers: "{}",
+  origin: "product",
+  handedOverAt: null,
+  inProductArea: true,
+};
 const deliverable: Deliverable = {
   id: 7,
   productId: 1,
@@ -397,7 +406,26 @@ describe("TestArea (Testing Strategy + test cases)", () => {
   it("asks for a Product first when none exist", async () => {
     mocked.listProducts.mockResolvedValue([]);
     render(<TestArea />);
-    expect(await screen.findByText(/create one in the Product tab/i)).toBeInTheDocument();
+    expect(await screen.findByText(/create a project here/i)).toBeInTheDocument();
+  });
+
+  it("lets QA start a Project of its own", async () => {
+    mocked.listProducts.mockResolvedValue([]);
+    mocked.createProduct.mockResolvedValue(9);
+    render(<TestArea />);
+    await userEvent.type(await screen.findByLabelText("Project name"), "QA Project");
+    await userEvent.click(screen.getByRole("button", { name: "Create project" }));
+    expect(mocked.createProduct).toHaveBeenCalledWith("QA Project", "{}", undefined, "test");
+  });
+
+  it("offers Send to Product for QA's own Project until it is sent", async () => {
+    mocked.listProducts.mockResolvedValue([
+      { ...product, origin: "test", inProductArea: false },
+    ]);
+    mocked.handOverProduct.mockResolvedValue();
+    render(<TestArea />);
+    await userEvent.click(await screen.findByRole("button", { name: "Send to Product" }));
+    expect(mocked.handOverProduct).toHaveBeenCalledWith(1);
   });
   /// **A regression suite is a decision, so it is a press.** The same spec can
   /// be a one-off check this week and the thing guarding checkout for two
