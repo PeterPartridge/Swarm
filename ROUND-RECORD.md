@@ -290,6 +290,26 @@ changing. Spec and report: `application/ai-only/Cells/cells.md`.
   succeeds and the panels' CSS lands where it sat in the cascade. The code-map
   lint has 0 errors.
 
+**2026-10-27 — the Linux release build keeps its lockfile.**
+
+- **Found why no release has ever published.** The Linux job deleted
+  `package-lock.json` before `npm install`, so `^2.9.0` resolved
+  `@tauri-apps/api` to 2.12.4 and `@tauri-apps/plugin-dialog` to 2.8.3, while
+  Cargo.lock holds `tauri` 2.11.5 and `tauri-plugin-dialog` 2.7.1.
+  `tauri build` refuses Tauri packages that differ in minor version. Windows
+  passed because `npm ci` honours the lockfile, but `publish` needs both
+  platforms.
+- **Changed one line in `release.yml`:** the lockfile is no longer deleted. The
+  platform-pin swap stays, so `npm install` changes only those two entries. The
+  comment above the step now says why.
+- **Proved:** a dispatch trial on `fix/linux-release-lockfile` (run
+  40571870048) went green on all four jobs. Linux built the .deb, .rpm and
+  AppImage, Windows built the .msi, NSIS installer and portable binary, and
+  `publish` counted six assets. Nothing was published, because the release step
+  is held behind `push`. Before the push, a local Linux-targeted
+  `npm install --package-lock-only` showed the Tauri packages stay on 2.11.1
+  and 2.7.1.
+
 ### What I could not do (and what you would need to tell me)
 - I could not dynamically test the CI/CD pipeline or linter tools (`node tools/code-map-lint.mjs`) directly because those require a Node.js environment or GitHub Actions to run, and my task was scoped purely to documentation edits. 
 
@@ -403,6 +423,13 @@ changing. Spec and report: `application/ai-only/Cells/cells.md`.
 - **What I did not test:** whether the moved panels look identical in the
   running app. The CSS rules are byte-identical and land in the same cascade
   position in the built bundle, but nobody looked at the Admin area afterwards.
+
+**2026-10-27 — the Linux release build keeps its lockfile.**
+
+- **What I did not test:** a real `push` to main publishing a release. The trial
+  ran everything except that last step. It will first happen when this merges.
+- **Left for a decision:** three other pipeline findings from the same check
+  are not fixed (see Debt). Each needs a choice, not just a code change.
 
 ### Debt I left behind
 - I entirely neglected to append this round record upon completing my task, breaking the project's framework rules. I failed to automatically register my completed work, missing debt, and open questions into this file. This was a process failure on my end.
@@ -604,3 +631,34 @@ changing. Spec and report: `application/ai-only/Cells/cells.md`.
   run `/emit-guardrails`. The Project Brief and Project Digest now carry the
   Cells lines too, so a regeneration should keep them, but that has not been
   run to prove it.
+
+**2026-10-27 — the Linux release build keeps its lockfile.**
+
+- **npm and Cargo can still drift apart.** Keeping the lockfile fixes today's
+  failure, but `package.json` allows `@tauri-apps/api ^2.9.0` and
+  `plugin-dialog ^2.7.1`, while `tauri` is pinned in Cargo.toml. The first
+  lockfile refresh that takes the npm side to a new minor version, from
+  Dependabot or anyone else, breaks `tauri build` on **both** platforms.
+  Pinning the npm packages to `~2.11` / `~2.7`, or bumping both sides together,
+  would stop that. That changes production dependencies, so it was left alone.
+
+- **A release can be dropped when several merges land close together.** The
+  `concurrency` comment in `release.yml` says a queued run "still happens".
+  GitHub keeps only one pending run per group, though, so a third arrival
+  cancels the waiting one. That is what happened to the PR #11 merge
+  (run 40537606714). Its code shipped in the next run's build, but the commit
+  never got a release of its own. At minimum the comment is wrong.
+
+- **The round-record check fails every Dependabot PR.** A lockfile-only bump
+  under `app/` has no record, so PRs #8 and #9 are red on `documents`. Whether
+  to exempt `dependabot[bot]`, exempt lockfile-only changes, or keep the check
+  strict is a policy call.
+
+- **`actions/download-artifact@v6` runs on Node 20**, which the runners have
+  deprecated and currently force onto Node 24 (annotation on the trial run's
+  `publish` job). It works until that shim is withdrawn. This is the same
+  situation `upload-artifact` was moved off v4 for.
+
+- **`ubuntu-latest` is moving to Ubuntu 26.** Every ubuntu job carries the
+  migration notice. The Linux job's `apt` package list (webkit2gtk 4.1 and the
+  rest) is the part most likely to break, and nothing has been tried against 26.
