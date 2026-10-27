@@ -294,16 +294,19 @@ export interface TeamMember {
 export interface Role {
   id: number;
   name: string;
-  canProduct: boolean;
-  canDevelop: boolean;
-  canTest: boolean;
+  /** The Hives this role was granted, by id. Deny by default: a Hive not
+   *  listed is hidden. */
+  hives: string[];
+  /** Sees every Hive whatever `hives` says — the Admin role, which can
+   *  never be locked out of a Hive added after its grants were set. */
+  allHives: boolean;
   canAdmin: boolean;
   seeCost: boolean;
   seeProfit: boolean;
   seeChargeable: boolean;
   /** May set AI budgets and the provider chain — separate from seeing spend. */
   canManageBudget: boolean;
-  /** The Marketing and Design screens — separate from canProduct, because a
+  /** The Marketing and Design screens — separate from the Product Hive, because a
    *  developer often needs Planning without campaign drafts, and a marketer
    *  the reverse. */
   canMarketing: boolean;
@@ -351,9 +354,9 @@ export interface TestCase {
 export interface ActivePermissions {
   memberId: number | null;
   role: Role | null;
-  canProduct: boolean;
-  canDevelop: boolean;
-  canTest: boolean;
+  /** The Hives the active user may open; `allHives` overrides it. */
+  hives: string[];
+  allHives: boolean;
   canAdmin: boolean;
   seeCost: boolean;
   seeProfit: boolean;
@@ -813,9 +816,6 @@ export const createRole = (name: string): Promise<number> =>
 export const updateRole = (role: Role): Promise<void> =>
   invoke("update_role", {
     id: role.id,
-    canProduct: role.canProduct,
-    canDevelop: role.canDevelop,
-    canTest: role.canTest,
     canAdmin: role.canAdmin,
     seeCost: role.seeCost,
     seeProfit: role.seeProfit,
@@ -824,6 +824,10 @@ export const updateRole = (role: Role): Promise<void> =>
     canMarketing: role.canMarketing,
     canDesign: role.canDesign,
   });
+/** Grants or revokes one Hive for one role. The backend refuses it for Admin,
+ *  which sees every Hive regardless. */
+export const setRoleHive = (roleId: number, hiveId: string, allowed: boolean): Promise<void> =>
+  invoke("set_role_hive", { roleId, hiveId, allowed });
 export const deleteRole = (id: number): Promise<void> =>
   invoke("delete_role", { id });
 export const getActiveMember = (): Promise<number | null> =>
@@ -832,6 +836,40 @@ export const setActiveMember = (id: number | null): Promise<void> =>
   invoke("set_active_member", { id });
 export const getActivePermissions = (): Promise<ActivePermissions> =>
   invoke("get_active_permissions");
+
+// The home-screen chat
+/** One line of the conversation so far. */
+export interface ChatLine {
+  from: "person" | "ai";
+  text: string;
+}
+/** An action the chat offers the AI this turn. */
+export interface ActionOffer {
+  name: string;
+  description: string;
+  /** The arguments, described in words for the model. */
+  args: string;
+}
+/** An action the AI asked for; `args` is JSON text, checked before it runs. */
+export interface ProposedAction {
+  name: string;
+  args: string;
+}
+export interface ChatTurn {
+  reply: string;
+  actions: ProposedAction[];
+  provider: string;
+  model: string;
+  reason: string;
+}
+/** One turn about a Product, gated by that Product's AI policy. The backend
+ *  keeps no conversation, so the whole of it goes each time. */
+export const chatTurn = (
+  productId: number,
+  history: ChatLine[],
+  offers: ActionOffer[],
+  hives: string[],
+): Promise<ChatTurn> => invoke("chat_turn", { productId, history, offers, hives });
 
 // Deliverables (Product strategy)
 export const listDeliverables = (productId: number): Promise<Deliverable[]> =>

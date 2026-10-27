@@ -31,6 +31,9 @@ pub const PURPOSES: &[&str] = &[
     // QA's scenarios becoming real tests. Its own purpose so the Test area's
     // spend is legible beside Product's and Develop's rather than buried.
     "testImplementation",
+    // The home-screen chat. Its own purpose so talking to the app is legible
+    // as spend beside the work it leads to, rather than hidden inside it.
+    "chat",
 ];
 
 /// How the call ended.

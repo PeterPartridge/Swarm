@@ -1,16 +1,16 @@
-import SectionTabs from "../components/common/SectionTabs";
+import SectionTabs from "@swarm/components/common/SectionTabs";
 import { useCallback, useEffect, useState } from "react";
 
-import DeveloperPlanning from "../components/planning/DeveloperPlanning";
-import FrameworkFiles from "../components/product/FrameworkFiles";
-import NewProjectForm from "../components/product/NewProjectForm";
-import NewSolutionForm from "../components/product/NewSolutionForm";
-import SendToProduct from "../components/product/SendToProduct";
-import RulesView from "../components/planning/RulesView";
-import SolutionBox from "../components/product/SolutionBox";
-import SolutionRepo from "../components/vcs/SolutionRepo";
-import WorkItemViews from "../components/planning/WorkItemViews";
-import AgentWorkspace from "../components/ai/AgentWorkspace";
+import DeveloperPlanning from "@swarm/components/planning/DeveloperPlanning";
+import FrameworkFiles from "@swarm/components/product/FrameworkFiles";
+import NewProjectForm from "@swarm/components/product/NewProjectForm";
+import NewSolutionForm from "@swarm/components/product/NewSolutionForm";
+import SendToProduct from "@swarm/components/product/SendToProduct";
+import RulesView from "@swarm/components/planning/RulesView";
+import SolutionBox from "@swarm/components/product/SolutionBox";
+import SolutionRepo from "@swarm/components/vcs/SolutionRepo";
+import WorkItemViews from "@swarm/components/planning/WorkItemViews";
+import AgentWorkspace from "@swarm/components/ai/AgentWorkspace";
 import {
   deleteSolution,
   githubStatus,
@@ -18,7 +18,7 @@ import {
   listSolutions,
   type Product,
   type Solution,
-} from "../lib/backend";
+} from "@swarm/lib/backend";
 
 /** Which slice of the Develop area is showing.
  *

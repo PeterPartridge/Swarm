@@ -347,7 +347,7 @@ fn blocked_schema() -> Value {
 /// One structured-output call: the cacheable context first, the task second,
 /// the given schema enforced. Returns the raw JSON text and what it consumed,
 /// leaving each caller to parse its own shape.
-async fn post_structured(
+pub(crate) async fn post_structured(
     api_base_url: &str,
     api_key: &str,
     model: &str,

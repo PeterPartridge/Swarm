@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import TabBar, { ENVIRONMENTS } from "../components/common/TabBar";
+import TabBar, { DEFAULT_TAB_COLORS, ENVIRONMENTS } from "../components/common/TabBar";
 import CommandPalette, { type PaletteGroup } from "../components/common/CommandPalette";
-import ProductPlanning from "./ProductPlanning";
-import DevelopSolutions from "./DevelopSolutions";
-import TestArea from "./TestArea";
+import { HIVES } from "@hives/registry";
 import AdminArea from "./AdminArea";
+import ChatHome from "../components/chat/ChatHome";
 import ActiveUserPicker from "../components/common/ActiveUserPicker";
 import NotificationsBell from "../components/common/NotificationsBell";
-import { usePermissions, type Area } from "../lib/permissions";
+import { usePermissions } from "../lib/permissions";
 import {
   applyTabColors,
   applyThemeMode,
@@ -17,16 +16,24 @@ import {
   saveThemeMode,
   type EnvironmentId,
   type TabColors,
+  type ThemeMode,
 } from "../lib/theme";
 
+/** Switches the theme and remembers it — the palette's two commands and the
+ *  chat's action are all this. */
+function setTheme(mode: ThemeMode) {
+  saveThemeMode(mode);
+  applyThemeMode(mode);
+}
+
 export default function WorkspaceShell() {
-  const [active, setActive] = useState<EnvironmentId>("product");
-  const [colors, setColors] = useState<TabColors>(() => loadTabColors());
+  const [active, setActive] = useState<EnvironmentId>(ENVIRONMENTS[0].id);
+  const [colors, setColors] = useState<TabColors>(() => loadTabColors(DEFAULT_TAB_COLORS));
   const [paletteOpen, setPaletteOpen] = useState(false);
-  /** The Develop tab the palette asked for, bumped so asking for the same tab
-   *  twice still moves. Null means "leave Develop where it was". */
-  const [developView, setDevelopView] = useState<{ id: string; at: number } | null>(null);
-  const { canAccess } = usePermissions();
+  /** The view inside a Hive the palette asked for, bumped so asking for the
+   *  same one twice still moves. Null means "leave the Hive where it was". */
+  const [requested, setRequested] = useState<{ hive: string; id: string; at: number } | null>(null);
+  const { canAccess, canAccessHive } = usePermissions();
 
   useEffect(() => {
     applyTabColors(colors);
@@ -53,7 +60,10 @@ export default function WorkspaceShell() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const visibleTabs = ENVIRONMENTS.filter((e) => canAccess(e.id as Area));
+  // The chat for everyone; a Hive by its grant; Admin by its flag.
+  const visibleTabs = ENVIRONMENTS.filter((e) =>
+    e.id === "chat" ? true : e.id === "admin" ? canAccess("admin") : canAccessHive(e.id),
+  );
 
   // If the active user's role hides the current tab, fall back to the first
   // one they can see.
@@ -63,22 +73,39 @@ export default function WorkspaceShell() {
     }
   }, [visibleTabs, active]);
 
+  // From the previous colours rather than this render's: the chat can set one
+  // after a confirmation, long after the render that offered it.
   function updateColor(id: EnvironmentId, value: string) {
-    const next = { ...colors, [id]: value };
-    setColors(next);
-    saveTabColors(next);
+    setColors((previous) => {
+      const next = { ...previous, [id]: value };
+      saveTabColors(next);
+      return next;
+    });
   }
 
+  /** What the chat's actions can reach: the same controls a person uses. */
+  const workstation = {
+    canAccessHive,
+    openHive: (id: string) => setActive(id),
+    openView: (hive: string, view: string) => {
+      setActive(hive);
+      setRequested({ hive, id: view, at: Date.now() });
+    },
+    setHiveColour: updateColor,
+    setTheme,
+  };
+
   const activeLabel = ENVIRONMENTS.find((e) => e.id === active)!.label;
+  const activeHive = HIVES.find((h) => h.id === active);
 
   /** What the palette can reach. Built from the areas this user can actually
    *  see — offering a destination their role hides would be a dead end — and
-   *  from Develop's real tabs, so every entry lands somewhere. */
+   *  from each Hive's own views, so every entry lands somewhere. */
   const paletteGroups: PaletteGroup[] = useMemo(() => {
     const goToArea = (id: EnvironmentId) => () => setActive(id);
-    const goToDevelop = (view: string) => () => {
-      setActive("develop");
-      setDevelopView({ id: view, at: Date.now() });
+    const goToView = (hive: string, id: string) => () => {
+      setActive(hive);
+      setRequested({ hive, id, at: Date.now() });
     };
     const areas: PaletteGroup = {
       name: "Go to",
@@ -89,20 +116,15 @@ export default function WorkspaceShell() {
         run: goToArea(t.id),
       })),
     };
-    const develop: PaletteGroup = {
-      name: "Develop",
-      items: canAccess("develop" as Area)
-        ? [
-            // The palette's Develop entries are the Develop tabs, and nothing
-            // else: an entry for Tests or Git would now be a destination that
-            // no longer exists, which is the one thing a palette must never be.
-            { glyph: "⛨", label: "Rules", hint: "", run: goToDevelop("strategy") },
-            { glyph: "☰", label: "Work", hint: "", run: goToDevelop("work") },
-            { glyph: "‹›", label: "Build", hint: "", run: goToDevelop("agents") },
-            { glyph: "◫", label: "Map", hint: "", run: goToDevelop("architecture") },
-          ]
-        : [],
-    };
+    const views: PaletteGroup[] = HIVES.filter((h) => canAccessHive(h.id)).map((h) => ({
+      name: h.label,
+      items: (h.views ?? []).map((v) => ({
+        glyph: v.glyph,
+        label: v.label,
+        hint: "",
+        run: goToView(h.id, v.id),
+      })),
+    }));
     // Actions rather than destinations — what `>` narrows to. Kept to things
     // the shell can genuinely do from here; a command that only pretends to
     // work is worse than one that is missing.
@@ -114,24 +136,18 @@ export default function WorkspaceShell() {
           glyph: "◐",
           label: "Switch to dark theme",
           hint: "",
-          run: () => {
-            saveThemeMode("dark");
-            applyThemeMode("dark");
-          },
+          run: () => setTheme("dark"),
         },
         {
           glyph: "◑",
           label: "Switch to light theme",
           hint: "",
-          run: () => {
-            saveThemeMode("light");
-            applyThemeMode("light");
-          },
+          run: () => setTheme("light"),
         },
       ],
     };
-    return [areas, develop, commands].filter((g) => g.items.length > 0);
-  }, [visibleTabs, canAccess]);
+    return [areas, ...views, commands].filter((g) => g.items.length > 0);
+  }, [visibleTabs, canAccessHive]);
 
   return (
     <div className="workspace-shell">
@@ -166,20 +182,19 @@ export default function WorkspaceShell() {
         style={{ "--env-color": colors[active] } as CSSProperties}
       >
         <h1>{activeLabel}</h1>
-        {/* `EnvironmentId` is these four and nothing else, so the tail of this
-            chain is unreachable. It used to render a paragraph of placeholder
-            text describing each environment — text no one could ever see, which
-            read as though the areas were still unbuilt.
-
-            `null` rather than letting the last branch be a bare `<AdminArea />`:
-            a fifth environment added later should show nothing visible, not
-            silently render Admin to someone who asked for something else. */}
-        {active === "product" ? (
-          <ProductPlanning />
-        ) : active === "develop" ? (
-          <DevelopSolutions requestedView={developView} />
-        ) : active === "test" ? (
-          <TestArea />
+        {/* Mounted whatever is open, so the conversation is still there when
+            the person comes back from a Hive it sent them to. */}
+        <ChatHome workstation={workstation} hidden={active !== "chat"} />
+        {/* The active Hive draws itself; Admin is the one place that is not a
+            Hive. `null` rather than letting Admin be the fallback: an id
+            nothing recognises should show nothing, not silently render Admin
+            to someone who asked for something else. */}
+        {activeHive ? (
+          <activeHive.Screen
+            requestedView={
+              requested?.hive === activeHive.id ? { id: requested.id, at: requested.at } : null
+            }
+          />
         ) : active === "admin" ? (
           <AdminArea />
         ) : null}

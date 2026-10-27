@@ -10,23 +10,36 @@ export default defineConfig({
   // folder. `@cells` names them; `dedupe` makes the packages they import
   // resolve from here, because nothing above `app/Cells` has a node_modules —
   // and two copies of React would break every hook in them anyway.
+  //
+  // **The work areas are Hives** (`app/Hives`), beside Cells. `@hives` is how
+  // the shell reaches their registry; `@swarm` is how a Hive reaches back for
+  // the components and backend wrappers it shares with the rest of the app.
   resolve: {
-    alias: { "@cells": fileURLToPath(new URL("../Cells/ui", import.meta.url)) },
+    alias: {
+      "@cells": fileURLToPath(new URL("../Cells/ui", import.meta.url)),
+      "@hives": fileURLToPath(new URL("../Hives", import.meta.url)),
+      "@swarm": fileURLToPath(new URL("./src", import.meta.url)),
+    },
     dedupe: ["react", "react-dom", "@testing-library/react", "@testing-library/user-event", "vitest"],
   },
   clearScreen: false,
   server: {
     port: 1420,
     strictPort: true,
-    // Vite serves only this folder unless told otherwise; Cells is beside it.
-    fs: { allow: [".", "../Cells/ui"] },
+    // Vite serves only this folder unless told otherwise; Cells and Hives are
+    // beside it.
+    fs: { allow: [".", "../Cells/ui", "../Hives"] },
   },
   test: {
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test-setup.ts"],
-    // This app's tests, and the Cells panels' — Swarm is what runs them.
-    include: ["src/**/*.test.{ts,tsx}", "../Cells/ui/**/*.test.{ts,tsx}"],
+    // This app's tests, the Cells panels' and the Hives' — Swarm runs them all.
+    include: [
+      "src/**/*.test.{ts,tsx}",
+      "../Cells/ui/**/*.test.{ts,tsx}",
+      "../Hives/**/*.test.{ts,tsx}",
+    ],
     // **`vmThreads` was tried here and reverted. Do not re-apply it.** It does
     // build jsdom once per worker and it is genuinely much faster — measured on
     // this suite, 10.4s against 25.6s. It was reverted anyway, because of what

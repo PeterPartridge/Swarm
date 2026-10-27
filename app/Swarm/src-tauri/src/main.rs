@@ -242,6 +242,8 @@ fn main() {
             commands::roles::create_role,
             commands::roles::update_role,
             commands::roles::delete_role,
+            commands::roles::set_role_hive,
+            commands::chat::chat_turn,
             commands::roles::get_active_member,
             commands::roles::set_active_member,
             commands::roles::get_active_permissions,

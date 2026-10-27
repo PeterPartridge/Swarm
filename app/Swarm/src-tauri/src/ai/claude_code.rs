@@ -673,7 +673,7 @@ fn read_output(output: &str) -> Result<(String, Usage), String> {
 }
 
 /// Runs one turn and hands the JSON it printed to `parse`.
-async fn turn<T>(
+pub(crate) async fn turn<T>(
     exe: &str,
     model: &str,
     effort: &str,

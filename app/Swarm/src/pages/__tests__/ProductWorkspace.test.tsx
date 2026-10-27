@@ -27,9 +27,8 @@ function perms(overrides: Partial<ActivePermissions>): ActivePermissions {
   return {
     memberId: 5,
     role: null,
-    canProduct: true,
-    canDevelop: true,
-    canTest: true,
+    hives: ["product", "develop", "test"],
+    allHives: true,
     canAdmin: true,
     seeCost: true,
     seeProfit: true,
@@ -79,7 +78,7 @@ describe("ProductWorkspace screen gating", () => {
     expect(screen.queryByRole("region", { name: "Planning" })).not.toBeInTheDocument();
   });
 
-  /// The flags are separate from canProduct on purpose: a developer often
+  /// The flags are separate from the Product Hive on purpose: a developer often
   /// needs Planning without campaign drafts, and a marketer the reverse.
   it("hides the tabs from a role without the flags, leaving the rest alone", async () => {
     mocked.getActivePermissions.mockResolvedValue(

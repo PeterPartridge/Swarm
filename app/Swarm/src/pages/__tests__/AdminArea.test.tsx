@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import AdminArea from "../AdminArea";
 import { PermissionProvider } from "../../lib/permissions";
 import type { Role, TeamMember } from "../../lib/backend";
+import { HIVES } from "@hives/registry";
 
 vi.mock("../../lib/backend", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../lib/backend")>();
@@ -16,6 +17,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     listRoles: vi.fn(),
     createRole: vi.fn(),
     updateRole: vi.fn(),
+    setRoleHive: vi.fn(),
     deleteRole: vi.fn(),
     getActivePermissions: vi.fn(),
     listProducts: vi.fn(),
@@ -46,9 +48,8 @@ const mocked = vi.mocked(backend);
 const adminRole: Role = {
   id: 1,
   name: "Admin",
-  canProduct: true,
-  canDevelop: true,
-  canTest: true,
+  hives: ["product", "develop", "test"],
+  allHives: true,
   canAdmin: true,
   seeCost: true,
   seeProfit: true,
@@ -60,9 +61,8 @@ const adminRole: Role = {
 const devRole: Role = {
   id: 3,
   name: "Developer",
-  canProduct: false,
-  canDevelop: true,
-  canTest: true,
+  hives: ["develop", "test"],
+  allHives: false,
   canAdmin: false,
   seeCost: false,
   seeProfit: false,
@@ -123,9 +123,8 @@ describe("AdminArea", () => {
     mocked.getActivePermissions.mockResolvedValue({
       memberId: null,
       role: null,
-      canProduct: true,
-      canDevelop: true,
-      canTest: true,
+      hives: ["product", "develop", "test"],
+      allHives: true,
       canAdmin: true,
       seeCost: true,
       seeProfit: true,
@@ -165,6 +164,35 @@ describe("AdminArea", () => {
         expect.objectContaining({ id: 3, seeCost: true }),
       ),
     );
+  });
+
+  /// A Hive column per registered Hive: granting one is a row in role_hives,
+  /// not a flag on the role, so it goes through its own call.
+  it("grants a role a Hive", async () => {
+    const user = userEvent.setup();
+    mocked.setRoleHive.mockResolvedValue();
+    renderAdmin();
+    await openSection(user, "People");
+    for (const hive of HIVES) {
+      expect(await screen.findByRole("columnheader", { name: hive.label })).toBeInTheDocument();
+    }
+    await user.click(await screen.findByLabelText("Developer Product"));
+    await waitFor(() => expect(mocked.setRoleHive).toHaveBeenCalledWith(3, "product", true));
+    expect(mocked.updateRole).not.toHaveBeenCalled();
+  });
+
+  /// Admin sees every Hive whatever its grants say, so its boxes are ticked
+  /// and fixed — a box that unticks and springs back would claim a choice the
+  /// backend refuses.
+  it("shows Admin with every Hive, fixed", async () => {
+    const user = userEvent.setup();
+    renderAdmin();
+    await openSection(user, "People");
+    for (const hive of HIVES) {
+      const box = await screen.findByLabelText(`Admin ${hive.label}`);
+      expect(box).toBeChecked();
+      expect(box).toBeDisabled();
+    }
   });
 
   it("adds a new role", async () => {

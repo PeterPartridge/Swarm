@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import ProductWorkspace from "../components/product/ProductWorkspace";
-import PlanningMethodSetting from "../components/planning/PlanningMethodSetting";
-import FolderField from "../components/common/FolderField";
+import ProductWorkspace from "@swarm/components/product/ProductWorkspace";
+import PlanningMethodSetting from "@swarm/components/planning/PlanningMethodSetting";
+import FolderField from "@swarm/components/common/FolderField";
 import {
   createProduct,
   deleteProduct,
   listProducts,
   CREATE_PRODUCT_QUESTIONS,
   type Product,
-} from "../lib/backend";
+} from "@swarm/lib/backend";
 
 /** The Product environment's home: Products as cards, an "Add a Product"
  *  card asking the Project_brief's Product questions, and the planning

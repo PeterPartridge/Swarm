@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import RunOutcome, { readingOf } from "../../components/testing/RunOutcome";
+import RunOutcome, { readingOf } from "../RunOutcome";
 
 describe("RunOutcome", () => {
   /// The rule the whole feature turns on: red before the work exists is the

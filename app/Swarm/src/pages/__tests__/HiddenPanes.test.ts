@@ -55,7 +55,7 @@ describe("hiding a pane", () => {
   /// element whose visibility depends on a rule three thousand lines away in
   /// another file, which is worth knowing about.
   it("finds the panes that depend on that rule", () => {
-    const withBoth = sourceFiles(join(root, "src"))
+    const withBoth = [...sourceFiles(join(root, "src")), ...sourceFiles(join(root, "../Hives"))]
       .flatMap((file) => readFileSync(file, "utf8").split("\n"))
       .filter((line) => /className=/.test(line) && /\bhidden=/.test(line));
 

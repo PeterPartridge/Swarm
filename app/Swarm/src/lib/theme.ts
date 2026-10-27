@@ -1,26 +1,23 @@
 import { useEffect, useState } from "react";
 
-export type EnvironmentId = "product" | "develop" | "test" | "admin";
+/** A place on the rail: a Hive's id, or `admin`. A string rather than a fixed
+ *  list, because the Hives are whatever the registry says they are. */
+export type EnvironmentId = string;
 
 export type TabColors = Record<EnvironmentId, string>;
 
-export const DEFAULT_TAB_COLORS: TabColors = {
-  product: "#7c3aed",
-  develop: "#2563eb",
-  test: "#16a34a",
-  admin: "#475569",
-};
-
 const STORAGE_KEY = "swarm.tabColors";
 
-export function loadTabColors(): TabColors {
+/** The saved colours over the defaults. The defaults are passed in — they
+ *  come from the Hive registry, which this file does not know about. */
+export function loadTabColors(defaults: TabColors): TabColors {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { ...DEFAULT_TAB_COLORS };
-    const parsed = JSON.parse(raw) as Partial<TabColors>;
-    return { ...DEFAULT_TAB_COLORS, ...parsed };
+    if (!raw) return { ...defaults };
+    const parsed = JSON.parse(raw) as TabColors;
+    return { ...defaults, ...parsed };
   } catch {
-    return { ...DEFAULT_TAB_COLORS };
+    return { ...defaults };
   }
 }
 
@@ -30,10 +27,9 @@ export function saveTabColors(colors: TabColors): void {
 
 export function applyTabColors(colors: TabColors): void {
   const root = document.documentElement;
-  root.style.setProperty("--tab-product", colors.product);
-  root.style.setProperty("--tab-develop", colors.develop);
-  root.style.setProperty("--tab-test", colors.test);
-  root.style.setProperty("--tab-admin", colors.admin);
+  for (const [id, color] of Object.entries(colors)) {
+    root.style.setProperty(`--tab-${id}`, color);
+  }
 }
 
 /** Light or dark surfaces. Dark is the default — this is an editor that sits

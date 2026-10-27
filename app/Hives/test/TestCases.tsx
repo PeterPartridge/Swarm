@@ -15,8 +15,8 @@ import {
   type Deliverable,
   type TestCase,
   type WorkItem,
-} from "../../lib/backend";
-import BlockedNote from "../ai/BlockedNote";
+} from "@swarm/lib/backend";
+import BlockedNote from "@swarm/components/ai/BlockedNote";
 import RunOutcome from "./RunOutcome";
 
 /** The Test area's test cases: plain-English scenarios QA designs, each

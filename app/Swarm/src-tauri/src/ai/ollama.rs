@@ -174,7 +174,7 @@ pub async fn generate_stories(
 
 /// One `/api/chat` call against the given schema, returning the model's JSON
 /// text and what it consumed. Each caller parses its own shape.
-async fn chat(
+pub(crate) async fn chat(
     api_base_url: &str,
     key: Option<&str>,
     model: &str,

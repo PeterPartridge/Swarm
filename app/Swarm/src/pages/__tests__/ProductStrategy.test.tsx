@@ -338,9 +338,8 @@ describe("ProductStrategy — generating the work for a Deliverable", () => {
     mocked.getActivePermissions.mockResolvedValue({
       memberId: 5,
       role: null,
-      canProduct: true,
-      canDevelop: true,
-      canTest: true,
+      hives: ["product", "develop", "test"],
+      allHives: true,
       canAdmin: false,
       seeCost: true,
       seeProfit: true,

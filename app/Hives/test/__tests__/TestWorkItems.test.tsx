@@ -1,10 +1,10 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import TestWorkItems from "../../components/testing/TestWorkItems";
-import type { LifecycleGate, LifecycleStep, WorkItem } from "../../lib/backend";
+import TestWorkItems from "../TestWorkItems";
+import type { LifecycleGate, LifecycleStep, WorkItem } from "@swarm/lib/backend";
 
-vi.mock("../../lib/backend", async (importOriginal) => {
-  const original = await importOriginal<typeof import("../../lib/backend")>();
+vi.mock("@swarm/lib/backend", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@swarm/lib/backend")>();
   return {
     ...original,
     listWorkItems: vi.fn(),
@@ -19,7 +19,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
   };
 });
 
-import * as backend from "../../lib/backend";
+import * as backend from "@swarm/lib/backend";
 
 const mocked = vi.mocked(backend);
 

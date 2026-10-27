@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import StrategyEditor from "../components/planning/StrategyEditor";
-import TestCases from "../components/testing/TestCases";
-import TestWorkItems from "../components/testing/TestWorkItems";
-import LifecycleSteps from "../components/planning/LifecycleSteps";
-import NewProjectForm from "../components/product/NewProjectForm";
-import SendToProduct from "../components/product/SendToProduct";
-import { listProducts, TEST_STRATEGY_FIELDS, type Product } from "../lib/backend";
+import StrategyEditor from "@swarm/components/planning/StrategyEditor";
+import TestCases from "./TestCases";
+import TestWorkItems from "./TestWorkItems";
+import LifecycleSteps from "@swarm/components/planning/LifecycleSteps";
+import NewProjectForm from "@swarm/components/product/NewProjectForm";
+import SendToProduct from "@swarm/components/product/SendToProduct";
+import { listProducts, TEST_STRATEGY_FIELDS, type Product } from "@swarm/lib/backend";
 
 /** The Test environment: pick a Product to see its Testing Strategy, the work
  *  waiting for QA with the checks QA owns, and the test cases designed against

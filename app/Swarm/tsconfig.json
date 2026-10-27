@@ -20,13 +20,17 @@
     // only packages those panels import: nothing above app/Cells has a
     // node_modules, so they are pointed at this one. Kept to that list rather
     // than a catch-all, which would change how every import here resolves.
+    // `@hives` is the work areas in app/Hives, and `@swarm` is how they reach
+    // back into this app's own components and backend.
     "paths": {
       "@cells/*": ["../Cells/ui/*"],
+      "@hives/*": ["../Hives/*"],
+      "@swarm/*": ["./src/*"],
       "react": ["./node_modules/@types/react"],
       "react/*": ["./node_modules/@types/react/*"],
       "@testing-library/*": ["./node_modules/@testing-library/*"],
       "vitest": ["./node_modules/vitest"]
     }
   },
-  "include": ["src", "../Cells/ui"]
+  "include": ["src", "../Cells/ui", "../Hives"]
 }
