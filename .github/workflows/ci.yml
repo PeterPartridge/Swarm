@@ -1,0 +1,137 @@
+name: CI
+
+# The Rust crate lives at app/CoperativeAI/src-tauri and the frontend at
+# app/CoperativeAI — there is no Cargo.toml at the repository root, so every
+# cargo step names its manifest explicitly.
+#
+# Windows runners, because this is a Windows desktop app and the first run on
+# ubuntu proved the difference is not cosmetic: tauri-build wants an icon.png
+# that does not exist (the bundle is configured for icon.ico, which is the
+# right answer on Windows), and `npm ci` refuses a lockfile resolved on win32
+# because rollup ships a platform-specific native binary. Testing a platform
+# nobody ships would have meant carrying fixes for it forever.
+
+# **Pull requests only, deliberately.** This used to run on pushes to main as
+# well, but release.yml now builds every commit that lands there and runs the
+# same gates first — clippy with -D warnings, cargo test, tsc, npm test, and
+# `npm run build` by way of `tauri build`, which is wired to it through
+# beforeBuildCommand. Every main push was therefore paying for two runs of the
+# identical checks. Nothing is now unguarded: what this workflow covered on
+# main, the release build covers before it will publish anything.
+#
+# The one thing that changed is *when* a main push finds out. This ran its Rust
+# and frontend jobs in parallel; the release build is a single serial job, so
+# failure on main surfaces later than it used to. On a pull request — where the
+# feedback actually matters, because the code has not landed yet — this
+# workflow is unchanged.
+on:
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # **No version here on purpose.** rust-toolchain.toml at the repository
+      # root says which Rust this builds with, and rustup honours it — so the
+      # laptop and the runner cannot drift, which is exactly what they did.
+      # This step exists to install it up front and print it, rather than have
+      # it appear silently inside whichever cargo command runs first.
+      - name: Rust (version from rust-toolchain.toml)
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/CoperativeAI/src-tauri
+
+      # The codebase is warning-free; -D warnings is what keeps it that way.
+      # Three lints accumulated unnoticed before this gate existed.
+      - name: Clippy (warnings are failures)
+        run: cargo clippy --manifest-path app/CoperativeAI/src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --manifest-path app/CoperativeAI/src-tauri/Cargo.toml
+
+  # **The documents the AI builds from are checked, not trusted.** Two of them
+  # are read before code is written and are worse than useless once untrue: the
+  # code map, whose stale row sends the next build looking in the wrong place —
+  # the exact token-burning it exists to prevent — and an item's deliverable,
+  # which decides when a build stops. Both scripts have no dependencies on
+  # purpose, so this needs no install step and costs seconds.
+  #
+  # **ubuntu, unlike every other job here.** The Windows runners above are about
+  # building a Windows desktop app; reading Markdown and checking that paths and
+  # names exist is platform-agnostic, and this is the cheap runner.
+  #
+  # **Pull requests only, and deliberately not a release gate.** Drift here is a
+  # documentation failure, not a broken binary — it should block the change that
+  # caused it, not a release of code that works.
+  documents:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # **Depth, because one check needs a base to diff against.** The
+          # round record is the only rule here whose fault is an absence, and
+          # an absence is only visible next to what changed.
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      # **The checks are the framework's, copied in as `coperativeai init`
+      # copies them into any project.** Their own tests stayed with the
+      # framework in CooperativeAICoding, which is where a check is fixed; a
+      # fix there reaches this copy only when somebody copies it again.
+      - name: The code map matches the code
+        run: node tools/code-map-lint.mjs
+      # **A misspelled deliverable is the quiet failure.** An item naming one
+      # the Project Brief does not list looks aimed at something, and the
+      # deliverable it was meant to finish never finishes — /build counts the
+      # last item and there isn't one. Nothing else would notice.
+      - name: Every brief's deliverable exists
+        run: node tools/brief-lint.mjs
+      # **The record is the only feedback that runs back from the AI, and by
+      # its own account the rule it is least able to keep: adherence to
+      # administrative rules degrades exactly when a task got long, which is
+      # when the debt was worth having. This cannot check the record is true —
+      # a step nobody noticed skipping is invisible to any reader — but a round
+      # of work that brought no record at all is now loud rather than silent.
+      - name: A round of work brought a record with it
+        run: node tools/round-record-lint.mjs --since ${{ github.event.pull_request.base.sha }}
+
+  frontend:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: app/CoperativeAI
+    steps:
+      - uses: actions/checkout@v5
+
+      # Pinned to the major, not `lts/*`: tracking the LTS alias would move this
+      # build to Node 26 the day that line goes LTS, with no commit and nobody
+      # deciding. A number here means the bump is a change somebody made, and
+      # `.nvmrc` carries the same one so a laptop and the runner agree.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/CoperativeAI/package-lock.json
+
+      - run: npm ci
+
+      # tsc type-checks the test files too, so an unused import in a *.test.tsx
+      # fails the build even when vitest is green. Run it in its own right.
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Tests
+        run: npm test
+
+      # Monaco's workers need the larger heap the build script already sets.
+      - name: Build
+        run: npm run build

@@ -1,0 +1,44 @@
+{
+  "form": "database-model",
+  "modelName": "Deliverable",
+  "status": "built",
+  "dependsOn": {
+    "guidance": "Briefs that must be built before this one — usually the tables this model's relationships point at.",
+    "example": ["ClothingDatabase/Customer.json"],
+    "entries": ["CoperativeAIdb/Product-model.json"]
+  },
+  "instructions": {
+    "whoFillsThisIn": "Developers (Product can sanity-check the information being stored).",
+    "when": "Whenever a page needs to store data. One of these per model/table.",
+    "how": "Answer in plain English where you can.",
+    "note": "Solution = the folder this file sits in. Table / object name = this file's name."
+  },
+  "whatThisModelIs": {
+    "question": "What does this model represent, in one line?",
+    "example": "A customer's order.",
+    "answer": "A Product's strategy deliverable — work items group under it so work can be seen by what it delivers."
+  },
+  "fields": {
+    "guidance": "One entry per piece of data.",
+    "entries": [
+      { "fieldName": "id", "type": "id / key", "nullable": false, "default": "auto", "rules": "unique", "description": "The unique identifier" },
+      { "fieldName": "productId", "type": "id / key", "nullable": false, "default": "", "rules": "must reference a Product row", "description": "The Product this deliverable belongs to" },
+      { "fieldName": "name", "type": "text", "nullable": false, "default": "", "rules": "not empty; unique within its Product", "description": "The deliverable's name" },
+      { "fieldName": "description", "type": "text", "nullable": false, "default": "", "rules": "", "description": "What the deliverable is" },
+      { "fieldName": "createdAt", "type": "date", "nullable": false, "default": "now", "rules": "", "description": "When it was created" }
+    ]
+  },
+  "relationships": {
+    "guidance": "How this model connects to others.",
+    "entries": [
+      { "field": "productId", "relationship": "many-to-one", "relatedTable": "Product", "relatedField": "id", "constraintName": "FK_Deliverable_Product" }
+    ]
+  },
+  "lookupsAndPerformance": { "question": "Which fields do we search or filter on a lot?", "answer": ["productId"] },
+  "lifecycleAndRules": {
+    "retention": { "question": "How long do we keep this data / when is it deleted?", "answer": "Deleted with its Product, or when removed — removing a deliverable unlinks its work items (never deletes them)." },
+    "sensitiveFields": { "question": "Any sensitive fields that need extra protection?", "answer": "No." },
+    "invariants": { "question": "Anything that must always be true?", "answer": "A deliverable belongs to an existing Product; name unique per Product." }
+  },
+  "changesOverTime": { "guidance": "Each time you come back to change this model, add an entry describing what should change.", "rounds": [] }
+}

@@ -1,0 +1,467 @@
+name: Release
+
+# Builds the desktop app for Windows and Linux and publishes both, with the
+# version worked out here rather than typed into three files by hand.
+#
+# **Four jobs: count, build twice in parallel, publish once.** The version is
+# counted before either platform starts, because both have to stamp the same
+# number; the platforms then run at the same time rather than one waiting on the
+# other for a number; and a single publish job gathers both sets of artefacts,
+# so a release is all-or-nothing rather than whichever platform finished.
+#
+# **Every commit to main releases.** This used to be tag-driven, on the argument
+# that a version which moves when nobody decided it should is noise. The call
+# since is that always having an installer for what is on main is worth more
+# than a tidy release list, so main is the trigger and the number is counted
+# here. The cost, so it is not a surprise later: a README-only commit gets a
+# release like any other, and the list grows at the rate the branch does.
+#
+# **A tag is still made**, from the version this works out — the release action
+# creates it against the commit being built. A release with no tag leaves
+# nothing in the repository pointing back at the code that produced it.
+#
+# **The version lives in three places** — package.json, tauri.conf.json and
+# Cargo.toml — and they have to agree or the installer, the About box and the
+# crate all claim something different. They are stamped at build time rather
+# than committed, so there is one source of truth and no way to release v0.3.0
+# and ship an installer that says 0.1.0.
+
+on:
+  # **Held until the app is renamed to Swarm.** The push-to-main trigger is off
+  # so the first release from this repository carries the new name rather than
+  # publishing 0.2.53 as CoperativeAI and renaming it a version later. The
+  # rename puts back:
+  #   push:
+  #     branches:
+  #       - main
+  # So a build can be tried without cutting a release. Nothing is published on
+  # this path — see the `if` on the release step.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to stamp for a trial build, e.g. 0.3.0"
+        required: false
+        default: "0.0.0"
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  # Only what creating a release needs. The default token is read-only for
+  # contents in repositories configured that way, and a release cannot be
+  # written without this.
+  contents: write
+
+# **One release build at a time.** Two commits landing seconds apart each
+# counted the same highest tag, both decided they were 0.2.4, and both published
+# to it — the second silently overwrote the first's installers and both runs
+# reported success. Serialising the workflow means the second run reads the tags
+# after the first has pushed one, so it counts 0.2.5 rather than colliding.
+#
+# cancel-in-progress is false because the whole point is that the queued run
+# still happens; cancelling it would drop a commit's release entirely.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  # **Counted once, before either platform starts.** Both have to stamp the same
+  # number, or a release carries an installer that disagrees with its own tag.
+  #
+  # This used to live inside the Windows job, with Linux depending on that job
+  # purely to borrow the answer — so every Linux build waited twelve minutes for
+  # a number it could have had in twenty seconds, and a release took as long as
+  # both platforms end to end. Counting here lets them run at the same time.
+  #
+  # An ubuntu runner rather than Windows: this reads tags and does arithmetic.
+  # The logic moved into a script so it could be tested on a laptop instead of
+  # only by cutting releases — nine cases, including the one that mattered
+  # (0.2.9 must not outrank 0.2.10).
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The version is counted from the existing tags, and the default
+          # shallow clone fetches none of them.
+          fetch-depth: 0
+
+      - id: version
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: node .github/next-version.mjs
+
+  windows:
+    needs: version
+    runs-on: windows-latest
+    steps:
+      # No tags needed here any more — the version job counted them, so a
+      # shallow clone is enough and quicker.
+      - uses: actions/checkout@v5
+
+      - name: Stamp the version into all three files
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Each file is read, checked to contain the field, and rewritten.
+          # A silent no-op here would ship an installer with the old number,
+          # which is the one failure this whole step exists to prevent.
+          $pkg = 'app/CoperativeAI/package.json'
+          $tau = 'app/CoperativeAI/src-tauri/tauri.conf.json'
+          $car = 'app/CoperativeAI/src-tauri/Cargo.toml'
+
+          # [regex]::Replace rather than the -replace operator throughout: only
+          # the .NET call takes a count, and "just the first one" is the whole
+          # point — a dependency's own version must never be the one rewritten.
+          foreach ($f in @($pkg, $tau)) {
+            $text = Get-Content $f -Raw
+            $next = [regex]::Replace($text, '("version"\s*:\s*)"[^"]*"', ('$1"' + $env:VERSION + '"'), 1)
+            if ($next -eq $text) { throw "No version field replaced in $f" }
+            Set-Content $f $next -NoNewline -Encoding utf8
+          }
+
+          $text = Get-Content $car -Raw
+          # Anchored to the start of a line so a dependency's own `version =`
+          # is never the one that gets rewritten.
+          $next = [regex]::Replace($text, '(?m)^version\s*=\s*"[^"]*"', ('version = "' + $env:VERSION + '"'), 1)
+          if ($next -eq $text) { throw "No version field replaced in $car" }
+          Set-Content $car $next -NoNewline -Encoding utf8
+
+          Write-Host "--- stamped ---"
+          Select-String -Path $pkg, $tau -Pattern '"version"' | Select-Object -First 2
+          Select-String -Path $car -Pattern '^version' | Select-Object -First 1
+
+      # **No version here on purpose.** rust-toolchain.toml at the repository
+      # root says which Rust this builds with, and rustup honours it — so the
+      # laptop and the runner cannot drift, which is exactly what they did.
+      # This step exists to install it up front and print it, rather than have
+      # it appear silently inside whichever cargo command runs first.
+      - name: Rust (version from rust-toolchain.toml)
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/CoperativeAI/src-tauri
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/CoperativeAI/package-lock.json
+
+      - name: Install
+        working-directory: app/CoperativeAI
+        run: npm ci
+
+      # **The same gates as CI, before anything is published.** A release build
+      # that skipped them could ship code that main would have rejected — and
+      # the tag is usually cut from main without a second look.
+      - name: Clippy (warnings are failures)
+        run: cargo clippy --manifest-path app/CoperativeAI/src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: Rust tests
+        run: cargo test --manifest-path app/CoperativeAI/src-tauri/Cargo.toml
+
+      - name: Typecheck
+        working-directory: app/CoperativeAI
+        run: npx tsc --noEmit
+
+      - name: Frontend tests
+        working-directory: app/CoperativeAI
+        run: npm test
+
+      # Builds the frontend and bundles it into an installer. The bundle is
+      # configured for `.ico`, which is why this only runs on Windows — see the
+      # note at the top of ci.yml.
+      - name: Build the desktop app
+        working-directory: app/CoperativeAI
+        run: npx tauri build
+
+      # Each expected asset is looked for by itself, so "two of the three
+      # arrived" is a failure rather than a green tick — which is how the
+      # portable binary went missing from the first real run.
+      - name: Collect what was built
+        id: collect
+        shell: pwsh
+        run: |
+          $root = 'app/CoperativeAI/src-tauri/target/release'
+          $out = 'dist-release'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+
+          # Verified against a real `tauri build`, both locally and on a runner:
+          #   bundle/msi/CoperativeAI_<version>_x64_en-US.msi   ~17 MB
+          #   bundle/nsis/CoperativeAI_<version>_x64-setup.exe  ~13 MB
+          #   <the binary>.exe                                  ~45 MB, portable
+          #
+          # **The portable binary is globbed, not named.** Cargo names it after
+          # the crate and Tauri after the product, and the two differ here —
+          # naming either one got it silently missed on the first real run. Only
+          # the bundles live in subdirectories, so a top-level `*.exe` can only
+          # be the binary.
+          #
+          # The installers carry the version in their filename, so a release
+          # stamped with the wrong number is visible in the asset list rather
+          # than only inside the installer.
+          $patterns = @(
+            @{ what = 'msi installer';   glob = "$root/bundle/msi/*.msi" },
+            @{ what = 'nsis installer';  glob = "$root/bundle/nsis/*.exe" },
+            @{ what = 'portable binary'; glob = "$root/*.exe" }
+          )
+
+          # **Every pattern reports.** The first version of this only complained
+          # when *nothing* matched, so two assets out of three looked like a
+          # clean run — which is how the portable binary went missing without
+          # anybody being told.
+          $found = @()
+          $missing = @()
+          foreach ($p in $patterns) {
+            $hit = @(Get-ChildItem $p.glob -File -ErrorAction SilentlyContinue)
+            if ($hit.Count -eq 0) {
+              $missing += $p.what
+              Write-Host "MISSING  $($p.what)  ($($p.glob))"
+            } else {
+              $found += $hit
+              $hit | ForEach-Object { Write-Host "found    $($p.what)  $($_.Name)" }
+            }
+          }
+
+          if ($missing.Count -gt 0) {
+            Write-Host "--- what is actually in $root ---"
+            Get-ChildItem $root -Recurse -Depth 2 -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.Extension -in '.exe', '.msi' } |
+              ForEach-Object { Write-Host "  $($_.FullName)" }
+            throw "Did not find: $($missing -join ', '). Nothing is published from a partial build."
+          }
+
+          $found | ForEach-Object { Copy-Item $_.FullName $out }
+          Get-ChildItem $out | ForEach-Object { Write-Host "publishing $($_.Name)" }
+
+      # **v7, not v4.** v4 runs on Node 20, which the runners have deprecated
+      # and are currently force-running on Node 24 — it works until the shim is
+      # withdrawn, and then it does not. v5, v6 and v7 are each runtime moves
+      # rather than interface changes; the only new input is `archive`, and the
+      # two used here are unchanged. v7 wants runner 2.327.1 or later, which
+      # windows-latest is.
+      - uses: actions/upload-artifact@v7
+        with:
+          name: CoperativeAI-${{ needs.version.outputs.version }}-windows
+          path: dist-release/*
+  linux:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Tauri's Linux bundling needs a desktop stack present to link against.
+      # webkit2gtk **4.1**, not 4.0: Tauri 2 moved to it, and 24.04 is the first
+      # runner image where 4.0 is simply absent — asking for the old one fails
+      # with a package-not-found that says nothing about the real cause.
+      # libdbus is here for `keyring`'s secret-service feature, which is how
+      # this app stores API keys on Linux.
+      - name: What Tauri needs on Linux
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            libssl-dev \
+            libdbus-1-dev \
+            patchelf \
+            build-essential \
+            file
+
+      - name: Rust (version from rust-toolchain.toml)
+        run: rustup show
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/CoperativeAI/src-tauri
+          # Otherwise this shares a cache key with the Windows job and restores
+          # artefacts built for the wrong target.
+          key: linux
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      # **`npm install`, not `npm ci`, and that is a deliberate loss.** The
+      # lockfile pins `@rollup/rollup-win32-x64-msvc` and
+      # `@tauri-apps/cli-win32-x64-msvc` as ordinary devDependencies, which is
+      # itself a workaround for npm/cli#4828 — without the explicit pins npm
+      # installs neither platform's native binary and the build dies with
+      # "Cannot find module @rollup/rollup-*". Verified on this machine: a clean
+      # install with the pins removed still fails.
+      #
+      # So the pins are swapped for their Linux equivalents here and the tree is
+      # resolved fresh. The cost is that Linux does not get lockfile
+      # determinism — said plainly rather than hidden, because a reader who
+      # assumes `npm ci` semantics from the Windows job would be wrong.
+      - name: Install, with the platform binaries swapped
+        working-directory: app/CoperativeAI
+        run: |
+          node -e "
+            const fs = require('fs');
+            const j = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            delete j.devDependencies['@rollup/rollup-win32-x64-msvc'];
+            delete j.devDependencies['@tauri-apps/cli-win32-x64-msvc'];
+            j.devDependencies['@rollup/rollup-linux-x64-gnu'] = '^4.62.2';
+            j.devDependencies['@tauri-apps/cli-linux-x64-gnu'] = '^2.11.4';
+            fs.writeFileSync('package.json', JSON.stringify(j, null, 2) + '\n');
+          "
+          rm -f package-lock.json
+          npm install --no-audit --no-fund
+
+      # The Windows job does this in PowerShell; a script keeps the Linux side
+      # from being inline JavaScript inside YAML inside a shell, which is three
+      # levels of quoting for one regex.
+      - name: Stamp the version
+        run: node .github/stamp-version.mjs "${{ needs.version.outputs.version }}"
+
+      # The same gates as Windows. A platform that publishes without them is a
+      # platform whose users find the failures.
+      - name: Clippy (warnings are failures)
+        run: cargo clippy --manifest-path app/CoperativeAI/src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      # **The PTY tests are skipped here, and that is a known gap rather than a
+      # tidy-up.** Spawning a real shell on a PTY and then killing it takes this
+      # runner down: the agent reports "received a shutdown signal" and the step
+      # exits 143. Reproduced five times, narrowed by bisect to a single test,
+      # and narrowed again to the spawn-and-kill rather than anything written to
+      # the shell — so it is not the command, and not the process-group
+      # signalling that `kill_tree` was separately fixed for.
+      #
+      # What is not known is whether this is the runner's sandbox refusing a
+      # controlling terminal, or something this app does to a PTY that a Linux
+      # user would also hit. That question is open and recorded as debt; it is
+      # not answered by skipping, and skipping does not claim it is.
+      #
+      # Why this is still safe to ship: the Windows job runs the full suite,
+      # these four tests included, before anything is published — so they are
+      # not unguarded, they are unguarded *on one platform*. And what this job
+      # exists to prove is that the Linux packages build.
+      - name: Rust tests, without the ones that open a PTY
+        run: cargo test --manifest-path app/CoperativeAI/src-tauri/Cargo.toml -- --skip terminal::tests
+
+      - name: Typecheck
+        working-directory: app/CoperativeAI
+        run: npx tsc --noEmit
+
+      - name: Frontend tests
+        working-directory: app/CoperativeAI
+        run: npm test
+
+      - name: Build the desktop app
+        working-directory: app/CoperativeAI
+        run: npx tauri build
+
+      # Every expected package is looked for by itself, so "two of the three
+      # arrived" is a failure rather than a green tick — the same lesson the
+      # Windows job learned by losing its portable binary.
+      - name: Collect what was built
+        run: |
+          set -euo pipefail
+          root=app/CoperativeAI/src-tauri/target/release/bundle
+          out=dist-linux
+          mkdir -p "$out"
+
+          missing=()
+          for spec in "debian package:$root/deb/*.deb" \
+                      "rpm package:$root/rpm/*.rpm" \
+                      "AppImage:$root/appimage/*.AppImage"; do
+            what=${spec%%:*}
+            glob=${spec#*:}
+            # shellcheck disable=SC2086
+            hits=$(ls $glob 2>/dev/null || true)
+            if [ -z "$hits" ]; then
+              missing+=("$what")
+              echo "MISSING  $what  ($glob)"
+            else
+              echo "$hits" | while read -r f; do
+                echo "found    $what  $(basename "$f")"
+                cp "$f" "$out/"
+              done
+            fi
+          done
+
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "--- what is actually under $root ---"
+            find "$root" -maxdepth 2 -type f 2>/dev/null || true
+            echo "Did not find: ${missing[*]}."
+            exit 1
+          fi
+          ls -la "$out"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: CoperativeAI-${{ needs.version.outputs.version }}-linux
+          path: dist-linux/*
+
+  # ---------------------------------------------------------------------------
+  # Publish
+  # ---------------------------------------------------------------------------
+  #
+  # **One release, made once, from both platforms' artefacts.**
+  #
+  # Each platform used to publish its own assets to the same tag. That worked
+  # while Linux ran after Windows, but the two now run at the same time, and two
+  # concurrent calls creating the same release is a race worth not having.
+  #
+  # It also restores something the previous arrangement had given up: a release
+  # is all-or-nothing again. Before this, a Linux failure left a release that
+  # existed with Windows assets only. Now nothing is published unless both
+  # platforms got there — which is what the rest of this workflow has always
+  # claimed about partial builds.
+  publish:
+    needs: [version, windows, linux]
+    # **The job runs on a dispatch; only the last step publishes.** Gating the
+    # whole job on `push` would mean the gathering and the counting below were
+    # never exercised until the first real release depended on them — which is
+    # the wrong moment to find out that `merge-multiple` puts the files
+    # somewhere else. So a trial proves everything up to the release, and the
+    # release itself is the one thing held behind `push`.
+    runs-on: ubuntu-latest
+    steps:
+      # Both artefacts into one folder. `merge-multiple` is what makes them land
+      # side by side rather than in a directory each, which `files:` below would
+      # then miss.
+      - uses: actions/download-artifact@v6
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: What is about to be published
+        run: |
+          set -euo pipefail
+          ls -la dist
+          # Six assets, or something upstream went quiet: two Windows
+          # installers, the portable binary, and three Linux packages. Counted
+          # rather than trusted, because "the artefact downloaded" is not the
+          # same as "the artefact had anything in it".
+          count=$(find dist -type f | wc -l)
+          echo "found $count files"
+          if [ "$count" -lt 6 ]; then
+            echo "Expected at least six assets. Refusing to publish a partial release."
+            exit 1
+          fi
+
+      # The tag does not exist yet; the action creates it against this commit.
+      # That is also what stops this looping: a tag push does not match the
+      # branch trigger above, so publishing cannot start another run.
+      - name: Publish the release
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v3
+        with:
+          name: CoperativeAI ${{ needs.version.outputs.version }}
+          tag_name: v${{ needs.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true

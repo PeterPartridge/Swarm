@@ -1,0 +1,373 @@
+//! The `DeveloperRules` model — the constraints developers put on the AI.
+//!
+//! Structured columns rather than a free-text blob because these are **enforced,
+//! not displayed**: `disallowedTech` is stated as a hard constraint in the
+//! prompt and re-checked against what comes back, which needs a list the code
+//! can read rather than a paragraph it has to interpret.
+
+use crate::db::{now_millis, DbError, Result};
+use turso::Connection;
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DeveloperRules {
+    pub id: i64,
+    pub product_id: i64,
+    pub coding_standards: String,
+    pub architecture_principles: String,
+    pub maintainability: String,
+    /// Comma-separated; free text is tolerated because people write lists.
+    pub preferred_frameworks: String,
+    pub allowed_tech: String,
+    /// The one field with teeth — checked against the AI's output.
+    pub disallowed_tech: String,
+    pub ai_constraints: String,
+    /// The MCP servers an agent working on this Product may use, as the team
+    /// wrote them.
+    ///
+    /// **A constraint, not a setting.** An agent that can reach any server it
+    /// likes can read and write things nobody agreed to, so the list travels
+    /// with the rules an agent is given rather than living in a config file
+    /// the rules document never mentions.
+    pub mcp_servers: String,
+    pub updated_at: i64,
+}
+
+const SELECT: &str = "SELECT id, productId, codingStandards, architecturePrinciples, maintainability, preferredFrameworks, allowedTech, disallowedTech, aiConstraints, mcpServers, updatedAt FROM developer_rules";
+
+pub async fn create_table(conn: &Connection) -> Result<()> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS developer_rules (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            productId INTEGER NOT NULL UNIQUE,
+            codingStandards TEXT NOT NULL DEFAULT '',
+            architecturePrinciples TEXT NOT NULL DEFAULT '',
+            maintainability TEXT NOT NULL DEFAULT '',
+            preferredFrameworks TEXT NOT NULL DEFAULT '',
+            allowedTech TEXT NOT NULL DEFAULT '',
+            disallowedTech TEXT NOT NULL DEFAULT '',
+            aiConstraints TEXT NOT NULL DEFAULT '',
+            mcpServers TEXT NOT NULL DEFAULT '',
+            updatedAt INTEGER NOT NULL
+        )",
+        (),
+    )
+    .await?;
+    // **No kindLocations here any more.** Where a kind of thing lives moved to
+    // the Solution on 2026-08-21 — it is a fact about one repository, and a
+    // Product grows more of them. An installation that still has the column
+    // keeps it; `solution::adopt_product_layouts` reads it once to seed the
+    // Solutions, and nothing writes it again.
+    //
+    // Rules are written by a person, so the table is altered rather than
+    // rebuilt — dropping somebody's disallowed-tech list to add a column would
+    // be losing the only thing here with teeth.
+    let columns = crate::db::table_columns(conn, "developer_rules").await?;
+    if !columns.is_empty() && !columns.iter().any(|c| c == "mcpServers") {
+        conn.execute(
+            "ALTER TABLE developer_rules ADD COLUMN mcpServers TEXT NOT NULL DEFAULT ''",
+            (),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn set_rules(
+    conn: &Connection,
+    product_id: i64,
+    coding_standards: &str,
+    architecture_principles: &str,
+    maintainability: &str,
+    preferred_frameworks: &str,
+    allowed_tech: &str,
+    disallowed_tech: &str,
+    ai_constraints: &str,
+    mcp_servers: &str,
+) -> Result<()> {
+    if crate::db::product::find_by_id(conn, product_id).await?.is_none() {
+        return Err(DbError::Validation(format!(
+            "no Product with id {product_id}"
+        )));
+    }
+    conn.execute("DELETE FROM developer_rules WHERE productId = ?1", (product_id,))
+        .await?;
+    conn.execute(
+        "INSERT INTO developer_rules (productId, codingStandards, architecturePrinciples,
+            maintainability, preferredFrameworks, allowedTech, disallowedTech, aiConstraints,
+            mcpServers, updatedAt)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        (
+            product_id,
+            coding_standards,
+            architecture_principles,
+            maintainability,
+            preferred_frameworks,
+            allowed_tech,
+            disallowed_tech,
+            ai_constraints,
+            mcp_servers,
+            now_millis(),
+        ),
+    )
+    .await?;
+    Ok(())
+}
+
+pub async fn for_product(conn: &Connection, product_id: i64) -> Result<Option<DeveloperRules>> {
+    let mut rows = conn
+        .query(&format!("{SELECT} WHERE productId = ?1"), (product_id,))
+        .await?;
+    match rows.next().await? {
+        Some(row) => Ok(Some(DeveloperRules {
+            id: row.get(0)?,
+            product_id: row.get(1)?,
+            coding_standards: row.get(2)?,
+            architecture_principles: row.get(3)?,
+            maintainability: row.get(4)?,
+            preferred_frameworks: row.get(5)?,
+            allowed_tech: row.get(6)?,
+            disallowed_tech: row.get(7)?,
+            ai_constraints: row.get(8)?,
+            // Reads as nothing said on a row written before the column existed.
+            mcp_servers: row.get(9).unwrap_or_default(),
+            updated_at: row.get(10)?,
+        })),
+        None => Ok(None),
+    }
+}
+
+/// Splits a written list ("Java, PHP; Perl") into comparable terms.
+pub fn split_terms(list: &str) -> Vec<String> {
+    list.split([',', ';', '\n'])
+        .map(|t| t.trim().to_lowercase())
+        .filter(|t| !t.is_empty())
+        .collect()
+}
+
+/// Names any disallowed technology that appears in the AI's output.
+///
+/// This is the check that makes `disallowedTech` a rule rather than a wish: the
+/// model is told the constraint, and then the answer is verified against it
+/// instead of being trusted. Matching is whole-word so "Go" does not fire on
+/// "Google" and "R" does not fire on every other letter.
+pub fn violations(disallowed: &str, text: &str) -> Vec<String> {
+    let haystack = text.to_lowercase();
+    split_terms(disallowed)
+        .into_iter()
+        .filter(|term| contains_word(&haystack, term))
+        .collect()
+}
+
+/// Technologies the AI proposed that are not on the allow list.
+///
+/// Deliberately **softer than `violations`**, and the distinction matters.
+/// People write languages in an allow list — "Rust, TypeScript" — and mean
+/// languages, not "no database, no queue, no cloud". A live run proved the
+/// point: given that list, a model proposed Azure Functions and Service Bus,
+/// which are not violations of anything anyone intended. Treating unlisted as
+/// forbidden would fire on reasonable work and teach people to ignore the
+/// warnings, exactly how the earlier prose check failed.
+///
+/// So this reports *unlisted*, for a person to judge; `violations` reports
+/// *forbidden*, which is a rule. An empty allow list yields nothing — a blank
+/// field means "not constrained", never "nothing is permitted".
+pub fn unlisted(allowed: &str, technologies: &[String]) -> Vec<String> {
+    let permitted = split_terms(allowed);
+    if permitted.is_empty() {
+        return Vec::new();
+    }
+    let mut found: Vec<String> = technologies
+        .iter()
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .filter(|proposed| {
+            let lowered = proposed.to_lowercase();
+            // An allowed term covers anything it appears in, so "Rust" permits
+            // "Rust 1.89" and "Azure" permits "Azure Functions" — the list
+            // reads as families, not exact strings.
+            !permitted.iter().any(|p| contains_word(&lowered, p))
+        })
+        .collect();
+    found.sort();
+    found.dedup();
+    found
+}
+
+fn contains_word(haystack: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return false;
+    }
+    // A match must not sit against a letter or digit. Only the characters
+    // *around* the match are tested, so punctuation inside a name (".NET",
+    // "C++", "C#") is carried by the needle itself and needs no special case —
+    // an earlier attempt to treat '.' as part of a token broke every term
+    // followed by a full stop.
+    let boundary = |c: char| !c.is_alphanumeric();
+    haystack.match_indices(needle).any(|(index, matched)| {
+        let before_ok = index == 0
+            || haystack[..index].chars().next_back().is_some_and(boundary);
+        let after = index + matched.len();
+        let after_ok = after >= haystack.len()
+            || haystack[after..].chars().next().is_some_and(boundary);
+        before_ok && after_ok
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::product::tests::db_with_product;
+
+    #[tokio::test]
+    async fn rules_round_trip_and_replace_rather_than_duplicate() {
+        let (conn, product_id) = db_with_product().await;
+        set_rules(&conn, product_id, "DRY", "hexagonal", "small changes", "React", "Rust, TS", "Java", "no new deps", "")
+            .await
+            .expect("set");
+        set_rules(&conn, product_id, "DRY + SOLID", "hexagonal", "small changes", "React", "Rust, TS", "Java, PHP", "no new deps", "filesystem")
+            .await
+            .expect("replace");
+
+        let rules = for_product(&conn, product_id).await.expect("get").expect("exists");
+        assert_eq!(rules.coding_standards, "DRY + SOLID");
+        assert_eq!(rules.disallowed_tech, "Java, PHP");
+    }
+
+    #[tokio::test]
+    async fn a_product_without_rules_has_none_and_an_unknown_product_is_rejected() {
+        let (conn, product_id) = db_with_product().await;
+        assert_eq!(for_product(&conn, product_id).await.expect("get"), None);
+        assert!(set_rules(&conn, 999, "", "", "", "", "", "", "", "").await.is_err());
+    }
+
+    /// **These rules are the team's, not one repository's.** Where things live
+    /// used to be an eighth field here and is now on the Solution: it is a fact
+    /// about a working copy, a Product grows more than one, and it was a
+    /// Develop decision sitting in a Product-shaped store. Its tests moved with
+    /// it, to `db::solution`.
+    #[test]
+    fn the_rules_that_stayed_are_the_ones_about_how_the_team_works() {
+        // A guard rather than a behaviour: if a per-repository field is ever
+        // added back here, this is the sentence that should stop it.
+        let team_wide = DeveloperRules::default();
+        assert_eq!(team_wide.coding_standards, "");
+        assert_eq!(team_wide.ai_constraints, "");
+    }
+
+    #[test]
+    fn lists_split_on_commas_semicolons_and_newlines() {
+        assert_eq!(split_terms("Java, PHP; Perl\nCOBOL"), vec!["java", "php", "perl", "cobol"]);
+        assert!(split_terms("  ,  ; ").is_empty());
+    }
+
+    #[test]
+    fn a_disallowed_technology_in_the_output_is_caught() {
+        let found = violations("Java, PHP", "We will build the API in Java with Spring Boot.");
+        assert_eq!(found, vec!["java"]);
+    }
+
+    /// Substring matching would make "Go" fire on "Google" and ban half the
+    /// language, so the check is whole-word.
+    #[test]
+    fn matching_is_whole_word_not_substring() {
+        assert!(violations("Go", "Deploy to Google Cloud.").is_empty());
+        assert_eq!(violations("Go", "Write the worker in Go."), vec!["go"]);
+        assert!(violations("Java", "Use JavaScript on the front end.").is_empty());
+    }
+
+    /// Real technology names contain dots, pluses and hashes.
+    #[test]
+    fn names_with_punctuation_still_match() {
+        assert_eq!(violations(".NET", "Host it on .NET 8."), vec![".net"]);
+        assert_eq!(violations("C++", "The engine is written in C++."), vec!["c++"]);
+        assert_eq!(violations("C#", "Use C# for the service."), vec!["c#"]);
+    }
+
+    #[test]
+    fn nothing_disallowed_means_nothing_to_report() {
+        assert!(violations("", "Anything at all, in Java.").is_empty());
+        assert!(violations("Java", "A Rust service with a React front end.").is_empty());
+    }
+
+    /// Found by the first live run: the model obeyed the rule and wrote "No
+    /// Java or PHP anywhere" in its tech stack, and the text search reported it
+    /// as a violation. Prose is not evidence of intent — this is why the caller
+    /// checks the declared technology list instead, and this test records why
+    /// `violations` must never be pointed at writing again.
+    #[test]
+    fn prose_that_obeys_the_rule_still_trips_a_text_search() {
+        let obedient = "TypeScript for the API, Rust for the engine. No Java or PHP anywhere.";
+        assert_eq!(
+            violations("Java, PHP", obedient),
+            vec!["java", "php"],
+            "a plain text search cannot tell using from refusing — check the declared list"
+        );
+
+        // The same answer as data: nothing forbidden is actually being used.
+        let declared = ["TypeScript".to_string(), "Rust".to_string()];
+        let from_list: Vec<String> = declared
+            .iter()
+            .flat_map(|t| violations("Java, PHP", t))
+            .collect();
+        assert!(from_list.is_empty(), "the declared list gets it right");
+    }
+
+    /// The exact case from the live run: allowed "Rust, TypeScript", model
+    /// proposed .NET and Azure. Those are unlisted, not forbidden — reporting
+    /// them as violations would be wrong.
+    #[test]
+    fn unlisted_technology_is_reported_without_being_called_a_violation() {
+        let proposed = [
+            "Rust".to_string(),
+            "TypeScript".to_string(),
+            ".NET 8".to_string(),
+            "Azure Functions".to_string(),
+        ];
+        assert_eq!(
+            unlisted("Rust, TypeScript", &proposed),
+            vec![".NET 8", "Azure Functions"]
+        );
+        // and none of it breaks a rule, because none of it is forbidden
+        let forbidden: Vec<String> = proposed
+            .iter()
+            .flat_map(|t| violations("Java, PHP", t))
+            .collect();
+        assert!(forbidden.is_empty());
+    }
+
+    /// An allowed term covers what it appears in, so a version or a service
+    /// family does not read as a new technology.
+    #[test]
+    fn an_allowed_term_covers_the_family_it_names() {
+        let proposed = [
+            "Rust 1.89".to_string(),
+            "Azure Functions".to_string(),
+            "Azure Service Bus".to_string(),
+        ];
+        assert!(unlisted("Rust, Azure", &proposed).is_empty());
+    }
+
+    /// A blank allow list means "not constrained", never "nothing permitted" —
+    /// otherwise leaving the field empty would flag every proposal.
+    #[test]
+    fn an_empty_allow_list_permits_everything() {
+        let proposed = ["Anything".to_string(), "At all".to_string()];
+        assert!(unlisted("", &proposed).is_empty());
+        assert!(unlisted("   ", &proposed).is_empty());
+    }
+
+    #[test]
+    fn unlisted_results_are_deduplicated_and_ordered() {
+        let proposed = ["Redis".to_string(), "Redis".to_string(), "Kafka".to_string()];
+        assert_eq!(unlisted("Rust", &proposed), vec!["Kafka", "Redis"]);
+    }
+
+    #[test]
+    fn several_violations_are_all_named() {
+        let found = violations("Java, PHP, Perl", "A PHP front end calling a Java service.");
+        assert!(found.contains(&"java".to_string()));
+        assert!(found.contains(&"php".to_string()));
+        assert!(!found.contains(&"perl".to_string()));
+    }
+}

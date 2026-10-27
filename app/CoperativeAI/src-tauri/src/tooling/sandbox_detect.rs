@@ -1,0 +1,657 @@
+//! What this machine can actually offer, established rather than assumed.
+//!
+//! **Separate from `sandbox` on purpose.** That module is pure and never starts
+//! a process — which is why the seam's own caller test skips it, since it names
+//! `Command::new` in prose rather than using it. A spawn hidden there would be
+//! invisible to that test. This one spawns, so it lives here and is filed in
+//! the seam test's `OUTSIDE` list where anyone can see it: asking the machine
+//! what it has is the app working on its own account, not running somebody's
+//! command.
+//!
+//! **Run and read are separated everywhere below**, the way the test runner's
+//! parsers already are. Running needs WSL or Docker installed; reading is a
+//! pure function over what they printed. So the reading half — which is where
+//! every judgement lives — is tested against real captured output on a machine
+//! that has neither.
+//!
+//! **Nothing here is cached.** The configuration it reports can be changed
+//! outside this app between one look and the next, so a remembered answer is a
+//! claim about a machine that may have moved on.
+
+use std::process::Stdio;
+use std::time::Duration;
+
+/// The name of the distribution this app creates for itself.
+///
+/// Fixed rather than configurable: it is the app's own, and a setting would
+/// invite pointing it at somebody else's distribution while still calling it
+/// the one the app configured.
+pub const OWN_DISTRIBUTION: &str = "coperativeai";
+
+/// The image the agent runs in — the app's to maintain, and only the agent's
+/// needs are in it. A Solution's build toolchain is the Solution's own.
+pub const AGENT_IMAGE: &str = "coperativeai-agent";
+
+/// Distributions that exist to run Docker rather than to work in.
+///
+/// Offering these as somewhere to run an agent would be offering Docker's own
+/// plumbing as a workspace.
+const DOCKER_INTERNAL: &[&str] = &["docker-desktop", "docker-desktop-data"];
+
+/// A tool that has to answer before anything can be said about it.
+///
+/// **"It did not answer" is not "it is not there."** A cold WSL virtual machine
+/// takes seconds to start, and reporting that silence as absence would tell
+/// somebody their perfectly good installation is missing.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Answered<T> {
+    Yes(T),
+    NotInstalled,
+    Silent,
+}
+
+/// The first WSL that can be told what to call a distribution.
+///
+/// Below this there is no `--name`, so the app cannot create one of its own
+/// without taking over the name of a distribution somebody else installed.
+/// That is not a thing to work around quietly — it is reported, and WSL mode
+/// stays on its borrowed footing.
+const NAMED_INSTALL_FROM: (u32, u32, u32) = (2, 4, 4);
+
+/// What WSL says about itself.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct WslFindings {
+    pub installed: bool,
+    /// As reported by `wsl --version`. Empty when it would not say.
+    pub version: String,
+    /// Whether this WSL can be given a distribution of the app's own.
+    pub can_own_distribution: bool,
+    /// False when it is installed but never answered.
+    pub answered: bool,
+    /// Distributions somebody could work in — Docker's own excluded.
+    pub distributions: Vec<String>,
+    /// Whether the app's own distribution is among them.
+    pub own_distribution: bool,
+    /// Whether this machine's drive is really mounted inside the app's own
+    /// distribution. `None` when there was no distribution to look in.
+    pub drive_mounted: Option<bool>,
+    /// Whether the app's own distribution runs as root. `None` as above.
+    pub root: Option<bool>,
+    /// What went wrong, in the tool's own words where there are any.
+    pub detail: String,
+}
+
+/// What Docker says about itself.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DockerFindings {
+    /// Empty when no server answered — which is not the same as no Docker.
+    pub server_version: String,
+    pub client_installed: bool,
+    pub agent_image: bool,
+    pub detail: String,
+}
+
+// ---------------------------------------------------------------------------
+// Reading: pure, and tested against real captures.
+// ---------------------------------------------------------------------------
+
+/// Turns `wsl.exe`'s output into text.
+///
+/// **WSL prints UTF-16, and reading it as UTF-8 gets nothing useful.** Every
+/// other byte is a zero, so a naive read yields `U\0b\0u\0n\0t\0u\0` — which
+/// matches no distribution name and reports a working install as empty. This
+/// notices the zeroes and decodes accordingly rather than assuming either way.
+pub fn decode_wsl(bytes: &[u8]) -> String {
+    let zeroes = bytes.iter().filter(|b| **b == 0).count();
+    if bytes.len() >= 4 && zeroes * 3 >= bytes.len() {
+        let pairs: Vec<u16> = bytes
+            .chunks_exact(2)
+            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .collect();
+        return String::from_utf16_lossy(&pairs);
+    }
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+/// The distributions worth offering, from `wsl -l -q`.
+pub fn usable_distributions(listed: &str) -> Vec<String> {
+    listed
+        .lines()
+        .map(|line| line.trim().trim_matches('\u{0}').trim())
+        .filter(|line| !line.is_empty())
+        .filter(|line| !DOCKER_INTERNAL.contains(&line.to_lowercase().as_str()))
+        .map(str::to_string)
+        .collect()
+}
+
+/// Whether this machine's own drive is reachable from inside, read from
+/// `/proc/mounts`.
+///
+/// **The mounts are asked, not the configuration.** `wsl.conf` states an
+/// intention; a running distribution states a fact, and the two disagree
+/// whenever the file was edited without a restart. The fact is what an agent
+/// would actually be able to write to.
+///
+/// Three spellings, because WSL has used all of them: `drvfs` originally, `9p`
+/// for years, and `virtiofs` on recent builds. Matching only the first would
+/// report today's ordinary Ubuntu as bounded, which is the most dangerous
+/// wrong answer this file could give.
+pub fn drive_is_mounted(proc_mounts: &str) -> bool {
+    proc_mounts.lines().any(|line| {
+        let mut fields = line.split_whitespace();
+        let _source = fields.next();
+        let target = fields.next().unwrap_or("");
+        let rest = line.to_lowercase();
+        target.starts_with("/mnt/")
+            && (rest.contains("drvfs") || rest.contains(" 9p ") || rest.contains("virtiofs"))
+    })
+}
+
+/// The version out of `wsl --version`'s first line.
+pub fn wsl_version(said: &str) -> Option<String> {
+    said.lines()
+        .find_map(|line| line.trim().strip_prefix("WSL version:"))
+        .map(|rest| rest.trim().to_string())
+        .filter(|version| !version.is_empty())
+}
+
+/// Whether this WSL can be told what to call a distribution.
+///
+/// Compared number by number rather than as text: `2.10.0` is newer than
+/// `2.4.4` and sorts before it in every string comparison there is.
+pub fn supports_named_install(version: &str) -> bool {
+    let mut parts = version.split('.').map(|p| p.trim().parse::<u32>().unwrap_or(0));
+    let found = (
+        parts.next().unwrap_or(0),
+        parts.next().unwrap_or(0),
+        parts.next().unwrap_or(0),
+    );
+    found >= NAMED_INSTALL_FROM
+}
+
+/// The uid `id -u` printed, as "is this root".
+pub fn is_root(said: &str) -> Option<bool> {
+    said.trim().lines().next()?.trim().parse::<u32>().ok().map(|uid| uid == 0)
+}
+
+/// The server version from `docker version --format {{.Server.Version}}`.
+///
+/// **The server, never the client.** A Docker client with no engine running is
+/// the commonest state of all on a machine that has Docker installed, and it
+/// answers questions about itself perfectly happily — so asking anything but
+/// the server reports a sandbox that cannot run a thing.
+/// **Judged by shape, not by hunting for the words a failure happens to use.**
+/// The first version of this rejected anything containing "error" or "Cannot
+/// connect", and a stopped engine on this machine answered *"failed to connect
+/// to the docker API at npipe:…"* — which contains neither, and was accepted as
+/// a version. The panel would then have said "Docker ‹that whole sentence› is
+/// running", which is precisely the claim this feature exists to prevent.
+///
+/// A version is digits and dots, possibly with a suffix like `-ce` or `+azure`.
+/// Anything else is not one, whatever it says about itself — and that test does
+/// not depend on Docker's choice of wording, which was the flaw before.
+pub fn server_version(said: &str) -> Option<String> {
+    let line = said.trim().lines().next()?.trim();
+    let looks_like_one = line
+        .split(['-', '+'])
+        .next()
+        .is_some_and(|number| {
+            !number.is_empty()
+                && number.split('.').count() >= 2
+                && number.split('.').all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()))
+        });
+    looks_like_one.then(|| line.to_string())
+}
+
+/// Where Windows keeps WSL's managed settings.
+///
+/// **Under `Policies\WSL`, not `Policies\Microsoft\Windows\WSL`.** The obvious
+/// guess is the wrong one — WSL's own ADMX puts it at the shorter path, and
+/// looking in the likely place would have reported every managed machine as
+/// unmanaged, which is the one answer that must never be given by accident.
+pub const WSL_POLICY_KEY: &str = r"HKLM\SOFTWARE\Policies\WSL";
+
+/// What an organisation's device policy says about WSL on this machine.
+///
+/// **Managed and permitted are different questions.** A machine with no policy
+/// at all permits WSL; so does a machine whose policy explicitly allows it. The
+/// panel says which of those it is, because "your organisation allows this" and
+/// "nobody has said anything" call for different conversations when it breaks.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PolicyFindings {
+    /// Whether any WSL device policy exists here at all.
+    pub managed: bool,
+    /// Whether WSL is permitted. **True when unmanaged** — an absent policy
+    /// forbids nothing, and defaulting the other way would have the app blame
+    /// an IT department that had done nothing.
+    pub allows_wsl: bool,
+    /// Every managed setting found, in the registry's own names, so the panel
+    /// can show what was actually read rather than this app's summary of it.
+    pub settings: Vec<(String, u32)>,
+}
+
+/// Judges `reg query` output. Pure, so every managed case is testable on a
+/// machine that is not managed — which is every developer machine here.
+///
+/// `found` is whether the command succeeded: a missing key exits non-zero, and
+/// that is the ordinary unmanaged case rather than a failure to report.
+pub fn read_policy_key(found: bool, said: &str) -> PolicyFindings {
+    if !found {
+        return PolicyFindings { managed: false, allows_wsl: true, settings: Vec::new() };
+    }
+    let mut settings = Vec::new();
+    for line in said.lines() {
+        let mut parts = line.split_whitespace();
+        let (Some(name), Some(kind), Some(value)) = (parts.next(), parts.next(), parts.next())
+        else {
+            continue;
+        };
+        if !kind.eq_ignore_ascii_case("REG_DWORD") {
+            continue;
+        }
+        // `reg` prints DWORDs as 0x1. Anything it prints that will not parse is
+        // skipped rather than guessed at.
+        let Ok(number) = u32::from_str_radix(value.trim_start_matches("0x"), 16) else {
+            continue;
+        };
+        settings.push((name.to_string(), number));
+    }
+    // Managed means the key exists, even if it sets nothing this app reads.
+    let allows_wsl = !settings.iter().any(|(name, v)| name == "AllowWSL" && *v == 0);
+    PolicyFindings { managed: true, allows_wsl, settings }
+}
+
+// ---------------------------------------------------------------------------
+// Running: the half that needs the tools installed.
+// ---------------------------------------------------------------------------
+
+/// Runs a tool and hands back what it printed, or why it could not be asked.
+pub(crate) async fn ask(program: &str, args: &[&str], patience: Duration) -> Answered<(bool, Vec<u8>)> {
+    let Some(exe) = crate::tooling::dev_runner::which(program) else {
+        return Answered::NotInstalled;
+    };
+    let attempt = tokio::time::timeout(
+        patience,
+        tokio::process::Command::new(exe)
+            .args(args)
+            .stdin(Stdio::null())
+            .output(),
+    )
+    .await;
+    match attempt {
+        Ok(Ok(output)) => {
+            let mut said = output.stdout;
+            said.extend_from_slice(&output.stderr);
+            Answered::Yes((output.status.success(), said))
+        }
+        // A tool that is there and will not run is not the same as one that is
+        // absent, and both differ from one that never came back.
+        Ok(Err(_)) => Answered::NotInstalled,
+        Err(_) => Answered::Silent,
+    }
+}
+
+/// What WSL offers on this machine.
+pub async fn wsl() -> WslFindings {
+    // Generous, because a cold WSL virtual machine really does take this long
+    // to answer the first question after a reboot.
+    let listed = ask("wsl.exe", &["-l", "-q"], Duration::from_secs(30)).await;
+    let mut findings = WslFindings::default();
+    let said = match listed {
+        Answered::NotInstalled => {
+            findings.detail = "WSL is not installed on this machine.".into();
+            return findings;
+        }
+        Answered::Silent => {
+            findings.installed = true;
+            findings.detail =
+                "WSL is installed but did not answer within 30 seconds, so nothing can be \
+                 said about it yet. Trying again usually works — a cold virtual machine \
+                 takes a while to start."
+                    .into();
+            return findings;
+        }
+        Answered::Yes((_, bytes)) => decode_wsl(&bytes),
+    };
+
+    findings.installed = true;
+    findings.answered = true;
+    findings.distributions = usable_distributions(&said);
+
+    // Asked separately because it decides whether this app can have a
+    // distribution of its own at all, and an old WSL is a fact to report
+    // rather than a thing to work around.
+    if let Answered::Yes((_, bytes)) = ask("wsl.exe", &["--version"], Duration::from_secs(20)).await
+    {
+        if let Some(version) = wsl_version(&decode_wsl(&bytes)) {
+            findings.can_own_distribution = supports_named_install(&version);
+            findings.version = version;
+        }
+    }
+    findings.own_distribution = findings
+        .distributions
+        .iter()
+        .any(|d| d.eq_ignore_ascii_case(OWN_DISTRIBUTION));
+
+    if !findings.own_distribution {
+        findings.detail = format!(
+            "This app has not created its own distribution yet, so there is nothing here it \
+             configured. {}",
+            if findings.distributions.is_empty() {
+                "There are no distributions on this machine at all.".to_string()
+            } else {
+                format!("Found: {}.", findings.distributions.join(", "))
+            }
+        );
+        return findings;
+    }
+
+    // Only the app's own distribution is inspected. What somebody else's does
+    // is their business, and reporting on it would suggest the app had a say.
+    if let Answered::Yes((_, bytes)) = ask(
+        "wsl.exe",
+        &["-d", OWN_DISTRIBUTION, "--", "cat", "/proc/mounts"],
+        Duration::from_secs(30),
+    )
+    .await
+    {
+        findings.drive_mounted = Some(drive_is_mounted(&decode_wsl(&bytes)));
+    }
+    if let Answered::Yes((_, bytes)) = ask(
+        "wsl.exe",
+        &["-d", OWN_DISTRIBUTION, "--", "id", "-u"],
+        Duration::from_secs(30),
+    )
+    .await
+    {
+        findings.root = is_root(&decode_wsl(&bytes));
+    }
+    findings
+}
+
+/// What Docker offers on this machine.
+/// What this machine's organisation has said about WSL.
+///
+/// **Unmanaged is the answer to every failure here.** `reg` missing, silent, or
+/// refusing all mean this app could not find a policy — and a policy it could
+/// not find is not one it may report as a restriction. Erring the other way
+/// would put "your organisation blocks this" in front of somebody whose
+/// organisation had done nothing at all.
+pub async fn device_policy() -> PolicyFindings {
+    let unmanaged = PolicyFindings { managed: false, allows_wsl: true, settings: Vec::new() };
+    // Short patience: this reads one local registry key. A `reg` that has not
+    // answered in five seconds is not going to.
+    match ask("reg.exe", &["query", WSL_POLICY_KEY], Duration::from_secs(5)).await {
+        Answered::Yes((ok, bytes)) => read_policy_key(ok, &String::from_utf8_lossy(&bytes)),
+        _ => unmanaged,
+    }
+}
+
+pub async fn docker() -> DockerFindings {
+    let mut findings = DockerFindings::default();
+    let asked = ask(
+        "docker",
+        &["version", "--format", "{{.Server.Version}}"],
+        Duration::from_secs(20),
+    )
+    .await;
+    match asked {
+        Answered::NotInstalled => {
+            findings.detail = "Docker is not installed on this machine.".into();
+            return findings;
+        }
+        Answered::Silent => {
+            findings.client_installed = true;
+            findings.detail = "Docker did not answer within 20 seconds.".into();
+            return findings;
+        }
+        Answered::Yes((_, bytes)) => {
+            findings.client_installed = true;
+            let said = String::from_utf8_lossy(&bytes);
+            match server_version(&said) {
+                Some(version) => findings.server_version = version,
+                None => {
+                    findings.detail =
+                        "Docker is installed, but its engine is not running — so nothing can \
+                         be run in a container yet. Start Docker Desktop and look again."
+                            .into();
+                    return findings;
+                }
+            }
+        }
+    }
+
+    if let Answered::Yes((ok, _)) = ask(
+        "docker",
+        &["image", "inspect", AGENT_IMAGE],
+        Duration::from_secs(20),
+    )
+    .await
+    {
+        findings.agent_image = ok;
+    }
+    findings
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **This machine's own mount line**, captured from a stock Ubuntu under
+    /// WSL. It is the whole reason the honesty rule needed a page: an agent in
+    /// this distribution can rewrite the entire Windows drive, and nothing
+    /// about the words "running in WSL" suggests it.
+    const REAL_UBUNTU_MOUNTS: &str = "\
+none / overlay rw,relatime 0 0
+none /mnt/wsl tmpfs rw,relatime 0 0
+C:\\134 /mnt/c 9p rw,noatime,aname=drvfs;path=C:\\;uid=1000;gid=1000;symlinkroot=/mnt/,cache=0x5,access=client,msize=65536,trans=fd,rfd=6,wfd=6 0 0
+";
+
+    #[test]
+    fn a_stock_distribution_is_reported_as_no_boundary_at_all() {
+        assert!(
+            drive_is_mounted(REAL_UBUNTU_MOUNTS),
+            "an agent here can write to the whole machine, and the table must say so"
+        );
+    }
+
+    /// The three spellings WSL has used. Matching only `drvfs` would report
+    /// today's ordinary distribution as bounded — the most dangerous wrong
+    /// answer this file could give.
+    #[test]
+    fn every_spelling_of_the_windows_drive_is_recognised() {
+        for line in [
+            "C:\\134 /mnt/c 9p rw,aname=drvfs;path=C:\\ 0 0",
+            "drvfs /mnt/d drvfs rw,noatime 0 0",
+            "drivefs /mnt/c virtiofs rw,relatime 0 0",
+        ] {
+            assert!(drive_is_mounted(line), "not recognised: {line}");
+        }
+    }
+
+    #[test]
+    fn a_distribution_with_nothing_of_this_machine_in_it_is_bounded() {
+        let mounts = "\
+none / overlay rw,relatime 0 0
+none /mnt/wsl tmpfs rw,relatime 0 0
+proc /proc proc rw,nosuid 0 0
+";
+        assert!(!drive_is_mounted(mounts));
+    }
+
+    #[test]
+    fn dockers_own_distributions_are_never_offered_as_somewhere_to_work() {
+        let listed = "Ubuntu\ndocker-desktop\ndocker-desktop-data\ncoperativeai\n";
+        assert_eq!(usable_distributions(listed), vec!["Ubuntu", "coperativeai"]);
+    }
+
+    /// What `wsl -l -q` really hands back: UTF-16, which read as UTF-8 is a
+    /// working install that looks empty.
+    #[test]
+    fn the_utf16_a_distribution_list_arrives_as_is_read() {
+        let utf16: Vec<u8> = "Ubuntu\r\ncoperativeai\r\n"
+            .encode_utf16()
+            .flat_map(|unit| unit.to_le_bytes())
+            .collect();
+        let decoded = decode_wsl(&utf16);
+        assert_eq!(usable_distributions(&decoded), vec!["Ubuntu", "coperativeai"]);
+    }
+
+    #[test]
+    fn plain_output_is_left_alone() {
+        assert_eq!(decode_wsl(b"Ubuntu\n").trim(), "Ubuntu");
+    }
+
+    /// **This machine's actual Docker error**, with the client installed and
+    /// the engine stopped — the state the brief names as the one to get right.
+    #[test]
+    fn a_client_with_no_engine_is_not_a_working_docker() {
+        let said = "error during connect: Get \"http://%2F%2F.%2Fpipe%2FdockerDesktopLinuxEngine/v1.51/version\": open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.";
+        assert_eq!(server_version(said), None);
+        assert_eq!(server_version("Cannot connect to the Docker daemon"), None);
+        assert_eq!(server_version("  \n"), None);
+    }
+
+    #[test]
+    fn a_running_engine_reports_its_version() {
+        assert_eq!(server_version("27.3.1\n"), Some("27.3.1".into()));
+        assert_eq!(server_version("29.7.2"), Some("29.7.2".into()));
+        // Real versions carry suffixes, and those are still versions.
+        assert_eq!(server_version("20.10.7-ce"), Some("20.10.7-ce".into()));
+        assert_eq!(server_version("19.03.8+azure"), Some("19.03.8+azure".into()));
+    }
+
+    /// **This machine's actual answer with the engine stopped**, and the reason
+    /// the check is on shape rather than on wording: it contains neither
+    /// "error" nor "Cannot connect", so the first version of this took it for a
+    /// version and the panel would have reported the whole sentence as one.
+    #[test]
+    fn a_sentence_about_failing_to_connect_is_not_a_version() {
+        let said = "failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine; check if the path is correct and if the daemon is running: open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.";
+        assert_eq!(server_version(said), None);
+    }
+
+    /// Nothing that is not a version is one, whatever words it uses.
+    #[test]
+    fn only_something_shaped_like_a_version_counts_as_one() {
+        for not_one in ["", "  ", "unknown", "27", "v27.3.1", "latest", "the daemon is not running"]
+        {
+            assert_eq!(server_version(not_one), None, "accepted: {not_one:?}");
+        }
+    }
+
+    /// **The running half, against the machine it is on.**
+    ///
+    /// Every test above reads captured output, which is what makes them run
+    /// anywhere. None of them proves that the commands are spelled right, that
+    /// the timeouts are survivable, or that WSL's UTF-16 arrives as expected —
+    /// and those are the parts that fail silently, by reporting a working
+    /// install as absent. Ignored by default because it needs the tools, and
+    /// worth running by hand on any machine whose answer looks wrong.
+    #[test]
+    #[ignore = "asks the real WSL and Docker on this machine"]
+    fn what_this_machine_really_says() {
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        runtime.block_on(async {
+            let found = wsl().await;
+            println!("WSL: {found:#?}");
+            let engine = docker().await;
+            println!("Docker: {engine:#?}");
+
+            // Whatever this machine has, the two things that must never be
+            // confused are told apart: a tool that is absent, and one that is
+            // there and unhappy.
+            if engine.client_installed && engine.server_version.is_empty() {
+                assert!(
+                    !engine.detail.is_empty(),
+                    "an installed Docker with no engine has to say so"
+                );
+            }
+            if found.installed && found.answered {
+                assert!(
+                    !found.distributions.iter().any(|d| d.starts_with("docker-desktop")),
+                    "Docker's own distributions are not somewhere to work"
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn the_user_a_distribution_runs_as_is_read() {
+        assert_eq!(is_root("0\n"), Some(true));
+        assert_eq!(is_root("1000\n"), Some(false));
+        assert_eq!(is_root("not a number"), None);
+    }
+
+    /// Real `reg query` output, spacing and all — a parser tested only on
+    /// tidied-up input is one that meets the real thing for the first time on
+    /// somebody else's managed laptop.
+    #[test]
+    fn a_managed_machine_is_read_from_what_reg_actually_prints() {
+        let said = "
+HKEY_LOCAL_MACHINESOFTWAREPoliciesWSL
+    AllowWSL    REG_DWORD    0x0
+    AllowInboxWSL    REG_DWORD    0x1
+";
+        let found = read_policy_key(true, said);
+        assert!(found.managed);
+        assert!(!found.allows_wsl, "AllowWSL=0 forbids it");
+        assert_eq!(found.settings, vec![("AllowWSL".to_string(), 0), ("AllowInboxWSL".to_string(), 1)]);
+    }
+
+    /// **A key that is not there forbids nothing.** The commonest machine of
+    /// all, and the one answer that must never be given by accident: erring
+    /// the other way blames an IT department that has done nothing.
+    #[test]
+    fn a_machine_with_no_policy_permits_everything() {
+        let missing = read_policy_key(false, "ERROR: The system was unable to find the specified registry key or value.");
+        assert!(!missing.managed);
+        assert!(missing.allows_wsl);
+        assert!(missing.settings.is_empty());
+    }
+
+    /// Managed is not the same as blocked: a policy that sets other things and
+    /// never mentions AllowWSL permits it.
+    #[test]
+    fn a_policy_that_never_mentions_wsl_still_permits_it() {
+        let found = read_policy_key(true, "    AllowWSL1    REG_DWORD    0x0
+");
+        assert!(found.managed);
+        assert!(found.allows_wsl);
+    }
+
+    /// Anything that will not parse is skipped rather than guessed at — a
+    /// misread value here becomes a claim about somebody's organisation.
+    #[test]
+    fn lines_that_are_not_settings_are_left_alone() {
+        let found = read_policy_key(true, "HKEY_LOCAL_MACHINESOFTWAREPoliciesWSL
+    Note    REG_SZ    hello
+    Broken    REG_DWORD    zzz
+    AllowWSL    REG_DWORD    0x1
+");
+        assert_eq!(found.settings, vec![("AllowWSL".to_string(), 1)]);
+        assert!(found.allows_wsl);
+    }
+
+    /// **Proves the spawn, which the pure tests above cannot.** The dangerous
+    /// failure here is silent: if `which` cannot find `reg.exe`, every machine
+    /// on earth reports as unmanaged and the panel quietly stops telling
+    /// anybody their organisation blocked WSL. Ignored by default because it
+    /// reports this machine rather than a fixture; run it to see what this one
+    /// actually says.
+    #[test]
+    #[ignore = "asks this machine what its organisation has said"]
+    fn what_this_machine_says_about_wsl_policy() {
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        let found = runtime.block_on(device_policy());
+        println!("managed: {}", found.managed);
+        println!("allows wsl: {}", found.allows_wsl);
+        println!("settings: {:?}", found.settings);
+        // The spawn itself is what is being proved: reg.exe has to be findable,
+        // or the unmanaged answer above means nothing at all.
+        assert!(
+            crate::tooling::dev_runner::which("reg.exe").is_some(),
+            "reg.exe must be findable, or every machine reads as unmanaged"
+        );
+    }
+}

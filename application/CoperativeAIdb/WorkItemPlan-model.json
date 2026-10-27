@@ -1,0 +1,70 @@
+{
+  "form": "database-model",
+  "modelName": "WorkItemPlan",
+  "status": "built",
+  "dependsOn": {
+    "guidance": "Briefs that must be built before this one — usually the tables this model's relationships point at.",
+    "example": ["ClothingDatabase/Customer.json"],
+    "entries": ["CoperativeAIdb/WorkItem-model.json", "CoperativeAIdb/Solution-model.json"]
+  },
+  "instructions": {
+    "whoFillsThisIn": "Developers (Product can sanity-check the information being stored).",
+    "when": "Whenever a page needs to store data. One of these per model/table.",
+    "how": "Answer in plain English where you can.",
+    "note": "Solution = the folder this file sits in. Table / object name = this file's name."
+  },
+  "whatThisModelIs": {
+    "question": "What does this model represent, in one line?",
+    "example": "A customer's order.",
+    "answer": "What one work item requires of one Solution it affects: the changes needed there, the tests that must prove them, the branch to work on and the branch it is cut from, any UI pictures — and the API and page schemas the AI generates from all of that."
+  },
+  "fields": {
+    "guidance": "One entry per piece of data.",
+    "entries": [
+      { "fieldName": "id", "type": "id / key", "nullable": false, "default": "auto", "rules": "unique", "description": "The unique identifier" },
+      { "fieldName": "workItemId", "type": "id / key", "nullable": false, "default": "", "rules": "must reference a WorkItem row", "description": "The work item being planned" },
+      { "fieldName": "solutionId", "type": "id / key", "nullable": false, "default": "", "rules": "must reference a Solution of the work item's own Product; unique with workItemId", "description": "The Solution this work item affects" },
+      { "fieldName": "changesRequired", "type": "text", "nullable": false, "default": "", "rules": "", "description": "What has to change in this Solution, in the team's own words" },
+      { "fieldName": "unitTests", "type": "text", "nullable": false, "default": "", "rules": "", "description": "What must be proved — written before the thing that proves it" },
+      { "fieldName": "branchName", "type": "text", "nullable": false, "default": "", "rules": "", "description": "The branch this work lands on. Prefilled from the Develop Strategy's naming pattern" },
+      { "fieldName": "cloneFrom", "type": "text", "nullable": false, "default": "", "rules": "", "description": "The branch it is cut from — obvious to whoever set it up, a guess to everyone else. Prefilled from the Develop Strategy" },
+      { "fieldName": "mockups", "type": "text", "nullable": false, "default": "[]", "rules": "must be a JSON array of file paths", "description": "UI pictures for this Solution's part of the work" },
+      { "fieldName": "apiSchema", "type": "text", "nullable": false, "default": "", "rules": "written only by generation, never by the form", "description": "AI-generated: endpoints, payloads and status codes" },
+      { "fieldName": "pageSchema", "type": "text", "nullable": false, "default": "", "rules": "written only by generation, never by the form", "description": "AI-generated: pages, their fields, and which endpoints they call" },
+      { "fieldName": "filesToChange", "type": "text", "nullable": false, "default": "", "rules": "written only by generation, never by the form", "description": "AI-generated: the paths the work is expected to touch" },
+      { "fieldName": "createdAt", "type": "date", "nullable": false, "default": "now", "rules": "", "description": "When the Solution was attached to this work item" },
+      { "fieldName": "updatedAt", "type": "date", "nullable": false, "default": "now", "rules": "updated on every change", "description": "When it last changed" }
+    ]
+  },
+  "relationships": {
+    "guidance": "How this model connects to others.",
+    "entries": [
+      { "field": "workItemId", "relationship": "many-to-one", "relatedTable": "WorkItem", "relatedField": "id", "constraintName": "FK_WorkItemPlan_WorkItem" },
+      { "field": "solutionId", "relationship": "many-to-one", "relatedTable": "Solution", "relatedField": "id", "constraintName": "FK_WorkItemPlan_Solution" }
+    ]
+  },
+  "lookupsAndPerformance": {
+    "question": "Which fields do we search or filter on a lot?",
+    "answer": ["workItemId", "solutionId"]
+  },
+  "lifecycleAndRules": {
+    "retention": {
+      "question": "How long do we keep this data / when is it deleted?",
+      "answer": "Until the Solution is detached from the work item, or the work item is deleted."
+    },
+    "sensitiveFields": {
+      "question": "Any sensitive fields that need extra protection?",
+      "answer": "No."
+    },
+    "invariants": {
+      "question": "Anything that must always be true?",
+      "answer": "One row per (work item, Solution): work touching two repositories needs two sets of changes, branches and tests, and one row each is the only honest shape for that. The written half (changes, tests, branch, mockups) and the generated half (the schemas) are set by separate calls and never overwrite each other in either direction — regenerating schemas must not eat what a person typed, and re-saving a typed field must not blank the schemas. A plan can only name a Solution of the work item's own Product."
+    }
+  },
+  "changesOverTime": {
+    "guidance": "Each time you come back to change this model, add an entry describing what should change.",
+    "rounds": [
+      { "round": 12, "change": "New: opening a work item in Develop should let the team say which Solutions it affects and what each needs, so the AI can turn that into page and API schemas a developer builds from." }
+    ]
+  }
+}

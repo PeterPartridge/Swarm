@@ -1,0 +1,737 @@
+//! Shared plumbing for running a routed, budgeted, ledgered AI call.
+//!
+//! Both generation commands follow the same three beats, and R4's solution
+//! strategy will too, so the beats live here rather than being copied:
+//!
+//! 1. `plan()` — under the DB lock: read the budget and spend, ask the router
+//!    which provider and model to use, and refuse (recording the refusal)
+//!    if the budget says no.
+//! 2. the caller makes the network call **without the lock held**, so the rest
+//!    of the app stays responsive.
+//! 3. `record()` — under the lock again: price the tokens, write the ledger,
+//!    and keep the exchange so the log is the back and forth, not just a tally.
+
+use super::to_message;
+use crate::ai::client::Usage;
+use crate::ai::router::{self, BudgetState, Decision, ProviderOption};
+use crate::db::ai_usage::{self, Exchange, TokenCounts};
+use crate::db::{ai_provider, model_install, model_price, product_budget, system_setting};
+use crate::db::ai_provider::AiProvider;
+use turso::Connection;
+
+/// The router's answer, resolved to the provider row the caller needs.
+#[derive(Debug)]
+pub(crate) struct Routed {
+    pub provider: AiProvider,
+    pub model: String,
+    /// How hard the model should think, for the complexity this call was
+    /// planned at. Resolved here rather than passed straight through, so the
+    /// work item says *how hard the job is* and Admin says *what to do about
+    /// it* — two different decisions that were previously one word.
+    pub effort: String,
+    /// Plain-English explanation, shown to the user with the result.
+    pub reason: String,
+}
+
+/// The handover chain with the area's Secondary on the end of it.
+///
+/// **Deduplicated, because a chain that repeats a provider hands over to
+/// itself.** If the Secondary is already the head — the provider doing the work
+/// — or already somewhere in the Product's chain, appending it again would
+/// produce a handover that changes nothing while reporting that it did.
+///
+/// **An empty chain gains a head as well as a tail.** The router treats an
+/// empty chain as "no handover plan", so a Product with a Secondary and no
+/// configured chain would never reach it. Seeding the chain with the provider
+/// actually in use makes the Secondary reachable without inventing an order
+/// nobody asked for.
+pub(crate) fn chain_with_secondary(
+    chain: Vec<i64>,
+    fallback_provider_id: i64,
+    secondary_id: Option<i64>,
+) -> Vec<i64> {
+    let Some(secondary) = secondary_id else {
+        return chain;
+    };
+    if secondary == fallback_provider_id || chain.contains(&secondary) {
+        return chain;
+    }
+    let mut chain = chain;
+    if chain.is_empty() {
+        chain.push(fallback_provider_id);
+    }
+    chain.push(secondary);
+    chain
+}
+
+/// Reads the area's Secondary and puts it on the end of the chain.
+async fn with_secondary(
+    conn: &Connection,
+    product_id: i64,
+    area: Option<&str>,
+    fallback_provider_id: i64,
+    chain: Vec<i64>,
+) -> Vec<i64> {
+    let Some(area) = area else {
+        return chain;
+    };
+    // A failure to read it is the same as not having one: a fallback nobody
+    // could look up must not become a refusal to do the work.
+    let secondary = crate::db::routing_default::secondary_for(conn, product_id, area)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|r| r.provider_id);
+    chain_with_secondary(chain, fallback_provider_id, secondary)
+}
+
+/// Decides how a call should run, or refuses it. A refusal is written to the
+/// ledger with outcome `blocked` before the error is returned, so "we chose not
+/// to spend" is as visible in the history as spending would have been.
+pub(crate) async fn plan(
+    conn: &Connection,
+    product_id: i64,
+    fallback_provider_id: i64,
+    effort: &str,
+    purpose: &str,
+) -> Result<Routed, String> {
+    plan_in_area(conn, product_id, None, fallback_provider_id, effort, purpose).await
+}
+
+/// The same decision, with the area's Secondary AI available to hand over to.
+///
+/// **The Secondary is where work goes when the budget runs out.** Stopping dead
+/// is the thing a Secondary exists to avoid, and the router already knows how
+/// to walk a chain — so this appends the area's Secondary to the end of it
+/// rather than inventing a second mechanism beside one that works.
+///
+/// **Appended, never inserted.** It is the last resort, so it goes last: a
+/// Secondary that pushed ahead of a Product's own configured chain would be
+/// quietly overriding a decision somebody made deliberately.
+///
+/// `None` for the area means no Secondary is available — which is what every
+/// caller that does not know its area gets, and is the same as not having one.
+pub(crate) async fn plan_in_area(
+    conn: &Connection,
+    product_id: i64,
+    area: Option<&str>,
+    fallback_provider_id: i64,
+    effort: &str,
+    purpose: &str,
+) -> Result<Routed, String> {
+    let providers: Vec<ProviderOption> = ai_provider::list_all(conn)
+        .await
+        .map_err(to_message)?
+        .into_iter()
+        .map(|p| ProviderOption {
+            id: p.id,
+            name: p.name,
+            models: p.models,
+            metered: p.metered,
+        })
+        .collect();
+
+    let budget_row = product_budget::for_product(conn, product_id)
+        .await
+        .map_err(to_message)?;
+    let state = match &budget_row {
+        Some(budget) => {
+            let since = product_budget::current_period_start(budget, crate::db::now_millis());
+            let spend = ai_usage::spend_for_product(conn, product_id, since)
+                .await
+                .map_err(to_message)?;
+            Some(BudgetState {
+                ai_budget_micropence: budget.ai_budget_micropence,
+                token_limit: budget.token_limit,
+                spent_micropence: spend.micropence,
+                spent_tokens: spend.tokens,
+                warn_pct: budget.warn_pct,
+                handover_pct: budget.handover_pct,
+                hard_stop_pct: budget.hard_stop_pct,
+                chain: with_secondary(
+                    conn,
+                    product_id,
+                    area,
+                    fallback_provider_id,
+                    budget.provider_chain.clone(),
+                )
+                .await,
+            })
+        }
+        None => None,
+    };
+
+    // The Admin switch, read here so every metered call passes through it.
+    let allow_paid = crate::db::system_setting::paid_api_allowed(conn)
+        .await
+        .unwrap_or(false);
+    match router::route(state.as_ref(), &providers, fallback_provider_id, effort, allow_paid) {
+        Decision::Use {
+            provider_id,
+            model,
+            reason,
+            ..
+        } => {
+            let provider = ai_provider::find_by_id(conn, provider_id)
+                .await
+                .map_err(to_message)?
+                .ok_or_else(|| "the chosen AI provider no longer exists".to_string())?;
+
+            // A model the platform has not installed is refused here, at the
+            // last gate before content moves — so it cannot be reached by any
+            // route, including a budget handover that picked it automatically.
+            if !model_install::is_installed(conn, provider.id, &model)
+                .await
+                .map_err(to_message)?
+            {
+                let _ = ai_usage::record(
+                    conn, Some(product_id), None, Some(provider.id), &model, purpose,
+                    TokenCounts::default(), 0, 0, "blocked", Exchange::default(),
+                )
+                .await;
+                return Err(format!(
+                    "'{model}' on {} has not been installed yet. Install it in AI Settings — \
+                     the platform validates a model before trusting it with work.",
+                    provider.name
+                ));
+            }
+
+            // For Claude, the Admin setting decides both: it holds a model
+            // and an effort per complexity, shared by the API and the plan so
+            // "high" cannot mean two different things depending on how the
+            // call happens to be paid for. Other providers keep the word they
+            // were given — Ollama has no effort parameter to set.
+            let effort = if provider.kind == "anthropic" || provider.kind == "claudeCode" {
+                let tiers = system_setting::claude_tiers(conn).await.map_err(to_message)?;
+                system_setting::tier_for(&tiers, effort).effort
+            } else {
+                effort.to_string()
+            };
+
+            Ok(Routed {
+                provider,
+                model,
+                effort,
+                reason,
+            })
+        }
+        Decision::Blocked { reason, .. } => {
+            // Recorded, not silent: a blocked call is a fact worth keeping.
+            let _ = ai_usage::record(
+                conn,
+                Some(product_id),
+                None,
+                None,
+                "",
+                purpose,
+                TokenCounts::default(),
+                0,
+                0,
+                "blocked",
+                Exchange::default(),
+            )
+            .await;
+            Err(reason)
+        }
+    }
+}
+
+/// Prices the call and writes it to the ledger. Ledger failures never fail the
+/// user's work — the items are already generated, and losing them to a
+/// bookkeeping error would be the worse outcome.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn record(
+    conn: &Connection,
+    product_id: i64,
+    work_item_id: Option<i64>,
+    provider: &AiProvider,
+    model: &str,
+    purpose: &str,
+    usage: &Usage,
+    latency_ms: i64,
+    outcome: &str,
+    // `exchange`: what was asked and what came back, so the log is the back and
+    // forth rather than only a tally. Capped by `Exchange::new`.
+    exchange: Exchange,
+) {
+    let tokens = TokenCounts {
+        input_tokens: usage.input_tokens,
+        output_tokens: usage.output_tokens,
+        cache_read_tokens: usage.cache_read_input_tokens,
+        cache_write_tokens: usage.cache_creation_input_tokens,
+    };
+    // An unmetered provider costs nothing however many tokens it burned.
+    let cost = if provider.metered {
+        let price = model_price::find(conn, provider.id, model).await.ok().flatten();
+        model_price::cost_micropence(price.as_ref(), &tokens)
+    } else {
+        0
+    };
+    let _ = ai_usage::record(
+        conn,
+        Some(product_id),
+        work_item_id,
+        Some(provider.id),
+        model,
+        purpose,
+        tokens,
+        cost,
+        latency_ms,
+        outcome,
+        exchange,
+    )
+    .await;
+}
+
+/// The parts of an AI call that are the same however it ends.
+///
+/// Grouped rather than passed positionally: `product_id` and `latency_ms` are
+/// both `i64`, so swapping them compiles silently and files the spend against
+/// a Product that never made the call. The same reasoning as
+/// `test_case::TestCaseUpdate` — a struct is the cheapest way to make a wrong
+/// call fail to build.
+pub(crate) struct Call<'a> {
+    pub product_id: i64,
+    pub work_item_id: Option<i64>,
+    pub routed: &'a Routed,
+    pub purpose: &'a str,
+    pub prompt: &'a crate::ai::client::Prompt,
+}
+
+/// Records a call that produced work.
+///
+/// `reply` is what the caller wants read back in the log — the *parsed* result,
+/// not the provider's raw JSON, because the raw text is mostly schema
+/// scaffolding and a person reading the log wants to know what was proposed.
+pub(crate) async fn record_ok(
+    conn: &Connection,
+    call: &Call<'_>,
+    latency_ms: i64,
+    usage: &Usage,
+    reply: &str,
+) {
+    record(
+        conn,
+        call.product_id,
+        call.work_item_id,
+        &call.routed.provider,
+        &call.routed.model,
+        call.purpose,
+        usage,
+        latency_ms,
+        "ok",
+        Exchange::new(&asked(call.prompt), reply),
+    )
+    .await;
+}
+
+/// Records a call the model declined.
+///
+/// **`declined` is not `blocked`, and the difference is money.** The model ran
+/// and was paid for; it chose to return a question instead of work. A run of
+/// declines that was filed as `blocked` would quietly understate the bill.
+pub(crate) async fn record_declined(
+    conn: &Connection,
+    call: &Call<'_>,
+    latency_ms: i64,
+    usage: &Usage,
+    reason: &str,
+    what_is_needed: &str,
+) {
+    record(
+        conn,
+        call.product_id,
+        call.work_item_id,
+        &call.routed.provider,
+        &call.routed.model,
+        call.purpose,
+        usage,
+        latency_ms,
+        "declined",
+        Exchange::new(
+            &asked(call.prompt),
+            &format!("Declined: {reason}\n{what_is_needed}"),
+        ),
+    )
+    .await;
+}
+
+/// Records a call that failed, and hands the message back for the caller to
+/// return.
+///
+/// **The classification is the reason this exists.** `refusal` and `error` are
+/// different facts — one is the model declining at the API level, the other is
+/// anything from a dropped connection to a bad key — and the rule for telling
+/// them apart was written out at seven call sites. Seven copies of a rule is
+/// seven places to fix when the rule changes, and the ledger is the last place
+/// that should quietly disagree with itself.
+pub(crate) async fn record_failure(
+    conn: &Connection,
+    call: &Call<'_>,
+    latency_ms: i64,
+    error: String,
+) -> String {
+    let outcome = if error.contains("refusal") {
+        "refusal"
+    } else {
+        "error"
+    };
+    record(
+        conn,
+        call.product_id,
+        call.work_item_id,
+        &call.routed.provider,
+        &call.routed.model,
+        call.purpose,
+        &Default::default(),
+        latency_ms,
+        outcome,
+        Exchange::new(&asked(call.prompt), &error),
+    )
+    .await;
+    error
+}
+
+/// The two halves of a prompt as one readable block, for the log.
+///
+/// The provider sees them as separate messages — the context is cached and the
+/// task is not — but a person reading back what was asked wants the whole
+/// thing, in the order it was sent.
+pub(crate) fn asked(prompt: &crate::ai::client::Prompt) -> String {
+    format!("{}\n\n{}", prompt.context, prompt.task)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::product::tests::db_with_product;
+
+    /// Regression guard for a silent-loss bug. `record` swallows ledger errors
+    /// deliberately (generated work must never be lost to bookkeeping), which
+    /// meant a purpose missing from `PURPOSES` vanished without a trace: two
+    /// rounds of marketing, design and architecture spend were never written,
+    /// so the budget router routed against an understated bill. **Every purpose
+    /// a command passes to `plan`/`record` must be in this list, and this list
+    /// must stay in step with the commands.**
+    #[tokio::test]
+    async fn every_purpose_the_commands_use_actually_reaches_the_ledger() {
+        let (conn, product_id) = db_with_product().await;
+        let claude_id = claude(&conn).await;
+        let provider = ai_provider::find_by_id(&conn, claude_id).await.expect("q").expect("p");
+
+        // One entry per `PURPOSE` constant in commands/ (and the pal's).
+        let used_by_commands = [
+            "storyGeneration",     // work_items::generate_user_stories
+            "deliverablePlanning", // work_items::generate_deliverable_work
+            "solutionStrategy",    // strategies::generate_solution_strategy
+            "recommendation",      // recommendations
+            "modelValidation",     // models::install_model
+            "marketingStrategy",   // design::generate_design_strategy
+            "designStrategy",      // design::generate_design_strategy
+            "architectureDoc",     // architecture::generate_architecture_doc
+            "codingPal",           // workspace::ask_coding_pal
+            "changePlan",          // work_item_plans::generate_change_plan
+        ];
+        for purpose in used_by_commands {
+            record(
+                &conn, product_id, None, &provider, "haiku", purpose,
+                &Usage { input_tokens: 10, output_tokens: 5, ..Default::default() },
+                1, "ok", Exchange::default(),
+            )
+            .await;
+        }
+        let spend = ai_usage::spend_for_product(&conn, product_id, 0).await.expect("spend");
+        assert_eq!(
+            spend.calls,
+            used_by_commands.len() as i64,
+            "a purpose was silently dropped — it is missing from ai_usage::PURPOSES"
+        );
+    }
+
+    /// Marks a provider's models installed. Every routing test needs this now:
+    /// the platform refuses a model it has not validated, so a test that skips
+    /// installation is testing the install gate rather than routing.
+    async fn install_all(conn: &Connection, provider_id: i64, models: &[&str]) {
+        for model in models {
+            model_install::set_result(conn, provider_id, model, "installed", "", "{}")
+                .await
+                .expect("install");
+        }
+    }
+
+    async fn claude(conn: &Connection) -> i64 {
+        let id = ai_provider::add(conn, "Claude", "https://api.anthropic.com", &["haiku", "opus"], "claude")
+            .await
+            .expect("provider");
+        install_all(conn, id, &["haiku", "opus"]).await;
+        // Paid calls are off by default, and these tests are about budgets and
+        // policies rather than that switch — a metered provider has to be
+        // allowed before any of them can reach it. The switch has its own tests
+        // in `ai::router`, and one below proving it reaches this far.
+        crate::db::system_setting::set_paid_api_allowed(conn, true)
+            .await
+            .expect("allow paid calls");
+        id
+    }
+
+    /// **The switch, proved end to end through the database.** The router tests
+    /// cover the decision; this covers the wiring — that `plan` reads the
+    /// setting at all, rather than defaulting to permissive somewhere between
+    /// here and there.
+    #[tokio::test]
+    async fn with_paid_calls_off_a_metered_provider_is_refused() {
+        let (conn, product_id) = db_with_product().await;
+        let claude_id = claude(&conn).await;
+        crate::db::system_setting::set_paid_api_allowed(&conn, false)
+            .await
+            .expect("switch off");
+
+        let err = plan(&conn, product_id, claude_id, "high", "storyGeneration")
+            .await
+            .expect_err("a metered provider must not be reachable");
+        assert!(
+            err.contains("switched off in Admin"),
+            "the refusal must name the switch rather than blaming the model list: {err}"
+        );
+    }
+
+    async fn local(conn: &Connection) -> i64 {
+        let id = ai_provider::add_of_kind(
+            conn,
+            "Ollama",
+            "http://localhost:11434",
+            &["llama3"],
+            "ollama",
+            "ollama",
+            false,
+        )
+        .await
+        .expect("provider");
+        install_all(conn, id, &["llama3"]).await;
+        id
+    }
+
+    #[tokio::test]
+    async fn with_no_budget_the_policys_provider_is_planned() {
+        let (conn, product_id) = db_with_product().await;
+        let claude_id = claude(&conn).await;
+        let routed = plan(&conn, product_id, claude_id, "high", "storyGeneration")
+            .await
+            .expect("planned");
+        assert_eq!(routed.provider.id, claude_id);
+        assert_eq!(routed.model, "opus");
+    }
+
+    /// End to end through the DB: spend past the handover threshold and the
+    /// plan must come back pointing at the free local provider.
+    #[tokio::test]
+    async fn spending_past_the_threshold_hands_over_to_the_local_provider() {
+        let (conn, product_id) = db_with_product().await;
+        let claude_id = claude(&conn).await;
+        let local_id = local(&conn).await;
+        product_budget::set_budget(
+            &conn, product_id, 0, 1_000_000, 0, 75, 90, 100, 30, &[claude_id, local_id],
+        )
+        .await
+        .expect("budget");
+
+        // 95% of the AI budget already spent
+        ai_usage::record(
+            &conn, Some(product_id), None, Some(claude_id), "haiku", "storyGeneration",
+            TokenCounts::default(), 950_000, 10, "ok", Exchange::default(),
+        )
+        .await
+        .expect("record");
+
+        let routed = plan(&conn, product_id, claude_id, "low", "storyGeneration")
+            .await
+            .expect("planned");
+        assert_eq!(routed.provider.id, local_id, "should hand over: {}", routed.reason);
+        assert!(routed.reason.contains("handed over"), "got: {}", routed.reason);
+    }
+
+    /// A model that has not been through installation is refused at the last
+    /// gate, whichever route chose it.
+    #[tokio::test]
+    async fn an_uninstalled_model_is_refused_even_though_the_provider_is_fine() {
+        let (conn, product_id) = db_with_product().await;
+        let claude_id = ai_provider::add(
+            &conn, "Claude", "https://api.anthropic.com", &["haiku"], "claude",
+        )
+        .await
+        .expect("provider");
+        // deliberately not installed
+        // Allowed, so the refusal under test is the install gate rather than the
+        // paid-calls switch in front of it.
+        crate::db::system_setting::set_paid_api_allowed(&conn, true)
+            .await
+            .expect("allow paid calls");
+
+        let err = plan(&conn, product_id, claude_id, "low", "storyGeneration")
+            .await
+            .expect_err("must be refused");
+        assert!(err.contains("has not been installed"), "got: {err}");
+
+        // …and the refusal is on the record, without counting as spend.
+        let ledger = ai_usage::list_for_product(&conn, product_id, 10).await.expect("list");
+        assert!(ledger.iter().any(|u| u.outcome == "blocked"));
+        assert_eq!(ai_usage::spend_for_product(&conn, product_id, 0).await.expect("spend").calls, 0);
+    }
+
+    /// The interaction worth knowing about: with all-or-nothing installation, a
+    /// local model that failed validation is not a usable handover target, so
+    /// passing the threshold stops work rather than degrading it.
+    #[tokio::test]
+    async fn handover_to_an_uninstalled_local_model_is_refused_not_silently_downgraded() {
+        let (conn, product_id) = db_with_product().await;
+        let claude_id = claude(&conn).await;
+        let local_id = ai_provider::add_of_kind(
+            &conn, "Ollama", "http://localhost:11434", &["llama3"], "ollama", "ollama", false,
+        )
+        .await
+        .expect("provider");
+        // the handover target exists but never passed validation
+
+        product_budget::set_budget(
+            &conn, product_id, 0, 1_000_000, 0, 75, 90, 100, 30, &[claude_id, local_id],
+        )
+        .await
+        .expect("budget");
+        ai_usage::record(
+            &conn, Some(product_id), None, Some(claude_id), "haiku", "storyGeneration",
+            TokenCounts::default(), 950_000, 10, "ok", Exchange::default(),
+        )
+        .await
+        .expect("record");
+
+        let err = plan(&conn, product_id, claude_id, "low", "storyGeneration")
+            .await
+            .expect_err("must be refused");
+        assert!(
+            err.contains("has not been installed"),
+            "the user should be told why work stopped, not left guessing: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_blocked_call_is_refused_and_written_to_the_ledger() {
+        let (conn, product_id) = db_with_product().await;
+        let claude_id = claude(&conn).await;
+        product_budget::set_budget(
+            &conn, product_id, 0, 1_000_000, 0, 75, 90, 100, 30, &[claude_id],
+        )
+        .await
+        .expect("budget");
+        ai_usage::record(
+            &conn, Some(product_id), None, Some(claude_id), "haiku", "storyGeneration",
+            TokenCounts::default(), 1_200_000, 10, "ok", Exchange::default(),
+        )
+        .await
+        .expect("record");
+
+        let err = plan(&conn, product_id, claude_id, "low", "storyGeneration")
+            .await
+            .expect_err("must be blocked");
+        assert!(err.contains("budget is spent"), "got: {err}");
+
+        let ledger = ai_usage::list_for_product(&conn, product_id, 10).await.expect("list");
+        assert!(
+            ledger.iter().any(|u| u.outcome == "blocked"),
+            "the refusal should be recorded"
+        );
+        // …but the refusal must not itself count as spend
+        let spend = ai_usage::spend_for_product(&conn, product_id, 0).await.expect("spend");
+        assert_eq!(spend.calls, 1);
+    }
+
+    #[tokio::test]
+    async fn a_recorded_call_is_priced_from_the_price_table() {
+        let (conn, product_id) = db_with_product().await;
+        let claude_id = claude(&conn).await;
+        model_price::set_price(&conn, claude_id, "haiku", 80, 400, 100)
+            .await
+            .expect("price");
+        let provider = ai_provider::find_by_id(&conn, claude_id).await.expect("q").expect("p");
+
+        record(
+            &conn,
+            product_id,
+            None,
+            &provider,
+            "haiku",
+            "storyGeneration",
+            &Usage {
+                input_tokens: 1_000,
+                output_tokens: 500,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
+            },
+            1234,
+            "ok",
+            Exchange::default(),
+        )
+        .await;
+
+        let spend = ai_usage::spend_for_product(&conn, product_id, 0).await.expect("spend");
+        assert_eq!(spend.micropence, 1_000 * 80 + 500 * 400);
+        assert_eq!(spend.tokens, 1_500);
+    }
+
+    /// A local model burns tokens but costs nothing — the ledger must say so,
+    /// or handover would keep pushing the budget up after it stopped spending.
+    #[tokio::test]
+    async fn an_unmetered_provider_records_tokens_at_zero_cost() {
+        let (conn, product_id) = db_with_product().await;
+        let local_id = local(&conn).await;
+        model_price::set_price(&conn, local_id, "llama3", 999, 999, 50)
+            .await
+            .expect("even with a price row");
+        let provider = ai_provider::find_by_id(&conn, local_id).await.expect("q").expect("p");
+
+        record(
+            &conn, product_id, None, &provider, "llama3", "storyGeneration",
+            &Usage { input_tokens: 10_000, output_tokens: 5_000, ..Default::default() },
+            999, "ok",
+        
+            Exchange::default(),
+        )
+        .await;
+
+        let spend = ai_usage::spend_for_product(&conn, product_id, 0).await.expect("spend");
+        assert_eq!(spend.micropence, 0, "a local model costs nothing");
+        assert_eq!(spend.tokens, 15_000, "but its tokens are still counted");
+    }
+
+    /// **A Secondary that is already the provider doing the work is not a
+    /// fallback.** Appending it would make a chain that hands over to itself:
+    /// the router would report a handover and change nothing.
+    #[test]
+    fn a_secondary_that_is_already_in_use_is_not_appended() {
+        assert_eq!(chain_with_secondary(vec![], 7, Some(7)), Vec::<i64>::new());
+        assert_eq!(chain_with_secondary(vec![7, 9], 7, Some(9)), vec![7, 9]);
+    }
+
+    /// **An empty chain gains a head as well as a tail.** The router reads an
+    /// empty chain as no handover plan, so a Product with a Secondary and no
+    /// configured chain would never reach it. Seeding with the provider
+    /// actually in use makes it reachable without inventing an order.
+    #[test]
+    fn a_product_with_no_chain_still_reaches_its_secondary() {
+        assert_eq!(chain_with_secondary(vec![], 7, Some(3)), vec![7, 3]);
+    }
+
+    /// **Appended, never inserted.** It is the last resort, so it goes last:
+    /// pushing ahead of a Product’s configured chain would quietly override a
+    /// decision somebody made deliberately.
+    #[test]
+    fn a_secondary_goes_on_the_end_of_a_configured_chain() {
+        assert_eq!(chain_with_secondary(vec![7, 9], 7, Some(3)), vec![7, 9, 3]);
+    }
+
+    /// No Secondary leaves the chain exactly as the Product configured it.
+    #[test]
+    fn no_secondary_changes_nothing() {
+        assert_eq!(chain_with_secondary(vec![7, 9], 7, None), vec![7, 9]);
+        assert_eq!(chain_with_secondary(vec![], 7, None), Vec::<i64>::new());
+    }
+}

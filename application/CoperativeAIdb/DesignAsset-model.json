@@ -1,0 +1,66 @@
+{
+  "form": "database-model",
+  "modelName": "DesignAsset",
+  "status": "built",
+  "dependsOn": {
+    "guidance": "Briefs that must be built before this one — usually the tables this model's relationships point at.",
+    "example": ["ClothingDatabase/Customer.json"],
+    "entries": ["CoperativeAIdb/Product-model.json"]
+  },
+  "instructions": {
+    "whoFillsThisIn": "Developers (Product can sanity-check the information being stored).",
+    "when": "Whenever a page needs to store data. One of these per model/table.",
+    "how": "Answer in plain English where you can.",
+    "note": "Solution = the folder this file sits in. Table / object name = this file's name."
+  },
+  "whatThisModelIs": {
+    "question": "What does this model represent, in one line?",
+    "example": "A customer's order.",
+    "answer": "Something the design work actually produced — a token set, a user flow, a component diagram, a wireframe, or brand guidelines. The design strategy says what the design should be; an asset is the thing itself."
+  },
+  "fields": {
+    "guidance": "One entry per piece of data.",
+    "entries": [
+      { "fieldName": "id", "type": "id / key", "nullable": false, "default": "auto", "rules": "unique", "description": "The unique identifier" },
+      { "fieldName": "productId", "type": "id / key", "nullable": false, "default": "", "rules": "must reference a Product row", "description": "The Product this asset belongs to" },
+      { "fieldName": "kind", "type": "list", "nullable": false, "default": "tokens", "rules": "one of: tokens / uiFlow / componentDiagram / wireframe / brandGuidelines", "description": "What sort of artefact this is. The kind decides the format — see below" },
+      { "fieldName": "name", "type": "text", "nullable": false, "default": "", "rules": "not empty; unique per (product, kind)", "description": "What this artefact is called. Regenerating the same name replaces it rather than leaving two" },
+      { "fieldName": "content", "type": "text", "nullable": false, "default": "", "rules": "must parse as JSON when the kind is tokens; must start with a Mermaid diagram type when the kind is uiFlow or componentDiagram", "description": "The artefact itself" },
+      { "fieldName": "format", "type": "list", "nullable": false, "default": "markdown", "rules": "one of: json / mermaid / markdown; decided by the kind, never by the caller", "description": "How the content should be read" },
+      { "fieldName": "figmaFileKey", "type": "text", "nullable": true, "default": "", "rules": "", "description": "Set once this asset has been pushed into a Figma file" },
+      { "fieldName": "figmaNodeId", "type": "text", "nullable": true, "default": "", "rules": "", "description": "Where in that file it landed, when known" },
+      { "fieldName": "createdAt", "type": "date", "nullable": false, "default": "now", "rules": "", "description": "When the asset was first stored" },
+      { "fieldName": "updatedAt", "type": "date", "nullable": false, "default": "now", "rules": "updated on every change", "description": "When it last changed" }
+    ]
+  },
+  "relationships": {
+    "guidance": "How this model connects to others.",
+    "entries": [
+      { "field": "productId", "relationship": "many-to-one", "relatedTable": "Product", "relatedField": "id", "constraintName": "FK_DesignAsset_Product" }
+    ]
+  },
+  "lookupsAndPerformance": {
+    "question": "Which fields do we search or filter on a lot?",
+    "answer": ["productId", "kind"]
+  },
+  "lifecycleAndRules": {
+    "retention": {
+      "question": "How long do we keep this data / when is it deleted?",
+      "answer": "Until the asset or its Product is deleted. Regenerating an asset of the same name replaces it in place."
+    },
+    "sensitiveFields": {
+      "question": "Any sensitive fields that need extra protection?",
+      "answer": "No. The Figma token that pushes these lives in the operating system's credential store and never touches this table."
+    },
+    "invariants": {
+      "question": "Anything that must always be true?",
+      "answer": "The kind decides the format, not whoever called save. A token set must parse as JSON and a flow must start with a Mermaid diagram type, because everything downstream — the emitted file, the Figma push — assumes it. Recording where an asset landed in Figma never changes the asset's content: pushing does not modify the thing, it records that a copy exists elsewhere."
+    }
+  },
+  "changesOverTime": {
+    "guidance": "Each time you come back to change this model, add an entry describing what should change.",
+    "rounds": [
+      { "round": 8, "change": "New: the Marketing & Design area needs somewhere to keep what design produces, so the app can show it, export it as files, and know which artefacts have been pushed to Figma." }
+    ]
+  }
+}

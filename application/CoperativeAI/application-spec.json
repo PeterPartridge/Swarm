@@ -1,0 +1,159 @@
+{
+  "form": "application-spec",
+  "solutionName": "CoperativeAI",
+  "solutionType": "application",
+  "status": "filled",
+  "exampleOf": "../../template/_forms/application-spec.json",
+  "core": {
+    "purpose": {
+      "question": "What is the purpose of this solution?",
+      "answer": "A Product / Development / QA workspace: the Rust desktop application teams use to run the CooperativeAICoding loop. The main window has a top menu with four tabs — Product, Develop, Test, Admin — each with its own colour; clicking a tab enters that environment. Product plans products (Strategy with Deliverables, a work-item hierarchy with commercial fields, drag-and-drop feature design, an AI button that generates the work achieving a Deliverable, specs that generate endpoints/front-end/database designs); Develop builds them (Technical Strategy, Board/Sprint/List views filtered by user, Solutions linked to Products and to GitHub repositories, code editor, real embedded terminal, multi-repository support, AI via API keys with per-work-item and per-Product policies); Test designs QA tests (Testing Strategy plus test cases associated with Deliverables or work items) that AI can implement; Admin names team members, assigns roles, and decides which areas and commercial fields each role sees. There are still no logins — roles organise the workspace, they do not secure it."
+    },
+    "hosting": {
+      "question": "Where will it be hosted, deployed, or distributed?",
+      "answer": "A downloadable native executable for Windows and Linux; no server-side hosting. Coded for low memory usage and good performance on low-spec machines."
+    },
+    "language": {
+      "question": "What language will it use?",
+      "answer": "Rust."
+    },
+    "frameworks": {
+      "question": "What frameworks, libraries, or UI toolkit should it use?",
+      "answer": "Tauri for the GUI shell. The frontend is React 19 + Vite + TypeScript: Monaco (VS Code's editor component) for the code editor, dnd-kit for the drag-and-drop feature-design canvas, and xterm.js for the terminal view. The in-app terminal is a real embedded shell — a genuine OS shell process (via a PTY crate such as portable-pty) rendered inside the Tauri window via xterm.js — not a simulated command box and not a text-mode UI crate like ratatui, which can't render inside a GUI webview."
+    }
+  },
+  "accessAndInterface": {
+    "authType": {
+      "question": "How does this solution authenticate or authorise callers/users?",
+      "answer": "None — single-user local desktop app; no login, no user accounts. The app opens straight into the workspace."
+    },
+    "rolesOrClaims": {
+      "question": "Does it authorise by Claims or Roles?",
+      "answer": "Roles, but not as an authorisation boundary. There is still no login, so nothing is authenticated and anyone can switch who they are working as — roles decide which of the four tabs are shown and whether a work item's cost/profit/chargeable fields are visible, and that is all. Seeded roles (Admin, Product, Developer, QA) are editable in the Admin area; Admin cannot be deleted or weakened, and with no active member selected everything is visible so the user cannot lock themselves out."
+    },
+    "lookAndFeel": {
+      "question": "What is the overall look and feel?",
+      "answer": "Minimal and easy to use. A top menu with four tabs — Product, Develop, Test, Admin — each with its own colour identifying its environment; clicking a tab enters that environment. A \"Working as…\" picker sits beside the tabs and sets the active team member, which decides the tabs and commercial fields on show."
+    },
+    "stylingOrToolkit": {
+      "question": "What styling approach, component library, or UI toolkit?",
+      "answer": "Plain CSS with CSS-variable theming: one variable set per workspace tab colour plus the user-customisable colours. No CSS framework — keeps the dependency footprint small for low-spec machines."
+    },
+    "interactionModel": {
+      "question": "How do people interact with it?",
+      "answer": "Both — typed commands in a terminal, and mouse drag-and-drop to move code blocks or UI designs around."
+    },
+    "customisation": {
+      "question": "Any customisation users control?",
+      "answer": "Customisable colours."
+    }
+  },
+  "conventions": {
+    "configLocation": {
+      "question": "Where does it read/write its own config and data on disk?",
+      "answer": "To the local database file (CoperativeAIdb) in the OS-appropriate default app-data folder, overridable by an environment variable."
+    },
+    "errorLogging": {
+      "question": "How do we log errors and issues?",
+      "answer": "To the local database file (CoperativeAIdb) in the OS-appropriate default app-data folder, overridable by an environment variable."
+    },
+    "documentation": {
+      "question": "How is this solution documented for its users or callers?",
+      "answer": ""
+    }
+  },
+  "scaffold": {
+    "boilerplate": {
+      "question": "Start from a named boilerplate?",
+      "answer": "tauri-desktop-app",
+      "note": "Corrected from 'rust-cli-app' during the first build attempt — this solution is a real windowed GUI (Tauri) with an embedded terminal, which needs the src-tauri/ + frontend layout, not a plain cargo-new binary. See boilerplates.json's own note on the difference."
+    },
+    "fileLayout": {
+      "question": "What is the folder and file layout of this solution's repo?",
+      "answer": [
+        "app/CoperativeAI/src/ — React + TypeScript frontend (Vite)",
+        "app/CoperativeAI/src/pages/ — one component per page brief (workspace shell, product planning, editor, terminal, …)",
+        "app/CoperativeAI/src/components/ — shared UI components",
+        "app/CoperativeAI/src/lib/ — shared frontend logic (Tauri command wrappers, theming)",
+        "app/CoperativeAI/src/pages/__tests__/ — Vitest tests mirroring src/pages/",
+        "app/CoperativeAI/src-tauri/src/commands/ — Tauri command handlers",
+        "app/CoperativeAI/src-tauri/src/db/ — all turso database access (one module per table)",
+        "app/CoperativeAI/src-tauri/src/terminal/ — PTY shell integration"
+      ]
+    },
+    "testing": {
+      "question": "What test framework should be used, and what kinds of tests?",
+      "answer": "TDD per the Project Brief's dev-rules: always write a failing test first, then just enough code to pass it. Tests start simple and grow more complex as functionality is added."
+    },
+    "commands": {
+      "question": "The commands the AI should use to work with this repo.",
+      "install": "Install Rust, Cargo, and Node; run `cargo fetch` in src-tauri/ and `npm install` for the frontend.",
+      "run": "`npm run tauri dev` to start the application in development mode.",
+      "build": "`npm run tauri build` to produce release binaries for Windows and Linux.",
+      "deploy": "N/A — no server-side deployment. Release binaries are produced by the pipeline and published as downloadable artifacts.",
+      "test": "`cargo test` from src-tauri/ for backend logic; `npm test` (Vitest) for the frontend."
+    },
+    "note": "Based on the tauri-desktop-app boilerplate; the testing answer above overrides the boilerplate's testing entry. Commands were originally written assuming a plain cargo binary — corrected here to match Tauri's actual install/run/build/test shape during the first build attempt."
+  },
+  "security": {
+    "baseline": {
+      "question": "Start from a named security baseline?",
+      "answer": "application-baseline"
+    },
+    "rules": {
+      "question": "Any extra security rules for this solution?",
+      "entries": [
+        "Any file dragged in or opened by the user is validated (path, type, size) before being read.",
+        "AI provider API keys are stored in the OS credential store (Windows Credential Manager / Linux Secret Service) via a Tauri keyring plugin — never in plaintext in the database, config files, code, or logs. The database stores only a key alias.",
+        "Per-work-item AI policies are enforced deny-by-default: before any work-item content is sent to an AI provider, the item's policy must explicitly allow that use and that provider.",
+        "Where the embedded terminal — and every command the app runs on someone's behalf — actually runs is one setting: off (this machine), WSL, or Docker. See the Agent Sandbox page brief. Off, it is a real shell with the same permissions as the OS user running the app — no privilege escalation, and no separate elevated process. Under WSL or Docker it runs inside that boundary instead, and nothing about how it is used changes.",
+        "No protection is claimed that has not been proved on the machine in front of it. The app reports what its detection actually found — including that WSL with the Windows drive still mounted has no filesystem boundary at all — rather than what the chosen option is called. This is the same rule as never showing a cost the app cannot see.",
+        "The embedded terminal is local only — never exposed over a network socket or remote-accessible interface.",
+        "Output copied from or displayed in the embedded terminal is never logged or persisted by the application itself."
+      ]
+    }
+  },
+  "infrastructure": {
+    "resources": {
+      "question": "What infrastructure resources does this solution need?",
+      "entries": []
+    },
+    "provisioning": {
+      "question": "How is infrastructure created, and by whom?",
+      "answer": "N/A — no server-side infrastructure. Release binaries are produced by the pipeline and published as downloadable artifacts."
+    },
+    "environments": {
+      "question": "What environments exist, and which may the AI deploy to?",
+      "answer": "Development (AI may build and deploy debug builds), production (people deploy after review) — performance-focused release builds."
+    },
+    "settings": {
+      "question": "What named settings and secrets does this solution need at build or run time?",
+      "entries": [
+        { "name": "COPERATIVEAI_DATA_DIR", "whatItIs": "Where the app stores its local data, including the embedded CoperativeAIdb database file", "secret": false, "where": "OS-appropriate default app-data folder, overridable by an environment variable" }
+      ]
+    },
+    "pipeline": {
+      "question": "What CI/CD pipeline should this solution have?",
+      "answer": "GitHub Actions: on PR → cargo fetch, cargo build, cargo test; on merge to main → build release binaries for Windows and Linux and publish as artifacts for the target environment."
+    }
+  },
+  "notes": {
+    "mustNotDo": {
+      "question": "Anything this solution must NOT do / cannot deploy?",
+      "answer": ""
+    },
+    "limits": {
+      "question": "Any limits (rate limits, payload size, memory, startup time, supported platforms)?",
+      "answer": "Low memory usage and good performance on low-spec Windows and Linux machines (from the Project Brief)."
+    }
+  },
+  "openQuestions": [
+    "Any must-not-do constraints for this solution specifically (beyond the project-wide rules)?"
+  ],
+  "answeredQuestions": [
+    {
+      "question": "The embedded terminal is a real shell with full OS-user permissions — should it be restricted in any way (e.g. confined to the project's working directory, or a denylist of commands), or is full shell access intended?",
+      "answer": "Neither of the two restrictions offered. Not a denylist: an agent that can write a file can write a script, so a list of forbidden commands is theatre. Not a directory confinement either, since the shell has to be able to build and test. Instead the boundary is chosen — off, WSL, or Docker — as one app-wide setting, and the app is honest about what the chosen one really enforces on this machine. See the Agent Sandbox page brief."
+    }
+  ]
+}

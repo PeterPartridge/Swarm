@@ -1,0 +1,389 @@
+import { useState } from "react";
+import Card from "../common/Card";
+import SectionTabs from "../common/SectionTabs";
+import { opinionOf } from "../../lib/backend";
+import type { ChangeReview, FileChange, Run, Solution } from "../../lib/backend";
+import { clearFailure, useLastFailure } from "../../lib/failures";
+
+/** One line of the ship checklist. */
+interface Check {
+  label: string;
+  /** True when it has been met, false when it has not, null when nothing has
+   *  been run yet — the three are different answers and the rail says which. */
+  met: boolean | null;
+  meta: string;
+}
+
+/** Whether the tests were run here, and what they said. Null means nobody has
+ *  pressed Run in this session, which is not the same as failing. */
+export type TestVerdict = { passed: number; failed: number; counted: boolean } | null;
+
+/** Review and ship, down the right of the Build view.
+ *
+ *  **The checks are derived, never ticked.** The design this came from had four
+ *  checkboxes a person clicked themselves, which would make the ring a record of
+ *  what somebody claimed rather than what happened. Every line here is read back
+ *  from the change review, the test run and the run's own settled state — so an
+ *  amber ring means work outstanding, not an unticked box.
+ *
+ *  **There is no commit button.** The app hands over a command and records the
+ *  decision; it does not run git on your behalf. Keep and Discard write that
+ *  decision against the run, which is the thing this app can actually do. */
+export default function ReviewShipRail({
+  agentLabel,
+  run,
+  solution,
+  review,
+  reviewing,
+  onReview,
+  onSettle,
+  settled,
+  tests,
+  selectedPath,
+  selectedChange,
+}: {
+  /** Names whose work is being shipped, for the region label. */
+  agentLabel: string;
+  run: Run | null;
+  solution: Solution | null;
+  review: ChangeReview | null;
+  reviewing: boolean;
+  onReview: () => void;
+  onSettle: (state: "kept" | "discarded") => void;
+  /** What has already been recorded against this run, if anything. */
+  settled: "kept" | "discarded" | null;
+  tests: TestVerdict;
+  /** The file open in the tree, for the Inspect tab. */
+  selectedPath: string | null;
+  selectedChange: FileChange | null;
+}) {
+  const [tab, setTab] = useState<"ship" | "inspect">("ship");
+  /// The last press that failed, from anywhere in the Build view. Subscribed
+  /// here rather than passed in: the failure happens four components away, and
+  /// threading a callback through all four would put a reporting concern into
+  /// every one of them.
+  const failure = useLastFailure();
+
+  const report = review?.report ?? null;
+  const violations = report?.violations ?? [];
+  const alreadySettled =
+    settled ?? (run?.state === "kept" || run?.state === "discarded" ? run.state : null);
+
+  const checks: Check[] = [
+    {
+      label: "Changes read",
+      met: review === null ? null : true,
+      meta: report ? `${report.filesChanged} files` : "not run",
+    },
+    {
+      label: "Rules pass",
+      // No rules is not a pass. Silence for want of rules reads exactly like
+      // silence for want of problems, so it stays unmet and says why.
+      met: review === null ? null : review.noRules ? null : violations.length === 0,
+      meta: review === null ? "not run" : review.noRules ? "no rules set" : `${violations.length} broken`,
+    },
+    {
+      label: "Tests pass",
+      met: tests === null ? null : tests.failed === 0,
+      meta:
+        tests === null
+          ? "not run"
+          : tests.counted
+            ? `${tests.passed} passed · ${tests.failed} failed`
+            : "read from exit code",
+    },
+    {
+      label: "Decision recorded",
+      met: alreadySettled === null ? null : true,
+      meta: alreadySettled ?? "not yet",
+    },
+  ];
+
+  const done = checks.filter((c) => c.met === true).length;
+  const ready = done === checks.length;
+  const total = Math.max(1, (report?.addedLines ?? 0) + (report?.removedLines ?? 0));
+
+  return (
+    <aside className="ship-rail" aria-label={`Review and ship ${agentLabel}`}>
+      {/* **Above the tabs, because it is not one of them.** A press that failed
+          is the most recent thing that happened on this screen and the thing
+          the person is waiting to hear about — it does not belong behind a tab,
+          and it does not belong only in the panel that ran it, four components
+          away and far enough down to have scrolled off.
+
+          It outlives a reload and a later success: only being dismissed clears
+          it, because whether it has been read is not something to guess at. */}
+      {failure && (
+        <div className="rail-failure" role="alert">
+          <div className="rail-failure-head">
+            <strong>{failure.what} failed</strong>
+            <button
+              type="button"
+              aria-label="Dismiss this failure"
+              className="link-button"
+              onClick={clearFailure}
+            >
+              Dismiss
+            </button>
+          </div>
+          {/* The backend's own words, never reworded: the sentence that names
+              the fix is its, and a friendlier paraphrase loses it. */}
+          <p>{failure.message}</p>
+        </div>
+      )}
+
+      {/* **The shared strip, like every other tab row in the app.** This was
+          hand-rolled — two buttons with their own `role="tab"`, their own
+          selected class and their own stylesheet — while Develop, Admin, the
+          build plan and the Work views all used `SectionTabs`. The odd one out
+          was the rail, not the Work area. */}
+      <SectionTabs
+        label="Rail panels"
+        className="ship-tabs"
+        options={[
+          { id: "ship", label: "Review & ship" },
+          { id: "inspect", label: "Inspect" },
+        ]}
+        active={tab}
+        onSelect={(id) => setTab(id as "ship" | "inspect")}
+      />
+
+      {tab === "ship" && (
+        <div className="ship-body">
+          <div className="ship-progress">
+            <div
+              className={`ship-ring ${ready ? "ring-ready" : ""}`}
+              style={
+                {
+                  "--ring-pct": `${(done / checks.length) * 100}%`,
+                } as React.CSSProperties
+              }
+            >
+              <span className="ring-inner">
+                <strong>{done}</strong>
+                <span>of {checks.length}</span>
+              </span>
+            </div>
+            <div className="ship-progress-text">
+              <strong className={ready ? "ok" : undefined}>
+                {ready ? "Clear to ship" : review === null ? "Nothing read yet" : "Review in progress"}
+              </strong>
+              <p className="hint">
+                {ready
+                  ? "Rules pass, tests are green, and the decision is on the record."
+                  : "Every line below is read back from the run — none of it is ticked by hand."}
+              </p>
+            </div>
+          </div>
+
+          <ul className="ship-checks">
+            {checks.map((c) => (
+              <li
+                key={c.label}
+                className={c.met === true ? "check met" : c.met === false ? "check unmet" : "check unknown"}
+              >
+                <span className="check-box" aria-hidden="true">
+                  {c.met === true ? "✓" : c.met === false ? "✕" : "·"}
+                </span>
+                <span className="check-label">{c.label}</span>
+                <span className="check-meta">{c.meta}</span>
+              </li>
+            ))}
+          </ul>
+
+          <Card
+            title="Diff summary"
+            aside={
+              <span className="card-mono">
+                {report ? `${report.filesChanged} files` : "—"}
+              </span>
+            }
+          >
+            <div className="diff-bar" aria-hidden="true">
+              <span
+                className="diff-add"
+                style={{ width: `${((report?.addedLines ?? 0) / total) * 100}%` }}
+              />
+              <span
+                className="diff-del"
+                style={{ width: `${((report?.removedLines ?? 0) / total) * 100}%` }}
+              />
+            </div>
+            <div className="diff-counts">
+              <span className="ok">+{report?.addedLines ?? 0} added</span>
+              <span className="bad">−{report?.removedLines ?? 0} removed</span>
+            </div>
+            <button type="button" onClick={onReview} disabled={reviewing || solution === null}>
+              {reviewing ? "Reading…" : review === null ? "Review what changed" : "Read it again"}
+            </button>
+          </Card>
+
+          {violations.length > 0 && (
+            <div className="ship-blocker" role="status">
+              <strong>
+                {violations.length} rule{violations.length === 1 ? "" : "s"} broken
+              </strong>
+              <ul>
+                {violations.map((v, i) => (
+                  <li key={`${v.path}-${i}`}>
+                    {v.path !== "" && <code>{v.path}</code>} {v.detail}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {review?.noRules && report && report.filesChanged > 0 && (
+            <p className="hint" role="status">
+              This Product has no Developer Rules, so nothing was checked against
+              them. Set them in Admin.
+            </p>
+          )}
+
+          {/* **A second opinion, not a second gate.** The rules check above
+              blocks; this is a different model reading the same diff. It is
+              always attributed, and where nothing gave one the panel says so —
+              an empty box here would read exactly like a reviewer that found
+              nothing, which is the difference between "nobody looked" and "it
+              is fine". */}
+          {review && (
+            <Card title="Second opinion">
+              {/* The sentence comes from the backend so the attribution cannot
+                  be reworded here. An older backend sends none, and saying
+                  nothing is better than inventing a verdict for it. */}
+              <p className="hint">
+                {review.secondOpinionSummary ?? "This build did not record one."}
+              </p>
+              {opinionOf(review.secondOpinion) ? (
+                <>
+                  <pre className="second-opinion">
+                    {opinionOf(review.secondOpinion)?.notes}
+                  </pre>
+                  {opinionOf(review.secondOpinion)?.truncated && (
+                    <p className="hint">
+                      The change was larger than could be sent, so this is an
+                      opinion about the beginning of it.
+                    </p>
+                  )}
+                  <p className="hint">
+                    It does not block anything, and it is not the rules check
+                    above.
+                  </p>
+                </>
+              ) : (
+                <p className="hint">
+                  Set a Secondary AI for Develop in Admin to get one.
+                </p>
+              )}
+            </Card>
+          )}
+
+          <Card title="Where it lands">
+            <p className="ship-branch">
+              <span className="card-mono hue">{run?.branch || "no branch"}</span>
+              <span aria-hidden="true">→</span>
+              <span className="card-mono">{solution?.name ?? "no Solution"}</span>
+            </p>
+            <p className="hint">
+              The app records your decision against the handover. Files stay as
+              they are — use Git to actually merge or revert.
+            </p>
+          </Card>
+
+          {/* Never gated on the checks: keeping a change over a broken rule is
+              a decision somebody is allowed to make, and it is recorded as
+              exactly that rather than laundered into a clean pass. */}
+          {review?.runId != null && report && report.filesChanged > 0 && (
+            <div className="ship-actions">
+              {alreadySettled === null ? (
+                <>
+                  <button
+                    type="button"
+                    className="ship-keep"
+                    aria-label={`Keep the changes in ${solution?.name ?? "this Solution"}`}
+                    onClick={() => onSettle("kept")}
+                  >
+                    Keep these changes
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Discard the changes in ${solution?.name ?? "this Solution"}`}
+                    onClick={() => onSettle("discarded")}
+                  >
+                    Discard
+                  </button>
+                </>
+              ) : (
+                <p role="status">
+                  Recorded as {alreadySettled}
+                  {alreadySettled === "kept" && violations.length > 0
+                    ? " — with the broken rules above on the record"
+                    : ""}
+                  .
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === "inspect" && (
+        <div className="ship-body">
+          {selectedPath === null ? (
+            <p className="hint">Pick a file in the tree to see what is known about it.</p>
+          ) : (
+            <>
+              {/* No title: the body is the file's own name, and "File" above it
+                  would be a label saying what is already obvious. */}
+              <Card>
+                <strong className="inspect-name">{selectedPath.split("/").pop()}</strong>
+                <p className="card-mono inspect-path">{selectedPath}</p>
+                <div className="inspect-chips">
+                  <span className="chip">{solution?.name ?? "—"}</span>
+                  <span className={`chip ${selectedChange ? selectedChange.status : "unchanged"}`}>
+                    {selectedChange ? selectedChange.status : "unchanged"}
+                  </span>
+                </div>
+              </Card>
+
+              <Card title="Working copy">
+                <dl className="inspect-rows">
+                  <div>
+                    <dt>Status</dt>
+                    <dd>{selectedChange ? selectedChange.status : "unchanged"}</dd>
+                  </div>
+                  <div>
+                    <dt>Lines added</dt>
+                    <dd className="ok">{selectedChange ? `+${selectedChange.addedLines}` : "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>Lines removed</dt>
+                    <dd className="bad">
+                      {selectedChange ? `−${selectedChange.removedLines}` : "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Solution</dt>
+                    <dd>{solution?.name ?? "—"}</dd>
+                  </div>
+                  <div>
+                    <dt>Folder</dt>
+                    <dd className="card-mono">{solution?.localPath ?? "not set"}</dd>
+                  </div>
+                </dl>
+              </Card>
+
+              {/* Deliberately no size, coverage or owner: the app does not read
+                  any of the three, and inventing them here would put four
+                  confident numbers on screen that nothing stands behind. */}
+              <p className="hint">
+                Only what the working copy and git can answer. Size, coverage and
+                ownership are not things this app reads.
+              </p>
+            </>
+          )}
+        </div>
+      )}
+    </aside>
+  );
+}

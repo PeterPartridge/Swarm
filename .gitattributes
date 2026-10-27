@@ -1,0 +1,29 @@
+# **Line endings are decided here, rather than by whoever checked the repository
+# out.** The index is LF throughout and always has been; what varied was the
+# working copy, because git's `autocrlf` is a per-machine setting.
+#
+# That difference is not cosmetic — it silently disabled a check in this
+# repository. `tools/brief-lint.mjs` reads bullets and front matter with
+# patterns anchored to the end of a line, and in JavaScript `$` does not match
+# before a carriage return and `.` does not cross one. On a Windows checkout it
+# therefore read every brief as empty, found nothing to complain about, and
+# exited zero. A check that cannot fail is worse than no check, and the tools
+# have since been made to normalise what they read — but the honest fix is that
+# a file on disk should be the same file on every machine.
+#
+# So `eol=lf` covers the working copy too, not only what is committed.
+* text=auto eol=lf
+
+# **Marked, not detected.** These are the files where a wrong guess corrupts
+# rather than annoys, and an icon should never be a line-ending question.
+*.png  binary
+*.ico  binary
+*.icns binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.pdf  binary

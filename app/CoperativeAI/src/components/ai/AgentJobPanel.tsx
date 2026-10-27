@@ -1,0 +1,578 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import AiFeedbackPanel from "./AiFeedbackPanel";
+import PreviewPanel from "../code/PreviewPanel";
+import RunTerminal from "../code/RunTerminal";
+import WorkItemBuildPlan from "../planning/WorkItemBuildPlan";
+import { hueFor, markFor, PHASES, phaseOf, status, type Agent } from "./AgentLane";
+import type { TestVerdict } from "./ReviewShipRail";
+import { notifyWorkChanged, useWorkChanged } from "../../lib/workSignal";
+import {
+  listSolutionTestSuites,
+  listWorkItemPlans,
+  runSolutionTests,
+  startRun,
+  suggestDevCommand,
+  type Run,
+  type Solution,
+  type SolutionSuites,
+  type SuiteRun,
+  type WorkItem,
+} from "../../lib/backend";
+
+/** One agent's sub-panels. `plan`, `scope` and `questions` exist for any agent;
+ *  the rest need a checkout, so they only appear once there is a run. */
+export type SubPanel =
+  | "plan"
+  | "product"
+  | "aiPlanning"
+  | "git"
+  | "tests"
+  | "questions"
+  | "preview"
+  | "terminal";
+
+/** A run that has been started here: what its terminals need to stay open. */
+interface Started {
+  worktreePath: string;
+  command: string;
+  runStart: string;
+}
+
+const LABELS: Record<SubPanel, string> = {
+  plan: "Plan",
+  product: "From Product",
+  aiPlanning: "AI planning",
+  git: "Git",
+  tests: "Tests",
+  questions: "AI feedback",
+  preview: "Preview",
+  terminal: "Run",
+};
+
+/** The workbench: everything about one agent, in sub-panels.
+ *
+ *  This is the half of the merge that made AI and Code one panel — an agent's
+ *  plan, the code it changed, the tests it wrote, the running app and its shell
+ *  used to be five places, and chasing one agent across all five was the actual
+ *  complaint.
+ *
+ *  Which sub-panels exist depends on how far the agent has got, rather than
+ *  showing seven tabs where four cannot work yet: a plan and its questions exist
+ *  as soon as it is queued, while changes, tests, a preview and a terminal all
+ *  need a checkout, which only a started run has. */
+export default function AgentJobPanel({
+  agent,
+  item,
+  run,
+  solutions,
+  onRunChanged,
+  onTests,
+  onOpenWork,
+  onOpenTestFile,
+}: {
+  /** The lane row this workbench is showing, for the header. */
+  agent: Agent | null;
+  /** The work item the agent is working on. */
+  item: WorkItem;
+  /** Its execution run, when there is one. Null for an agent still planning. */
+  run: Run | null;
+  /** The Product's Solutions, for the plan and scope panels. */
+  solutions: Solution[];
+  /** Called after starting a run, so the lane's state catches up. */
+  onRunChanged: () => void;
+  /** Reports what the tests said, so the ship rail can read it back. */
+  onTests: (verdict: TestVerdict) => void;
+  /** Opens a work item — the debt filed out of this agent's round record is
+   *  real work on the board, and reachable from where it was reported. */
+  onOpenWork?: (workItemId: number) => void;
+  /** Opens a test's own file, when the runner named one. Reading the failure
+   *  and reading the test are one move apart; without this they are a hunt
+   *  through the tree. */
+  onOpenTestFile?: (path: string) => void;
+}) {
+  const [panel, setPanel] = useState<SubPanel>("plan");
+  const [started, setStarted] = useState<Started | null>(null);
+  const [runCommand, setRunCommand] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  /// Whether this run's plan has been approved. The backend refuses to start
+  /// without it either way — this is so the button can say so before the press
+  /// rather than after it.
+  const [planApproved, setPlanApproved] = useState<boolean | null>(null);
+  const [suites, setSuites] = useState<SolutionSuites | null>(null);
+  const [suiteRuns, setSuiteRuns] = useState<SuiteRun[] | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [openSuite, setOpenSuite] = useState<string | null>(null);
+  /// Which run's tests have been started from here already, so arriving at an
+  /// agent runs them once and coming back does not run them again.
+  const ranFor = useRef<number | null>(null);
+  /// The failed test whose reason is showing. One at a time: a list of every
+  /// failure's stack at once is the raw output again, which is already below.
+  const [openTest, setOpenTest] = useState<string | null>(null);
+
+  // `started` counts as prepared on its own, and not only because it is quicker
+  // than a refresh: the run row this panel was handed is a snapshot from before
+  // the press, so waiting for the list to catch up would take the terminal that
+  // was just opened away again and drop the selection back to the plan.
+  const prepared =
+    started !== null ||
+    (run !== null && run.state !== "notStarted" && run.worktreePath !== "");
+
+  const available: SubPanel[] = useMemo(
+    () =>
+      prepared
+        ? [
+            "plan",
+            "product",
+            "aiPlanning",
+            "git",
+            "tests",
+            "preview",
+            "terminal",
+            "questions",
+          ]
+        : ["plan", "product", "aiPlanning", "git", "questions"],
+    [prepared],
+  );
+
+  // A sub-panel that stops being available must not stay selected, or switching
+  // agents would land on a blank pane.
+  useEffect(() => {
+    if (!available.includes(panel)) setPanel("plan");
+  }, [available, panel]);
+
+  /// **Work finished, tests not run: run them.** Arriving at an agent that has
+  /// changed something and finding "Not run in this session" with a button is
+  /// the app asking permission to do the obvious next thing. Tests are the
+  /// evidence the change is worth keeping, and nothing about running them is
+  /// destructive.
+  ///
+  /// **Only once per run, and only with something to test.** A suite is a real
+  /// process — running it on every render, or on an agent that has changed
+  /// nothing yet, would be spending a machine's time on nobody's question.
+  useEffect(() => {
+    if (run === null || !prepared) return;
+    if ((run.filesChanged ?? 0) === 0) return;
+    if (ranFor.current === run.id) return;
+    ranFor.current = run.id;
+    void runTests();
+    // `runTests` is stable enough for this: it reads `run` from the same render
+    // this effect belongs to, and the guard above makes a second call a no-op.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [run, prepared]);
+
+  /// Read for the preview's port guess only — a wrong guess is corrected in the
+  /// preview itself, so failing to read it is not worth an error.
+  const loadRunCommand = useCallback(async () => {
+    if (run === null) return;
+    try {
+      const dev = await suggestDevCommand(run.solutionId);
+      setRunCommand(dev.start ?? "");
+    } catch {
+      setRunCommand("");
+    }
+  }, [run]);
+
+  useEffect(() => {
+    void loadRunCommand();
+  }, [loadRunCommand]);
+
+  /// Reloaded whenever the plan panel might have changed it, so approving on
+  /// the Plan tab and coming back to Start does not need a refresh.
+  const loadApproval = useCallback(async () => {
+    if (run === null) return;
+    try {
+      const plans = await listWorkItemPlans(run.workItemId);
+      const mine = plans.find((p) => p.solutionId === run.solutionId);
+      setPlanApproved(mine ? mine.approvedAt > 0 : false);
+    } catch {
+      // Unknown rather than false: refusing to offer Start because a lookup
+      // failed would be a worse guess than letting the backend answer.
+      setPlanApproved(null);
+    }
+  }, [run]);
+
+  useEffect(() => {
+    void loadApproval();
+  }, [loadApproval]);
+
+  // Was keyed to `panel`, which meant a query on every sub-panel switch and
+  // still nothing when approval changed while the Plan tab was open. Following
+  // the signal is both fewer reads and more correct.
+  useWorkChanged(loadApproval);
+
+  /// This Solution's test suites, so the Tests panel can say what it would run
+  /// before anybody runs it.
+  const loadSuites = useCallback(async () => {
+    if (run === null) return;
+    try {
+      // **This run's checkout, not the Solution's folder.** The suites the
+      // agent wrote are in its worktree and nowhere else, so a Product-wide
+      // list offered to run everything except what it had actually written.
+      setSuites(await listSolutionTestSuites(run.solutionId, run.id));
+    } catch {
+      setSuites(null);
+    }
+  }, [run, item.productId]);
+
+  useEffect(() => {
+    if (panel === "tests") void loadSuites();
+  }, [panel, loadSuites]);
+
+  // Starting is still a press. An app that silently launched something which
+  // writes files would be doing the one thing this design keeps deliberate.
+  async function start() {
+    if (run === null) return;
+    setBusy(true);
+    try {
+      const p = await startRun(run.workItemId, run.solutionId);
+      setStarted({
+        worktreePath: p.worktreePath,
+        command: p.command,
+        runStart: p.runStart,
+      });
+      setPanel("terminal");
+      setError(null);
+      onRunChanged();
+      notifyWorkChanged();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runTests() {
+    if (run === null) return;
+    setTesting(true);
+    try {
+      const results = await runSolutionTests(run.solutionId, run.id);
+      setSuiteRuns(results);
+      setError(null);
+      // Counts only when they were read. A run known solely by its exit code
+      // reports pass or fail and no numbers — an invented test count would be
+      // worse than none.
+      const counted = results.every((r) => r.counted);
+      onTests({
+        passed: results.reduce((n, r) => n + r.passed, 0),
+        failed: counted
+          ? results.reduce((n, r) => n + r.failed, 0)
+          : results.filter((r) => !r.exitOk).length,
+        counted,
+      });
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  const solution = solutions.find((s) => s.id === run?.solutionId) ?? null;
+  const badge = agent ? status(agent) : null;
+  const phase = agent ? phaseOf(agent) : 0;
+  const hue = hueFor(run?.solutionId ?? null);
+
+  return (
+    <section className="workbench" aria-label={`Agent for ${item.title}`}>
+      <header className="workbench-head" style={{ "--agent-hue": hue } as React.CSSProperties}>
+        <span className="workbench-avatar">
+          {run ? markFor(run.solutionName) : "··"}
+        </span>
+        <div className="workbench-who">
+          <div className="workbench-title">
+            <span className="workbench-ticket">#{item.id}</span>
+            <strong>{item.title}</strong>
+          </div>
+          <div className="workbench-meta">
+            <span>{run ? run.solutionName : "no Solution yet"}</span>
+            <span aria-hidden="true">·</span>
+            <span>{PHASES[phase]}</span>
+            {run?.worktreePath && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="card-mono">{run.worktreePath}</span>
+              </>
+            )}
+          </div>
+        </div>
+        {badge && <span className={`card-status ${badge.tone}`}>{badge.text}</span>}
+      </header>
+
+      <div className="workbench-tabs" role="tablist" aria-label="Agent sub-panels">
+        {available.map((p) => (
+          <button
+            key={p}
+            type="button"
+            role="tab"
+            aria-selected={panel === p}
+            className={panel === p ? "workbench-tab on" : "workbench-tab"}
+            style={{ "--agent-hue": hue } as React.CSSProperties}
+            onClick={() => setPanel(p)}
+          >
+            {LABELS[p]}
+            {p === "questions" && agent && agent.questions > 0 && (
+              <span className="tab-badge">{agent.questions}</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {error && <p role="alert">{error}</p>}
+
+
+      <div className="workbench-panel">
+        {panel === "plan" && (
+          <WorkItemBuildPlan item={item} solutions={solutions} view="develop" />
+        )}
+
+        {/* **From Product, AI planning and Git, hoisted.** They were tabs
+            inside the Plan panel underneath this row of tabs — two rows about
+            one work item, and the inner row invisible until you had already
+            chosen Plan. The Changes tab they replace is gone because the
+            changes are in the Files pane now, where the files are. */}
+        {panel === "product" && (
+          <WorkItemBuildPlan item={item} solutions={solutions} view="product" />
+        )}
+
+        {panel === "aiPlanning" && (
+          <WorkItemBuildPlan item={item} solutions={solutions} view="ai" />
+        )}
+
+        {panel === "git" && (
+          <WorkItemBuildPlan
+            item={item}
+            solutions={solutions}
+            view="git"
+            runId={run?.id}
+            pullRequestUrl={run?.pullRequestUrl}
+          />
+        )}
+
+        {panel === "tests" && run !== null && (
+          <div className="tests-pane">
+            <div className="tests-head">
+              <strong>
+                {suiteRuns === null
+                  ? "Not run in this session"
+                  : suiteRuns.every((r) => r.counted)
+                    ? `${suiteRuns.reduce((n, r) => n + r.passed, 0)} passed · ${suiteRuns.reduce(
+                        (n, r) => n + r.failed,
+                        0,
+                      )} failed`
+                    : suiteRuns.every((r) => r.exitOk)
+                      ? "Passed — by exit code"
+                      : "Failed — by exit code"}
+              </strong>
+              <button type="button" onClick={runTests} disabled={testing}>
+                {testing ? "Running…" : "Run the tests"}
+              </button>
+            </div>
+
+            {suites?.unavailable && <p className="hint">{suites.unavailable}</p>}
+            {suites && suites.suites.length === 0 && !suites.unavailable && (
+              <p className="hint">
+                Nothing here looks like a test suite. Set a command for this
+                Solution in Tests if detection is wrong.
+              </p>
+            )}
+
+            <ul className="test-list">
+              {(suiteRuns ?? []).map((r, i) => {
+                const key = `${r.suite.kind}-${r.suite.directory}-${i}`;
+                const open = openSuite === key;
+                return (
+                  <li key={key} className={r.exitOk ? "suite pass" : "suite fail"}>
+                    <button
+                      type="button"
+                      className="suite-head"
+                      aria-expanded={open}
+                      onClick={() => setOpenSuite(open ? null : key)}
+                    >
+                      <span className="suite-mark" aria-hidden="true">
+                        {r.exitOk ? "✓" : "✕"}
+                      </span>
+                      <span className="card-mono suite-name">{r.suite.commandLine}</span>
+                      <span className="suite-tag">{r.suite.kind}</span>
+                      {/* Counts appear only when they were read. */}
+                      {r.counted && (
+                        <span className="suite-counts">
+                          {r.passed}/{r.passed + r.failed + r.skipped}
+                        </span>
+                      )}
+                      <span className="suite-ms">{r.durationMs}ms</span>
+                    </button>
+                    {open && (
+                      <div className="suite-body">
+                        {r.tests.length > 0 && (
+                          <ul className="test-outcomes">
+                            {r.tests.map((t) => {
+                              const id = `${key}:${t.name}`;
+                              const showing = openTest === id;
+                              return (
+                                <li key={t.name} className={t.state}>
+                                  {/* **A red row you can open.** The list said
+                                      which tests failed and not why, so the
+                                      next move was to leave the app and run the
+                                      suite again in a terminal. A failure that
+                                      came with a reason opens to show it; one
+                                      that did not says so, rather than opening
+                                      onto nothing. */}
+                                  <button
+                                    type="button"
+                                    className="test-row"
+                                    aria-expanded={t.state === "failed" ? showing : undefined}
+                                    aria-label={`${t.name} — ${t.state}`}
+                                    disabled={t.state !== "failed"}
+                                    onClick={() => setOpenTest(showing ? null : id)}
+                                  >
+                                    <span aria-hidden="true">
+                                      {t.state === "passed"
+                                        ? "✓"
+                                        : t.state === "failed"
+                                          ? "✕"
+                                          : "·"}
+                                    </span>
+                                    <span className="card-mono">{t.name}</span>
+                                  </button>
+                                  {showing && (
+                                    <div className="test-failure">
+                                      {t.message ? (
+                                        <pre>{t.message}</pre>
+                                      ) : (
+                                        <p className="hint">
+                                          This runner does not report a reason
+                                          with its results — the whole output is
+                                          under the suite below.
+                                        </p>
+                                      )}
+                                      {t.file && onOpenTestFile && (
+                                        <button
+                                          type="button"
+                                          className="link-button"
+                                          onClick={() => onOpenTestFile(t.file)}
+                                        >
+                                          Open {t.file.split("/").pop()}
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        )}
+                        <pre className="suite-output">{r.output}</pre>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+
+        {/* **Scope was Plan, with less on it.** It rendered
+            `WorkItemChanges mode="developer"` — and so does the Plan tab, with
+            the same props, above the lifecycle checklist, the pre-flight gates
+            and the buttons. Two tabs onto one panel, one of them a strict
+            subset of the other: the second was a place to type the same thing
+            and wonder which one counted.
+
+            Nothing moved to keep it: everything Scope drew, Plan already draws.
+            Removed rather than renamed, because a tab whose content lives
+            elsewhere is a tab that will drift from it. */}
+
+        {panel === "questions" && (
+          <div className="agent-questions">
+            {/* The run, so this shows the round record the agent wrote in its
+                own checkout — the account that used to stay in its terminal. */}
+            <AiFeedbackPanel
+              workItemId={item.id}
+              productId={item.productId}
+              runId={run?.id}
+              onOpenWork={onOpenWork}
+            />
+            <p className="hint">
+              An answer is stored against this work item and travels with the next
+              prompt for it, so the same question is not asked — or paid for —
+              twice.
+            </p>
+          </div>
+        )}
+
+        {panel === "preview" && run !== null && (
+          <PreviewPanel
+            solutionId={run.solutionId}
+            runCommand={runCommand}
+            label={`${item.title} → ${run.solutionName}`}
+          />
+        )}
+
+        {panel === "terminal" && run !== null && (
+          started ? (
+            <div className="run-terminal-pair">
+              <RunTerminal
+                solutionId={run.solutionId}
+                worktreePath={started.worktreePath}
+                command={started.command}
+                title={`${item.title} → ${run.solutionName}`}
+                onClose={() => setStarted(null)}
+              />
+              {started.runStart && (
+                <RunTerminal
+                  solutionId={run.solutionId}
+                  worktreePath={started.worktreePath}
+                  command={started.runStart}
+                  title={`${item.title} → ${run.solutionName} — app`}
+                  onClose={() =>
+                    setStarted({ ...started, runStart: "" })
+                  }
+                />
+              )}
+            </div>
+          ) : (
+            <p className="hint">
+              This run has a checkout at <code>{run.worktreePath}</code>, but no
+              shell open in this window. Start it again to open one — the checkout
+              and its commits are kept either way.
+              {solution?.name ? ` It belongs to ${solution.name}.` : ""}
+            </p>
+          )
+        )}
+      </div>
+
+      {/* Said where the missing sub-panels would be, rather than leaving their
+          absence to be worked out. */}
+      {run !== null && !prepared && (
+        <div className="agent-not-started">
+          <p className="hint">
+            Tests, preview and a terminal appear once this run has its own
+            checkout. Starting makes one on <code>{run.branch || "its branch"}</code>.
+          </p>
+          {planApproved === false && (
+            <p className="hint">
+              The plan needs approving first — read it on the Plan tab and press
+              Approve there. Editing it afterwards asks again.
+            </p>
+          )}
+          <button
+            aria-label={`Start ${item.title} on ${run.solutionName}`}
+            // `null` means the lookup failed, and refusing on a failed lookup
+            // would be a worse guess than letting the backend answer.
+            disabled={busy || run.branch.trim() === "" || planApproved === false}
+            onClick={start}
+          >
+            {busy ? "Preparing…" : "Start this run"}
+          </button>
+        </div>
+      )}
+
+      {run === null && (
+        <p className="hint">
+          This agent is planning. Tick the affected Solutions on the plan above
+          and a run appears for each.
+        </p>
+      )}
+    </section>
+  );
+}

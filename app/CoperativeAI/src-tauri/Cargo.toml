@@ -1,0 +1,48 @@
+[package]
+name = "coperativeai"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Images travel to vision models as base64 — see ai/vision.rs.
+base64 = "0.22"
+keyring = { version = "3", features = ["windows-native", "sync-secret-service"] }
+portable-pty = "0.9.0"
+reqwest = { version = "0.12", features = ["json"] }
+# `rmcp` was removed on 2026-09-15: it was declared for the MCP server, which is
+# not built — `mcp/mod.rs` is one line, the listener does not exist, and this
+# comment pointed at an `mcp/serve.rs` that was never written. The brief
+# (application/CoperativeAI/mcpServer.md) says to remove it while the page is
+# unbuilt, and carries what to restore when it is:
+#   rmcp = { version = "3.1.1", features = ["server", "transport-streamable-http-server"] }
+# streamable-http rather than stdio, because a client cannot spawn this server —
+# the data lives in a turso database the running app already holds.
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+# A policy is somebody else's root script; its digest is how it is recognised
+# again. Already compiled for tauri's own codegen, so this costs no new
+# supply chain — see tooling/sandbox_policy.rs.
+sha2 = "0.10"
+# The MCP server's bearer token has to be the operating system's randomness on
+# both Windows and Linux. Already in the tree, so this costs nothing new — and
+# the alternative, reading /dev/urandom directly, is a panic on the primary
+# platform. See mcp/decide.rs.
+getrandom = "0.3"
+tauri = { version = "2.11.5", features = [] }
+tauri-plugin-dialog = "2"
+tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros", "process", "io-util", "time"] }
+turso = "0.6.1"
+
+# Signalling a process group, by the number rather than by a sentence.
+#
+# `kill -TERM -<pid>` is shell-builtin behaviour; Debian's `/usr/bin/kill` is a
+# different program that reads `-1234` as an *option* and signals `-1` — every
+# process the user may signal. Proved by strace, and it is why this is a call
+# and no longer a command. Already in the tree beneath `portable-pty`, so it
+# costs no new supply chain — the same reasoning as `sha2` and `getrandom`.
+# See terminal/mod.rs.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }

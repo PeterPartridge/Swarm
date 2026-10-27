@@ -1,0 +1,818 @@
+//! Ollama client — the same API whether it is a process on this machine or
+//! Ollama's hosted service. The local one is the handover target when a
+//! Product's AI budget runs out.
+//!
+//! Differences from the Claude client that matter here: structured output is
+//! requested via a top-level `format` holding the JSON schema rather than
+//! `output_config`, and token counts come back as `prompt_eval_count` /
+//! `eval_count`.
+//!
+//! **Local and hosted differ by exactly one header**, which is why they share a
+//! provider kind: a bearer token, passed in by the caller and never read here.
+//! What they do *not* share is money. A local model costs nothing because
+//! nothing leaves the machine; the hosted service is somebody else's hardware
+//! being paid for, so providers pointed at it are stored metered and go through
+//! the same budget gate and ledger as Claude.
+
+use crate::ai::client::{
+    parse_change_plan, parse_design, parse_diagram, parse_generation, parse_pal,
+    parse_solution_strategy, parse_test, Generated, GeneratedChangePlan, GeneratedDesign,
+    GeneratedDiagram, GeneratedPal, GeneratedStrategy, GeneratedTest, Prompt, Usage,
+};
+use serde::Deserialize;
+use serde_json::json;
+use std::time::Duration;
+
+#[derive(Deserialize)]
+struct ChatResponse {
+    #[serde(default)]
+    message: ChatMessage,
+    #[serde(default)]
+    prompt_eval_count: i64,
+    #[serde(default)]
+    eval_count: i64,
+}
+
+#[derive(Deserialize, Default)]
+struct ChatMessage {
+    #[serde(default)]
+    content: String,
+}
+
+#[derive(Deserialize)]
+struct TagsResponse {
+    #[serde(default)]
+    models: Vec<TagEntry>,
+}
+
+#[derive(Deserialize)]
+struct TagEntry {
+    name: String,
+}
+
+/// Local calls can be slow on modest hardware — a small model on CPU may take
+/// minutes, so this timeout is deliberately far longer than the API client's.
+fn client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(600))
+        .build()
+        .map_err(|e| format!("could not build the HTTP client: {e}"))
+}
+
+/// Attaches the bearer token when there is one.
+///
+/// A local Ollama has no key and wants no header; Ollama's hosted service
+/// rejects an unauthenticated call outright. One provider kind covers both
+/// because the difference really is only this header — the API is the same, so
+/// splitting the kind in two would have duplicated six generate functions to
+/// express one `if`.
+///
+/// The key is passed in by the caller, never read here: it comes from the OS
+/// credential store at the dispatch point, so this module has no route to the
+/// keyring and cannot log what it never holds beyond the call.
+fn authorized(request: reqwest::RequestBuilder, key: Option<&str>) -> reqwest::RequestBuilder {
+    match key {
+        Some(k) if !k.trim().is_empty() => request.bearer_auth(k.trim()),
+        _ => request,
+    }
+}
+
+/// The escape hatch, in schema form — the branch a local model fills in when it
+/// declines rather than guesses.
+///
+/// **One copy, because seven had already drifted.** Five of the seven schemas
+/// here had lost `required`, so those five would have accepted a `blocked`
+/// object with no reason in it — which `client::blocked_in` then reads as "not
+/// a refusal" and falls through. No caller was broken by it, but the schemas
+/// disagreed with each other for no reason anybody chose.
+///
+/// Deliberately *not* identical to `client::blocked_schema`: that one also sets
+/// `additionalProperties: false`, which is the Anthropic house style here and
+/// has never been tried against a local model. Matching the two Ollama schemas
+/// that kept `required` is the change that closes the drift; tightening all
+/// seven further is a separate decision with a local model in front of it.
+fn blocked_schema() -> serde_json::Value {
+    json!({
+        "type": ["object", "null"],
+        "properties": {
+            "reason": {"type": "string"},
+            "whatIsNeeded": {"type": "string"}
+        },
+        "required": ["reason", "whatIsNeeded"]
+    })
+}
+
+/// The JSON schema Ollama is asked to conform to — the same shape the Claude
+/// path requests, so `parse_generation` handles both responses unchanged.
+pub fn story_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "stories": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "description": {"type": "string"}
+                    },
+                    "required": ["title", "description"]
+                }
+            },
+            // Same escape hatch as the Claude path, so a local model can also
+            // decline rather than guess.
+            "blocked": blocked_schema()
+        },
+        "required": ["stories"]
+    })
+}
+
+/// The POST /api/chat request body (pure — unit tested without a server),
+/// with any mockups attached to the context message.
+///
+/// Ollama takes images as bare base64 strings in an `images` array on the
+/// message — no media type, unlike Anthropic's typed source block. They ride
+/// with the context message rather than the task, matching the Claude side
+/// where they sit inside the cached prefix.
+pub(crate) fn chat_body_with_images(
+    model: &str,
+    prompt: &Prompt,
+    schema: serde_json::Value,
+    images: &[crate::ai::vision::LoadedImage],
+) -> serde_json::Value {
+    let mut context = json!({"role": "user", "content": prompt.context});
+    if !images.is_empty() {
+        context["images"] = json!(images
+            .iter()
+            .map(|i| i.base64.clone())
+            .collect::<Vec<_>>());
+    }
+    json!({
+        "model": model,
+        "stream": false,
+        "format": schema,
+        "messages": [
+            // Sent as two messages mirroring the cached split on the Claude
+            // side, so both providers see the same content in the same order.
+            context,
+            {"role": "user", "content": prompt.task}
+        ]
+    })
+}
+
+/// Generates drafts from a local model. Returns the same pair as the Claude
+/// client so callers do not care which backend ran.
+pub async fn generate_stories(
+    api_base_url: &str,
+    key: Option<&str>,
+    model: &str,
+    prompt: &Prompt,
+) -> Result<(Generated, Usage), String> {
+    let (content, usage) = chat(api_base_url, key, model, prompt, story_schema()).await?;
+    Ok((parse_generation(&content)?, usage))
+}
+
+/// One `/api/chat` call against the given schema, returning the model's JSON
+/// text and what it consumed. Each caller parses its own shape.
+async fn chat(
+    api_base_url: &str,
+    key: Option<&str>,
+    model: &str,
+    prompt: &Prompt,
+    schema: serde_json::Value,
+) -> Result<(String, Usage), String> {
+    chat_with_images(api_base_url, key, model, prompt, schema, &[]).await
+}
+
+async fn chat_with_images(
+    api_base_url: &str,
+    key: Option<&str>,
+    model: &str,
+    prompt: &Prompt,
+    schema: serde_json::Value,
+    images: &[crate::ai::vision::LoadedImage],
+) -> Result<(String, Usage), String> {
+    let url = format!("{}/api/chat", api_base_url.trim_end_matches('/'));
+    let response = authorized(client()?.post(&url), key)
+        .json(&chat_body_with_images(model, prompt, schema, images))
+        .send()
+        .await
+        .map_err(|e| {
+            format!("could not reach Ollama at {api_base_url} — is it running? ({e})")
+        })?;
+
+    let status = response.status();
+    let text = response
+        .text()
+        .await
+        .map_err(|e| format!("could not read Ollama's response: {e}"))?;
+    if !status.is_success() {
+        return Err(format!("Ollama returned an error ({status}): {text}"));
+    }
+
+    let parsed: ChatResponse = serde_json::from_str(&text)
+        .map_err(|e| format!("unexpected response shape from Ollama: {e}"))?;
+    Ok((
+        parsed.message.content,
+        Usage {
+            input_tokens: parsed.prompt_eval_count,
+            output_tokens: parsed.eval_count,
+            // A local model has no prompt cache to read from or write to.
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+        },
+    ))
+}
+
+/// Generates a solution strategy from a local model.
+///
+/// Without this, a budget handover mid-design would send Claude's request shape
+/// to Ollama's URL and simply fail — so a Product past its handover threshold
+/// could not design anything at all.
+pub async fn generate_solution_strategy(
+    api_base_url: &str,
+    key: Option<&str>,
+    model: &str,
+    prompt: &Prompt,
+) -> Result<(GeneratedStrategy, Usage), String> {
+    let (content, usage) = chat(api_base_url, key, model, prompt, strategy_schema()).await?;
+    Ok((parse_solution_strategy(&content)?, usage))
+}
+
+/// Generates design or marketing work from a local model.
+pub async fn generate_design(
+    api_base_url: &str,
+    key: Option<&str>,
+    model: &str,
+    prompt: &Prompt,
+) -> Result<(GeneratedDesign, Usage), String> {
+    let (content, usage) = chat(api_base_url, key, model, prompt, design_schema()).await?;
+    Ok((parse_design(&content)?, usage))
+}
+
+/// The design shape, mirroring the Claude schema so one parser serves both.
+pub(crate) fn design_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "strategy": {"type": "string"},
+            "tokens": {"type": "string"},
+            "flows": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "diagram": {"type": "string"}
+                    },
+                    "required": ["name", "diagram"]
+                }
+            },
+            "components": {"type": "string"},
+            "assets": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "kind": {"type": "string"},
+                        "content": {"type": "string"}
+                    },
+                    "required": ["name", "kind", "content"]
+                }
+            },
+            "blocked": blocked_schema()
+        },
+        "required": ["strategy", "tokens", "flows", "components", "assets"]
+    })
+}
+
+/// Generates an architecture document from a local model.
+pub async fn generate_diagram(
+    api_base_url: &str,
+    key: Option<&str>,
+    model: &str,
+    prompt: &Prompt,
+    format: &str,
+) -> Result<(GeneratedDiagram, Usage), String> {
+    let (content, usage) = chat(api_base_url, key, model, prompt, diagram_schema()).await?;
+    Ok((parse_diagram(&content, format)?, usage))
+}
+
+/// The diagram shape, mirroring the Claude schema so one parser serves both.
+pub(crate) fn diagram_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "content": {"type": "string"},
+            "explanation": {"type": "string"},
+            "blocked": blocked_schema()
+        },
+        "required": ["name", "content", "explanation"]
+    })
+}
+
+/// The coding pal from a local model.
+pub async fn generate_pal(
+    api_base_url: &str,
+    key: Option<&str>,
+    model: &str,
+    prompt: &Prompt,
+) -> Result<(GeneratedPal, Usage), String> {
+    let (content, usage) = chat(api_base_url, key, model, prompt, pal_schema()).await?;
+    Ok((parse_pal(&content)?, usage))
+}
+
+/// The pal shape, mirroring the Claude schema so one parser serves both.
+pub(crate) fn pal_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "explanation": {"type": "string"},
+            "replacement": {"type": "string"},
+            "technologies": {"type": "array", "items": {"type": "string"}},
+            "blocked": blocked_schema()
+        },
+        "required": ["explanation", "replacement", "technologies"]
+    })
+}
+
+pub async fn generate_test(
+    api_base_url: &str,
+    key: Option<&str>,
+    model: &str,
+    prompt: &Prompt,
+) -> Result<(GeneratedTest, Usage), String> {
+    let (content, usage) = chat(api_base_url, key, model, prompt, test_schema()).await?;
+    Ok((parse_test(&content)?, usage))
+}
+
+/// The written-test shape, mirroring the Claude schema so one parser serves
+/// both. `path` and `contents` are required and may come back empty — that is
+/// what a decline looks like, and `parse_test` is what reads it.
+pub(crate) fn test_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "path": {"type": "string"},
+            "contents": {"type": "string"},
+            "names": {"type": "array", "items": {"type": "string"}},
+            "blocked": blocked_schema()
+        },
+        "required": ["path", "contents", "names"]
+    })
+}
+
+/// Generates a work item's change plan from a local model, showing it the
+/// mockups when the model can see them.
+///
+/// Ollama takes images as bare base64 on the message — no media type, unlike
+/// the Anthropic block — so the same `LoadedImage` serves both shapes.
+pub async fn generate_change_plan(
+    api_base_url: &str,
+    key: Option<&str>,
+    model: &str,
+    prompt: &Prompt,
+    images: &[crate::ai::vision::LoadedImage],
+) -> Result<(GeneratedChangePlan, Usage), String> {
+    let (content, usage) =
+        chat_with_images(api_base_url, key, model, prompt, change_plan_schema(), images).await?;
+    Ok((parse_change_plan(&content)?, usage))
+}
+
+/// The change-plan shape, mirroring the Claude schema so one parser serves both.
+pub(crate) fn change_plan_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "solutions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "solution": {"type": "string"},
+                        "apiSchema": {"type": "string"},
+                        "pageSchema": {"type": "string"},
+                        "filesToChange": {"type": "string"}
+                    },
+                    "required": ["solution", "apiSchema", "pageSchema", "filesToChange"]
+                }
+            },
+            "blocked": blocked_schema()
+        },
+        "required": ["solutions"]
+    })
+}
+
+/// The strategy shape, mirroring the Claude schema so one parser serves both.
+pub(crate) fn strategy_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "strategy": {"type": "string"},
+            "techStack": {"type": "string"},
+            "technologies": {"type": "array", "items": {"type": "string"}},
+            "options": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "kind": {"type": "string"},
+                        "rationale": {"type": "string"},
+                        "tradeoffs": {"type": "string"}
+                    },
+                    "required": ["name", "kind", "rationale", "tradeoffs"]
+                }
+            },
+            "blocked": blocked_schema()
+        },
+        "required": ["strategy", "techStack", "technologies", "options"]
+    })
+}
+
+/// Lists the models the local server has pulled — used by AI Settings so the
+/// user picks from what is actually installed rather than typing a guess.
+pub async fn list_models(api_base_url: &str, key: Option<&str>) -> Result<Vec<String>, String> {
+    let url = format!("{}/api/tags", api_base_url.trim_end_matches('/'));
+    let response = authorized(client()?.get(&url), key)
+        .send()
+        .await
+        .map_err(|e| format!("could not reach Ollama at {api_base_url} — is it running? ({e})"))?;
+    if !response.status().is_success() {
+        return Err(format!("Ollama returned an error ({})", response.status()));
+    }
+    let text = response
+        .text()
+        .await
+        .map_err(|e| format!("could not read Ollama's response: {e}"))?;
+    let parsed: TagsResponse = serde_json::from_str(&text)
+        .map_err(|e| format!("unexpected response shape from Ollama: {e}"))?;
+    Ok(parsed.models.into_iter().map(|m| m.name).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn prompt() -> Prompt {
+        Prompt {
+            context: "Product: Shop App".into(),
+            task: "Feature: Checkout".into(),
+        }
+    }
+
+    /// A local server is not asked to authenticate. Sending a stray header was
+    /// never the risk; reading a key that was never stored is, and that is the
+    /// bug that once made the Test button demand an API key for Ollama.
+    #[test]
+    fn a_local_server_gets_no_authorization_header() {
+        let request = reqwest::Client::new().get("http://localhost:11434/api/tags");
+        let built = authorized(request, None).build().expect("build");
+        assert!(built.headers().get(reqwest::header::AUTHORIZATION).is_none());
+    }
+
+    /// The hosted service rejects an unauthenticated call outright, so the token
+    /// has to actually go out — and as a bearer, which is the scheme it wants.
+    #[test]
+    fn a_hosted_server_is_sent_the_token_as_a_bearer() {
+        let request = reqwest::Client::new().get("https://ollama.com/api/tags");
+        let built = authorized(request, Some("secret-token")).build().expect("build");
+        assert_eq!(
+            built
+                .headers()
+                .get(reqwest::header::AUTHORIZATION)
+                .expect("a bearer header"),
+            "Bearer secret-token"
+        );
+    }
+
+    /// An empty or whitespace key is not a key. Sending `Bearer ` would fail as
+    /// a malformed header rather than as the missing credential it really is.
+    #[test]
+    fn a_blank_key_is_treated_as_no_key_at_all() {
+        for blank in ["", "   "] {
+            let request = reqwest::Client::new().get("https://ollama.com/api/tags");
+            let built = authorized(request, Some(blank)).build().expect("build");
+            assert!(
+                built.headers().get(reqwest::header::AUTHORIZATION).is_none(),
+                "a blank key should send no header, not an empty bearer"
+            );
+        }
+    }
+
+    #[test]
+    fn chat_body_asks_for_structured_output_without_streaming() {
+        let body = chat_body_with_images("llama3", &prompt(), story_schema(), &[]);
+        assert_eq!(body["model"], "llama3");
+        assert_eq!(body["stream"], false);
+        assert_eq!(body["format"]["required"][0], "stories");
+    }
+
+    #[test]
+    fn chat_body_sends_context_before_task() {
+        let body = chat_body_with_images("llama3", &prompt(), story_schema(), &[]);
+        assert_eq!(body["messages"][0]["content"], "Product: Shop App");
+        assert_eq!(body["messages"][1]["content"], "Feature: Checkout");
+    }
+
+    /// Ollama hangs images off the message as bare base64 — no wrapper object,
+    /// no data URI prefix. Getting that shape wrong fails as a model that
+    /// simply ignores the pictures rather than as an error, so it is pinned.
+    #[test]
+    fn pictures_ride_on_the_context_message_as_bare_base64() {
+        let images = [crate::ai::vision::LoadedImage {
+            name: "basket.png".into(),
+            media_type: "image/png".into(),
+            base64: "AQIDBA==".into(),
+        }];
+        let body = chat_body_with_images("llava", &prompt(), story_schema(), &images);
+
+        assert_eq!(body["messages"][0]["images"][0], "AQIDBA==");
+        assert_eq!(body["messages"][0]["content"], "Product: Shop App");
+        assert!(
+            body["messages"][1]["images"].is_null(),
+            "pictures belong with the context, matching the cached half on the Claude side"
+        );
+    }
+
+    /// A text-only call must not gain an empty `images` key: some builds treat
+    /// its presence as a request for a vision model and refuse the call.
+    #[test]
+    fn no_pictures_means_no_images_field_at_all() {
+        let body = chat_body_with_images("llama3", &prompt(), story_schema(), &[]);
+        assert!(body["messages"][0].get("images").is_none());
+    }
+
+    #[test]
+    fn token_counts_are_read_from_ollamas_field_names() {
+        let parsed: ChatResponse = serde_json::from_str(
+            r#"{"message":{"content":"{}"},"prompt_eval_count":120,"eval_count":45}"#,
+        )
+        .expect("parse");
+        assert_eq!(parsed.prompt_eval_count, 120);
+        assert_eq!(parsed.eval_count, 45);
+    }
+
+    #[test]
+    fn a_response_without_counts_defaults_to_zero_rather_than_failing() {
+        let parsed: ChatResponse =
+            serde_json::from_str(r#"{"message":{"content":"{}"}}"#).expect("parse");
+        assert_eq!(parsed.prompt_eval_count, 0);
+        assert_eq!(parsed.eval_count, 0);
+    }
+
+    /// Ollama returns the JSON as a string in `message.content`, so the shared
+    /// parser must handle it exactly as it handles Claude's text block.
+    #[test]
+    fn the_shared_parser_reads_an_ollama_content_string() {
+        let content = r#"{"stories":[{"title":"As a shopper...","description":"One page."}]}"#;
+        match parse_generation(content).expect("parse") {
+            Generated::Items(drafts) => assert_eq!(drafts.len(), 1),
+            other => panic!("expected items, got {other:?}"),
+        }
+    }
+
+    /// A local model must be able to decline too, not just the metered one.
+    #[test]
+    fn a_local_model_can_take_the_escape_hatch() {
+        let content = r#"{"stories":[],"blocked":{"reason":"Too vague","whatIsNeeded":"Which users?"}}"#;
+        match parse_generation(content).expect("parse") {
+            Generated::Blocked { reason, what_is_needed } => {
+                assert_eq!(reason, "Too vague");
+                assert_eq!(what_is_needed, "Which users?");
+            }
+            other => panic!("expected blocked, got {other:?}"),
+        }
+    }
+
+    /// Live check against a local server. Ignored by default because it needs
+    /// Ollama running with a model pulled:
+    ///
+    /// ```text
+    /// ollama serve & ollama pull llama3
+    /// OLLAMA_MODEL=llama3 cargo test -- --ignored ollama_is_live
+    /// ```
+    #[tokio::test]
+    #[ignore = "needs a local Ollama server with a model pulled"]
+    async fn ollama_is_live_and_returns_parseable_work() {
+        let base = std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".into());
+        let model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "llama3".into());
+
+        let installed = list_models(&base, None).await.expect("list models");
+        println!("installed models: {installed:?}");
+        assert!(!installed.is_empty(), "no models pulled on the local server");
+
+        let prompt = Prompt {
+            context: "Product: Shop App. A small online shop selling coffee.".into(),
+            task: "Deliverable: MVP launch\n\nBreak this into 3 features. Each: a short \
+                   title and a one-sentence description of what done looks like."
+                .into(),
+        };
+        let (generated, usage) = generate_stories(&base, None, &model, &prompt)
+            .await
+            .expect("generate");
+        println!("generated: {generated:?}");
+        println!("usage: in={} out={}", usage.input_tokens, usage.output_tokens);
+        // Either outcome is a pass: a local model declining a vague brief is
+        // the escape hatch working, not a failure.
+        match generated {
+            Generated::Items(drafts) => assert!(!drafts.is_empty()),
+            Generated::Blocked { reason, .. } => {
+                println!("the local model declined: {reason}")
+            }
+        }
+        assert!(usage.output_tokens > 0, "the server should report eval_count");
+    }
+
+    /// The handover-mid-design path, against a real model. Strategy generation
+    /// used to call the Claude client unconditionally, so this request would
+    /// have gone to `localhost:11434/v1/messages` and failed.
+    ///
+    /// ```text
+    /// OLLAMA_MODEL=ornith:9b cargo test -- --ignored strategy_is_live --nocapture
+    /// ```
+    #[tokio::test]
+    #[ignore = "needs a local Ollama server with a model pulled"]
+    async fn strategy_is_live_on_a_local_model() {
+        let base = std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".into());
+        let model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "llama3".into());
+
+        let prompt = Prompt {
+            context: "You are helping a product team plan work.\n\nProduct: Shop App\n\
+                      Product brief answers (JSON): {\"purpose\":\"sell coffee online\"}\n\n\
+                      Developer rules — these are constraints, not preferences:\n\
+                      - Allowed technologies: Rust, TypeScript\n\
+                      - MUST NOT use, under any circumstances: Java, PHP\n"
+                .into(),
+            task: "Work item: Order processing\nDescription: Take paid orders and hand them to \
+                   fulfilment, retrying on failure.\n\nPropose how to build this. Give: a short \
+                   written strategy; 2-4 architecture options, each with a name, a kind \
+                   (windowsService, azureWebApp, azureFunction, api, backgroundWorker, or other), \
+                   why it fits, and its trade-offs; and the tech stack that follows from the \
+                   developer rules above. Do not propose anything the rules forbid."
+                .into(),
+        };
+
+        let (generated, usage) = generate_solution_strategy(&base, None, &model, &prompt)
+            .await
+            .expect("generate");
+        println!("usage: in={} out={}", usage.input_tokens, usage.output_tokens);
+        match generated {
+            GeneratedStrategy::Strategy(draft) => {
+                println!("strategy: {}", draft.strategy);
+                println!("tech stack: {}", draft.tech_stack);
+                for option in &draft.options {
+                    println!("  - {} ({}): {}", option.name, option.kind, option.rationale);
+                }
+                assert!(!draft.options.is_empty(), "a strategy should offer options");
+                println!("declared technologies: {:?}", draft.technologies);
+                // Checked against what it says it will USE, never the prose —
+                // an earlier run wrote "No Java or PHP anywhere" and a text
+                // search reported the obedience as a violation.
+                let violations: Vec<String> = draft
+                    .technologies
+                    .iter()
+                    .flat_map(|t| crate::db::developer_rules::violations("Java, PHP", t))
+                    .collect();
+                println!("rule violations: {violations:?}");
+                assert!(
+                    violations.is_empty(),
+                    "the model was told not to use these and listed them anyway: {violations:?}"
+                );
+            }
+            GeneratedStrategy::Blocked { reason, .. } => {
+                println!("declined: {reason}")
+            }
+        }
+    }
+
+    /// The install probes, run against a real model. This is the one that says
+    /// whether the validation bar is calibrated: probes that no real model can
+    /// pass are a broken gate, not a high standard.
+    ///
+    /// ```text
+    /// OLLAMA_MODEL=ornith:9b cargo test -- --ignored install_probes --nocapture
+    /// ```
+    #[tokio::test]
+    #[ignore = "needs a local Ollama server with a model pulled"]
+    async fn install_probes_run_against_a_real_model() {
+        use crate::ai::validation::{self, ValidationReport};
+
+        let base = std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".into());
+        let model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "llama3".into());
+        let disallowed = "Java, PHP";
+        let mut probes = Vec::new();
+
+        // 1 — a deliberately complete brief; declining it would be wrong.
+        let clear = Prompt {
+            context: "You are helping a product team plan work.\n\nProduct: Shop App\n\
+                      Product brief answers (JSON): {\"purpose\":\"sell coffee online\"}\n".into(),
+            task: "Feature: Checkout\nFeature description: Customers pay for a basket with a \
+                   card and receive an emailed receipt.\n\nWrite 3-6 user stories covering this \
+                   feature.".into(),
+        };
+        probes.push(validation::check_work_items(
+            &generate_stories(&base, None, &model, &clear).await.map(|(g, _)| g),
+        ));
+
+        // 2-4 — strategy, architecture vocabulary, rule obedience.
+        let strategy = Prompt {
+            context: format!(
+                "You are helping a product team plan work.\n\nProduct: Shop App\n\
+                 Developer rules — these are constraints, not preferences:\n\
+                 - MUST NOT use, under any circumstances: {disallowed}\n"
+            ),
+            task: "Work item: Order processing\nDescription: Take paid orders and hand them to \
+                   fulfilment, retrying on failure.\n\nPropose how to build this: a short \
+                   strategy; 2-4 architecture options each with a name, a kind (windowsService, \
+                   azureWebApp, azureFunction, api, backgroundWorker, or other), why it fits and \
+                   its trade-offs; the tech stack; and \"technologies\", a plain list of every \
+                   technology you are actually proposing to USE.".into(),
+        };
+        probes.extend(validation::check_strategy(
+            &generate_solution_strategy(&base, None, &model, &strategy).await.map(|(g, _)| g),
+            disallowed,
+        ));
+
+        // 5 — the hopeless brief.
+        let hopeless = Prompt {
+            context: "You are helping a product team plan work.\n\nProduct: (none given)\n".into(),
+            task: "Work item: \"Make it better\"\n\nWrite 3-6 user stories.\n\nIf this is too \
+                   vague to do well, do NOT guess. Leave \"stories\" empty and fill in \
+                   \"blocked\" with the reason and the single most useful question a person \
+                   could answer.".into(),
+        };
+        probes.push(validation::check_declines_vague(
+            &generate_stories(&base, None, &model, &hopeless).await.map(|(g, _)| g),
+        ));
+
+        let report = ValidationReport::finish(&model, probes);
+        println!("\n=== validating {model} ===");
+        for probe in &report.probes {
+            println!("{} {:<24} {}", if probe.passed { "PASS" } else { "FAIL" }, probe.probe, probe.detail);
+        }
+        println!("\nresult: {}", if report.passed { "INSTALLED" } else { "REFUSED" });
+        for fix in &report.suggested_fixes {
+            println!("  fix: {fix}");
+        }
+        // Not asserted: a real model failing is a finding about the model, not
+        // a broken test. The output is the point.
+    }
+
+    /// R3's central risk, tested against a real model: given a deliberately
+    /// under-specified item **and** an explicit instruction not to guess, does
+    /// the model actually take the escape hatch?
+    ///
+    /// This does not assert a decline — a model that produces sensible work
+    /// from a thin brief has not misbehaved. It reports which branch was taken
+    /// so the prompt wording can be judged against real behaviour rather than
+    /// assumed to work.
+    ///
+    /// ```text
+    /// OLLAMA_MODEL=ornith:9b cargo test -- --ignored escape_hatch --nocapture
+    /// ```
+    #[tokio::test]
+    #[ignore = "needs a local Ollama server with a model pulled"]
+    async fn escape_hatch_is_offered_to_a_real_model() {
+        let base = std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".into());
+        let model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "llama3".into());
+
+        // Deliberately hopeless: no product, no users, no scope.
+        let prompt = Prompt {
+            context: "You are helping a product team plan work.\n\nProduct: (none given)\n\
+                      Product brief answers (JSON): {}\n\nNo solutions are linked to this Product yet.\n"
+                .into(),
+            task: "Work item: \"Make it better\"\n\nWrite 3-6 user stories covering this feature.\
+                   \n\nIf this is too vague or contradictory to do well, do NOT guess. \
+                   Leave \"stories\" empty and fill in \"blocked\" instead: give the reason and, \
+                   in whatIsNeeded, the single most useful question a person could answer to \
+                   unblock it. Declining with a good question is a better outcome than \
+                   inventing work."
+                .into(),
+        };
+
+        let (generated, usage) = generate_stories(&base, None, &model, &prompt)
+            .await
+            .expect("generate");
+        println!("usage: in={} out={}", usage.input_tokens, usage.output_tokens);
+        match generated {
+            Generated::Blocked { reason, what_is_needed } => {
+                println!("DECLINED — the escape hatch works on this model");
+                println!("  reason: {reason}");
+                println!("  asks:   {what_is_needed}");
+            }
+            Generated::Items(drafts) => {
+                println!(
+                    "GUESSED — {} items from a hopeless brief. The hatch is offered but this \
+                     model did not take it; the prompt wording needs strengthening for it.",
+                    drafts.len()
+                );
+                for d in &drafts {
+                    println!("  - {}", d.title);
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,446 @@
+### What I did
+- Wrote and subsequently updated the `GEMINI.md` system instructions file at the workspace root to accurately reflect Antigravity-specific behaviors.
+- Ensured `GEMINI.md` correctly points to `.claude/commands/*.md` instead of skills, includes the `/new-item` command, fixes the `Project_system.md` path, and accurately describes the manual nature of the Code Map and dependency linting checks.
+- Demonstrated the required plan approval halt mechanism via the `implementation_plan.md` artifact before executing the final round of edits to `GEMINI.md`.
+
+**User Feedback Addressed (Recorded for Transparency):**
+- **False Safety Nets**: Removed incorrect claims that automated tools (`brief-lint.mjs` and `code-map-lint.mjs`) could catch omitted Code Map updates or dependency audits. The framework is now clear that these are manual mandatory gates.
+- **Priming Defections**: Removed the phrase "Under pressure, I might naturally skip maintaining row-by-row ledgers", ensuring the rule simply states the requirement without confessing to a skip.
+- **Missing `/new-item`**: Added the route for `scaffold a new page/endpoint/model` to the commands list.
+- **Header Path Correction**: Fixed the target path in the header from `claude-only/Project_system.md` to `application/claude-only/Project_system.md`.
+- **Inconsistent Pointers**: Changed all pointer targets from `.claude/skills/*` to `.claude/commands/*.md` to preserve the command rules.
+- **Halt Artifact Tests**: Verified and recorded the out-of-tree nature of the `implementation_plan.md` artifact (meaning no `.gitignore` entry is needed) and demonstrated a successful halt on a trivial plan.
+
+---
+
+**2026-09-15 — the record, and the checks that could not see it drifting.** One
+round for the whole cleanup rather than one per file: twelve round records for
+one tidy-up would be the exact failure this work was commissioned to fix.
+
+- **Came off a stale tree first.** Local `main` was 3 commits behind `origin/main`
+  and `follow-up` was cut from it and held nothing. Fast-forwarded, deleted
+  `follow-up`, branched `fix/record-drift`. This mattered: `ROUND-RECORD.md` had
+  been reported to the user as *missing* when it existed on `origin/main` all
+  along. Every other finding was re-verified against the updated base.
+- **Split six `status: filled` briefs three ways instead of flipping them.**
+  `codeEditor`, `repositoryManagement` and `SolutionManagement` → `built` (their
+  code ships). `agentPolicy` → `approved` (its spec was waiting on a person, and
+  the user gave it). `mcpServer` and `featureDesigner` stay `filled` and now carry
+  a round bullet each saying *why* — they are genuinely unbuilt, not stale records.
+- **Restored `deliverables` and `testing` to `application/Project_brief.md`**,
+  which was on an older template than `template/Project_brief.md`. Drafted both
+  answers and marked each with the per-answer provenance line from
+  `draft-brief/SKILL.md` — **not** `status: drafted` on the file, which would have
+  made `/translate` refuse all 40 item briefs at once. `brief-lint` now reads
+  *MVP → Agent governance → Feature Designer* where it read *0 deliverable(s)*.
+- **Unpublished the drafted brief.** `site/build.mjs` published every `.md` in the
+  briefs folder regardless of status, putting `importProject` — `drafted`, four
+  questions unanswered — on the public docs site. It read `status` into `entries`
+  and never used it. Now excluded from the build rather than hidden from the nav,
+  because a page dropped from the nav is still served, still in the sitemap, still
+  indexable. 25 pages → 24, and nothing else was caught by the filter.
+- **Gave `code-map-lint` the direction it never had.** Every rule in it read a row
+  and asked whether the code existed; nothing asked whether existing code had a
+  row, so a map covering a quarter of the codebase printed `clean`. It now also
+  enumerates *surfaces* — declared in a `SURFACES` table so this ships to projects
+  that are not Tauri — and reports **229 with no row** (206 commands, 23 tables).
+  Landed as a ratchet at the current number, not as 229 errors on day one.
+- **Fixed a Code Map row that was describing older code**: `WorkspaceShell` still
+  said "three-tab menu (Product/Develop/Test)" when `EnvironmentId` has four and
+  `AdminArea` renders.
+- **Removed `rmcp`** (declared, used nowhere, its comment pointing at an
+  `mcp/serve.rs` that was never written) — 207 lines out of `Cargo.lock`. Round 1
+  of `mcpServer.md` had already instructed this; the brief now carries the exact
+  line to restore. `mcp/decide.rs` untouched: it is real, tested work.
+- **Removed an unreachable render branch** in `WorkspaceShell.tsx` — placeholder
+  text for four environments that are all handled explicitly above it, and that
+  read as though the areas were unbuilt.
+- **Stubbed `HTMLCanvasElement.prototype.getContext`** in `test-setup.ts`: six
+  "Not implemented" dumps per Vitest run, indistinguishable at a glance from a
+  real failure.
+- **Filled two briefs still carrying `# Page Brief — <Page Name>`** from the blank
+  template, both `status: built`.
+- Added **4 tests** for the new coverage rule, including the one that keeps it
+  safe to ship: a project with none of these surfaces is untouched by it.
+
+**2026-10-07 — `claude-only/` becomes `ai-only/`, the AI's workspace for any model.**
+
+- **Renamed the folder everywhere it is named.** `template/claude-only/` and
+  `application/claude-only/` are now `ai-only/` (git moves, so history follows).
+  The bridge is `1-translate-for-ai.md` and the spec shape is
+  `2-ai-system.template.md`. Every reference follows: the commands, the
+  translate, emit-guardrails and pipeline skills, AGENTS.md, GEMINI.md, README,
+  HOW-TO-USE, the forms, both briefs, `tools/` (both lints, their tests, QA.md),
+  the `init` CLI, the Rust doc comments, and `scaffold_product`, which now
+  creates `.CoperativeAI/ai-only/` (its test and Code_map row updated with it).
+- **Wrote `template/ai-only/README.md`**, which says what the folder is: the
+  AI's workspace, where specs, plans and round reports live. Any model can use
+  it, and it explains how one works there without Claude Code. The code map is
+  described as one supporting index inside it, with its cost and what it buys
+  stated. The template README, the main README and the code-map template now
+  say the same.
+- **Made the bridge and spec template model-neutral** ("the AI", not "Claude").
+  Model-tier examples now read "e.g. Claude Haiku, or your provider's smallest
+  model".
+- **Brought the three descriptions of a spec into agreement.** The bridge, the
+  template and the translate skill disagreed: the template lacked a Testing
+  floor heading, Prompt B lacked Deliverable, Prompt A's working agreement
+  lacked the token-cost rule, and the skill's System Spec list lacked
+  Deliverables and Testing floor. All three now list the same headings.
+- **Reviewed every file in `application/ai-only/`** and corrected what was wrong:
+  - `Project_system.md` claimed `anything-else` was unanswered (it is answered).
+    It omitted Deliverables and the Testing floor; both are now there, marked
+    drafted, along with the digest lines for them. It also silently resolved a
+    contradiction about production deploys; that is now an Open Question.
+  - Nine specs (four pages, five models) still read "translated — waiting for
+    approval" or "approved — waiting for build" although their briefs are
+    `built` and their code is in the map. Those lines are corrected without
+    inventing build reports.
+  - `developerWorkspace.md` depended on a `DeveloperRules-model.json` brief that
+    has never existed; it now says so.
+  - A stale "(round 2 …)" is gone from `productPlanning.md`'s title.
+- **Fixed every broken relative link in the repository's Markdown (16).**
+  application/'s briefs pointed at a bridge and `_forms/` that only exist under
+  `template/`, and both Project Briefs pointed at a non-existent `example/`.
+  A link check now reports none.
+- Left history alone: earlier round records and round narratives still say
+  `claude-only/`, because that is what the folder was called when they happened.
+- Fixed README's "three Claude Code slash commands", which listed six.
+- **AGENTS.md now lists the three deliverables** (MVP, Agent governance,
+  Feature Designer) with what makes each done, the stop-at-the-end rule, and a
+  plain statement that they are drafted and not yet accepted. Until now it said
+  the brief named none.
+
+**2026-10-07 — developers start their own projects**
+
+- **Asked:** "Can we allow developers to create their own projects in their own
+  area and solutions around it." Every Solution needs a Product, and only the
+  Product tab could make one. The seeded Developer role cannot see that tab, and
+  Develop's empty state still sent people there.
+- **Asked three questions before building, and you picked the smallest option
+  each time:** a project is an ordinary Product; "their own area" means the
+  Develop tab, with no ownership recorded; AI policy stays deny-by-default and
+  Admin's.
+- **Built** `NewProjectForm` (name only, through the existing `create_product`)
+  as a "Create a project" card on Develop → Map, above "Create a Solution". The
+  new project is selected in the Develop picker and the Solution form. With no
+  Products, the Develop bar now offers a "Create a project" button instead of
+  pointing at the Product tab. No Rust change.
+- **TDD:** four Vitest cases written first and seen failing (one replaces the
+  old "create a Product first" test). `npm test` (tsc --noEmit + Vitest)
+  814/814 across 76 files (installed with `npm ci --force` on this Linux
+  container: the lockfile is resolved on win32, as `ci.yml` explains); `npm run check` clean apart from the deliverable
+  warnings that were already there.
+- Recorded as round 3 on `application/CoperativeAI/solutionCreation.md` and its
+  spec; Code_map rows for `DevelopSolutions` and `NewProjectForm` updated.
+- **Rust gates pass** although no Rust file changed: `cargo clippy --all-targets
+  -- -D warnings` clean, `cargo test` 912 passed, 0 failed, 35 ignored
+  (live-only).
+**2026-10-07**
+
+- **Measured what the 229 surfaces actually owed before changing anything.**
+  Of 206 unmapped Tauri commands, 139 already carried a doc comment; of 21
+  unmapped database tables, 21 did. Paying the count down with rows would have
+  been transcribing ~160 explanations into a table — a third copy of prose that
+  already lives in the brief and the item spec.
+- **`code-map-lint` now reports two numbers instead of one.** *No explanation
+  anywhere* (106) is ratcheted and fails when it rises. *Explained in the code
+  but not indexed* (123) is reported and never fails — the explanation exists,
+  and where it is indexed is a judgement about reuse rather than a gap.
+- **A doc comment counts as an explanation**, in any language: `///`, `//!`,
+  `/** */`, `#`, `--`, `"""`. Tables are read from the module header, because a
+  comment above `CREATE TABLE` describes the `create_table` function, not the
+  table. `commentAbove` refuses to borrow a preceding declaration's comment —
+  `claude_code_status` has a `const PROBE_FRESH` doc comment two lines up and is
+  correctly counted as unexplained.
+- **An 80-character floor**, because `// TODO: tidy this up` would otherwise
+  discharge the rule. This is why the honest ceiling is **106, not 67**: 44 of
+  the doc comments are one line restating the name. `/// Writes to the
+  terminal.` is 30 characters and tells a reuse scan nothing.
+- **`3-code-map.template.md` documents the surface check for the first time** —
+  it had never been updated when the check landed, so projects installing via
+  `npx` got a lint whose main rule was undocumented.
+- 54 tests pass (16 new, one existing assertion reworded). `npm run check` is
+  clean at exit 0.
+- **The six procedures moved out of `.claude/` into
+  `template/ai-only/procedures/`.** Their text was never Claude-specific — each
+  is a procedure written in English — but their location was, so an agent that
+  was not Claude Code arrived to find the framework's instructions filed under
+  `.claude/` and addressed to somebody else. 31 KB of procedure, one copy.
+- **All six commands and all four skills are now pointers**, 575–1,129 bytes
+  each, down from up to 7.4 KB. Each keeps its front matter, because that is what
+  makes Claude Code trigger it, and its body says which procedure to follow.
+- **`init` writes an `AGENTS.md`.** It carries the procedures table, the working
+  agreement, the checks and the honest limits — all true on day one — and marks
+  house rules, security, testing and deliverables as *not yet filled in* rather
+  than inventing them. It has the generated-file header, so `/emit-guardrails`
+  replaces it once there is a spec to generate from.
+- **`emit-guardrails` emits the procedures table into every format** and no
+  longer claims the procedures do not travel. They do; what does not travel is
+  enforcement, which is narrower and true.
+- **Four new checks, two of which found real faults on their first run.** Every
+  procedure must be reachable from some tool; a pointer may not grow past 2 KB
+  (how a procedure creeps back into one tool's folder); every procedure a
+  pointer names must exist; and every path the starter `AGENTS.md` names must
+  exist in a fresh project. That last one caught `ai-only/Project_system.md` and
+  `ai-only/Code_map.md` being named as though they were there on day one, when
+  both are outputs — the document now says so, and the check reads the same
+  admission rather than carrying its own exception list.
+- **Repointed a test that had quietly stopped checking anything.** "Every skill
+  a command asks for exists" matched `run the \`x\` skill`, which no command says
+  any more, so it passed on an empty set. It now checks the unrooted
+  `ai-only/procedures/…` form — the path a project actually uses, which the
+  rooted-path test skips by design.
+- **One piece of real drift found and fixed while doing this.** The `brief-lint`
+  deliverable check lived only in `.claude/commands/translate.md`, so an agent
+  following the procedure was never told to run it. It is in the procedure now.
+- 57 tests pass; `npm run check` clean at exit 0. Verified by running `init`
+  into an empty folder: `AGENTS.md` is at the root and every path it names
+  resolves.
+- **`init` now copies all three checks, not two.** `round-record-lint.mjs` was
+  inside the published package and missing from the copy list, so every project
+  created with `npx` got the two checks that read what an agent wrote *while*
+  working and none of the one that reads what it wrote afterwards. The test now
+  names each check individually rather than trusting `tools/`, so one cannot
+  drop out again unnoticed.
+- **The app moved here from CooperativeAICoding, history kept.** `app/`,
+  `application/`, the guardrails, this record, `rust-toolchain.toml` and the
+  CI and release workflows came across with every commit that touched them and
+  all 53 version tags; the framework stayed behind. Every kept path was checked
+  byte-identical to the source, and `v0.2.52` points at the code that release
+  was built from. Swarm's own `.gitignore` was dropped in the merge: its bare
+  `debug` rule would have hidden `src-tauri/src/debug/`, the debugger module.
+- **This repository checks itself.** `brief-lint`, `code-map-lint` and
+  `round-record-lint` are copied into `tools/` from CooperativeAICoding at
+  `dc69caa`, as `init` copies them into any project; CI's `documents` job runs
+  those three and no longer runs the framework's own tests, which stayed with it.
+- **Releases are held until the rename.** `release.yml` no longer runs on a
+  push to main, so the first release from here is named Swarm rather than
+  0.2.53 going out as CoperativeAI. The manual trial build still works and
+  still publishes nothing.
+
+### What I could not do (and what you would need to tell me)
+- I could not dynamically test the CI/CD pipeline or linter tools (`node tools/code-map-lint.mjs`) directly because those require a Node.js environment or GitHub Actions to run, and my task was scoped purely to documentation edits. 
+
+**2026-09-15**
+
+- **I did not assign deliverables to the 39 item briefs** that now warn about
+  naming none. Those warnings are correct and newly visible — they were masked
+  while the brief had no deliverables at all. I left them because the deliverable
+  names are **drafted and unaccepted**: if you rewrite them, all 39 assignments
+  would be wrong, so this is genuinely blocked on you accepting or rewriting the
+  three bullets first.
+- **I did not decide `mcpServer` or `featureDesigner`.** The plan flagged both as
+  build-or-delete decisions rather than cleanups, and `mcpServer` in particular
+  intersects a design you deferred deliberately — MCP servers per agent as the
+  *enforcement* layer, with the open question of whether the app adds to or
+  replaces Claude Code's own MCP configuration. Deleting that scaffolding on my
+  own judgement would have destroyed work you intend to build on.
+- **One review finding I reported to you was wrong, and I could not fix it because
+  there was nothing to fix**: `application/claude-only/CoperativeAI/developerWorkspace.md`
+  is not an orphan. It is the spec for round 8b and `developerArea.md:116` links
+  to it explicitly. Left alone.
+
+**2026-10-07**
+
+- **Who may deploy to production.** The Project Brief's `environments` answer
+  says the AI may deploy to production and development; the CoperativeAI
+  solution spec says people deploy production after review. `Project_system.md`
+  follows the stricter solution spec and lists this as an Open Question. Tell me
+  which is meant.
+- **Accepting the drafted deliverables and testing floor.** Both are in
+  `Project_system.md` now, but marked drafted, because the brief still carries
+  the `drafted` marker on them. Only a person can accept them.
+- **Whether a `DeveloperRules-model.json` brief should be written.** The table is
+  built with no brief behind it. Writing one is a person's call, not mine.
+
+**2026-10-07 — developers start their own projects**
+
+- **Which deliverable this belongs to.** It does not clearly fit MVP, Agent
+  governance or Feature Designer, so the brief names none. Tell me if it is MVP.
+- **Whether developers should own their projects** (recorded per team member,
+  "mine" shown first). You chose not to for now. If wanted later it needs an
+  owner column and a statement that it is visibility only, not access control.
+- **Not run in the real Tauri window.** The form is covered by mocked tests only.
+**2026-10-07**
+
+- **Whether 80 characters is the right floor.** It admits every doc comment in
+  this repository over one line and rejects every one-liner, which is the
+  behaviour I wanted. But it is a number I chose from this codebase's own median
+  of 236, and a project whose house style is terser would be judged unfairly by
+  it. If it should be configurable per project rather than fixed, say so.
+- **Whether the unindexed 123 should ever fail.** I made it a note, on the
+  argument that a doc comment is a better home than a table row. If you want the
+  map to be a complete index — every surface named, prose or not — that is a
+  different rule and I have not built it.
+- **I did not write any of the 106 missing explanations.** The ceiling records
+  the debt; paying it down is work on the code, not on the lint, and nobody
+  asked for it in this round.
+- **Whether `init` should write an `AGENTS.md`.** Verified by running `init`
+  into an empty folder: the forms, the bridge and all three checks are
+  agent-neutral, but all six commands and four skills are under `.claude/`, and
+  no `AGENTS.md` is written — so a non-Claude agent arrives to instructions
+  addressed to somebody else. `/emit-guardrails` produces one, but it is itself
+  a Claude Code command, so Claude is needed once to bootstrap any other model.
+  Writing one at `init` could only be a generic starter, since
+  `emit-guardrails` generates from the translated spec and there is none yet —
+  and a generated file with nothing project-specific in it may be worse than
+  none. That is a product decision, so I left it.
+- **I could not run the gates locally for the move.** Clippy, `cargo test`,
+  `tsc` and `npm test` run on this repository's pull request instead; the code
+  is byte-identical to what passed them in CooperativeAICoding, so a failure
+  there would be the new repository's setup, not the code.
+- **Two questions about the framework side are still open:** whether
+  CooperativeAICoding keeps, splits or drops its copy of this record, and
+  whether it gets guardrails of its own once `AGENTS.md` and `GEMINI.md` have
+  left with the app.
+
+### Debt I left behind
+- I entirely neglected to append this round record upon completing my task, breaking the project's framework rules. I failed to automatically register my completed work, missing debt, and open questions into this file. This was a process failure on my end.
+
+**2026-09-15**
+
+- **`UNCOVERED_CEILING = 229` is a number that will rot if nobody moves it.** It
+  exists so the new rule could land without producing 229 errors and being
+  commented out in week two, but a ceiling nobody lowers is permanent permission
+  to stay at 25% coverage. It fails immediately if the count goes *up*, which is
+  the half that protects new work; the half that pays off the debt is manual.
+- **The coverage check is deliberately lenient and therefore under-reports.** A
+  surface counts as covered if its name appears anywhere in the map, including in
+  prose, and existing rows bundle commands (`work_items::{list_work_items, …}`)
+  so a bundled name covers several at once. The true number of commands with a
+  row *of their own* is worse than 229 suggests. Fixing that properly is the
+  three-grain map (method / command / table), which is its own piece of work.
+- **Drafted answers now live inside a brief whose status is `filled`** — a state
+  the framework does not model. The provenance line is the only thing marking
+  them, and no check looks for a marker left behind after someone edits the
+  answer. A `brief-lint` rule for stale provenance lines would close it.
+- **`site/build.mjs` excludes only `drafted`.** A brief that is `blank` still
+  publishes. That was true before this change and remains true; I narrowed the
+  fix to the status the user asked about rather than quietly widening it.
+- **`cargo test` needed a 7 GiB clean before it would link, and that will recur.**
+  It failed twice with `LNK1318: Unexpected PDB error; LIMIT (12)` on
+  `turso_sync_sdk_kit`, whose debug PDB had grown to **237 MB** — a toolchain
+  limit, not a code fault (clippy type-checks every test target and passed clean
+  throughout). Not caused by this round, but removing `rmcp` forced the relink
+  that exposed it. `cargo clean -p turso_sync_sdk_kit` fixed it and the suite then
+  ran **908 passed, 0 failed, 35 ignored**. The durable fix is a
+  `[profile.dev.package]` entry capping debug info for that dependency, which is a
+  decision about the project's build rather than a cleanup, so it is left here
+  rather than taken.
+- **The Code Map's test figures were stale and are now measured, but nothing
+  keeps them that way.** `Code_map.md:195` claimed 673 cargo tests and 23 ignored;
+  the measured figures are 908 and 35, and Vitest 605 → 811 across 76 files. They
+  are now dated so a reader can tell how old they are — but no check compares that
+  line to a real run, so it will drift again. It is the same one-directional
+  blindness the surfaces rule just fixed for rows, in a different sentence.
+
+**2026-10-07**
+
+- **Projects made before this change still have `claude-only/`.** Products the
+  app scaffolded earlier, and projects created by an older `coperativeai init`,
+  keep the old folder name and their old copies of the commands and lints.
+  Re-running `init` adds an empty `ai-only/` beside it rather than moving
+  anything, because `init` never overwrites. There is no migration step. A
+  project that wants the new layout renames the folder and refreshes
+  `.claude/` and `tools/` by hand.
+
+- **About half the item specs are thinner than the template.** No spec has a
+  Deliverable heading. 23 of 41 lack Model & effort, and most of those also lack Open questions and
+  Skills, and most database-model specs lack Tests. The template grew after
+  they were written. Filling them in means re-running `/translate` per brief,
+  and the briefs themselves name no deliverable (brief-lint warns on all 21
+  models). That is a re-translation round, not a documentation fix.
+
+- **Nine built specs have no build report.** I corrected their status lines,
+  but what was built, and how each use case was implemented, was never
+  appended to these specs. The code map shows the code exists. The spec does
+  not say how it maps onto the brief.
+
+- **`developerArea.md` is 5,582 lines and `qaTestDesigner.md` 530.** The
+  bridge's token-efficiency argument assumes a spec is cheap to read before
+  building. For developerArea it is not: about 50 rounds of reports, newest
+  near the top, sit in the file a build reads. Splitting finished rounds into
+  a history file beside it would keep the spec readable. That is a structural
+  change people should decide, so I did not make it.
+
+- **`marketingDesign.md` (the brief) has no front matter.** It has no `form`,
+  `status` or `deliverable`, so brief-lint and `/build` cannot see what state
+  it is in, though its spec says built (round 8).
+
+- **Only the scaffold's tests were run locally, not the full Rust suite.**
+  `cargo clippy --all-targets -- -D warnings` is clean, and the four
+  `tooling::scaffold` tests pass, including the one asserting
+  `.CoperativeAI/ai-only/` exists. The other Rust changes are doc comments
+  only, so I relied on CI for the full `cargo test`. `tsc --noEmit` and
+  `npm test` were not run, since no frontend file changed. `npm run check`
+  (49 tests, both lints, the round-record lint) passes.
+
+
+**2026-10-07 — developers start their own projects**
+
+- **A developer cannot fill in their project's brief.** The Product questions
+  (purpose, problem, users) are edited in Product → Strategy, which the
+  Developer role cannot see. A project made in Develop keeps empty answers until
+  someone with Product access fills them in, and anything that reads those
+  answers (generation, briefs) gets nothing.
+
+- **No framework-file scaffold from Develop.** The Product tab's form can
+  scaffold a Product's framework files into a folder when it creates one. The
+  Develop form does not offer that, so a developer's project has no scaffolded
+  files unless someone generates them afterwards.
+
+- **Two Product-creation forms.** `ProductPlanning` and `NewProjectForm` both
+  call `createProduct`. They differ on purpose: questions and scaffold, versus a
+  name only. A third would trip the DRY rule and should become one shared form.
+**2026-10-07**
+
+- **The ceiling is 106 and the right number is 0.** One hundred and six surfaces
+  in this app have nothing written about them anywhere. The check now says so
+  honestly rather than blurring them with 123 that were already explained, but
+  the explanations still have to be written, and 106 of them is somebody's week.
+  Each is its own small work item: what the command is for, and why it is the
+  way it is.
+
+- **`EXPLANATION_MIN` is a constant, not a setting.** A project installing this
+  via `npx` inherits 80 characters whether or not it suits their house style.
+  Making it configurable means deciding where per-project lint configuration
+  lives, which does not exist yet — so it is hard-coded with its reasoning
+  beside it.
+
+- **The surface list is still only Tauri commands and database tables.** An HTTP
+  endpoint, a CLI subcommand and a React route are all surfaces by the same
+  argument, and none of them is detected. Adding each is a row in `SURFACES`,
+  but choosing which ones count is a judgement about what a build could rebuild
+  by accident, so I did not decide it alone.
+
+- **A pointer can still drift, just more slowly.** The 2 KB ceiling catches a
+  procedure being copied back into a tool's folder; it cannot catch a single
+  sentence of behaviour added to a pointer. Two of the commands were at 2,008
+  and 2,017 bytes before I converted them — one sentence from failing — and they
+  were that size precisely because they had been restating their procedures.
+  Nothing stops that recurring except the ceiling and somebody reading diffs.
+
+- **`AGENTS.md` is written once and never reconciled.** `init` writes the
+  starter, `/emit-guardrails` replaces it from the spec, and in between nothing
+  notices if a person edits the generated copy by hand — their edits are lost on
+  the next run, silently, because the header says it is safe to overwrite. The
+  alternative was a protected file that goes stale instead. Both are wrong in
+  different directions and the choice was made deliberately.
+
+- **The procedures are reachable, not enforced.** Any agent can be pointed at
+  `ai-only/procedures/build.md`; nothing checks that it read it, and no check
+  can. The approval gate is the only part that does not depend on the model
+  cooperating, which is why every emitted file now says so plainly instead of
+  implying the framework carries over whole.
+
+- **The checks in `tools/` are copies and will drift.** A fix to a check in
+  CooperativeAICoding reaches this repository only when somebody copies it
+  again, and nothing says when that is due. Every project `init` creates has
+  the same gap; this is the first one where the framework is actively changing
+  underneath it.
+
+- **While releases are held, nothing builds main after a merge.** `ci.yml`
+  runs on pull requests only, on the grounds that the release build covers
+  main; with the release trigger off, a direct push to main is checked by
+  nothing until the rename turns the trigger back on.

@@ -1,0 +1,459 @@
+//! The git hub and the test explorer: every Solution's working copy at once.
+//!
+//! **The database lock is released before anything slow runs.** A test suite can
+//! take minutes and git can take seconds; holding the connection across either
+//! would freeze every other part of the app behind it. Each command therefore
+//! reads what it needs from the database inside a scope, drops the lock, and
+//! only then touches the disk — the same shape the AI commands use.
+//!
+//! **A Solution that cannot be inspected reports why, and the rest still work.**
+//! One Solution with no folder, or a folder that is not a repository, must not
+//! blank the whole hub — that is the failure mode that makes a cross-Solution
+//! view useless in exactly the situation it is for.
+
+use super::{to_message, AppDb};
+use crate::db::solution;
+use crate::files::workspace;
+use crate::git::vcs;
+use crate::tooling::test_runner;
+use serde::Serialize;
+use tauri::State;
+
+/// One Solution's row in the git hub.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SolutionRepo {
+    pub solution_id: i64,
+    pub name: String,
+    pub status: Option<vcs::RepoStatus>,
+    /// Why there is no status — no folder linked, folder gone, not a repo.
+    pub unavailable: Option<String>,
+}
+
+/// Every Solution in a Product, with its repository state.
+#[tauri::command]
+pub async fn product_git_overview(
+    db: State<'_, AppDb>,
+    product_id: i64,
+) -> Result<Vec<SolutionRepo>, String> {
+    let solutions = solutions_of(&db, product_id).await?;
+
+    Ok(solutions
+        .into_iter()
+        .map(|(solution_id, name, root)| match root {
+            None => SolutionRepo {
+                solution_id,
+                name,
+                status: None,
+                unavailable: Some(
+                    "no folder on this machine yet — point it at a working copy".into(),
+                ),
+            },
+            Some(root) => match vcs::status(&root) {
+                Ok(status) => SolutionRepo { solution_id, name, status: Some(status), unavailable: None },
+                Err(message) => SolutionRepo {
+                    solution_id,
+                    name,
+                    status: None,
+                    unavailable: Some(message),
+                },
+            },
+        })
+        .collect())
+}
+
+/// One Solution's changed files, with the diff for each.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SolutionChanges {
+    pub solution_id: i64,
+    pub name: String,
+    pub changes: Vec<workspace::FileChange>,
+    pub unavailable: Option<String>,
+}
+
+/// What has changed across every Solution in a Product.
+///
+/// This is what the Code area's git toggle shows: the same file list, filtered
+/// to work in progress, with the diff attached so "what changed" needs no
+/// second call.
+#[tauri::command]
+pub async fn product_changed_files(
+    db: State<'_, AppDb>,
+    product_id: i64,
+) -> Result<Vec<SolutionChanges>, String> {
+    let solutions = solutions_of(&db, product_id).await?;
+
+    Ok(solutions
+        .into_iter()
+        .map(|(solution_id, name, root)| {
+            let (changes, unavailable) = match root {
+                None => (Vec::new(), Some("no folder on this machine yet".to_string())),
+                Some(root) => match workspace::read_changes(&root) {
+                    Ok(changes) => (changes, None),
+                    Err(message) => (Vec::new(), Some(message)),
+                },
+            };
+            SolutionChanges { solution_id, name, changes, unavailable }
+        })
+        .collect())
+}
+
+/// The three sides of one conflicted file.
+#[tauri::command]
+pub async fn read_conflict_sides(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+    path: String,
+) -> Result<vcs::ConflictSides, String> {
+    let root = root_for(&db, solution_id).await?;
+    vcs::conflict_sides(&root, &path)
+}
+
+/// Stages a resolved file. Refuses while conflict markers remain.
+#[tauri::command]
+pub async fn mark_conflict_resolved(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+    path: String,
+) -> Result<(), String> {
+    let root = root_for(&db, solution_id).await?;
+    vcs::mark_resolved(&root, &path)
+}
+
+/// The test suites in one Solution — its own command if it has one, otherwise
+/// whatever detection finds.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SolutionSuites {
+    pub solution_id: i64,
+    pub name: String,
+    pub suites: Vec<test_runner::Suite>,
+    /// Set when the Solution's own command is in use, so the UI can say that
+    /// detection was overridden rather than leaving someone puzzled about
+    /// where the command came from.
+    pub custom_command: Option<String>,
+    pub unavailable: Option<String>,
+}
+
+/// The test suites in one run's own checkout.
+///
+/// **A suite the agent wrote exists nowhere else.** Detection walks a folder for
+/// the files that give a framework away, and an agent that added
+/// `tests/Greeter.Tests/` added it in its worktree — so asking the Solution's
+/// folder returns the suites that were there before the work started, and the
+/// panel offers to run everything except what the agent actually wrote.
+#[tauri::command]
+pub async fn list_solution_test_suites(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+    run_id: Option<i64>,
+) -> Result<SolutionSuites, String> {
+    let (name, root, custom) = {
+        let conn = db.0.lock().await;
+        let Some(row) = solution::find_by_id(&conn, solution_id).await.map_err(to_message)? else {
+            return Err("that Solution no longer exists".into());
+        };
+        let custom = row.test_command.clone().filter(|c| !c.trim().is_empty());
+        let root = match run_id {
+            Some(_) => crate::commands::workspace::root_for_run(&conn, solution_id, run_id)
+                .await
+                .ok(),
+            None => row.local_path.clone().filter(|p| !p.trim().is_empty()),
+        };
+        (row.name, root, custom)
+    };
+
+    let Some(root) = root else {
+        return Ok(SolutionSuites {
+            solution_id,
+            name,
+            suites: Vec::new(),
+            custom_command: custom,
+            unavailable: Some("no folder on this machine yet".into()),
+        });
+    };
+    let suites = match &custom {
+        Some(command) => vec![test_runner::custom_suite(command)],
+        None => test_runner::detect(std::path::Path::new(&root)),
+    };
+    Ok(SolutionSuites {
+        solution_id,
+        name,
+        suites,
+        custom_command: custom,
+        unavailable: None,
+    })
+}
+
+/// Every test suite across a Product's Solutions.
+#[tauri::command]
+pub async fn list_test_suites(
+    db: State<'_, AppDb>,
+    product_id: i64,
+) -> Result<Vec<SolutionSuites>, String> {
+    let solutions = {
+        let conn = db.0.lock().await;
+        solution::list_by_product(&conn, product_id)
+            .await
+            .map_err(to_message)?
+            .into_iter()
+            .map(|s| {
+                (
+                    s.id,
+                    s.name,
+                    s.local_path.filter(|p| !p.trim().is_empty()),
+                    s.test_command.filter(|c| !c.trim().is_empty()),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+
+    Ok(solutions
+        .into_iter()
+        .map(|(solution_id, name, root, custom)| {
+            let Some(root) = root else {
+                return SolutionSuites {
+                    solution_id,
+                    name,
+                    suites: Vec::new(),
+                    custom_command: custom,
+                    unavailable: Some("no folder on this machine yet".into()),
+                };
+            };
+            let suites = match &custom {
+                Some(command) => vec![test_runner::custom_suite(command)],
+                None => test_runner::detect(std::path::Path::new(&root)),
+            };
+            let unavailable = suites.is_empty().then(|| {
+                "nothing recognisable to run here — set a test command on this Solution".to_string()
+            });
+            SolutionSuites { solution_id, name, suites, custom_command: custom, unavailable }
+        })
+        .collect())
+}
+
+/// Runs every suite in one Solution.
+///
+/// One Solution at a time on purpose: the frontend loops, so results appear as
+/// each Solution finishes rather than after the slowest one in the Product.
+#[tauri::command]
+pub async fn run_solution_tests(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+    // **Which checkout to test.** An agent works in its own worktree, so
+    // running in the Solution's folder tests the default branch — the code the
+    // agent has *not* changed. Worse, a test project the agent added exists
+    // only in its checkout, so detection in the Solution's folder cannot even
+    // find the suite it wrote. Without a run this is your own workspace, which
+    // is what it always was.
+    run_id: Option<i64>,
+) -> Result<Vec<test_runner::SuiteRun>, String> {
+    let (root, custom, mode) = {
+        let conn = db.0.lock().await;
+        let Some(row) = solution::find_by_id(&conn, solution_id)
+            .await
+            .map_err(to_message)?
+        else {
+            return Err("that Solution no longer exists".into());
+        };
+        // The Solution's own command still wins, whichever checkout it runs in:
+        // it is a fact about the project, not about the folder.
+        let custom = row.test_command.clone().filter(|c| !c.trim().is_empty());
+        let root = match run_id {
+            Some(_) => crate::commands::workspace::root_for_run(&conn, solution_id, run_id).await?,
+            None => row.local_path.filter(|p| !p.trim().is_empty()).ok_or_else(|| {
+                format!("'{}' has no folder on this machine to run tests in", row.name)
+            })?,
+        };
+        (root, custom, crate::commands::sandbox_mode(&conn).await)
+    };
+
+    let path = std::path::Path::new(&root);
+    let sandbox = crate::commands::place_for(mode, path).await?;
+    let suites = match &custom {
+        Some(command) => vec![test_runner::custom_suite(command)],
+        None => test_runner::detect(path),
+    };
+    if suites.is_empty() {
+        return Err(
+            "no test suite was found in this Solution — set a test command on it and try again"
+                .into(),
+        );
+    }
+    Ok(suites.iter().map(|suite| test_runner::run(&sandbox, path, suite)).collect())
+}
+
+/// Runs one named suite, so a single failing suite can be re-run alone.
+#[tauri::command]
+pub async fn run_test_suite(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+    kind: String,
+    directory: String,
+    command_line: String,
+    // The same rule as running them all: a run's suite lives in the run's own
+    // checkout, and re-running it anywhere else answers about other code.
+    run_id: Option<i64>,
+) -> Result<test_runner::SuiteRun, String> {
+    let (root, mode) = {
+        let conn = db.0.lock().await;
+        let root = crate::commands::workspace::root_for_run(&conn, solution_id, run_id).await?;
+        (root, crate::commands::sandbox_mode(&conn).await)
+    };
+    let sandbox = crate::commands::place_for(mode, std::path::Path::new(&root)).await?;
+    let suite = test_runner::Suite {
+        kind,
+        directory,
+        command_line,
+        found_by: "re-run".into(),
+    };
+    Ok(test_runner::run(&sandbox, std::path::Path::new(&root), &suite))
+}
+
+#[tauri::command]
+pub async fn set_solution_test_command(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+    command: Option<String>,
+) -> Result<(), String> {
+    let conn = db.0.lock().await;
+    solution::set_test_command(&conn, solution_id, command.as_deref())
+        .await
+        .map_err(to_message)
+}
+
+/// (id, name, working copy) for every Solution in a Product, with the lock
+/// released before the caller touches any of them.
+async fn solutions_of(
+    db: &State<'_, AppDb>,
+    product_id: i64,
+) -> Result<Vec<(i64, String, Option<String>)>, String> {
+    let conn = db.0.lock().await;
+    Ok(solution::list_by_product(&conn, product_id)
+        .await
+        .map_err(to_message)?
+        .into_iter()
+        .map(|s| (s.id, s.name, s.local_path.filter(|p| !p.trim().is_empty())))
+        .collect())
+}
+
+async fn root_for(db: &State<'_, AppDb>, solution_id: i64) -> Result<String, String> {
+    let conn = db.0.lock().await;
+    let Some(row) = solution::find_by_id(&conn, solution_id)
+        .await
+        .map_err(to_message)?
+    else {
+        return Err("that Solution no longer exists".into());
+    };
+    row.local_path
+        .filter(|p| !p.trim().is_empty())
+        .ok_or_else(|| format!("'{}' has no folder on this machine yet", row.name))
+}
+
+/// How to run one Solution while working on it — its own command if it has one,
+/// otherwise what detection recognises.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DevCommandDto {
+    pub kind: String,
+    pub start: String,
+    pub watch: String,
+    pub watch_needs: String,
+    pub found_by: String,
+    /// True when the start command is the Solution's own override.
+    pub custom: bool,
+    /// Whether the watcher's tool is actually on PATH. Checked here rather than
+    /// discovered as a shell error after pressing Hot refresh.
+    pub watch_ready: bool,
+    pub unavailable: Option<String>,
+}
+
+#[tauri::command]
+pub async fn suggest_dev_command(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+) -> Result<DevCommandDto, String> {
+    let (root, custom) = {
+        let conn = db.0.lock().await;
+        let Some(row) = solution::find_by_id(&conn, solution_id)
+            .await
+            .map_err(to_message)?
+        else {
+            return Err("that Solution no longer exists".into());
+        };
+        (
+            row.local_path.filter(|p| !p.trim().is_empty()),
+            row.run_command.filter(|c| !c.trim().is_empty()),
+        )
+    };
+    let Some(root) = root else {
+        return Ok(DevCommandDto {
+            kind: String::new(),
+            start: String::new(),
+            watch: String::new(),
+            watch_needs: String::new(),
+            found_by: String::new(),
+            custom: false,
+            watch_ready: true,
+            unavailable: Some("no folder on this machine yet".into()),
+        });
+    };
+    // The Solution's own command wins over detection, exactly like the test one.
+    let dev = match &custom {
+        Some(command) => crate::tooling::dev_runner::custom(command),
+        None => crate::tooling::dev_runner::detect(std::path::Path::new(&root)).unwrap_or_else(|| {
+            crate::tooling::dev_runner::DevCommand {
+                kind: "custom".into(),
+                start: String::new(),
+                watch: String::new(),
+                watch_needs: String::new(),
+                watch_bin: String::new(),
+                found_by: String::new(),
+            }
+        }),
+    };
+    let unavailable = (dev.start.is_empty() && custom.is_none())
+        .then(|| "nothing recognisable to run — set a run command on this Solution".to_string());
+    Ok(DevCommandDto {
+        kind: dev.kind,
+        start: dev.start,
+        watch: dev.watch,
+        watch_needs: dev.watch_needs,
+        watch_ready: crate::tooling::dev_runner::tool_on_path(&dev.watch_bin),
+        found_by: dev.found_by,
+        custom: custom.is_some(),
+        unavailable,
+    })
+}
+
+#[tauri::command]
+pub async fn set_solution_run_command(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+    command: Option<String>,
+) -> Result<(), String> {
+    let conn = db.0.lock().await;
+    solution::set_run_command(&conn, solution_id, command.as_deref())
+        .await
+        .map_err(to_message)
+}
+
+/// Records what to hand the debugger for this Solution, replacing whatever it
+/// would work out. Null or blank clears it.
+///
+/// **Not the run command.** That is a shell line and this is a path a debug
+/// adapter is pointed at — debugpy wants one `.py`, Delve a package folder,
+/// netcoredbg a built `.dll`. One field for both would mean typing `npm run
+/// dev` somewhere that gets passed to a debugger as a filename.
+#[tauri::command]
+pub async fn set_solution_start_from(
+    db: State<'_, AppDb>,
+    solution_id: i64,
+    path: Option<String>,
+) -> Result<(), String> {
+    let conn = db.0.lock().await;
+    solution::set_start_from(&conn, solution_id, path.as_deref())
+        .await
+        .map_err(to_message)
+}

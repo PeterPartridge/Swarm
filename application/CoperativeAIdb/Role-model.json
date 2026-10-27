@@ -1,0 +1,44 @@
+{
+  "form": "database-model",
+  "modelName": "Role",
+  "status": "built",
+  "dependsOn": {
+    "guidance": "Briefs that must be built before this one — usually the tables this model's relationships point at.",
+    "example": ["ClothingDatabase/Customer.json"],
+    "entries": []
+  },
+  "instructions": {
+    "whoFillsThisIn": "Developers (Product can sanity-check the information being stored).",
+    "when": "Whenever a page needs to store data. One of these per model/table.",
+    "how": "Answer in plain English where you can.",
+    "note": "Solution = the folder this file sits in. Table / object name = this file's name."
+  },
+  "whatThisModelIs": {
+    "question": "What does this model represent, in one line?",
+    "example": "A customer's order.",
+    "answer": "A permission-bearing role. In a no-login app it gates visibility (which areas/fields the active user sees), not security. Seeded with defaults, editable in Admin."
+  },
+  "fields": {
+    "guidance": "One entry per piece of data.",
+    "entries": [
+      { "fieldName": "id", "type": "id / key", "nullable": false, "default": "auto", "rules": "unique", "description": "The unique identifier" },
+      { "fieldName": "name", "type": "text", "nullable": false, "default": "", "rules": "unique", "description": "Role name, e.g. Admin / Product / Developer / QA" },
+      { "fieldName": "canProduct", "type": "true/false", "nullable": false, "default": "false", "rules": "", "description": "May access the Product area" },
+      { "fieldName": "canDevelop", "type": "true/false", "nullable": false, "default": "false", "rules": "", "description": "May access the Develop area" },
+      { "fieldName": "canTest", "type": "true/false", "nullable": false, "default": "false", "rules": "", "description": "May access the Test area" },
+      { "fieldName": "canAdmin", "type": "true/false", "nullable": false, "default": "false", "rules": "", "description": "May access the Admin area" },
+      { "fieldName": "seeCost", "type": "true/false", "nullable": false, "default": "false", "rules": "", "description": "May see the expected-cost field on work items" },
+      { "fieldName": "seeProfit", "type": "true/false", "nullable": false, "default": "false", "rules": "", "description": "May see the estimated-profit field" },
+      { "fieldName": "seeChargeable", "type": "true/false", "nullable": false, "default": "false", "rules": "", "description": "May see the chargeable / % customer-covers fields" },
+      { "fieldName": "createdAt", "type": "date", "nullable": false, "default": "now", "rules": "", "description": "When the role was created" }
+    ]
+  },
+  "relationships": { "guidance": "How this model connects to others.", "entries": [] },
+  "lookupsAndPerformance": { "question": "Which fields do we search or filter on a lot?", "answer": ["name"] },
+  "lifecycleAndRules": {
+    "retention": { "question": "How long do we keep this data / when is it deleted?", "answer": "Until removed in Admin; a role in use by a member can't be deleted." },
+    "sensitiveFields": { "question": "Any sensitive fields that need extra protection?", "answer": "No — flags are visibility hints, not security." },
+    "invariants": { "question": "Anything that must always be true?", "answer": "Four roles seeded on first run (Admin all-true, Product, Developer, QA). The Admin role can never be deleted or weakened, so a user can't lock themselves out." }
+  },
+  "changesOverTime": { "guidance": "Each time you come back to change this model, add an entry describing what should change.", "rounds": [] }
+}
