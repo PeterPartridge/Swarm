@@ -240,6 +240,10 @@ one tidy-up would be the exact failure this work was commissioned to fix.
   `example/` and `site/`; twelve brief and code-map links pointed at those
   folders with relative paths. They now point at CooperativeAICoding on GitHub,
   and each target was checked to exist there.
+- **Swarm has a README.** It is the app half of CooperativeAICoding's old
+  `INSTALL.md` — downloads, Windows and Linux installs, what the app needs,
+  building from source — moved here with the new names, since the framework's
+  install page now covers only the framework.
 - **Develop and QA hand a Project over to Product** (decided 2026-10-07).
   Briefs first: `Product-model.json` gains `origin` and `handedOverAt`, and
   `productPlanning.md` (round 11), `developerArea.md` (round 103) and
