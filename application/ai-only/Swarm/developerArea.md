@@ -5580,3 +5580,7 @@ cargo 769/769 (23 ignored), Vitest 764/764, `tsc --noEmit`, clippy
   regression suite" action; the lifecycle checklist reports but does not
   enforce; no logging outside Develop; no Admin UI for the routing defaults; no
   way to reset the pane sizes; the ship rail is not resizable.
+
+## Round 103 — a Project stays in Develop until it is sent
+
+Decided 2026-10-07. "Create a project" still makes an ordinary Product, but with `origin: develop`, so the Product tab no longer lists it the moment it exists. **Send to Product** (`SendToProduct`) sits by the product picker while the selected Project is Develop's and un-sent; pressing it calls `hand_over_product` and reloads. Develop keeps listing every Product, sent or not — the decision was that only the Product tab hides un-sent ones. The form's hint says where the Project stays, not that it appears in the Product tab.

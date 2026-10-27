@@ -18,10 +18,18 @@ export async function pickImages(): Promise<string[]> {
   return typeof chosen === "string" ? [chosen] : [];
 }
 
+/** The areas that can make a Product. */
+export type ProductArea = "product" | "develop" | "test";
+
 export interface Product {
   id: number;
   name: string;
   answers: string;
+  /** Where it was made — kept after a hand-over, as its marker. */
+  origin: ProductArea;
+  handedOverAt: number | null;
+  /** Made in the Product area, or sent there. */
+  inProductArea: boolean;
 }
 
 export interface Solution {
@@ -689,8 +697,17 @@ export const createProduct = (
   name: string,
   answers: string,
   scaffoldDir?: string,
+  origin?: ProductArea,
 ): Promise<number> =>
-  invoke("create_product", { name, answers, scaffoldDir: scaffoldDir ?? null });
+  invoke("create_product", {
+    name,
+    answers,
+    scaffoldDir: scaffoldDir ?? null,
+    origin: origin ?? null,
+  });
+/** Send to Product: a Develop or QA Project joins the Product area. */
+export const handOverProduct = (id: number): Promise<void> =>
+  invoke("hand_over_product", { id });
 export const getProduct = (id: number): Promise<Product> =>
   invoke("get_product", { id });
 /** What happened to each generated framework file. `conflicts` are files

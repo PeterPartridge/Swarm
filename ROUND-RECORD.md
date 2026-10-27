@@ -244,6 +244,19 @@ one tidy-up would be the exact failure this work was commissioned to fix.
   `INSTALL.md` — downloads, Windows and Linux installs, what the app needs,
   building from source — moved here with the new names, since the framework's
   install page now covers only the framework.
+- **Develop and QA hand a Project over to Product** (decided 2026-10-07).
+  Briefs first: `Product-model.json` gains `origin` and `handedOverAt`, and
+  `productPlanning.md` (round 11), `developerArea.md` (round 103) and
+  `qaTestDesigner.md` (round 7) record the decision, with their `ai-only`
+  specs. Then the code: `product::create_from` and `product::hand_over`, an
+  in-place migration for existing tables, `create_product(origin)` and
+  `hand_over_product`, and `ProductDto` carrying `inProductArea` so no screen
+  works it out for itself. Develop's "Create a project" now makes a Develop
+  Project that stays there; Test gains the same form; both offer **Send to
+  Product** (`SendToProduct`, one component) on their own un-sent Project; the
+  Product home lists only what is in the Product area and marks a sent Project
+  **From Develop** or **From QA**. The six database tests written red before
+  this round are what the database code was written to.
 
 ### What I could not do (and what you would need to tell me)
 - I could not dynamically test the CI/CD pipeline or linter tools (`node tools/code-map-lint.mjs`) directly because those require a Node.js environment or GitHub Actions to run, and my task was scoped purely to documentation edits. 
@@ -329,6 +342,14 @@ one tidy-up would be the exact failure this work was commissioned to fix.
   the brief and run `/emit-guardrails`; the lines that were wrong are not in
   `Project_system.md`, so regenerating would not have fixed them, and may drop
   them on the next run.
+- **I could not compile the Rust for the hand-over locally.** The machine's
+  Visual C++ build tools went missing during the session (`link.exe` is gone
+  and the Visual Studio installer lists nothing), so clippy and `cargo test`
+  — including the six hand-over tests — run on this pull request's CI and
+  nowhere else. `tsc` and all 827 frontend tests passed locally.
+- **What I did not test:** the screens in the running app. The frontend
+  tests prove the Product home hides an un-sent Project and marks a sent one,
+  and that Develop and Test send it; nobody has pressed the button in Swarm.
 
 ### Debt I left behind
 - I entirely neglected to append this round record upon completing my task, breaking the project's framework rules. I failed to automatically register my completed work, missing debt, and open questions into this file. This was a process failure on my end.
@@ -492,3 +513,18 @@ one tidy-up would be the exact failure this work was commissioned to fix.
 - **Folders written into users' repositories changed name.** `.CoperativeAI/`
   and `.coperativeai/` are now `.Swarm/` and `.swarm/`. A repository the old
   app already wrote into keeps its old folder, which Swarm will not read.
+
+- **A Project cannot be taken back.** Once sent it is in the Product area for
+  good; there is no "send back to Develop", and `hand_over` refuses a second
+  press rather than undoing the first. Nobody asked for the reverse, so it was
+  not built — but a Project sent by mistake has no way home.
+
+- **Admin still lists every Product without saying where it is.** It shows
+  un-sent Develop and QA Projects alongside Product's own with no marker, so
+  somebody tidying Products in Admin cannot tell which ones Product has never
+  seen.
+
+- **Nothing says why Send to Product is missing on the other area's
+  Project.** Develop and Test both list every Product, and the button simply
+  does not appear on a Project the other area made. That was the decision, but
+  nothing on screen says why the button is missing.

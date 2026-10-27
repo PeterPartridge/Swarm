@@ -36,7 +36,14 @@ import * as backend from "../../lib/backend";
 
 const mocked = vi.mocked(backend);
 
-const product: Product = { id: 1, name: "Shop App", answers: "{}" };
+const product: Product = {
+  id: 1,
+  name: "Shop App",
+  answers: "{}",
+  origin: "product",
+  handedOverAt: null,
+  inProductArea: true,
+};
 
 describe("ProductPlanning (Product home)", () => {
   beforeEach(() => {
@@ -77,6 +84,29 @@ describe("ProductPlanning (Product home)", () => {
     render(<ProductPlanning />);
     expect(await screen.findByRole("article", { name: "Shop App" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add a Product" })).toBeInTheDocument();
+  });
+
+  it("leaves a Develop or QA Project out until it is sent", async () => {
+    mocked.listProducts.mockResolvedValue([
+      product,
+      { ...product, id: 2, name: "Still in Develop", origin: "develop", inProductArea: false },
+    ]);
+    render(<ProductPlanning />);
+    expect(await screen.findByRole("article", { name: "Shop App" })).toBeInTheDocument();
+    expect(screen.queryByRole("article", { name: "Still in Develop" })).toBeNull();
+  });
+
+  it("marks a sent Project with where it came from", async () => {
+    mocked.listProducts.mockResolvedValue([
+      product,
+      { ...product, id: 2, name: "From Dev", origin: "develop", handedOverAt: 5, inProductArea: true },
+      { ...product, id: 3, name: "From Test", origin: "test", handedOverAt: 6, inProductArea: true },
+    ]);
+    render(<ProductPlanning />);
+    const dev = await screen.findByRole("article", { name: "From Dev" });
+    expect(dev).toHaveTextContent("From Develop");
+    expect(screen.getByRole("article", { name: "From Test" })).toHaveTextContent("From QA");
+    expect(screen.getByRole("article", { name: "Shop App" })).not.toHaveTextContent("From");
   });
 
   it("shows the How Products are planned settings", async () => {

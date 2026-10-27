@@ -5,6 +5,7 @@ import DeveloperPlanning from "../components/planning/DeveloperPlanning";
 import FrameworkFiles from "../components/product/FrameworkFiles";
 import NewProjectForm from "../components/product/NewProjectForm";
 import NewSolutionForm from "../components/product/NewSolutionForm";
+import SendToProduct from "../components/product/SendToProduct";
 import RulesView from "../components/planning/RulesView";
 import SolutionBox from "../components/product/SolutionBox";
 import SolutionRepo from "../components/vcs/SolutionRepo";
@@ -171,6 +172,11 @@ export default function DevelopSolutions({
             </select>
           </label>
         )}
+        {products
+          .filter((p) => p.id === activeProduct)
+          .map((p) => (
+            <SendToProduct key={p.id} product={p} area="develop" onSent={() => void refresh()} />
+          ))}
       </div>
 
       {view === "strategy" && activeProduct !== "" && (
@@ -238,6 +244,7 @@ export default function DevelopSolutions({
       <section className="develop-card" aria-label="Create a project">
         <h2>Create a project</h2>
         <NewProjectForm
+          origin="develop"
           onCreated={(id) =>
             run(async () => {
               // Selected in both places, so the next step — a Solution for

@@ -107,6 +107,7 @@ fn main() {
             commands::products::get_product,
             commands::products::get_product_scaffold,
             commands::products::update_product_answers,
+            commands::products::hand_over_product,
             commands::products::delete_product,
             commands::emit::generate_framework_files,
             commands::feedback::list_ai_feedback,
