@@ -100,6 +100,7 @@ describe("ProductStrategy — generating the work for a Deliverable", () => {
       id: 1,
       name: "Shop App",
       answers: JSON.stringify({ purpose: "sell coffee" }),
+      origin: "product" as const, handedOverAt: null, inProductArea: true,
     });
     mocked.getProductBudget.mockResolvedValue(null);
     mocked.getSpendSummary.mockResolvedValue({

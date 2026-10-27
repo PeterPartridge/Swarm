@@ -10,6 +10,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     ...original,
     listProducts: vi.fn(),
     createProduct: vi.fn(),
+    handOverProduct: vi.fn(),
     listSolutions: vi.fn(),
     // The Solution git panel loads its own state wherever it is shown.
     solutionGitState: vi.fn(),
@@ -55,7 +56,14 @@ async function openGitHub(user: ReturnType<typeof userEvent.setup>): Promise<voi
 
 const mocked = vi.mocked(backend);
 
-const product: Product = { id: 1, name: "Shop App", answers: "{}" };
+const product: Product = {
+  id: 1,
+  name: "Shop App",
+  answers: "{}",
+  origin: "product",
+  handedOverAt: null,
+  inProductArea: true,
+};
 const solution: Solution = {
   id: 3,
   name: "Shop API",
@@ -449,7 +457,7 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
   /// and the new one is selected, so a Solution can be made for it straight away.
   it("creates a project as a Product and selects it for the next Solution", async () => {
     const user = userEvent.setup();
-    const created: Product = { id: 7, name: "Side Tool", answers: "{}" };
+    const created: Product = { ...product, id: 7, name: "Side Tool", origin: "develop", inProductArea: false };
     mocked.listProducts.mockResolvedValueOnce([product]).mockResolvedValue([product, created]);
     mocked.createProduct.mockResolvedValue(7);
     render(<DevelopSolutions />);
@@ -459,13 +467,33 @@ describe("DevelopSolutions (Solution creation + AI settings)", () => {
     await user.type(within(card).getByLabelText("Project name"), "Side Tool");
     await user.click(within(card).getByRole("button", { name: "Create project" }));
 
-    await waitFor(() => expect(mocked.createProduct).toHaveBeenCalledWith("Side Tool", "{}"));
+    await waitFor(() => expect(mocked.createProduct).toHaveBeenCalledWith("Side Tool", "{}", undefined, "develop"));
     await waitFor(() =>
       expect(screen.getByLabelText("Develop product")).toHaveValue("7"),
     );
     const solutionForm = screen.getByRole("form", { name: "New Solution" });
     expect(within(solutionForm).getByRole("combobox", { name: "Product" })).toHaveValue("7");
     expect(within(card).getByLabelText("Project name")).toHaveValue("");
+  });
+
+  /// **A Project stays Develop's until somebody sends it.** The button sits by
+  /// the product picker, on the Project it would send.
+  it("offers Send to Product for Develop's own Project until it is sent", async () => {
+    const user = userEvent.setup();
+    const mine: Product = { ...product, origin: "develop", inProductArea: false };
+    mocked.listProducts.mockResolvedValue([mine]);
+    mocked.handOverProduct.mockResolvedValue();
+    render(<DevelopSolutions />);
+
+    await user.click(await screen.findByRole("button", { name: "Send to Product" }));
+    expect(mocked.handOverProduct).toHaveBeenCalledWith(1);
+    await waitFor(() => expect(mocked.listProducts.mock.calls.length).toBeGreaterThan(1));
+  });
+
+  it("does not offer Send to Product for a Product made in the Product area", async () => {
+    render(<DevelopSolutions />);
+    await screen.findByLabelText("Develop product");
+    expect(screen.queryByRole("button", { name: "Send to Product" })).toBeNull();
   });
 
   it("does not create a project without a name", async () => {

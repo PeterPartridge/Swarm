@@ -192,6 +192,10 @@ The split that matters: **seeing spend and setting the budget are different powe
 
 **Technical debt:** work_item migration stays drop-and-recreate (pre-release — loses existing rows on schema change); cost fields commit on blur (no debounce/undo); the drag gesture uses HTML5 drag (jsdom can't drive pointer coords) — the real tear-off is a same-window gesture triggering `open_screen_window`, not native window drag.
 
+## Round 11 — Develop and QA hand a Project over
+
+Decided 2026-10-07. The Product home lists only Products in the Product area: made here, or a Develop/QA Project once somebody presses **Send to Product**. A sent one carries **From Develop** or **From QA**. Built: the card list filters on `inProductArea` (decided once, in Rust, and carried on `ProductDto`), and the marker reads `origin`. Products made here are unchanged — `create_product` without an origin is the Product area. Model: [`../Swarmdb/Product-model.md`](../Swarmdb/Product-model.md).
+
 ## Report back
 
 **Tests:** `cargo test` 57/57 green (new modules: product, solution, team_member, sprint, system_setting; rewritten work_item incl. migration; AI-gate tests). `npm test` 23/23 green (Product home, PlanningBoard, RoadMap, DevelopSolutions, shell). `npm run build` + `cargo build` clean; exe smoke test passed — including the round-2 migration running against a real old database file.

@@ -11,14 +11,22 @@ pub struct ProductDto {
     pub id: i64,
     pub name: String,
     pub answers: String,
+    pub origin: String,
+    pub handed_over_at: Option<i64>,
+    /// Decided here, once, so no screen re-derives it from the two above.
+    pub in_product_area: bool,
 }
 
 impl From<Product> for ProductDto {
     fn from(p: Product) -> Self {
+        let in_product_area = p.in_product_area();
         ProductDto {
             id: p.id,
             name: p.name,
             answers: p.answers,
+            origin: p.origin,
+            handed_over_at: p.handed_over_at,
+            in_product_area,
         }
     }
 }
@@ -34,15 +42,22 @@ pub async fn list_products(db: State<'_, AppDb>) -> Result<Vec<ProductDto>, Stri
 /// are generated there behind the scenes and registered in the
 /// SolutionManagement table. Scaffold failure rolls the Product back so the
 /// card and the disk stay consistent.
+///
+/// `origin` is the area creating it — Develop and Test start a Project that
+/// stays theirs until it is handed over. Absent means the Product area.
 #[tauri::command]
 pub async fn create_product(
     db: State<'_, AppDb>,
     name: String,
     answers: String,
     scaffold_dir: Option<String>,
+    origin: Option<String>,
 ) -> Result<i64, String> {
     let conn = db.0.lock().await;
-    let id = product::create(&conn, &name, &answers).await.map_err(to_message)?;
+    let origin = origin.as_deref().unwrap_or(product::AREAS[0]);
+    let id = product::create_from(&conn, &name, &answers, origin)
+        .await
+        .map_err(to_message)?;
     if let Some(dir) = scaffold_dir.filter(|d| !d.trim().is_empty()) {
         let path = match crate::tooling::scaffold::scaffold_product(&dir, &name, &answers) {
             Ok(path) => path,
@@ -95,6 +110,14 @@ pub async fn update_product_answers(
     product::update_answers(&conn, id, &answers)
         .await
         .map_err(to_message)
+}
+
+/// Send to Product: a Develop or QA Project joins the Product area, keeping
+/// the marker of where it came from.
+#[tauri::command]
+pub async fn hand_over_product(db: State<'_, AppDb>, id: i64) -> Result<(), String> {
+    let conn = db.0.lock().await;
+    product::hand_over(&conn, id).await.map_err(to_message)
 }
 
 #[tauri::command]

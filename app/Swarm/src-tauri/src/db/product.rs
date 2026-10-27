@@ -11,7 +11,25 @@ pub struct Product {
     pub answers: String,
     pub created_at: i64,
     pub updated_at: i64,
+    /// The area the Product was made in — one of [`AREAS`]. Kept after a
+    /// hand-over: where it came from is the marker the Product area shows.
+    pub origin: String,
+    /// When a Develop or QA Project was sent to the Product area.
+    pub handed_over_at: Option<i64>,
 }
+
+/// The areas that can make a Product. The first is the Product area itself.
+pub const AREAS: [&str; 3] = ["product", "develop", "test"];
+
+impl Product {
+    /// Product's own Products are there from the start; a Project from
+    /// Develop or QA arrives when somebody sends it.
+    pub fn in_product_area(&self) -> bool {
+        self.origin == AREAS[0] || self.handed_over_at.is_some()
+    }
+}
+
+const COLUMNS: &str = "id, name, answers, createdAt, updatedAt, origin, handedOverAt";
 
 pub async fn create_table(conn: &Connection) -> Result<()> {
     conn.execute(
@@ -20,27 +38,82 @@ pub async fn create_table(conn: &Connection) -> Result<()> {
             name TEXT NOT NULL UNIQUE,
             answers TEXT NOT NULL DEFAULT '{}',
             createdAt INTEGER NOT NULL,
-            updatedAt INTEGER NOT NULL
+            updatedAt INTEGER NOT NULL,
+            origin TEXT NOT NULL DEFAULT 'product',
+            handedOverAt INTEGER
         )",
         (),
     )
     .await?;
+    // Products are written by people, so an older table gains the columns in
+    // place rather than being rebuilt. Every row already there was made in the
+    // Product area, which is what the default says.
+    let columns = crate::db::table_columns(conn, "products").await?;
+    if !columns.iter().any(|c| c == "origin") {
+        conn.execute(
+            "ALTER TABLE products ADD COLUMN origin TEXT NOT NULL DEFAULT 'product'",
+            (),
+        )
+        .await?;
+    }
+    if !columns.iter().any(|c| c == "handedOverAt") {
+        conn.execute("ALTER TABLE products ADD COLUMN handedOverAt INTEGER", ())
+            .await?;
+    }
     Ok(())
 }
 
+/// A Product made in the Product area.
 pub async fn create(conn: &Connection, name: &str, answers_json: &str) -> Result<i64> {
+    create_from(conn, name, answers_json, AREAS[0]).await
+}
+
+/// A Product made in `origin` — the Product area, or a Project started in
+/// Develop or QA that stays theirs until it is handed over.
+pub async fn create_from(
+    conn: &Connection,
+    name: &str,
+    answers_json: &str,
+    origin: &str,
+) -> Result<i64> {
     if name.trim().is_empty() {
         return Err(DbError::Validation("a Product needs a name".into()));
+    }
+    if !AREAS.contains(&origin) {
+        return Err(DbError::Validation(format!(
+            "a Product is made in Product, Develop or Test, not '{origin}'"
+        )));
     }
     serde_json::from_str::<serde_json::Value>(answers_json)
         .map_err(|e| DbError::Validation(format!("answers are not valid JSON: {e}")))?;
     let now = now_millis();
     conn.execute(
-        "INSERT INTO products (name, answers, createdAt, updatedAt) VALUES (?1, ?2, ?3, ?4)",
-        (name, answers_json, now, now),
+        "INSERT INTO products (name, answers, createdAt, updatedAt, origin) VALUES (?1, ?2, ?3, ?4, ?5)",
+        (name, answers_json, now, now, origin),
     )
     .await?;
     last_insert_id(conn).await
+}
+
+/// Sends a Develop or QA Project to the Product area. Its origin stays as it
+/// was; refused for a Product that is already there, or does not exist.
+pub async fn hand_over(conn: &Connection, id: i64) -> Result<()> {
+    let Some(product) = find_by_id(conn, id).await? else {
+        return Err(DbError::Validation(format!("no Product with id {id}")));
+    };
+    if product.in_product_area() {
+        return Err(DbError::Validation(format!(
+            "'{}' is already in the Product area",
+            product.name
+        )));
+    }
+    let now = now_millis();
+    conn.execute(
+        "UPDATE products SET handedOverAt = ?1, updatedAt = ?1 WHERE id = ?2",
+        (now, id),
+    )
+    .await?;
+    Ok(())
 }
 
 /// Replaces a Product's answers.
@@ -66,10 +139,7 @@ pub async fn update_answers(conn: &Connection, id: i64, answers_json: &str) -> R
 
 pub async fn list_all(conn: &Connection) -> Result<Vec<Product>> {
     let mut rows = conn
-        .query(
-            "SELECT id, name, answers, createdAt, updatedAt FROM products ORDER BY id",
-            (),
-        )
+        .query(&format!("SELECT {COLUMNS} FROM products ORDER BY id"), ())
         .await?;
     let mut products = Vec::new();
     while let Some(row) = rows.next().await? {
@@ -81,7 +151,7 @@ pub async fn list_all(conn: &Connection) -> Result<Vec<Product>> {
 pub async fn find_by_id(conn: &Connection, id: i64) -> Result<Option<Product>> {
     let mut rows = conn
         .query(
-            "SELECT id, name, answers, createdAt, updatedAt FROM products WHERE id = ?1",
+            &format!("SELECT {COLUMNS} FROM products WHERE id = ?1"),
             (id,),
         )
         .await?;
@@ -114,6 +184,8 @@ fn row_to_product(row: turso::Row) -> Result<Product> {
         answers: row.get(2)?,
         created_at: row.get(3)?,
         updated_at: row.get(4)?,
+        origin: row.get(5)?,
+        handed_over_at: row.get(6)?,
     })
 }
 

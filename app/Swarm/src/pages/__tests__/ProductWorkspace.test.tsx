@@ -41,7 +41,7 @@ function perms(overrides: Partial<ActivePermissions>): ActivePermissions {
   };
 }
 
-const product = { id: 7, name: "Shop App", answers: "{}" };
+const product = { id: 7, name: "Shop App", answers: "{}", origin: "product" as const, handedOverAt: null, inProductArea: true };
 
 function renderWorkspace() {
   return render(

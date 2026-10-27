@@ -97,7 +97,14 @@ describe("AdminArea", () => {
     mocked.listTeamMembers.mockResolvedValue([member]);
     mocked.listRoles.mockResolvedValue([adminRole, devRole]);
     mocked.listProducts.mockResolvedValue([
-      { id: 1, name: "Shop App", answers: "{}" },
+      {
+        id: 1,
+        name: "Shop App",
+        answers: "{}",
+        origin: "product",
+        handedOverAt: null,
+        inProductArea: true,
+      },
     ]);
     mocked.getDeveloperRules.mockResolvedValue(null);
     mocked.getProductPolicy.mockResolvedValue(null);
