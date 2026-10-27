@@ -211,6 +211,96 @@ pub(crate) mod tests {
         assert!(create(&conn, "Other", "{not json").await.is_err());
     }
 
+    /// Product's own Products are in its area from the start; nobody hands
+    /// over to themselves.
+    #[tokio::test]
+    async fn a_product_made_in_the_product_area_is_already_there() {
+        let (conn, id) = db_with_product().await;
+        let p = find_by_id(&conn, id).await.expect("q").expect("exists");
+        assert_eq!(p.origin, "product");
+        assert_eq!(p.handed_over_at, None);
+        assert!(p.in_product_area());
+    }
+
+    /// Develop and QA can start a Project; it stays theirs until handed over.
+    #[tokio::test]
+    async fn a_product_made_in_develop_or_test_waits_for_hand_over() {
+        let (conn, _) = db_with_product().await;
+        for origin in ["develop", "test"] {
+            let id = create_from(&conn, &format!("From {origin}"), "{}", origin)
+                .await
+                .expect("create");
+            let p = find_by_id(&conn, id).await.expect("q").expect("exists");
+            assert_eq!(p.origin, origin);
+            assert!(!p.in_product_area());
+        }
+    }
+
+    #[tokio::test]
+    async fn only_the_three_areas_can_make_a_product() {
+        let (conn, _) = db_with_product().await;
+        assert!(create_from(&conn, "Other", "{}", "admin").await.is_err());
+    }
+
+    /// Sending to Product keeps where it came from — the marker is the point.
+    #[tokio::test]
+    async fn handing_over_puts_it_in_the_product_area_and_keeps_its_origin() {
+        let (conn, _) = db_with_product().await;
+        let id = create_from(&conn, "Dev Project", "{}", "develop")
+            .await
+            .expect("create");
+        hand_over(&conn, id).await.expect("hand over");
+        let p = find_by_id(&conn, id).await.expect("q").expect("exists");
+        assert!(p.handed_over_at.is_some());
+        assert!(p.in_product_area());
+        assert_eq!(p.origin, "develop");
+    }
+
+    #[tokio::test]
+    async fn hand_over_refuses_what_is_already_in_the_product_area() {
+        let (conn, product_id) = db_with_product().await;
+        assert!(hand_over(&conn, product_id).await.is_err());
+        let id = create_from(&conn, "QA Project", "{}", "test")
+            .await
+            .expect("create");
+        hand_over(&conn, id).await.expect("first");
+        assert!(hand_over(&conn, id).await.is_err());
+        assert!(hand_over(&conn, 999).await.is_err());
+    }
+
+    /// Products are written by people, so a database from before this round
+    /// gains the columns in place rather than being rebuilt — and every
+    /// Product already there was made in the Product area.
+    #[tokio::test]
+    async fn an_older_products_table_gains_origin_without_losing_rows() {
+        let conn = connect(":memory:").await.expect("open");
+        conn.execute(
+            "CREATE TABLE products (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                answers TEXT NOT NULL DEFAULT '{}',
+                createdAt INTEGER NOT NULL,
+                updatedAt INTEGER NOT NULL
+            )",
+            (),
+        )
+        .await
+        .expect("old table");
+        conn.execute(
+            "INSERT INTO products (name, answers, createdAt, updatedAt) VALUES ('Old', '{}', 1, 1)",
+            (),
+        )
+        .await
+        .expect("old row");
+
+        create_table(&conn).await.expect("migrate");
+
+        let products = list_all(&conn).await.expect("list");
+        assert_eq!(products.len(), 1);
+        assert_eq!(products[0].origin, "product");
+        assert!(products[0].in_product_area());
+    }
+
     #[tokio::test]
     async fn delete_removes_the_product_and_its_belongings() {
         let (conn, id) = db_with_product().await;
