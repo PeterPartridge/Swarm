@@ -38,12 +38,12 @@ All of them use the app as a **single local user** — no logins or accounts. Th
 
 | Solution | Type | Repository | Local path |
 |----------|------|------------|------------|
-| CoperativeAI | application | https://github.com/PeterPartridge/CooperativeAICoding | `app/CoperativeAI` (relative to this repo's root) |
-| CoperativeAIdb | database (turso, embedded in CoperativeAI) | https://github.com/PeterPartridge/CooperativeAICoding | `app/CoperativeAI/db` (relative to this repo's root) |
+| Swarm | application | https://github.com/PeterPartridge/CooperativeAICoding | `app/Swarm` (relative to this repo's root) |
+| Swarmdb | database (turso, embedded in Swarm) | https://github.com/PeterPartridge/CooperativeAICoding | `app/Swarm/db` (relative to this repo's root) |
 
 **Infrastructure & environments**
 - Project Brief's `infrastructure-policy` answer is "N/A." The solution specs fill in the detail: no server-side infrastructure; the pipeline (GitHub Actions) builds, tests, and produces downloadable release artifacts — nothing is provisioned or hosted.
-- Environments: development (debug builds) and production (performance-focused release builds). **Who may deploy to production is contradictory**: the Project Brief says the AI may deploy to both; the CoperativeAI solution spec says people deploy production after review. This spec follows the stricter solution spec until that is settled (see Open Questions).
+- Environments: development (debug builds) and production (performance-focused release builds). **Who may deploy to production is contradictory**: the Project Brief says the AI may deploy to both; the Swarm solution spec says people deploy production after review. This spec follows the stricter solution spec until that is settled (see Open Questions).
 
 **Coding house rules**
 
@@ -57,7 +57,7 @@ All of them use the app as a **single local user** — no logins or accounts. Th
 
 **Testing floor** _(drafted, not yet accepted)_
 - New and changed code needs a test that fails first, for the reason the change exists. Anything that decides something (a branch, a guard, a permission check, a gate, a policy refusal) has a test naming the decision. That is the floor.
-- Gates, run from `app/CoperativeAI` and its `src-tauri` manifest: `cargo clippy --all-targets -- -D warnings` (warnings are failures), `cargo test`, `tsc --noEmit`, `npm test`.
+- Gates, run from `app/Swarm` and its `src-tauri` manifest: `cargo clippy --all-targets -- -D warnings` (warnings are failures), `cargo test`, `tsc --noEmit`, `npm test`.
 - Not worth testing: generated files, plain data holders, framework glue, anything whose only assertion would be that a library works. Live-integration paths (a real debugger, Ollama, WSL, Docker, anything that spends money or changes the machine) are `#[ignore]`d and run by a person; a change relying on one says so in its debt note.
 - A change that cannot reach the floor says so in its debt note rather than lowering it.
 - The brief's answer carries the `drafted · confident` marker: the gates and TDD rule were already written down, but the threshold and exceptions are inferred. Not yet accepted by a person.
@@ -88,17 +88,17 @@ Minimal and easy to use. A top menu with four tabs — Product, Develop, Test, A
 
 **Open questions**
 - Cheapest and mid-range model tiers both name "Claude Sonnet 5" — confirm this is intentional (i.e., two effort levels of the same model rather than two different models).
-- `CoperativeAI/application-spec.json` carries its own open question: should the embedded terminal (a real shell) be restricted in any way, or is full OS-user shell access intended?
+- `Swarm/application-spec.json` carries its own open question: should the embedded terminal (a real shell) be restricted in any way, or is full OS-user shell access intended?
 - `apps-to-avoid` in the Project Brief is unanswered.
 - The **deliverables** and **testing** answers are still marked `drafted`. A person needs to read them and delete the marker line to accept them (or rewrite them). Until then, `/build` step 5 has no trusted stopping point.
-- **Production deployment:** the Project Brief's `environments` answer says the AI may deploy to production; the CoperativeAI solution spec says people deploy production after review. Which one holds?
+- **Production deployment:** the Project Brief's `environments` answer says the AI may deploy to production; the Swarm solution spec says people deploy production after review. Which one holds?
 
 ---
 
 ## Project Digest *(reused by page translations)*
 
 - **Platform / tech:** Rust, single repo, Windows + Linux native executable, low memory/low-spec target. Tauri GUI + React 19/Vite/TypeScript frontend (Monaco editor, dnd-kit drag-drop, xterm.js terminal), portable-pty real shell. turso embedded database.
-- **Solutions & repos:** CoperativeAI (application) → github.com/PeterPartridge/CooperativeAICoding, local path `app/CoperativeAI`; CoperativeAIdb (database, embedded in CoperativeAI) → same repo, `app/CoperativeAI/db`.
+- **Solutions & repos:** Swarm (application) → github.com/PeterPartridge/CooperativeAICoding, local path `app/Swarm`; Swarmdb (database, embedded in Swarm) → same repo, `app/Swarm/db`.
 - **Infra & environments:** No hosted infrastructure — release artifacts only, via GitHub Actions. dev = AI may build/deploy debug builds; production = performance-focused release builds, people deploy after review (solution spec; the brief says the AI may — open question).
 - **Testing floor (drafted):** a failing test first; every decision (branch, guard, permission check, gate, policy refusal) has a test naming it; clippy -D warnings, cargo test, tsc --noEmit, npm test must pass; live-integration paths are `#[ignore]`d and run by a person.
 - **Deliverables (drafted):** MVP (the cooperative loop end to end) → Agent governance → Feature Designer.
@@ -115,7 +115,7 @@ Minimal and easy to use. A top menu with four tabs — Product, Develop, Test, A
 |-------|------------------|--------------------------|-----------------|
 | Rust + Tauri desktop development | The whole application is a Tauri-based native executable. | Build the window, the three-tab workspace shell, and the Rust backend commands behind each environment. | Tauri 2, Rust, cargo. |
 | React + TypeScript frontend | The frontend is React 19 + Vite + TS with Vitest. | One page component per page brief, shared components/lib, component tests per screen. | React, Vite, Vitest. |
-| Embedded database integration | CoperativeAIdb is a turso file opened in-process, not a hosted server. | Define schema from each database-model brief, write parameterised queries, run in-process. | turso (libSQL) Rust crate, isolated in `src-tauri/src/db/`. |
+| Embedded database integration | Swarmdb is a turso file opened in-process, not a hosted server. | Define schema from each database-model brief, write parameterised queries, run in-process. | turso (libSQL) Rust crate, isolated in `src-tauri/src/db/`. |
 | Secure secret & credential handling | AI provider API keys must never touch the database, config, code, or logs. | Store/retrieve keys via the OS credential store under an alias; apply both security baselines on every build. | Tauri keyring plugin; the project's security baselines in `boilerplates.json`. |
 | AI provider integration & policy enforcement | The app calls AI providers (Claude first, pluggable) and must gate every call on the per-work-item policy. | One shared AI-call path that resolves the item's policy (deny-by-default), the allowed provider, and the effort tier before sending anything. | Claude API (and pluggable HTTP providers), WorkItemPolicy model. |
 | Drag-and-drop canvas UI | Product designs features by arranging and connecting blocks on a canvas. | Implement the Feature Designer's palette, canvas, and connections; persist designs as JSON per work item. | dnd-kit, FeatureDesign model. |

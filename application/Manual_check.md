@@ -17,7 +17,7 @@ window. That is this list. It is short on purpose.
 npm run tauri dev
 ```
 
-Run it from `app/CoperativeAI`. The Vite preview is **not** enough — it has no
+Run it from `app/Swarm`. The Vite preview is **not** enough — it has no
 Tauri IPC, so every data panel shows an error there and nothing below works.
 
 You will need a Solution pointed at a **real git repository** with at least one
@@ -63,7 +63,7 @@ should raise the dot; one that plans successfully should not.
 
 1. Develop → **Work** → **Runs** panel → **Start** on a run.
 2. **Expected:** a worktree appears beside the repository (in
-   `../.coperativeai-worktrees/`), a terminal opens in it, and the handover
+   `../.swarm-worktrees/`), a terminal opens in it, and the handover
    command is typed into that terminal — visible in the scrollback, not run
    behind your back.
 3. If the Solution has something runnable, a **second** terminal opens beside it
@@ -72,7 +72,7 @@ should raise the dot; one that plans successfully should not.
    branches, two agents, and editing in one does not disturb the other.
 
 **Read the brief** the agent was given: it is at
-`.coperativeai/briefs/<slug>.md` *inside the worktree*. It should name the work,
+`.swarm/briefs/<slug>.md` *inside the worktree*. It should name the work,
 carry the developer rules, and — under "Running it while you work" — tell the
 agent how to start the app and hot-refresh it.
 

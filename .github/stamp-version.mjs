@@ -25,9 +25,9 @@ const quoted = JSON.stringify(version);
 // be the one rewritten, which is why none of these regexes are global and the
 // Cargo one is anchored to the start of a line.
 const files = [
-  ["app/CoperativeAI/package.json", /("version"\s*:\s*)"[^"]*"/, (m, lead) => `${lead}${quoted}`],
-  ["app/CoperativeAI/src-tauri/tauri.conf.json", /("version"\s*:\s*)"[^"]*"/, (m, lead) => `${lead}${quoted}`],
-  ["app/CoperativeAI/src-tauri/Cargo.toml", /^version\s*=\s*"[^"]*"/m, () => `version = ${quoted}`],
+  ["app/Swarm/package.json", /("version"\s*:\s*)"[^"]*"/, (m, lead) => `${lead}${quoted}`],
+  ["app/Swarm/src-tauri/tauri.conf.json", /("version"\s*:\s*)"[^"]*"/, (m, lead) => `${lead}${quoted}`],
+  ["app/Swarm/src-tauri/Cargo.toml", /^version\s*=\s*"[^"]*"/m, () => `version = ${quoted}`],
 ];
 
 for (const [path, pattern, replace] of files) {

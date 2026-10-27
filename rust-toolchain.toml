@@ -15,7 +15,7 @@
 #
 # rustup reads this walking up from the working directory, so it covers cargo
 # run from the repository root with `--manifest-path` and cargo run from inside
-# `app/CoperativeAI/src-tauri` equally. The toolchain installs itself on first
+# `app/Swarm/src-tauri` equally. The toolchain installs itself on first
 # use, which is why CI needs no separate install step.
 
 [toolchain]

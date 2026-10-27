@@ -10,13 +10,13 @@ status: filled            # blank | filled | approved
 >
 > **How:** answer each question in plain English directly under its heading. Lines starting with `>` are guidance for you — anything else you write under a heading is your answer. Write like you're explaining it to a new colleague; no technical wording needed. Leave a question unanswered if you genuinely don't know yet, but try. When you're done, set `status: filled` at the top.
 >
-> Then the brief gets handed to your AI using the bridge in [`template/ai-only/1-translate-for-ai.md`](../template/ai-only/1-translate-for-ai.md), which turns your answers into instructions the AI can follow.
+> Then the brief gets handed to your AI using the bridge in [`template/ai-only/1-translate-for-ai.md`](https://github.com/PeterPartridge/CooperativeAICoding/blob/main/template/ai-only/1-translate-for-ai.md), which turns your answers into instructions the AI can follow.
 >
-> **How the folders are laid out:** this project brief lives at the root. Each **solution** gets its own folder, with a spec file at its root that defines the solution's technology, plus one file per page/endpoint/model. See [`example/`](../example/) for a worked Clothing project. Every solution folder's spec is a copy of the same [`_forms/application-spec.json`](../template/_forms/application-spec.json) — set its `solutionType` to `website`, `api`, `database`, or `application`:
-> - **Website / front-end** → `application-spec.json` (`solutionType: website`) + pages from [`_forms/page.md`](../template/_forms/page.md) (e.g. `ClothingWebsite/userLogin.md`)
-> - **API** → `application-spec.json` (`solutionType: api`) + resources from [`_forms/endpoint.json`](../template/_forms/endpoint.json) (e.g. `ClothingAPI/Login.json`)
-> - **Database** → `application-spec.json` (`solutionType: database`) + tables from [`_forms/database-model.json`](../template/_forms/database-model.json) (e.g. `ClothingDatabase/UserCredentials.json`)
-> - **Standalone application (CLI/TUI/desktop)** → `application-spec.json` (`solutionType: application`) + screens from `page.md` (e.g. `CoperativeAI/mainScreen.md`)
+> **How the folders are laid out:** this project brief lives at the root. Each **solution** gets its own folder, with a spec file at its root that defines the solution's technology, plus one file per page/endpoint/model. See [`example/`](https://github.com/PeterPartridge/CooperativeAICoding/blob/main/example/) for a worked Clothing project. Every solution folder's spec is a copy of the same [`_forms/application-spec.json`](https://github.com/PeterPartridge/CooperativeAICoding/blob/main/template/_forms/application-spec.json) — set its `solutionType` to `website`, `api`, `database`, or `application`:
+> - **Website / front-end** → `application-spec.json` (`solutionType: website`) + pages from [`_forms/page.md`](https://github.com/PeterPartridge/CooperativeAICoding/blob/main/template/_forms/page.md) (e.g. `ClothingWebsite/userLogin.md`)
+> - **API** → `application-spec.json` (`solutionType: api`) + resources from [`_forms/endpoint.json`](https://github.com/PeterPartridge/CooperativeAICoding/blob/main/template/_forms/endpoint.json) (e.g. `ClothingAPI/Login.json`)
+> - **Database** → `application-spec.json` (`solutionType: database`) + tables from [`_forms/database-model.json`](https://github.com/PeterPartridge/CooperativeAICoding/blob/main/template/_forms/database-model.json) (e.g. `ClothingDatabase/UserCredentials.json`)
+> - **Standalone application (CLI/TUI/desktop)** → `application-spec.json` (`solutionType: application`) + screens from `page.md` (e.g. `Swarm/mainScreen.md`)
 
 ---
 
@@ -45,7 +45,7 @@ Developers, QA, Product Manager, Designers — as a single local user on their o
 - Deliverable: **Agent governance** — done when: what an agent may read, edit and reach is decided per work item and enforced rather than requested — deny-by-default policy, the sandbox boundary, per-file agent policy, and the MCP server as the enforcement layer rather than a prompt.
 - Deliverable: **Feature Designer** — done when: Product can lay a feature out on the drag-and-drop canvas named in this brief's purpose, and the design it produces is what generates the work items.
 
-> drafted · guessed · from README.md, AGENTS.md, and the 33 item briefs already `built` under application/CoperativeAI/. **The names and the split are inferred; the ordering is inferred.** Nothing in the repository states a deliverable anywhere, so this is the AI reading what has been built and guessing at the stopping points it was building towards. Delete this line to accept an answer; rewrite the bullets if the guess is wrong. Until a person accepts these, `/build` step 5 has nothing trustworthy to stop at.
+> drafted · guessed · from README.md, AGENTS.md, and the 33 item briefs already `built` under application/Swarm/. **The names and the split are inferred; the ordering is inferred.** Nothing in the repository states a deliverable anywhere, so this is the AI reading what has been built and guessing at the stopping points it was building towards. Delete this line to accept an answer; rewrite the bullets if the guess is wrong. Until a person accepts these, `/build` step 5 has nothing trustworthy to stop at.
 
 ### apps-you-like — Are there any apps or websites you like?
 VS Code, Claude Code, Cursor, Jira 
@@ -66,8 +66,8 @@ Windows and Linux
 single 
 
 ### solutions — List each solution and where its code lives.
-- Name: CoperativeAI — type: Rust Application — repo: https://github.com/PeterPartridge/CooperativeAICoding  — local path: app/CoperativeAI (relative to this repo's root)
-- Name: CoperativeAIdb — type: turso database embeded in the rust application — repo: https://github.com/PeterPartridge/CooperativeAICoding  — local path: app/CoperativeAI/db (relative to this repo's root)
+- Name: Swarm — type: Rust Application — repo: https://github.com/PeterPartridge/CooperativeAICoding  — local path: app/Swarm (relative to this repo's root)
+- Name: Swarmdb — type: turso database embeded in the rust application — repo: https://github.com/PeterPartridge/CooperativeAICoding  — local path: app/Swarm/db (relative to this repo's root)
 
 ### dev-rules — Software development rules for the codebase.
 - Build this using DRY (Do not repeat yourself) — if you are repeating code three times, move it into a shared method or module and reuse it instead.
@@ -85,7 +85,7 @@ single
 
 New and changed code needs a test that fails first, for the reason the change exists. **Anything that decides something — a branch, a guard, a permission check, a gate, a policy refusal — has a test naming the decision**, and that is the floor: a decision without a test naming it is not done, regardless of line count.
 
-These gates must pass, run from `app/CoperativeAI` and its `src-tauri` manifest: `cargo clippy --all-targets -- -D warnings` (warnings are failures), `cargo test`, `tsc --noEmit`, `npm test`.
+These gates must pass, run from `app/Swarm` and its `src-tauri` manifest: `cargo clippy --all-targets -- -D warnings` (warnings are failures), `cargo test`, `tsc --noEmit`, `npm test`.
 
 Not worth testing here: generated files, plain data holders, framework glue, and anything whose only assertion would be that a library works. **Live-integration paths** — a real debugger, a running Ollama, a WSL distribution, a Docker engine, anything that spends money or changes this machine — are marked `#[ignore]` and run by a person, not by CI; a change that relies on one says so in its debt note.
 

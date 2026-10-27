@@ -1,7 +1,7 @@
 name: CI
 
-# The Rust crate lives at app/CoperativeAI/src-tauri and the frontend at
-# app/CoperativeAI — there is no Cargo.toml at the repository root, so every
+# The Rust crate lives at app/Swarm/src-tauri and the frontend at
+# app/Swarm — there is no Cargo.toml at the repository root, so every
 # cargo step names its manifest explicitly.
 #
 # Windows runners, because this is a Windows desktop app and the first run on
@@ -47,15 +47,15 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: app/CoperativeAI/src-tauri
+          workspaces: app/Swarm/src-tauri
 
       # The codebase is warning-free; -D warnings is what keeps it that way.
       # Three lints accumulated unnoticed before this gate existed.
       - name: Clippy (warnings are failures)
-        run: cargo clippy --manifest-path app/CoperativeAI/src-tauri/Cargo.toml --all-targets -- -D warnings
+        run: cargo clippy --manifest-path app/Swarm/src-tauri/Cargo.toml --all-targets -- -D warnings
 
       - name: Tests
-        run: cargo test --manifest-path app/CoperativeAI/src-tauri/Cargo.toml
+        run: cargo test --manifest-path app/Swarm/src-tauri/Cargo.toml
 
   # **The documents the AI builds from are checked, not trusted.** Two of them
   # are read before code is written and are worse than useless once untrue: the
@@ -108,7 +108,7 @@ jobs:
     runs-on: windows-latest
     defaults:
       run:
-        working-directory: app/CoperativeAI
+        working-directory: app/Swarm
     steps:
       - uses: actions/checkout@v5
 
@@ -120,7 +120,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: app/CoperativeAI/package-lock.json
+          cache-dependency-path: app/Swarm/package-lock.json
 
       - run: npm ci
 

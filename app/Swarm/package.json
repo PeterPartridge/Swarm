@@ -1,0 +1,42 @@
+{
+  "name": "swarm",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && node --max-old-space-size=4096 node_modules/vite/bin/vite.js build",
+    "preview": "vite preview",
+    "test": "tsc --noEmit && vitest run",
+    "tauri": "tauri"
+  },
+  "overrides": {
+    "dompurify": "^3.4.16"
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "@tauri-apps/api": "^2.9.0",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "mermaid": "^11.16.1",
+    "monaco-editor": "^0.55.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@rollup/rollup-win32-x64-msvc": "^4.62.2",
+    "@tauri-apps/cli": "^2.9.6",
+    "@tauri-apps/cli-win32-x64-msvc": "^2.11.4",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@vitejs/plugin-react": "^4.7.0",
+    "jsdom": "^26.1.0",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.1",
+    "vitest": "^5.0.0"
+  }
+}
