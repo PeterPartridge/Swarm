@@ -354,6 +354,13 @@ red on `rust` because it was built against an older `main`.
 - **cargo.** `rustls` 0.23.42 → 0.23.46 and `rustls-webpki` 0.103.13 →
   0.103.16, in both `app/Swarm/src-tauri` and `app/Cells`. That clears all
   eight rustls alerts.
+- **Code scanning.** `ci.yml` now sets `permissions: contents: read`, which
+  clears the three `actions/missing-workflow-permissions` alerts. Two alerts
+  were false positives and were dismissed, not changed. In
+  `rust/non-https-url` (`sandbox_policy.rs:331`) the http URL is the test
+  that proves `fetch` refuses http, and the https check returns before
+  `reqwest::get`. `js/bad-tag-filter` (`DiagramView.test.tsx:154`) is a test
+  counting Mermaid `-->` arrows, not an HTML filter.
 - **Proved:** `npm test` passes (81 files, 852 tests), which includes
   `tsc --noEmit`, and `npm run build` succeeds with mermaid 12.
 
