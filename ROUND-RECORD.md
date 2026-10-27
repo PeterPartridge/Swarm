@@ -340,6 +340,30 @@ The spec and the three round reports are in `application/ai-only/Hives/hives.md`
   `-D warnings` is clean. `commands/roles.rs` was type-checked and clippy'd
   there too, with Tauri's `State` stubbed.
 
+**2026-10-27 — the Dependabot security alerts.**
+One branch in place of Dependabot's #8 and #9. Both PRs were red on
+`documents` because a lockfile bump brings no round record, and #9 was also
+red on `rust` because it was built against an older `main`.
+
+- **npm (`app/Swarm`).** `vite` 6.4.3 → 6.4.5 (launch-editor, `server.fs`,
+  cross-origin middleware). `vitest` / `@vitest/mocker` 5.0.0 → 5.0.5 (mock
+  registration, Windows backslash traversal). `dompurify` override 3.4.16 →
+  3.4.17. `source-map-js` 1.2.1 → 1.2.2. `mermaid` 11.16.1 → 12.2.0, because
+  no 11.x accepts the fixed `katex` (0.18): 12.2.0 is the first mermaid that
+  does, and it brings `katex` 0.18.10. `npm audit` now reports 0.
+- **cargo.** `rustls` 0.23.42 → 0.23.46 and `rustls-webpki` 0.103.13 →
+  0.103.16, in both `app/Swarm/src-tauri` and `app/Cells`. That clears all
+  eight rustls alerts.
+- **Code scanning.** `ci.yml` now sets `permissions: contents: read`, which
+  clears the three `actions/missing-workflow-permissions` alerts. Two alerts
+  were false positives and were dismissed, not changed. In
+  `rust/non-https-url` (`sandbox_policy.rs:331`) the http URL is the test
+  that proves `fetch` refuses http, and the https check returns before
+  `reqwest::get`. `js/bad-tag-filter` (`DiagramView.test.tsx:154`) is a test
+  counting Mermaid `-->` arrows, not an HTML filter.
+- **Proved:** `npm test` passes (81 files, 852 tests), which includes
+  `tsc --noEmit`, and `npm run build` succeeds with mermaid 12.
+
 ### What I could not do (and what you would need to tell me)
 - I could not dynamically test the CI/CD pipeline or linter tools (`node tools/code-map-lint.mjs`) directly because those require a Node.js environment or GitHub Actions to run, and my task was scoped purely to documentation edits. 
 
@@ -486,6 +510,21 @@ The spec and the three round reports are in `application/ai-only/Hives/hives.md`
   provider is configured here); the app running (it cannot be built here);
   how the chat looks. `MarketingDesign.test.tsx` timed out once at 5s in a
   full run and passed on the re-run and on its own.
+
+**2026-10-27 — the Dependabot security alerts.**
+
+- **The `glib` alert (#25) is not fixed, and cannot be from here.** `glib`
+  0.18 reaches Swarm only on Linux, through Tauri's GTK3 stack (`gtk` 0.18 ←
+  `tao`, `muda`, `tauri`). The fix is in `glib` 0.20, which needs GTK4, and no
+  Tauri 2 release uses it. The unsound API (`VariantStrIter`) is not called by
+  Swarm. Tell me whether to dismiss the alert as tolerable risk. I have not
+  dismissed it.
+- **Cargo did not build here.** There is no MSVC linker on this machine, so
+  `cargo clippy` and `cargo test` did not run for either crate. The same
+  rustls bump passed CI's `rust` job on #8. CI on this PR is the real check.
+- **What I did not test:** a mermaid 12 diagram rendering in the running app.
+  `DiagramView` calls only `initialize` and `render`, and `tsc` accepts both
+  against 12's types, but nobody has looked at a drawn diagram.
 
 ### Debt I left behind
 - I entirely neglected to append this round record upon completing my task, breaking the project's framework rules. I failed to automatically register my completed work, missing debt, and open questions into this file. This was a process failure on my end.
@@ -760,3 +799,16 @@ The spec and the three round reports are in `application/ai-only/Hives/hives.md`
   folder. A Cargo feature that builds the `db` and pure `ai` modules without
   Tauri would let anyone run those tests on a machine that cannot build the
   app.
+
+**2026-10-27 — the Dependabot security alerts**
+
+- **Every Dependabot PR will still fail `documents`.** This round went around
+  the round-record check instead of settling it. The policy call recorded
+  above is still open: exempt `dependabot[bot]`, exempt lockfile-only
+  changes, or keep the check strict and fold each bump into a person's PR as
+  this one does.
+
+- **Mermaid is a major version ahead of where it was.** Only a security fix
+  moved it to 12, and nothing checked its release notes against how Swarm
+  uses it beyond the type check. A look at a few stored diagrams in the
+  running app would close this.
