@@ -68,6 +68,8 @@ single
 ### solutions — List each solution and where its code lives.
 - Name: Swarm — type: Rust Application — repo: https://github.com/PeterPartridge/CooperativeAICoding  — local path: app/Swarm (relative to this repo's root)
 - Name: Swarmdb — type: turso database embeded in the rust application — repo: https://github.com/PeterPartridge/CooperativeAICoding  — local path: app/Swarm/db (relative to this repo's root)
+- Name: Cells — type: Rust crate + React panels, bolted into Swarm (where agents run) — repo: https://github.com/PeterPartridge/CooperativeAICoding  — local path: app/Cells (relative to this repo's root)
+> drafted · guessed · added 2026-10-27 when the sandboxing moved out of Swarm into its own folder at the user's request. The name and path are the user's; "bolted into Swarm" is the AI's description. Delete this line to accept.
 
 ### dev-rules — Software development rules for the codebase.
 - Build this using DRY (Do not repeat yourself) — if you are repeating code three times, move it into a shared method or module and reuse it instead.
@@ -85,7 +87,7 @@ single
 
 New and changed code needs a test that fails first, for the reason the change exists. **Anything that decides something — a branch, a guard, a permission check, a gate, a policy refusal — has a test naming the decision**, and that is the floor: a decision without a test naming it is not done, regardless of line count.
 
-These gates must pass, run from `app/Swarm` and its `src-tauri` manifest: `cargo clippy --all-targets -- -D warnings` (warnings are failures), `cargo test`, `tsc --noEmit`, `npm test`.
+These gates must pass, run from `app/Swarm` and its `src-tauri` manifest: `cargo clippy --all-targets -- -D warnings` (warnings are failures), `cargo test`, `tsc --noEmit`, `npm test`. The two cargo gates also run from `app/Cells`: Swarm's `cargo test` does not run a dependency's tests.
 
 Not worth testing here: generated files, plain data holders, framework glue, and anything whose only assertion would be that a library works. **Live-integration paths** — a real debugger, a running Ollama, a WSL distribution, a Docker engine, anything that spends money or changes this machine — are marked `#[ignore]` and run by a person, not by CI; a change that relies on one says so in its debt note.
 

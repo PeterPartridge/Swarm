@@ -1,25 +1,20 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import PolicySource from "../../components/ai/PolicySource";
-import * as backend from "../../lib/backend";
+import PolicySource from "../PolicySource";
+import { movingGithubRef } from "../policy";
+import { fakeBackend } from "./fakeBackend";
 
-vi.mock("../../lib/backend", async (importOriginal) => {
-  const original = await importOriginal<typeof import("../../lib/backend")>();
-  return {
-    ...original,
-    getAgentPolicySource: vi.fn(),
-    setAgentPolicySource: vi.fn(),
-    fetchAgentPolicy: vi.fn(),
-    runAgentPolicy: vi.fn(),
-    getInstalledPolicy: vi.fn(),
-    listSolutions: vi.fn(),
-    previewPolicyInstall: vi.fn(),
-    installPolicyIntoSolution: vi.fn(),
-  };
-});
-
-const mocked = vi.mocked(backend);
+const mocked = fakeBackend([
+  "getAgentPolicySource",
+  "setAgentPolicySource",
+  "fetchAgentPolicy",
+  "runAgentPolicy",
+  "getInstalledPolicy",
+  "listSolutions",
+  "previewPolicyInstall",
+  "installPolicyIntoSolution",
+]);
 
 const saved = {
   from: "https://example.com/policies/strict.json",
@@ -40,7 +35,7 @@ describe("PolicySource", () => {
    *  optional, and the reading is the only safeguard there is against a policy
    *  somebody else wrote — it runs as root inside the boundary. */
   it("will not run anything that has not been fetched and shown first", async () => {
-    render(<PolicySource />);
+    render(<PolicySource backend={mocked} />);
     await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
 
     expect(screen.getByRole("button", { name: "Run it" })).toBeDisabled();
@@ -74,7 +69,7 @@ describe("PolicySource", () => {
     shape: "script" as const,
     });
 
-    render(<PolicySource />);
+    render(<PolicySource backend={mocked} />);
     await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
     await userEvent.click(screen.getByRole("button", { name: "Fetch it" }));
 
@@ -97,7 +92,7 @@ describe("PolicySource", () => {
       "with agents running on this machine there is no separate user to keep anything from",
     );
 
-    render(<PolicySource />);
+    render(<PolicySource backend={mocked} />);
     await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
     await userEvent.click(screen.getByRole("button", { name: "Fetch it" }));
     await userEvent.click(await screen.findByRole("button", { name: "Run it" }));
@@ -108,7 +103,7 @@ describe("PolicySource", () => {
   /** **Saved is not in force**, and the gap is where somebody would assume a
    *  protection they do not have. */
   it("never suggests that saving a source restricts anything", async () => {
-    render(<PolicySource />);
+    render(<PolicySource backend={mocked} />);
     await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
 
     expect(
@@ -122,7 +117,7 @@ describe("PolicySource", () => {
    *  difference between a useful tool and one that is trusted for the wrong
    *  job. */
   it("says that a committed path is still reachable through history", async () => {
-    render(<PolicySource />);
+    render(<PolicySource backend={mocked} />);
     await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
 
     expect(
@@ -144,7 +139,7 @@ describe("PolicySource", () => {
       shape: "script" as const,
     });
 
-    render(<PolicySource />);
+    render(<PolicySource backend={mocked} />);
     await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
     expect(screen.getByText(/checked against nothing/)).toBeInTheDocument();
 
@@ -167,7 +162,7 @@ describe("PolicySource", () => {
     });
     mocked.setAgentPolicySource.mockResolvedValue(undefined);
 
-    render(<PolicySource />);
+    render(<PolicySource backend={mocked} />);
     await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
     await userEvent.click(screen.getByRole("button", { name: "Fetch it" }));
     await userEvent.click(await screen.findByRole("button", { name: "Pin this digest" }));
@@ -189,7 +184,7 @@ describe("PolicySource", () => {
       `is not the policy that was pinned, so nothing was saved.\nexpected ${"d".repeat(64)}\n     got ${"e".repeat(64)}`,
     );
 
-    render(<PolicySource />);
+    render(<PolicySource backend={mocked} />);
     await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
     await userEvent.click(screen.getByRole("button", { name: "Fetch it" }));
 
@@ -208,7 +203,7 @@ describe("PolicySource", () => {
       expectDigest: "",
     });
 
-    const { unmount } = render(<PolicySource />);
+    const { unmount } = render(<PolicySource backend={mocked} />);
     await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
     expect(screen.getByText(/is a branch, so this would fetch/)).toBeInTheDocument();
     unmount();
@@ -218,7 +213,7 @@ describe("PolicySource", () => {
       from: "https://raw.githubusercontent.com/o/r/main/policy.json",
       expectDigest: "f".repeat(64),
     });
-    render(<PolicySource />);
+    render(<PolicySource backend={mocked} />);
     await waitFor(() => expect(screen.queryByText(/is a branch, so this would fetch/)).toBeNull());
   });
 });
@@ -240,7 +235,7 @@ describe("what the boundary has had run into it", () => {
       at: Date.UTC(2026, 2, 4, 9, 30),
     });
 
-    render(<PolicySource />);
+    render(<PolicySource backend={mocked} />);
 
     expect(await screen.findByText(/Last run into the distribution/)).toBeInTheDocument();
     expect(screen.getByText(/says a script ran, not that what it did is still in place/))
@@ -256,7 +251,7 @@ describe("what the boundary has had run into it", () => {
   it("distinguishes no script run from a Solution's own policy file", async () => {
     mocked.getInstalledPolicy.mockResolvedValue({ from: "", digest: "", mode: "", at: 0 });
 
-    render(<PolicySource />);
+    render(<PolicySource backend={mocked} />);
 
     expect(await screen.findByText(/No policy script has been run into the boundary/))
       .toBeInTheDocument();
@@ -268,7 +263,7 @@ describe("what the boundary has had run into it", () => {
   it("still shows the source when what was installed cannot be read", async () => {
     mocked.getInstalledPolicy.mockRejectedValue("no answer");
 
-    render(<PolicySource />);
+    render(<PolicySource backend={mocked} />);
 
     await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
     expect(screen.queryByRole("alert")).toBeNull();
@@ -290,7 +285,7 @@ describe("what the boundary has had run into it", () => {
     });
     mocked.runAgentPolicy.mockResolvedValue("done");
 
-    render(<PolicySource />);
+    render(<PolicySource backend={mocked} />);
     await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
     await userEvent.click(screen.getByRole("button", { name: "Fetch it" }));
 
@@ -333,7 +328,7 @@ describe("a fetched policy goes into a Solution", () => {
    *  deny list as a shell script would do nothing useful and might do something
    *  harmful. */
   it("does not offer to run a policy as a script", async () => {
-    render(<PolicySource />);
+    render(<PolicySource backend={mocked} />);
     await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
     await userEvent.click(screen.getByRole("button", { name: "Fetch it" }));
 
@@ -354,7 +349,7 @@ describe("a fetched policy goes into a Solution", () => {
       hadOne: true,
     });
 
-    render(<PolicySource />);
+    render(<PolicySource backend={mocked} />);
     await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
     await userEvent.click(screen.getByRole("button", { name: "Fetch it" }));
 
@@ -384,7 +379,7 @@ describe("a fetched policy goes into a Solution", () => {
       hadOne: false,
     });
 
-    render(<PolicySource />);
+    render(<PolicySource backend={mocked} />);
     await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
     await userEvent.click(screen.getByRole("button", { name: "Fetch it" }));
 
@@ -410,7 +405,7 @@ describe("a fetched policy goes into a Solution", () => {
       hadOne: true,
     });
 
-    render(<PolicySource />);
+    render(<PolicySource backend={mocked} />);
     await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
     await userEvent.click(screen.getByRole("button", { name: "Fetch it" }));
     await userEvent.click(await screen.findByRole("button", { name: "What would change?" }));
@@ -426,7 +421,7 @@ describe("a fetched policy goes into a Solution", () => {
   it("offers the script route for a script", async () => {
     mocked.fetchAgentPolicy.mockResolvedValue({ ...policy, shape: "script", text: "chmod 000 x" });
 
-    render(<PolicySource />);
+    render(<PolicySource backend={mocked} />);
     await waitFor(() => expect(mocked.getAgentPolicySource).toHaveBeenCalled());
     await userEvent.click(screen.getByRole("button", { name: "Fetch it" }));
 
@@ -444,26 +439,26 @@ describe("a fetched policy goes into a Solution", () => {
 describe("movingGithubRef", () => {
   it("tells a branch from a commit", () => {
     const commit = "a".repeat(40);
-    expect(backend.movingGithubRef("https://github.com/o/r/blob/main/policy.json")).toBe("main");
-    expect(backend.movingGithubRef("https://raw.githubusercontent.com/o/r/main/p.json")).toBe(
+    expect(movingGithubRef("https://github.com/o/r/blob/main/policy.json")).toBe("main");
+    expect(movingGithubRef("https://raw.githubusercontent.com/o/r/main/p.json")).toBe(
       "main",
     );
-    expect(backend.movingGithubRef("https://github.com/o/r/raw/release-2/deep/p.json")).toBe(
+    expect(movingGithubRef("https://github.com/o/r/raw/release-2/deep/p.json")).toBe(
       "release-2",
     );
     expect(
-      backend.movingGithubRef("https://raw.githubusercontent.com/o/r/refs/heads/main/p.json"),
+      movingGithubRef("https://raw.githubusercontent.com/o/r/refs/heads/main/p.json"),
     ).toBe("main");
 
-    expect(backend.movingGithubRef(`https://github.com/o/r/blob/${commit}/p.json`)).toBeNull();
+    expect(movingGithubRef(`https://github.com/o/r/blob/${commit}/p.json`)).toBeNull();
     expect(
-      backend.movingGithubRef(`https://raw.githubusercontent.com/o/r/${commit}/p.json`),
+      movingGithubRef(`https://raw.githubusercontent.com/o/r/${commit}/p.json`),
     ).toBeNull();
   });
 
   it("does not judge addresses that are not GitHub's", () => {
-    expect(backend.movingGithubRef("https://example.com/main/policy.json")).toBeNull();
-    expect(backend.movingGithubRef("C:\\work\\policy.json")).toBeNull();
-    expect(backend.movingGithubRef("")).toBeNull();
+    expect(movingGithubRef("https://example.com/main/policy.json")).toBeNull();
+    expect(movingGithubRef("C:\\work\\policy.json")).toBeNull();
+    expect(movingGithubRef("")).toBeNull();
   });
 });

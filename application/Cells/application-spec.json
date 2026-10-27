@@ -1,0 +1,135 @@
+{
+  "form": "application-spec",
+  "solutionName": "Cells",
+  "solutionType": "application",
+  "status": "drafted",
+  "exampleOf": "../../template/_forms/application-spec.json",
+  "draftNote": "drafted · guessed · from the request of 2026-10-27 ('turn the current sandboxing ability of this system into a bolt on that can go into a new folder called Cells', then Sandboxie and Linux / WSL Linux cells) and the answers given that day: app/Cells as its own crate, backend and UI both moved, Sandboxie driven as an installed copy. Every answer below marked 'drafted' is the AI's reading, not a decision. solutionType is 'application' only because the form offers no 'library' type — Cells is a library that an application bolts in. Delete this field and the markers to accept.",
+  "core": {
+    "purpose": {
+      "question": "What is the purpose of this solution?",
+      "answer": "drafted · guessed — Where a command an app runs on somebody's behalf actually runs, as a bolt-on rather than as part of one app. Each place a command can run is a 'cell': this machine, an app-owned WSL distribution, a container per run today; Sandboxie (Windows) and a native Linux cell to come. A cell decides what to run and where, detects what this machine can really enforce, sets its boundary up on a press, and reports the truth about it — never a protection that detection did not prove. Swarm is its first host."
+    },
+    "hosting": {
+      "question": "Where will it be hosted, deployed, or distributed?",
+      "answer": "drafted · guessed — Not distributed on its own. Compiled into its host (Swarm) as a path dependency, and its panels bundled into the host's frontend. Windows and Linux, as the host is."
+    },
+    "language": {
+      "question": "What language will it use?",
+      "answer": "Rust for the cells; TypeScript + React for the panels that report them."
+    },
+    "frameworks": {
+      "question": "What frameworks, libraries, or UI toolkit should it use?",
+      "answer": "drafted · guessed — No framework of its own. Rust: tokio for spawning and timeouts, serde, reqwest for fetching a policy, sha2 for its digest — the same versions as the host, so one build holds one copy. UI: React 19 components that take what they need from the host through small interfaces (CellsBackend), so the panels never assume Tauri or any transport."
+    }
+  },
+  "accessAndInterface": {
+    "authType": {
+      "question": "How does this solution authenticate or authorise callers/users?",
+      "answer": "None — it is a library inside a single-user local app with no login. A cell is a containment boundary for an agent, not an access-control boundary for people, and must never be described as one."
+    },
+    "rolesOrClaims": {
+      "question": "Does it authorise by Claims or Roles?",
+      "answer": "Neither. Whatever roles the host has decide what is visible there; Cells knows nothing of them."
+    },
+    "lookAndFeel": {
+      "question": "What is the overall look and feel?",
+      "answer": "The panels Swarm already had, unchanged: a capability table of protections × cells, every verdict in words rather than a padlock or a tick, each with its reason."
+    },
+    "stylingOrToolkit": {
+      "question": "What styling approach, component library, or UI toolkit?",
+      "answer": "Plain CSS in ui/cells.css, using the host's theme variables rather than defining any. The host imports it after its own stylesheet."
+    },
+    "interactionModel": {
+      "question": "How do people interact with it?",
+      "answer": "Through the host's panels: choose where agents run, set a cell's boundary up on a press, read what each cell enforces on this machine."
+    },
+    "customisation": {
+      "question": "Any customisation users control?",
+      "answer": ""
+    }
+  },
+  "conventions": {
+    "configLocation": {
+      "question": "Where does it read/write its own config and data on disk?",
+      "answer": "It stores nothing of its own. The host stores which cell is chosen and passes it in; detection is re-read every time and never cached. What a cell sets up lives where that cell lives — the WSL distribution, the container image, the Sandboxie box."
+    },
+    "errorLogging": {
+      "question": "How do we log errors and issues?",
+      "answer": "It returns errors to its host as plain sentences and logs nothing itself; the host decides where they go."
+    },
+    "documentation": {
+      "question": "How is this solution documented for its users or callers?",
+      "answer": ""
+    }
+  },
+  "scaffold": {
+    "boilerplate": {
+      "question": "Start from a named boilerplate?",
+      "answer": "None — extracted from Swarm's tooling/sandbox*.rs and three Admin panels in Round A."
+    },
+    "fileLayout": {
+      "question": "What is the folder and file layout of this solution's repo?",
+      "answer": [
+        "app/Cells/Cargo.toml — the `cells` crate",
+        "app/Cells/src/sandbox.rs — the seam: `wrap` and the capability `report`",
+        "app/Cells/src/sandbox_{detect,provision,run,docker,policy,intune}.rs — detection, set-up, the WSL and Docker backends, per-Solution deny policy, the device-policy export",
+        "app/Cells/src/seam.rs — finds every file that starts a process, for a host to prove its callers go through `wrap`",
+        "app/Cells/src/which.rs — PATH lookup, shared with the host",
+        "app/Cells/ui/ — the panels (SandboxTable, PolicySource, DevicePolicyExport), their types and cells.css",
+        "app/Cells/ui/__tests__/ — Vitest tests, run by the host's npm test"
+      ]
+    },
+    "testing": {
+      "question": "What test framework should be used, and what kinds of tests?",
+      "answer": "TDD per the Project Brief's dev-rules. Rust: `cargo clippy --all-targets -- -D warnings` and `cargo test` from app/Cells — the host's cargo test does not run a dependency's tests. Live tests that need a real engine or distribution stay #[ignore]. UI: run by the host's `npm test` through the @cells alias."
+    }
+  },
+  "security": {
+    "baseline": {
+      "question": "Start from a named security baseline?",
+      "answer": "application-baseline"
+    },
+    "rules": {
+      "question": "Any extra security rules for this solution?",
+      "entries": [
+        "No protection is ever reported as in force that detection did not prove on this machine — the rule the sandbox page was built on, and the one every new cell inherits.",
+        "A cell whose boundary cannot be honoured refuses to run the command; it never falls back to running it on this machine.",
+        "Anything that changes the machine (creating a distribution, building an image, configuring a box) happens on a press, prints everything it did, and stops at the first failure.",
+        "Every process a host starts on somebody's behalf goes through `sandbox::wrap`, held by a source-reading test in the host.",
+        "drafted · guessed — Third-party sandboxes are driven, never vendored or installed by this solution: Sandboxie-Plus is GPLv3 with a kernel driver, and this repository is MIT."
+      ]
+    }
+  },
+  "infrastructure": {
+    "resources": {
+      "question": "What infrastructure resources does this solution need?",
+      "entries": []
+    },
+    "provisioning": {
+      "question": "How is infrastructure created, and by whom?",
+      "answer": "N/A — no server-side infrastructure. Built and tested by the host's pipeline (ci.yml and release.yml run Cells' cargo gates beside Swarm's)."
+    },
+    "environments": {
+      "question": "What environments exist, and which may the AI deploy to?",
+      "answer": "N/A — released only as part of its host."
+    }
+  },
+  "notes": {
+    "mustNotDo": {
+      "question": "Anything this solution must NOT do / cannot deploy?",
+      "answer": ""
+    },
+    "limits": {
+      "question": "Any limits (rate limits, payload size, memory, startup time, supported platforms)?",
+      "answer": "Windows and Linux, as the host. Each cell states which platforms it exists on; a cell that cannot exist on this platform is absent, not failed."
+    }
+  },
+  "openQuestions": [
+    "Should Cells be usable by an app other than Swarm? Round A keeps Swarm's own names inside it (the 'swarm' distribution, the agent image, `.swarm/policy.json`); making them a host's choice is a separate round.",
+    "Round B (a `Cell` trait) and Round C (Sandboxie): how does a Sandboxie run's work leave the box — the run folder opened through to the real disk, or its changes recovered afterwards?",
+    "Round D (native Linux): is bubblewrap the cell, and is building it before the MVP the right order? The project's goals put agent governance second.",
+    "Should Round 12 of the Agent Sandbox brief (an honest panel on Linux, Docker finished) be built before the Linux cell? It is planned and not built."
+  ],
+  "answeredQuestions": []
+}

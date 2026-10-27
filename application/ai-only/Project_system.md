@@ -40,6 +40,7 @@ All of them use the app as a **single local user** — no logins or accounts. Th
 |----------|------|------------|------------|
 | Swarm | application | https://github.com/PeterPartridge/CooperativeAICoding | `app/Swarm` (relative to this repo's root) |
 | Swarmdb | database (turso, embedded in Swarm) | https://github.com/PeterPartridge/CooperativeAICoding | `app/Swarm/db` (relative to this repo's root) |
+| Cells | Rust crate + React panels (where agents run), bolted into Swarm | https://github.com/PeterPartridge/CooperativeAICoding | `app/Cells` (relative to this repo's root) |
 
 **Infrastructure & environments**
 - Project Brief's `infrastructure-policy` answer is "N/A." The solution specs fill in the detail: no server-side infrastructure; the pipeline (GitHub Actions) builds, tests, and produces downloadable release artifacts — nothing is provisioned or hosted.
@@ -57,7 +58,7 @@ All of them use the app as a **single local user** — no logins or accounts. Th
 
 **Testing floor** _(drafted, not yet accepted)_
 - New and changed code needs a test that fails first, for the reason the change exists. Anything that decides something (a branch, a guard, a permission check, a gate, a policy refusal) has a test naming the decision. That is the floor.
-- Gates, run from `app/Swarm` and its `src-tauri` manifest: `cargo clippy --all-targets -- -D warnings` (warnings are failures), `cargo test`, `tsc --noEmit`, `npm test`.
+- Gates, run from `app/Swarm` and its `src-tauri` manifest: `cargo clippy --all-targets -- -D warnings` (warnings are failures), `cargo test`, `tsc --noEmit`, `npm test`. The two cargo gates run again from `app/Cells`, whose tests Swarm's `cargo test` does not run.
 - Not worth testing: generated files, plain data holders, framework glue, anything whose only assertion would be that a library works. Live-integration paths (a real debugger, Ollama, WSL, Docker, anything that spends money or changes the machine) are `#[ignore]`d and run by a person; a change relying on one says so in its debt note.
 - A change that cannot reach the floor says so in its debt note rather than lowering it.
 - The brief's answer carries the `drafted · confident` marker: the gates and TDD rule were already written down, but the threshold and exceptions are inferred. Not yet accepted by a person.
@@ -98,7 +99,7 @@ Minimal and easy to use. A top menu with four tabs — Product, Develop, Test, A
 ## Project Digest *(reused by page translations)*
 
 - **Platform / tech:** Rust, single repo, Windows + Linux native executable, low memory/low-spec target. Tauri GUI + React 19/Vite/TypeScript frontend (Monaco editor, dnd-kit drag-drop, xterm.js terminal), portable-pty real shell. turso embedded database.
-- **Solutions & repos:** Swarm (application) → github.com/PeterPartridge/CooperativeAICoding, local path `app/Swarm`; Swarmdb (database, embedded in Swarm) → same repo, `app/Swarm/db`.
+- **Solutions & repos:** Swarm (application) → github.com/PeterPartridge/CooperativeAICoding, local path `app/Swarm`; Swarmdb (database, embedded in Swarm) → same repo, `app/Swarm/db`; Cells (where agents run — Rust crate + React panels, bolted into Swarm) → same repo, `app/Cells`.
 - **Infra & environments:** No hosted infrastructure — release artifacts only, via GitHub Actions. dev = AI may build/deploy debug builds; production = performance-focused release builds, people deploy after review (solution spec; the brief says the AI may — open question).
 - **Testing floor (drafted):** a failing test first; every decision (branch, guard, permission check, gate, policy refusal) has a test naming it; clippy -D warnings, cargo test, tsc --noEmit, npm test must pass; live-integration paths are `#[ignore]`d and run by a person.
 - **Deliverables (drafted):** MVP (the cooperative loop end to end) → Agent governance → Feature Designer.

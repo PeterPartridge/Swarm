@@ -267,7 +267,7 @@ pub fn read_policy_key(found: bool, said: &str) -> PolicyFindings {
 
 /// Runs a tool and hands back what it printed, or why it could not be asked.
 pub(crate) async fn ask(program: &str, args: &[&str], patience: Duration) -> Answered<(bool, Vec<u8>)> {
-    let Some(exe) = crate::tooling::dev_runner::which(program) else {
+    let Some(exe) = crate::which::which(program) else {
         return Answered::NotInstalled;
     };
     let attempt = tokio::time::timeout(
@@ -650,7 +650,7 @@ HKEY_LOCAL_MACHINESOFTWAREPoliciesWSL
         // The spawn itself is what is being proved: reg.exe has to be findable,
         // or the unmanaged answer above means nothing at all.
         assert!(
-            crate::tooling::dev_runner::which("reg.exe").is_some(),
+            crate::which::which("reg.exe").is_some(),
             "reg.exe must be findable, or every machine reads as unmanaged"
         );
     }

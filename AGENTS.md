@@ -14,6 +14,7 @@ framework, which lives in its own repository.
 |---|---|---|
 | Swarm | Tauri application — Rust backend, React 19 + TypeScript frontend | `app/Swarm` |
 | Swarmdb | turso database, embedded in the application | `app/Swarm/db` |
+| Cells | where agents run — Rust crate + React panels, bolted into Swarm | `app/Cells` |
 
 `application/` holds this app's briefs and `tools/` the framework's checks,
 copied in as `coperativeai init` copies them. The framework itself — the blank
@@ -55,7 +56,9 @@ Reference them by name.
 
 Gates that must pass: `cargo clippy --all-targets -- -D warnings` (warnings are
 failures), `cargo test`, `tsc --noEmit`, `npm test`. Run them from
-`app/Swarm` and its `src-tauri` manifest.
+`app/Swarm` and its `src-tauri` manifest, and run the two cargo gates again
+from `app/Cells` — Swarm's `cargo test` does not run a dependency's tests.
+Cells' panels are type-checked and tested by Swarm's `tsc` and `npm test`.
 
 **The project has not yet answered what level of cover a change must reach.**
 The brief asks for it (`testing`) and the answer is blank, so use the TDD rule

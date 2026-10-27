@@ -1,20 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  fetchAgentPolicy,
-  getAgentPolicySource,
-  getInstalledPolicy,
-  installPolicyIntoSolution,
-  listSolutions,
-  movingGithubRef,
-  previewPolicyInstall,
-  runAgentPolicy,
-  setAgentPolicySource,
-  type AgentPolicySource,
-  type FetchedPolicy,
-  type InstalledPolicy,
-  type PolicyChange,
-  type Solution,
-} from "../../lib/backend";
+import { movingGithubRef } from "./policy";
+import type {
+  AgentPolicySource,
+  FetchedPolicy,
+  InstalledPolicy,
+  PolicyBackend,
+  PolicyChange,
+  SolutionRef,
+} from "./types";
 
 /** Where an agent policy comes from, what installs it, and where it lands.
  *
@@ -29,7 +22,17 @@ import {
  *  them apart is what lets the thing be read before it is run — the only
  *  safeguard there is against a policy somebody else wrote, given that it runs
  *  as root inside the boundary and can weaken it as easily as strengthen it. */
-export default function PolicySource() {
+export default function PolicySource({ backend }: { backend: PolicyBackend }) {
+  const {
+    fetchAgentPolicy,
+    getAgentPolicySource,
+    getInstalledPolicy,
+    installPolicyIntoSolution,
+    listSolutions,
+    previewPolicyInstall,
+    runAgentPolicy,
+    setAgentPolicySource,
+  } = backend;
   const [source, setSource] = useState<AgentPolicySource>({
     from: "",
     command: "",
@@ -50,7 +53,7 @@ export default function PolicySource() {
 
   /** Where a fetched *policy* could go. Only loaded when one arrives, because
    *  a script has no Solution to be installed into. */
-  const [solutions, setSolutions] = useState<Solution[]>([]);
+  const [solutions, setSolutions] = useState<SolutionRef[]>([]);
   const [into, setInto] = useState<number | null>(null);
   const [change, setChange] = useState<PolicyChange | null>(null);
   const [applied, setApplied] = useState("");

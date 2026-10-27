@@ -1,16 +1,11 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import SandboxTable from "../../components/ai/SandboxTable";
-import * as backend from "../../lib/backend";
-import type { SandboxReport } from "../../lib/backend";
+import SandboxTable from "../SandboxTable";
+import { fakeBackend } from "./fakeBackend";
+import type { SandboxReport } from "../types";
 
-vi.mock("../../lib/backend", async (importOriginal) => {
-  const original = await importOriginal<typeof import("../../lib/backend")>();
-  return { ...original, sandboxReport: vi.fn(), setUpSandbox: vi.fn(), setAgentSandbox: vi.fn() };
-});
-
-const mocked = vi.mocked(backend);
+const mocked = fakeBackend(["sandboxReport", "setUpSandbox", "setAgentSandbox"]);
 
 /** This machine, as detection really found it: a stock Ubuntu that mounts the
  *  whole Windows drive, and a Docker client whose engine is not running. */
@@ -80,7 +75,7 @@ describe("SandboxTable", () => {
   /** **The rule the panel exists for.** A mode that runs nothing must never
    *  read as protection, however ready the machine underneath it is. */
   it("never presents an unbuilt mode as protection in force", async () => {
-    render(<SandboxTable />);
+    render(<SandboxTable backend={mocked} />);
 
     const docker = await screen.findByRole("article", {
       name: /container of its own/,
@@ -100,7 +95,7 @@ describe("SandboxTable", () => {
   /** No tick and no padlock: a symbol is read as reassurance before it is read
    *  at all, and most of these verdicts are not reassuring. */
   it("gives every verdict in words, with the reason beside it", async () => {
-    render(<SandboxTable />);
+    render(<SandboxTable backend={mocked} />);
 
     expect(await screen.findByText(/still has this machine's drive mounted/)).toBeInTheDocument();
     expect(
@@ -112,7 +107,7 @@ describe("SandboxTable", () => {
   /** Choosing a mode that refuses every command would stop the terminal
    *  working. The choice arrives with the first backend that can honour it. */
   it("offers no way to choose a mode that would stop the terminal working", async () => {
-    render(<SandboxTable />);
+    render(<SandboxTable backend={mocked} />);
     await screen.findByRole("table");
 
     // The only mode that can be chosen on this machine is the one that is
@@ -130,7 +125,7 @@ describe("SandboxTable", () => {
 
   /** A disabled button with no reason beside it is a dead end. */
   it("says why a set-up cannot be run, rather than only greying it out", async () => {
-    render(<SandboxTable />);
+    render(<SandboxTable backend={mocked} />);
 
     const docker = await screen.findByRole("article", { name: /container of its own/ });
     expect(within(docker).getByRole("button", { name: "Set this up" })).toBeDisabled();
@@ -160,7 +155,7 @@ describe("SandboxTable", () => {
       ],
     });
 
-    render(<SandboxTable />);
+    render(<SandboxTable backend={mocked} />);
     const wsl = await screen.findByRole("article", { name: /Linux distribution/ });
     await userEvent.click(within(wsl).getByRole("button", { name: "Set this up" }));
 
@@ -178,7 +173,7 @@ describe("SandboxTable", () => {
       steps: [{ name: "Create the distribution", succeeded: true, output: "" }],
     });
 
-    render(<SandboxTable />);
+    render(<SandboxTable backend={mocked} />);
     const wsl = await screen.findByRole("article", { name: /Linux distribution/ });
     await userEvent.click(within(wsl).getByRole("button", { name: "Set this up" }));
 
@@ -195,7 +190,7 @@ describe("SandboxTable", () => {
       steps: [{ name: "Install what the agent needs", succeeded: false, output: "E: no package" }],
     });
 
-    render(<SandboxTable />);
+    render(<SandboxTable backend={mocked} />);
     const wsl = await screen.findByRole("article", { name: /Linux distribution/ });
     await userEvent.click(within(wsl).getByRole("button", { name: "Set this up" }));
 
@@ -214,7 +209,7 @@ describe("SandboxTable", () => {
       steps: [{ name: "Create the distribution", succeeded: true, output: "" }],
     });
 
-    render(<SandboxTable />);
+    render(<SandboxTable backend={mocked} />);
     const wsl = await screen.findByRole("article", { name: /Linux distribution/ });
     expect(mocked.sandboxReport).toHaveBeenCalledTimes(1);
 
@@ -223,7 +218,7 @@ describe("SandboxTable", () => {
   });
 
   it("asks the machine once on opening, and again only when asked", async () => {
-    render(<SandboxTable />);
+    render(<SandboxTable backend={mocked} />);
     await screen.findByRole("table");
     expect(mocked.sandboxReport).toHaveBeenCalledTimes(1);
 
@@ -233,7 +228,7 @@ describe("SandboxTable", () => {
 
   it("says why it could not look, rather than showing an empty table", async () => {
     mocked.sandboxReport.mockRejectedValue("wsl.exe would not start");
-    render(<SandboxTable />);
+    render(<SandboxTable backend={mocked} />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("wsl.exe would not start");
     expect(screen.queryByRole("table")).not.toBeInTheDocument();

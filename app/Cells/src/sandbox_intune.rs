@@ -320,7 +320,7 @@ mod tests {
     /// reporting "unmanaged" on a machine somebody had just hardened.
     #[test]
     fn both_exports_target_the_key_detection_reads() {
-        let owned = crate::tooling::sandbox_detect::WSL_POLICY_KEY;
+        let owned = crate::sandbox_detect::WSL_POLICY_KEY;
         let tail = owned.strip_prefix("HKLM\\").expect("detection's key is under HKLM");
 
         let reg = registry();
