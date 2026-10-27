@@ -88,6 +88,42 @@ async fn with_secondary(
 /// Decides how a call should run, or refuses it. A refusal is written to the
 /// ledger with outcome `blocked` before the error is returned, so "we chose not
 /// to spend" is as visible in the history as spending would have been.
+/// The Product's AI policy, checked deny-by-default before any content moves.
+/// Hands back the Product, the provider its policy names and the effort tier
+/// it allows; `doing` finishes the sentence "AI can't …" when it refuses.
+///
+/// `design` and `architecture` still carry their own copy of this check; the
+/// chat is the third place to need it, which is where it became shared.
+pub(crate) async fn product_policy_gate(
+    conn: &Connection,
+    product_id: i64,
+    doing: &str,
+) -> Result<(crate::db::product::Product, i64, String), String> {
+    use crate::db::{product, product_policy};
+    let Some(product_row) = product::find_by_id(conn, product_id)
+        .await
+        .map_err(to_message)?
+    else {
+        return Err("that Product no longer exists".into());
+    };
+    let Some(policy) = product_policy::for_product(conn, product_id)
+        .await
+        .map_err(to_message)?
+    else {
+        return Err(format!(
+            "'{}' has no Product AI policy, so AI can't {doing} (deny-by-default). Set the Product's AI policy to allow reading and generating, and configure an AI provider in AI Settings.",
+            product_row.name
+        ));
+    };
+    match (policy.allow_read, policy.allow_generate, policy.provider_id) {
+        (true, true, Some(provider_id)) => Ok((product_row, provider_id, policy.effort_tier)),
+        _ => Err(
+            "The Product's AI policy blocks this: it must allow reading and generating, and name an AI provider."
+                .into(),
+        ),
+    }
+}
+
 pub(crate) async fn plan(
     conn: &Connection,
     product_id: i64,
@@ -431,6 +467,7 @@ mod tests {
             "architectureDoc",     // architecture::generate_architecture_doc
             "codingPal",           // workspace::ask_coding_pal
             "changePlan",          // work_item_plans::generate_change_plan
+            "chat",                // chat::chat_turn
         ];
         for purpose in used_by_commands {
             record(

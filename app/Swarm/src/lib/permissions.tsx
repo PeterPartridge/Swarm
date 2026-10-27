@@ -8,16 +8,17 @@ import {
 } from "react";
 import { getActivePermissions, type ActivePermissions } from "./backend";
 
-export type Area = "product" | "develop" | "test" | "admin" | "marketing" | "design";
+/** The places gated by a flag of their own. The Hives are gated by their
+ *  grants instead — see `canAccessHive`. */
+export type Area = "admin" | "marketing" | "design";
 export type GatedField = "cost" | "profit" | "chargeable";
 
 /** Full access — the safe default while loading and when no user is active. */
 const FULL_ACCESS: ActivePermissions = {
   memberId: null,
   role: null,
-  canProduct: true,
-  canDevelop: true,
-  canTest: true,
+  hives: [],
+  allHives: true,
   canAdmin: true,
   seeCost: true,
   seeProfit: true,
@@ -31,6 +32,8 @@ interface PermissionValue {
   perms: ActivePermissions;
   reload: () => Promise<void>;
   canAccess: (area: Area) => boolean;
+  /** May open this Hive: granted it, or sees them all. */
+  canAccessHive: (hiveId: string) => boolean;
   canSeeField: (field: GatedField) => boolean;
   /** May change AI budgets, thresholds, and the provider chain. Deliberately
    *  separate from seeing spend — reading what was spent and deciding what may
@@ -42,6 +45,7 @@ const PermissionContext = createContext<PermissionValue>({
   perms: FULL_ACCESS,
   reload: async () => {},
   canAccess: () => true,
+  canAccessHive: () => true,
   canSeeField: () => true,
   canManageBudget: () => true,
 });
@@ -64,12 +68,6 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
 
   const canAccess = (area: Area) => {
     switch (area) {
-      case "product":
-        return perms.canProduct;
-      case "develop":
-        return perms.canDevelop;
-      case "test":
-        return perms.canTest;
       case "marketing":
         return perms.canMarketing;
       case "design":
@@ -78,6 +76,8 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
         return perms.canAdmin;
     }
   };
+
+  const canAccessHive = (hiveId: string) => perms.allHives || perms.hives.includes(hiveId);
 
   const canSeeField = (field: GatedField) =>
     field === "cost"
@@ -90,7 +90,7 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
 
   return (
     <PermissionContext.Provider
-      value={{ perms, reload, canAccess, canSeeField, canManageBudget }}
+      value={{ perms, reload, canAccess, canAccessHive, canSeeField, canManageBudget }}
     >
       {children}
     </PermissionContext.Provider>

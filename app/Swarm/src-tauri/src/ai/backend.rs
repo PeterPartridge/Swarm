@@ -9,7 +9,7 @@ use crate::ai::client::{
     Generated, GeneratedChangePlan, GeneratedDesign, GeneratedDiagram, GeneratedPal,
     GeneratedStrategy, GeneratedTest, Prompt, Usage,
 };
-use crate::ai::{claude_code, client, keys, ollama};
+use crate::ai::{chat, claude_code, client, keys, ollama};
 use crate::db::ai_provider::AiProvider;
 
 /// Generates work items from a prompt using the given provider.
@@ -177,6 +177,47 @@ pub async fn generate_change_plan(
                 &provider.api_base_url, &api_key, model, effort, prompt, images,
             )
             .await
+        }
+        other => Err(unknown_kind(provider, other)),
+    }
+}
+
+/// One turn of the home-screen chat, whichever provider the router chose.
+///
+/// Each provider's own structured call with the chat's schema, rather than a
+/// `chat` function written three more times: the shape is the only part that
+/// differs, and `ai::chat` holds it.
+pub async fn chat(
+    provider: &AiProvider,
+    model: &str,
+    effort: &str,
+    prompt: &Prompt,
+) -> Result<(chat::ChatReply, Usage), String> {
+    match provider.kind.as_str() {
+        "ollama" => {
+            let (text, usage) = ollama::chat(
+                &provider.api_base_url,
+                ollama_key(provider)?.as_deref(),
+                model,
+                prompt,
+                chat::chat_schema(),
+            )
+            .await?;
+            Ok((chat::parse_chat(&text)?, usage))
+        }
+        "claudeCode" => {
+            claude_code::turn(
+                &provider.api_base_url, model, effort, prompt, chat::chat_schema(), chat::parse_chat,
+            )
+            .await
+        }
+        "anthropic" => {
+            let api_key = keys::read(&provider.key_alias)?;
+            let (text, usage) = client::post_structured(
+                &provider.api_base_url, &api_key, model, effort, prompt, chat::chat_schema(),
+            )
+            .await?;
+            Ok((chat::parse_chat(&text)?, usage))
         }
         other => Err(unknown_kind(provider, other)),
     }

@@ -310,6 +310,36 @@ changing. Spec and report: `application/ai-only/Cells/cells.md`.
   `npm install --package-lock-only` showed the Tauri packages stay on 2.11.1
   and 2.7.1.
 
+**2026-10-27 — Hives: the work areas move out of Swarm, are granted per role, and the app opens on a chat.**
+The spec and the three round reports are in `application/ai-only/Hives/hives.md`.
+
+- **Round 1 — the move.** Product, Develop and Test are now Hives in
+  `app/Hives/{product,develop,test}`. Each folder holds its page, a `hive.tsx`
+  (id, label, icon, colour, screen, palette views), and the Test-only
+  components and tests. `app/Hives/registry.ts` lists them, and the rail, the
+  screen switch, the ⌘K palette and the colour settings all read from it. Swarm
+  reaches the registry through `@hives`, and the Hives reach back through
+  `@swarm`. Tab colours are keyed by id. There was no change in behaviour.
+- **Round 2 — permissions per Hive.** There is a new `role_hives` table, and
+  `canProduct`, `canDevelop` and `canTest` are copied into it once. A Hive
+  nobody has granted is hidden from everyone except Admin, which sees every
+  Hive. There is a new `set_role_hive` command and a `canAccessHive(id)`
+  check. The Admin role table draws one column per registered Hive.
+- **Round 3 — the chat as home.** The app opens on a chat (`ChatHome`), and
+  the rail stays. The chat is about a Product. A turn goes through that
+  Product's AI policy (deny-by-default), the router and budget, and the usage
+  ledger under a new `chat` purpose. The AI proposes actions from a list
+  (`lib/chatActions.ts`): open a Hive, open a view, set the theme, set a Hive's
+  colour, create a work item. Each action is checked again on screen against
+  the role and its arguments. Layout and appearance run at once; creating a
+  work item waits for Confirm. A refused action is shown with its reason.
+- **Proved:** `tsc --noEmit` is clean; `npm test` passes (81 files, 852
+  tests, 25 of them new); `npm run build` succeeds; the code-map lint has 0
+  errors. The Rust that can run without Tauri (`db/role.rs`, `db/role_hive.rs`,
+  `ai/chat.rs`) was compiled and tested in WSL: 23 tests pass, and clippy with
+  `-D warnings` is clean. `commands/roles.rs` was type-checked and clippy'd
+  there too, with Tauri's `State` stubbed.
+
 ### What I could not do (and what you would need to tell me)
 - I could not dynamically test the CI/CD pipeline or linter tools (`node tools/code-map-lint.mjs`) directly because those require a Node.js environment or GitHub Actions to run, and my task was scoped purely to documentation edits. 
 
@@ -430,6 +460,32 @@ changing. Spec and report: `application/ai-only/Cells/cells.md`.
   ran everything except that last step. It will first happen when this merges.
 - **Left for a decision:** three other pipeline findings from the same check
   are not fixed (see Debt). Each needs a choice, not just a code change.
+
+**2026-10-27 — Hives.**
+
+- **Some of the Rust has not been compiled anywhere.** Swarm's `cargo clippy`
+  and `cargo test` did not run: this machine has no MSVC linker, and WSL has
+  no GTK/WebKit. Never built: `ai::backend::chat`, `commands/chat.rs`,
+  `ai_run::product_policy_gate`, the three visibility changes
+  (`client::post_structured`, `ollama::chat`, `claude_code::turn`) and the
+  registrations in `main.rs`, `commands/mod.rs`, `ai/mod.rs` and `db/mod.rs`.
+  CI on the pull request is the first real build.
+- **"Anything the app can do" is five things so far.** The mechanism is built
+  (an offered list, checks on screen, confirmation for writes); the list is
+  short on purpose. Tell me which commands should come next, and for each
+  whether it needs a confirmation.
+- **The chat needs a Product.** Every AI call here is held to a Product's
+  policy, budget and ledger, so the chat is too. On a fresh install with no
+  Product it says so and does not call. A chat that works with no Product
+  would need an app-wide AI policy and budget, which is a decision for you,
+  not me.
+- **The Workspace Shell brief and the Project Digest still describe four fixed
+  tabs.** Product owns the brief, and I did not rewrite its answers. Updating
+  the brief and running `/translate` would bring both into line.
+- **What I did not test:** a real conversation with a real model (no
+  provider is configured here); the app running (it cannot be built here);
+  how the chat looks. `MarketingDesign.test.tsx` timed out once at 5s in a
+  full run and passed on the re-run and on its own.
 
 ### Debt I left behind
 - I entirely neglected to append this round record upon completing my task, breaking the project's framework rules. I failed to automatically register my completed work, missing debt, and open questions into this file. This was a process failure on my end.
@@ -662,3 +718,45 @@ changing. Spec and report: `application/ai-only/Cells/cells.md`.
 - **`ubuntu-latest` is moving to Ubuntu 26.** Every ubuntu job carries the
   migration notice. The Linux job's `apt` package list (webkit2gtk 4.1 and the
   rest) is the part most likely to break, and nothing has been tried against 26.
+
+**2026-10-27 — Hives**
+
+- **Hives and Swarm depend on each other.** Swarm imports `@hives/registry`
+  and the Hives import Swarm's components and backend through `@swarm`. So
+  `app/Hives` is a separate folder but not a separate module: unlike Cells, it
+  could not be lifted into another host. Making it one would mean giving each
+  Hive its backend through an interface, as Cells' panels take theirs.
+
+- **Two copies of the Product AI policy check remain.** The chat uses the new
+  shared `ai_run::product_policy_gate`, but `design::generate_design_strategy`
+  and `architecture::generate_architecture_doc` still carry their own copies.
+  I did not switch them over: they cannot be compiled here, and they are
+  working code. Each switch is about twenty lines replaced by one call.
+
+- **The chat forgets, and so does the AI.** The conversation lives in memory,
+  so it is gone on restart. The outcome of an action ("Opened Develop", "Not
+  done") is not sent back to the AI on the next turn, so it cannot tell
+  whether what it asked for happened.
+
+- **The old area columns are still on `roles`.** `canProduct`, `canDevelop`
+  and `canTest` are copied into `role_hives` once and then unread.
+  `update_role` writes their old values back unchanged. They can be dropped
+  once nobody needs to roll back to a build that reads them.
+
+- **A grant can outlive its Hive.** The backend checks a Hive id's shape, not
+  that the registry has it, since the registry is frontend code. A Hive
+  removed from the registry leaves its `role_hives` rows behind. Deleting a
+  role clears its grants in the command, after the role is gone, not in one
+  transaction.
+
+- **The chat's actions are checked on screen, not enforced.** The role check
+  and the confirmation both run in the frontend. That matches "roles are not
+  an access-control boundary", but an AI action is only as governed as the
+  screen that runs it. Enforcing it belongs to the Agent governance
+  deliverable (the MCP server as the enforcement layer).
+
+- **The WSL test harness is not in the repository.** The scratch crate that
+  compiled the role and chat modules without Tauri lives in a temporary
+  folder. A Cargo feature that builds the `db` and pure `ai` modules without
+  Tauri would let anyone run those tests on a machine that cannot build the
+  app.

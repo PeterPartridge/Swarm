@@ -24,6 +24,7 @@ import {
   listSolutions,
   removeTeamMember,
   setMemberRole,
+  setRoleHive,
   updateRole,
   type Product,
   type Role,
@@ -31,11 +32,12 @@ import {
   type TeamMember,
 } from "../lib/backend";
 import { usePermissions } from "../lib/permissions";
+import { HIVES } from "@hives/registry";
 
+/** The Hives come first, one column each, from the registry — a Hive added
+ *  later gets its column here without this page changing. These are the
+ *  places that are not Hives, gated by a flag on the role instead. */
 const AREA_FLAGS = [
-  ["canProduct", "Product"],
-  ["canDevelop", "Develop"],
-  ["canTest", "Test"],
   ["canAdmin", "Admin"],
   // Screens inside the Product workspace with flags of their own — a
   // developer often needs Planning without campaign drafts.
@@ -338,6 +340,9 @@ export default function AdminArea() {
           <thead>
             <tr>
               <th>Role</th>
+              {HIVES.map((hive) => (
+                <th key={hive.id}>{hive.label}</th>
+              ))}
               {AREA_FLAGS.map(([, label]) => (
                 <th key={label}>{label}</th>
               ))}
@@ -351,6 +356,22 @@ export default function AdminArea() {
             {roles.map((role) => (
               <tr key={role.id} aria-label={`Role ${role.name}`}>
                 <td>{role.name}</td>
+                {HIVES.map((hive) => (
+                  <td key={hive.id}>
+                    {/* Admin sees every Hive whatever its grants say, so its
+                        boxes are ticked and fixed rather than offering a
+                        choice the backend refuses. */}
+                    <input
+                      type="checkbox"
+                      aria-label={`${role.name} ${hive.label}`}
+                      checked={role.allHives || role.hives.includes(hive.id)}
+                      disabled={role.allHives}
+                      onChange={(e) =>
+                        run(() => setRoleHive(role.id, hive.id, e.target.checked))
+                      }
+                    />
+                  </td>
+                ))}
                 {AREA_FLAGS.map(([flag, label]) => (
                   <td key={flag}>
                     <input

@@ -1,52 +1,38 @@
 import type { CSSProperties, ReactNode } from "react";
+import { HIVES } from "@hives/registry";
 import type { EnvironmentId, TabColors } from "../../lib/theme";
 
-export const ENVIRONMENTS: { id: EnvironmentId; label: string }[] = [
-  { id: "product", label: "Product" },
-  { id: "develop", label: "Develop" },
-  { id: "test", label: "Test" },
-  { id: "admin", label: "Admin" },
-];
+/** One place on the rail. */
+export interface Environment {
+  id: EnvironmentId;
+  label: string;
+  icon: ReactNode;
+}
 
-/** One glyph per area, drawn rather than lettered.
- *
- *  An icon rail needs icons; four initials in boxes would read as a list of
- *  abbreviations. Each is inline SVG so nothing is fetched — this is an offline
- *  desktop app — and the colour follows the button. */
-const ICONS: Record<EnvironmentId, ReactNode> = {
-  // Four panes: a Product is the thing made of parts.
-  product: (
-    <>
-      <rect x="2" y="2" width="7" height="7" rx="1.5" fill="currentColor" />
-      <rect x="11" y="2" width="7" height="7" rx="1.5" fill="currentColor" opacity="0.55" />
-      <rect x="2" y="11" width="7" height="7" rx="1.5" fill="currentColor" opacity="0.55" />
-      <rect x="11" y="11" width="7" height="7" rx="1.5" fill="currentColor" opacity="0.3" />
-    </>
-  ),
-  // Angle brackets: code.
-  develop: (
+/** The chat is the app's main screen, and the one place everyone sees: it
+ *  is where the app opens, and where the AI sets the rest of it up. */
+export const CHAT: Environment = {
+  id: "chat",
+  label: "Chat",
+  // A speech bubble.
+  icon: (
     <path
-      d="M7 5L3 10l4 5M13 5l4 5-4 5"
+      d="M4 4.5h12a1.5 1.5 0 011.5 1.5v6.5a1.5 1.5 0 01-1.5 1.5H9l-4 3v-3H4a1.5 1.5 0 01-1.5-1.5V6A1.5 1.5 0 014 4.5z"
       stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
+      strokeWidth="1.6"
       strokeLinejoin="round"
       fill="none"
     />
   ),
-  // A tick: a test that passed.
-  test: (
-    <path
-      d="M4 10.5l4 4 8-9"
-      stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      fill="none"
-    />
-  ),
+};
+
+/** Admin is not a Hive: it is this app's settings screen, where Hives are
+ *  granted, so it is added here rather than registered beside them. */
+const ADMIN: Environment = {
+  id: "admin",
+  label: "Admin",
   // Sliders: settings.
-  admin: (
+  icon: (
     <>
       <path d="M3 6h14M3 14h14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
       <circle cx="8" cy="6" r="2.4" fill="currentColor" />
@@ -55,14 +41,32 @@ const ICONS: Record<EnvironmentId, ReactNode> = {
   ),
 };
 
+/** The rail: the chat, every Hive in registry order, then Admin.
+ *
+ *  Each icon is inline SVG drawn rather than lettered — initials in boxes would
+ *  read as a list of abbreviations — so nothing is fetched in an offline app,
+ *  and the colour follows the button. */
+export const ENVIRONMENTS: Environment[] = [
+  CHAT,
+  ...HIVES.map(({ id, label, icon }) => ({ id, label, icon })),
+  ADMIN,
+];
+
+/** Each place's colour until the person picks another. */
+export const DEFAULT_TAB_COLORS: TabColors = Object.fromEntries([
+  [CHAT.id, "#0891b2"],
+  ...HIVES.map((h) => [h.id, h.color]),
+  [ADMIN.id, "#475569"],
+]);
+
 interface TabBarProps {
   active: EnvironmentId;
   colors: TabColors;
   onSelect: (id: EnvironmentId) => void;
-  tabs?: { id: EnvironmentId; label: string }[];
+  tabs?: Environment[];
 }
 
-/** The activity rail: the four areas, down the left.
+/** The activity rail: the chat, the Hives and Admin, down the left.
  *
  *  Icons with the label beneath, rather than a row of text tabs across the top.
  *  The rail is a fixed width whatever the window does, so the areas stay put as
@@ -75,7 +79,7 @@ interface TabBarProps {
 export default function TabBar({ active, colors, onSelect, tabs = ENVIRONMENTS }: TabBarProps) {
   return (
     <nav className="tab-bar" role="tablist" aria-label="Workspace environments">
-      {tabs.map(({ id, label }) => (
+      {tabs.map(({ id, label, icon }) => (
         <button
           key={id}
           role="tab"
@@ -85,7 +89,7 @@ export default function TabBar({ active, colors, onSelect, tabs = ENVIRONMENTS }
           onClick={() => onSelect(id)}
         >
           <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
-            {ICONS[id]}
+            {icon}
           </svg>
           <span className="tab-label">{label}</span>
         </button>

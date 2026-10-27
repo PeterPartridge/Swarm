@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import WorkItemLifecycle from "../planning/WorkItemLifecycle";
-import AiFeedbackPanel from "../ai/AiFeedbackPanel";
+import WorkItemLifecycle from "@swarm/components/planning/WorkItemLifecycle";
+import AiFeedbackPanel from "@swarm/components/ai/AiFeedbackPanel";
 import TestCases from "./TestCases";
 import {
   askProductQuestion,
@@ -9,8 +9,8 @@ import {
   STATUSES,
   TYPE_LABELS,
   type WorkItem,
-} from "../../lib/backend";
-import { notifyWorkChanged, useWorkChanged } from "../../lib/workSignal";
+} from "@swarm/lib/backend";
+import { notifyWorkChanged, useWorkChanged } from "@swarm/lib/workSignal";
 
 /** The work in front of QA, and the part of each item's life QA owns.
  *

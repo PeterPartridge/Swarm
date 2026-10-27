@@ -4,6 +4,7 @@
 //! HTTPS request — never the database, config, code, or logs.
 
 pub mod backend;
+pub mod chat;
 pub mod claude_code;
 pub mod client;
 pub mod effort;

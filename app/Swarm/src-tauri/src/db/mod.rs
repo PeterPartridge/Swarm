@@ -28,6 +28,7 @@ pub mod product_policy;
 pub mod repo_link;
 pub mod repository;
 pub mod role;
+pub mod role_hive;
 pub mod routing_default;
 pub mod app_log;
 pub mod lifecycle;
@@ -121,6 +122,8 @@ pub async fn create_all_tables(conn: &Connection) -> Result<()> {
     solution_management::create_table(conn).await?;
     product::create_table(conn).await?;
     role::create_table(conn).await?;
+    // after role: the first start copies the old area columns across
+    role_hive::create_table(conn).await?;
     team_member::create_table(conn).await?;
     deliverable::create_table(conn).await?;
     sprint::create_table(conn).await?;

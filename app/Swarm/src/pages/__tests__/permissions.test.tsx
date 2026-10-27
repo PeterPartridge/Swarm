@@ -48,9 +48,8 @@ function perms(overrides: Partial<ActivePermissions>): ActivePermissions {
   return {
     memberId: 5,
     role: null,
-    canProduct: true,
-    canDevelop: true,
-    canTest: true,
+    hives: ["product", "develop", "test"],
+    allHives: true,
     canAdmin: true,
     seeCost: true,
     seeProfit: true,

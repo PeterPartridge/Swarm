@@ -3792,6 +3792,58 @@ code {
   border-bottom-left-radius: 0.2rem;
 }
 
+/* The home-screen chat: the same turns and bubbles as the conversation with
+   Product, with the person on the right and the AI on the left. */
+.chat-home {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  max-width: 48rem;
+}
+
+.chat-turn.from-person {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.chat-turn.from-ai {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+/* What the AI asked the app to do, in words — never a tick or a cross, since
+   "refused" and "waiting for you" both need reading, not glancing. */
+.chat-action {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.6rem;
+  border-left: 3px solid var(--fg-muted);
+  background: var(--raised);
+  border-radius: 0 0.375rem 0.375rem 0;
+  font-size: 0.8rem;
+}
+
+.chat-action-waiting {
+  border-left-color: var(--warn);
+}
+
+.chat-action-done {
+  border-left-color: var(--ok);
+}
+
+.chat-action-refused,
+.chat-action-failed {
+  border-left-color: var(--bad);
+}
+
+.chat-notice {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+}
+
 /* The answer box sits where Product's answer will: same side, same width, so
    the reply lands where the eye is already looking. */
 .chat-reply {

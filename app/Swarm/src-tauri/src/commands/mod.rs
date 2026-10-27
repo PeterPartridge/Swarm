@@ -6,6 +6,7 @@ pub mod architecture;
 pub mod build_info;
 pub mod budgets;
 pub mod capacity;
+pub mod chat;
 pub mod debugging;
 pub mod deliverables;
 pub mod design;

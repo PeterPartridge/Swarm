@@ -32,7 +32,7 @@ describe("the panel card", () => {
   });
 });
 
-/** Every `.tsx` under `src`. */
+/** Every `.tsx` under the folder given — `src`, and the Hives beside it. */
 function sourceFiles(dir: string): string[] {
   const out: string[] = [];
   for (const entry of readdirSync(dir)) {
@@ -55,7 +55,7 @@ describe("one card, not several", () => {
   it("has no panel-specific card classes left", () => {
     const root = process.cwd();
     const offenders: string[] = [];
-    for (const file of sourceFiles(join(root, "src"))) {
+    for (const file of [...sourceFiles(join(root, "src")), ...sourceFiles(join(root, "../Hives"))]) {
       // This file names them in order to forbid them.
       if (file.endsWith("Card.test.tsx")) continue;
       // Comments stripped: `Card.tsx` names both classes to explain why it
