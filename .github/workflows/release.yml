@@ -299,18 +299,22 @@ jobs:
         with:
           node-version: 24
 
-      # **`npm install`, not `npm ci`, and that is a deliberate loss.** The
-      # lockfile pins `@rollup/rollup-win32-x64-msvc` and
-      # `@tauri-apps/cli-win32-x64-msvc` as ordinary devDependencies, which is
-      # itself a workaround for npm/cli#4828 — without the explicit pins npm
-      # installs neither platform's native binary and the build dies with
-      # "Cannot find module @rollup/rollup-*". Verified on this machine: a clean
-      # install with the pins removed still fails.
+      # **`npm install`, not `npm ci`.** The lockfile pins
+      # `@rollup/rollup-win32-x64-msvc` and `@tauri-apps/cli-win32-x64-msvc` as
+      # ordinary devDependencies, which is itself a workaround for npm/cli#4828 —
+      # without the explicit pins npm installs neither platform's native binary
+      # and the build dies with "Cannot find module @rollup/rollup-*". Verified
+      # on this machine: a clean install with the pins removed still fails.
       #
-      # So the pins are swapped for their Linux equivalents here and the tree is
-      # resolved fresh. The cost is that Linux does not get lockfile
-      # determinism — said plainly rather than hidden, because a reader who
-      # assumes `npm ci` semantics from the Windows job would be wrong.
+      # So the pins are swapped for their Linux equivalents here, which `npm ci`
+      # would refuse as a lockfile mismatch.
+      #
+      # **The lockfile is kept, not deleted.** This step used to remove it and
+      # resolve fresh, and every release failed for it: `^2.9.0` resolved
+      # `@tauri-apps/api` to 2.12 while Cargo.lock held the `tauri` crate at
+      # 2.11, and `tauri build` refuses npm and Rust Tauri packages on different
+      # minor versions. With the lockfile in place `npm install` changes only
+      # the two swapped pins and keeps everything else where Windows has it.
       - name: Install, with the platform binaries swapped
         working-directory: app/Swarm
         run: |
@@ -323,7 +327,6 @@ jobs:
             j.devDependencies['@tauri-apps/cli-linux-x64-gnu'] = '^2.11.4';
             fs.writeFileSync('package.json', JSON.stringify(j, null, 2) + '\n');
           "
-          rm -f package-lock.json
           npm install --no-audit --no-fund
 
       # The Windows job does this in PowerShell; a script keeps the Linux side
