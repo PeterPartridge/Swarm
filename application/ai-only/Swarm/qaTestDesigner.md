@@ -528,3 +528,7 @@ written failing first — including:
   detection one level deep; `additionalProperties: false` still Claude-only;
   `models.rs` writes its own ledger row; the decline lead-in lives in both
   `BlockedNote` and `AiQuestions`.
+
+## Round 7 — QA can start a Project
+
+Decided 2026-10-07. The Test environment gets the same "Create a project" form as Develop (`NewProjectForm`, `origin: test`), shown with or without Products, and the same **Send to Product** for QA's un-sent Project. Once sent, the Product tab shows it marked **From QA**. Test keeps listing every Product. The empty state no longer points only at the Product tab, which a QA role may not be able to open.

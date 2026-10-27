@@ -6,16 +6,24 @@
 A Product being planned in the app — created from the Project_brief's Product questions; work items, sprints, feature designs, and Solutions all attach to one.
 
 **Data to store**
-id (auto) · name (unique, non-empty — the workspace title) · answers (JSON keyed by brief question ids: purpose, problem, users, appsYouLike, appsToAvoid, designs) · createdAt/updatedAt (millis).
+id (auto) · name (unique, non-empty — the workspace title) · answers (JSON keyed by brief question ids: purpose, problem, users, appsYouLike, appsToAvoid, designs) · origin (`product` | `develop` | `test`, default `product`) · handedOverAt (millis, null until sent to Product) · createdAt/updatedAt (millis).
 
 **Invariants / tests**
 - [x] name unique and non-empty; answers valid JSON.
 - [x] Deleting a Product removes its work items (cascading their policies/designs), sprints, and solutions.
+- [x] origin is one of the three areas; anything else is refused.
+- [x] In the Product area = origin `product`, or handed over. A Develop/QA Project is not, until it is sent.
+- [x] Hand-over sets handedOverAt and keeps origin; it refuses a Product already in the Product area, twice, or one that does not exist.
+- [x] An existing table gains origin and handedOverAt in place — no rebuild, no lost rows — and every existing row reads as made in the Product area.
 
 **Status:** built (2026-07-16)
 
 ## Report back
 Implemented as `src-tauri/src/db/product.rs` (`create_table/create/list_all/find_by_id/delete`); delete cascades in code via `work_item::delete` per item then sprints/solutions/product. cargo tests: listing, name rules, JSON rule, full cascade. Command layer: `commands/products.rs` (list/create/get/delete).
+
+## Round 1 (model) — Develop and QA hand a Project over
+
+Decided 2026-10-07: Develop and QA can create a Project — a Product — that stays theirs until somebody presses **Send to Product**. It then appears in the Product area, marked with where it came from. Two columns carry it: `origin` (where it was made, kept after hand-over — the marker is the point) and `handedOverAt`. Added with `ALTER TABLE` through `db::table_columns`, not a rebuild: Products are written by people.
 
 ## Round 13b — Nothing was being saved at all
 

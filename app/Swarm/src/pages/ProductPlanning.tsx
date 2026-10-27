@@ -40,7 +40,14 @@ export default function ProductPlanning() {
     if (!name.trim()) return;
     try {
       const id = await createProduct(name, JSON.stringify(answers), scaffoldDir);
-      const created = { id, name, answers: JSON.stringify(answers) };
+      const created: Product = {
+        id,
+        name,
+        answers: JSON.stringify(answers),
+        origin: "product",
+        handedOverAt: null,
+        inProductArea: true,
+      };
       setName("");
       setAnswers({});
       setScaffoldDir("");
@@ -75,9 +82,16 @@ export default function ProductPlanning() {
       <PlanningMethodSetting />
 
       <div className="product-cards">
-        {products.map((product) => (
+        {/* A Develop or QA Project is theirs until it is sent; once it is,
+            it says where it came from. */}
+        {products.filter((p) => p.inProductArea).map((product) => (
           <article key={product.id} className="product-card" aria-label={product.name}>
             <strong>{product.name}</strong>
+            {product.origin !== "product" && (
+              <span className="product-origin">
+                From {product.origin === "develop" ? "Develop" : "QA"}
+              </span>
+            )}
             <button
               aria-label={`Open ${product.name}`}
               onClick={() => setOpenProduct(product)}
