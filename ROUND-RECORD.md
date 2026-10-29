@@ -386,6 +386,33 @@ report: `application/ai-only/Hives/extensions.md`.
 - **Admin → Extensions** has an Installed card (Remove; a Hive asks first) and
   an Add card (a source URL defaulting to this repository's `main`, and Read).
 
+**2026-10-29 — the framework brought up to date, and every spec re-translated.**
+No item's work fits a deliverable: this is the framework's own upkeep.
+
+- **Copied in from CooperativeAICoding `main` (`64c7777`)**, by hand, as
+  `init` lays them out: `application/_forms/`, `application/ai-only/README.md`,
+  `1-translate-for-ai.md`, `2-ai-system.template.md`, `3-code-map.template.md`,
+  `application/ai-only/procedures/`, `application/qa/regression.md` and
+  `signoff.md`, `tools/spec-lint.mjs`, `tools/check.mjs`, and the newer
+  `tools/brief-lint.mjs`. `code-map-lint.mjs` and `round-record-lint.mjs`
+  already matched, except Swarm's own code-map ceiling (105), which is kept.
+- **The Project Brief** became `ai-only/Project_digest.md` and a new-format
+  `ai-only/Project_system.md`. **Solutions:** `ai-only/Swarm/_solution.md` and
+  `ai-only/Swarmdb/_solution.md`, each with its preset and baseline copied in.
+- **Items:** 19 Swarm page specs and 21 Swarmdb model specs. Each line cites
+  the answer it came from. Each file keeps the spec it replaced **whole** under
+  one `## Round history` heading (title demoted), because the old specs used
+  `## PLAN`, `## Report back`, `## Report back — round N` and `## Round N` for
+  their history, and their bodies carry round behaviour and test status the
+  briefs' answers do not. A script confirmed every old file is in its new one,
+  verbatim. The model specs were generated from the JSON briefs by a script,
+  one line per answered field, relationship, lookup and lifecycle rule.
+- **AGENTS.md** now points at `application/ai-only/Project_digest.md`.
+- **Proved:** `spec-lint` finds every line sourced. Its only errors are the
+  62 "built, and C<n> has no test naming it", across 16 built page specs.
+  `brief-lint`, `code-map-lint` and `round-record-lint` pass. No code changed,
+  so the cargo and npm gates were not run.
+
 ### What I could not do (and what you would need to tell me)
 - I could not dynamically test the CI/CD pipeline or linter tools (`node tools/code-map-lint.mjs`) directly because those require a Node.js environment or GitHub Actions to run, and my task was scoped purely to documentation edits. 
 
@@ -570,6 +597,30 @@ report: `application/ai-only/Hives/extensions.md`.
   Admin, the Extensions screen, and an install changing the rail are proved by
   component tests with a mocked backend, not by pressing them. A real fetch from
   GitHub was not tested either.
+
+**2026-10-29 — the framework brought up to date, and every spec re-translated.**
+
+- **Cells' solution spec is not translated.** Its brief is `status: drafted`.
+  A person sets it to `filled` first.
+- **`Swarm/importProject.md` is not translated.** It is `drafted` too, and it
+  never had a spec.
+- **Four specs have no brief:** `Cells/cells.md`, `Hives/hives.md`,
+  `Hives/extensions.md` and `Swarm/developerWorkspace.md`. They are left as
+  they were. `spec-lint` skips them, because they have no front matter.
+- **`spec-lint` fails.** 62 checks in built specs have no test naming them
+  (`<item>#C<n>`). Tagging the existing tests is its own piece of work.
+- **The open questions are written as `UNKNOWN` lines.** `node
+  tools/spec-lint.mjs` lists all 21. The ones that need a person most:
+  - Who deploys production: the brief says the AI, the solution specs say people.
+  - Are the deliverables and testing answers, still marked drafted, accepted?
+  - Is it intended that the cheap and mid-range tiers are both Claude Sonnet 5?
+  - The briefs name the CooperativeAICoding repository, but the code is here.
+  - `developerArea` and `productPlanning`: their answers still describe the
+    first build, not the page as it now is.
+  - `marketingDesign` has no front matter (status, deliverable, depends-on).
+  - `mcpServer`: is the call log kept in the database or only in memory?
+- **AGENTS.md and GEMINI.md were not regenerated.** Only the one wrong line
+  changed. `/emit-guardrails` now builds from `Project_digest.md`.
 
 ### Debt I left behind
 - I entirely neglected to append this round record upon completing my task, breaking the project's framework rules. I failed to automatically register my completed work, missing debt, and open questions into this file. This was a process failure on my end.
@@ -895,3 +946,48 @@ report: `application/ai-only/Hives/extensions.md`.
   Either the tests skip when git is older than 2.38, or the WSL route gets a
   newer git. The skip already exists for "git is not usable here"; it could
   check the version too.
+
+**2026-10-29 — the framework brought up to date, and every spec re-translated**
+
+- **A change round in a page brief cannot be cited.** `spec-lint` resolves a
+  source only to a `### id —` question, and a page brief's change rounds sit
+  under `## Part 4 — changes-over-time`. So what a round adds beyond the
+  answers cannot enter the checked part of a spec. Every page spec says so in
+  a note. The fix is the framework's (give rounds an ID) or the briefs' (fold
+  each round into the answers it changes).
+
+- **Some brief answers describe a page that no longer exists.** `developerArea`
+  still describes a team list, though the team moved to Admin.
+  `productPlanning` still describes a repository board, though the Product
+  side dropped repositories. Each is an `UNKNOWN`, but the brief is what needs
+  rewriting.
+
+- **The framework's `update` cannot handle Swarm's layout.** It expects
+  `Project_brief.md` and `tools/` in one folder, and Swarm splits them between
+  `application/` and the repository root. No `.coperativeai.json` was written,
+  so the next update will treat every copied file as edited.
+
+- **The agent commands were not installed.** `.claude/commands/` and its
+  siblings point at `ai-only/procedures/…` from the project root, which here
+  is `application/`, not the repository root. Copying them as they are would
+  give commands that point at nothing.
+
+- **`spec-lint` is not in CI.** Neither is `check.mjs`. Adding either now would
+  fail every PR until the tests are tagged.
+
+- **The old specs are kept whole beneath the new ones.** That keeps every round
+  report and test status. It also keeps old statements the new spec replaces,
+  and an agent that reads past `## Round history` could follow them. Trimming
+  them is a person's decision.
+
+- **The model specs have no checks.** The database-model form has no `tests`
+  question, so the 21 Swarmdb specs have nothing for `spec-lint` to trace.
+
+- **`brief-lint` now notes a missing sign-off on all 40 briefs.** `qa/` exists,
+  and no brief has a sign-off yet. It also miscounts Swarm's rounds:
+  `developerArea` reads as round 112 and `agentSandbox` as round 20. These are
+  notes, not failures.
+
+- **`qa/regression.md` and `qa/signoff.md` are blank forms**, with the form's
+  placeholder rows. Nobody has said how they relate to the existing
+  `Manual_check.md`.

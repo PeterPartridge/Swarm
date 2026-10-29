@@ -1,4 +1,33 @@
-# Page Spec — WorkItemLink (database model)
+---
+spec: model
+from: Swarmdb/WorkItemLink-model.json
+deliverable:
+depends-on: [Swarmdb/WorkItem-model.json]
+---
+objective: A dependency between two pieces of work — one blocks the other, or the two merely relate. When the two items sit in different Solutions this is a cross-repository dependency, which is derived from their Solutions rather than stored here. [whatThisModelIs]
+field: id — id / key, required, default auto — unique — The unique identifier [fields.entries.0]
+field: fromWorkItemId — id / key, required — must reference a WorkItem row; must not equal toWorkItemId — The work item the dependency belongs to — the one that waits, for a 'blocks' link [fields.entries.1]
+field: toWorkItemId — id / key, required — must reference a WorkItem row — The work item depended on [fields.entries.2]
+field: kind — list, required, default blocks — one of: blocks / relatesTo — 'blocks' means the target cannot start until the source is done, so it orders work and must stay acyclic. 'relatesTo' is worth knowing about but implies no order, so loops of it are harmless [fields.entries.3]
+field: createdAt — date, required, default now — When the link was made [fields.entries.4]
+rel: fromWorkItemId — many-to-one to WorkItem.id (FK_WorkItemLink_From) [relationships.entries.0]
+rel: toWorkItemId — many-to-one to WorkItem.id (FK_WorkItemLink_To) [relationships.entries.1]
+index: fromWorkItemId [lookupsAndPerformance.answer.0]
+index: toWorkItemId [lookupsAndPerformance.answer.1]
+index: kind [lookupsAndPerformance.answer.2]
+retention: Until the link is removed or either work item is deleted. Deleting a work item removes every link touching it — a link to a deleted item is not a dependency, it is a dangling row. [lifecycleAndRules.retention]
+sensitive: No. [lifecycleAndRules.sensitiveFields]
+invariant: Both work items exist and are different. The same pair may hold at most one link of each kind. 'blocks' links must never form a cycle, directly or transitively — a ring of blocking work is a plan where nothing can start. 'relatesTo' carries no such rule because it implies no order. Whether a link crosses repositories is worked out from the two items' Solutions and never stored, so it cannot fall out of step. [lifecycleAndRules.invariants]
+> The brief's change rounds record why the model changed; the fields above are
+> its answers as they stand, and the rounds are not restated.
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — WorkItemLink (database model)
 
 > Produced by `/translate` from [`../../Swarmdb/WorkItemLink-model.json`](../../Swarmdb/WorkItemLink-model.json). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 

@@ -1,4 +1,34 @@
-# Page Spec — Repository Management
+---
+spec: page
+from: Swarm/repositoryManagement.md
+deliverable:
+depends-on: ["workspaceShell.md", "Swarmdb/Repository-model.json"]
+---
+objective: let developers work across repositories — register the team's repositories and switch between them; the code editor, terminal and work items all point at a registered repository [why-exists]
+model: mid-range model, medium effort [model-and-effort]
+action: a developer adds a repository by picking its local folder, optionally noting its remote URL and default branch [actions]
+action: a developer sees the registered repositories [actions]
+action: a developer switches the active repository, and the editor and terminal then work in it [actions]
+action: a developer removes a repository from the list; the files on disk are not deleted [actions]
+look: a simple list in Develop — one row per repository with name, local path and which is active; buttons to add, switch and remove; Develop's tab colour as accent [look]
+info: repository name, local folder path, optional remote URL, default branch; which is active [information]
+access: anyone using the app — single-user, no login [who-can-use]
+store: registered repositories — Swarmdb/Repository-model.json [data-stored]
+store: nothing in memory [in-memory]
+check: C1 adding a repository with a valid local folder lists it, and it survives a restart [tests]
+check: C2 adding a repository whose folder does not exist is rejected with a clear message [tests]
+check: C3 switching the active repository shows everywhere that shows it [tests]
+check: C4 removing a repository removes the entry and leaves the folder on disk untouched [tests]
+limit: paths are validated — they exist and are directories — before saving [limits]
+uses: Swarmdb Repository model [data-stored]
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — Repository Management
 
 > Produced by `/translate` from [`../../Swarm/repositoryManagement.md`](../../Swarm/repositoryManagement.md). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 

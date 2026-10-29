@@ -1,4 +1,38 @@
-# Page Spec — Terminal
+---
+spec: page
+from: Swarm/terminal.md
+deliverable:
+depends-on: ["workspaceShell.md"]
+---
+objective: let developers run real terminal commands in the app — a genuine OS shell in a Develop panel, working in the active repository's folder [why-exists]
+model: most capable model, high effort [model-and-effort]
+action: a developer opens a terminal panel running their OS shell — PowerShell or cmd on Windows, the default shell on Linux [actions]
+action: a developer types any command and sees its live output, as in a normal terminal [actions]
+action: the terminal starts in the active repository's folder [actions]
+action: a developer closes the terminal, which ends the shell process [actions]
+look: a terminal panel in Develop — dark text area, monospaced font; Develop's tab colour on the panel frame [look]
+info: the shell's live output and the typed input; nothing is stored [information]
+access: anyone using the app — single-user, no login [who-can-use]
+store: nothing — terminal output is never logged or persisted by the app [data-stored]
+store: the running shell process and its scrollback buffer, in memory only [in-memory]
+check: C1 opening the terminal starts a real shell process through portable-pty and shows its prompt [tests]
+check: C2 a command such as printing the working directory shows the right output, and the working directory is the active repository [tests]
+check: C3 resizing the panel resizes the shell, with no wrapped or garbled output [tests]
+check: C4 closing the panel ends the shell process, leaving no orphans [tests]
+limit: Windows ConPTY quirks — resize, UTF-8, killing the process tree — spike first [limits]
+limit: the shell is local only and never logged [limits]
+limit: its permissions follow the app-wide sandbox setting — the OS user's when off, the chosen boundary when not; see agentSandbox.md [limits]
+skill: PTY and xterm.js integration — the panel hosts a real shell [tests, Swarm/application-spec.json#core.frameworks]
+> The brief's Part 4 change rounds have no question ID to cite, so what they
+> add beyond the answers above is not translated here. Read them in the brief.
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — Terminal
 
 > Produced by `/translate` from [`../../Swarm/terminal.md`](../../Swarm/terminal.md). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 

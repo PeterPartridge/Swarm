@@ -1,4 +1,64 @@
-# Page Spec — Agent Sandbox
+---
+spec: page
+from: Swarm/agentSandbox.md
+deliverable:
+depends-on: ["adminArea.md", "terminal.md", "developerArea.md", "aiSettings.md"]
+---
+objective: let an agent told not to ask run somewhere it cannot damage the machine, and never claim more containment than is in force; this is where the choice is made and the truth about it told [why-exists]
+model: most capable model, high effort [model-and-effort]
+action: choose where agents run — Off (this machine), WSL or Docker — as one app-wide setting [actions]
+action: see before choosing what each option would actually enforce on this machine, not what it is called [actions]
+action: create the sandbox the app owns — its own WSL distribution, or the agent's base image — as a deliberate press, with everything it printed handed back whole [actions]
+action: sign in to Claude Code inside the sandbox once, from a terminal the app opens [actions]
+action: point WSL mode at an existing distribution instead, and be told plainly what it does and does not enforce [actions]
+action: start a run whose agent terminal, test commands and dev commands all run inside the chosen sandbox, used the same way as before [actions]
+action: see on a run which protections were in force, during and after [actions]
+look: a card in Admin beside the "how the agent asks" setting [look]
+look: three options in increasing order of protection and prerequisites — Off, WSL, Docker — never as equivalent flavours [look]
+look: a live table — one row per protection (filesystem boundary, one run cannot reach another, reduced privileges, resource limits, network control), one column per option, each cell from what detection found here, greyed where unavailable or unproven [look]
+look: the run panel shows a short badge naming the sandbox, and plain words — not a padlock — wherever a protection is absent [look]
+info: the chosen setting [information]
+info: what detection found — WSL present and which distributions, whether a Docker server is running, and whether WSL still mounts the Windows drive [information]
+info: per run, which sandbox was in force and which protections it really had [information]
+access: anyone using the app; roles gate visibility only and are not described as controlling this [who-can-use]
+store: the app's distribution and image have fixed names of the app's own; neither is a setting nor stored [data-stored]
+store: a Solution's own container definition stays in its repository [data-stored]
+store: one system setting, agentSandbox — off, wsl or docker, default off — beside agentRunMode [data-stored]
+store: each run records the sandbox in force when it started [data-stored]
+store: nothing about detection is stored; it is re-read each time [data-stored]
+store: the current detection result, and the container or distribution a live run uses so cancelling reaches the real process, in memory only [in-memory]
+check: C1 with Off, everything behaves as before — same command, shell and working folder [tests]
+check: C2 detection asks Docker for its server version, so a client with no daemon is reported unavailable [tests]
+check: C3 detection runs WSL rather than finding it on PATH [tests]
+check: C4 WSL with the Windows drive mounted is reported as having no filesystem boundary [tests]
+check: C5 a run under Docker cannot write outside what was mounted for it [tests]
+check: C6 a test command runs under Docker with the network off [tests]
+check: C7 a path into the sandbox and a file:line coming back both translate, so a sandboxed finding opens in the editor [tests]
+check: C8 no protection is shown as on that detection did not prove [tests]
+check: C9 every place the app starts a process goes through the one sandbox seam, asserted as a set [tests]
+check: C10 the app's distribution has the Windows drive unmounted and a non-root user, and the repository reaches it as one named mount [tests]
+check: C11 a Solution with no container definition is reported as having no toolchain under Docker, not run in the base image [tests]
+limit: default WSL with the drive automounted is not a security control; the app creates and owns a distribution with the drive unmounted and a non-root user, as a press that prints what it did [limits]
+limit: an existing distribution can still be chosen and is reported for what it usually is — no boundary; where WSL is too old for the app's own distribution, that is said [limits]
+limit: the repository is mounted explicitly as one named path in both modes [limits]
+limit: the app's image carries only what the agent needs — git, node, Claude Code; a Solution's build toolchain comes from its own container definition, or Docker mode says it has none [limits]
+limit: the boundary is the repository root, not the run's checkout, because a worktree's .git points back at the main repository; the panel says so [limits]
+limit: Claude Code is installed and signed in inside the sandbox; its mounted credentials are a real hole, named where the choice is made [limits]
+limit: files across the Windows boundary are slow; build output belongs inside the sandbox [limits]
+limit: the debugger, dev-server ports and the Figma and GitHub tokens stay outside; some work will pass outside and fail inside [limits]
+limit: restricting where an agent connects is not attempted [limits]
+limit: choosing a sandbox never silently changes how the agent asks; the two settings are pressed separately [limits]
+skill: WSL and Docker isolation — the page creates and reports on both boundaries [actions, limits]
+> The brief's Part 4 change rounds have no question ID to cite, so what they
+> add beyond the answers above is not translated here. Read them in the brief.
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — Agent Sandbox
 
 > Produced by `/translate` from [`../../Swarm/agentSandbox.md`](../../Swarm/agentSandbox.md). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 

@@ -1,4 +1,31 @@
-# Page Spec — Product (database model)
+---
+spec: model
+from: Swarmdb/Product-model.json
+deliverable:
+depends-on: []
+---
+objective: A Product being planned in the app — created by answering the Project_brief's Product questions; everything on the Product side (work items, sprints, feature designs, solutions) attaches to one. [whatThisModelIs]
+field: id — id / key, required, default auto — unique — The unique identifier [fields.entries.0]
+field: name — text, required — unique; not empty — The Product's title, shown at the top of its workspace [fields.entries.1]
+field: answers — text, required, default {} — valid JSON keyed by Project_brief question ids (purpose, problem, users, appsYouLike, appsToAvoid, designs) — The Product's brief answers, in the person's plain English [fields.entries.2]
+field: origin — text, required, default product — one of: product, develop, test — The area the Product was created in. Develop and QA can start a Project; it keeps this marker after it is handed over [fields.entries.3]
+field: handedOverAt — date, optional — set once, by Send to Product; never on a Product made in the Product area — When a Develop or QA Project was sent to the Product area. Empty until then [fields.entries.4]
+field: createdAt — date, required, default now — When the Product was created [fields.entries.5]
+field: updatedAt — date, required, default now — updated on every change — When the Product last changed [fields.entries.6]
+index: name [lookupsAndPerformance.answer.0]
+retention: Until the user deletes the Product; deleting it removes its work items (and their policies/designs) and its solutions. [lifecycleAndRules.retention]
+sensitive: No. [lifecycleAndRules.sensitiveFields]
+invariant: name is unique and non-empty; answers always parses as JSON; origin is product, develop or test; a Product is in the Product area when its origin is product or it has been handed over, and a Product already there cannot be handed over again. [lifecycleAndRules.invariants]
+> The brief's change rounds record why the model changed; the fields above are
+> its answers as they stand, and the rounds are not restated.
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — Product (database model)
 
 > Produced by `/translate` from [`../../Swarmdb/Product-model.json`](../../Swarmdb/Product-model.json). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 
