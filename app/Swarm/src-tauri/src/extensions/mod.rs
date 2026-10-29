@@ -8,6 +8,27 @@
 
 pub mod catalogue;
 pub mod fetch;
+pub mod store;
+
+/// Whether what the person approved is exactly what the source asks for.
+///
+/// **The same set, not a subset.** A Hive's permissions are approved as a set,
+/// on the review screen. If the source asks for something different by the
+/// time Install runs (it is read again), the person has not seen what is being
+/// installed, so it is refused and they review it again.
+pub fn approval_matches(asked: &[catalogue::PermissionOffer], approved: &[String]) -> Result<(), String> {
+    let mut asked: Vec<&str> = asked.iter().map(|p| p.id.as_str()).collect();
+    let mut approved: Vec<&str> = approved.iter().map(String::as_str).collect();
+    asked.sort_unstable();
+    asked.dedup();
+    approved.sort_unstable();
+    approved.dedup();
+    if asked == approved {
+        Ok(())
+    } else {
+        Err("What this Hive asks to do has changed since you reviewed it. Read the source and review it again.".into())
+    }
+}
 
 /// The Hives the active user may open: installed, and granted or Admin.
 ///
@@ -115,6 +136,21 @@ mod tests {
     fn an_agent_run_on_off_proceeds_once_any_cell_is_installed() {
         assert!(may_run_agent("off", &ids(&["wsl"])).is_ok());
         assert!(may_run_agent("wsl", &ids(&["wsl"])).is_ok());
+    }
+
+    fn offers(ids: &[&str]) -> Vec<catalogue::PermissionOffer> {
+        ids.iter()
+            .map(|id| catalogue::PermissionOffer { id: id.to_string(), means: String::new() })
+            .collect()
+    }
+
+    #[test]
+    fn an_approval_must_be_exactly_what_is_asked() {
+        let asked = offers(&["products:read", "workItems:write"]);
+        assert!(approval_matches(&asked, &ids(&["workItems:write", "products:read"])).is_ok());
+        assert!(approval_matches(&asked, &ids(&["products:read"])).is_err());
+        assert!(approval_matches(&asked, &ids(&["products:read", "workItems:write", "testCases:read"])).is_err());
+        assert!(approval_matches(&[], &[]).is_ok());
     }
 
     #[test]

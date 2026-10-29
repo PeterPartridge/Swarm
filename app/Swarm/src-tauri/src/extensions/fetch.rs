@@ -28,9 +28,23 @@ pub async fn read_source(url: &str) -> Result<String, String> {
     fetch_text(url.trim()).await
 }
 
-/// The fetch itself, with the size limit and the timeout. Separate from the
-/// scheme check so a test can serve it from a plain local listener.
+/// Fetches a Hive's code after checking its address, up to
+/// `store::MAX_CODE_BYTES`. Bytes, not text: the checksum is over the file
+/// exactly as served.
+pub async fn read_code(url: &str) -> Result<Vec<u8>, String> {
+    check_url(url)?;
+    fetch_bytes(url.trim(), super::store::MAX_CODE_BYTES).await
+}
+
+/// A source's text, up to `catalogue::MAX_BYTES`. Separate from the scheme
+/// check so a test can serve it from a plain local listener.
 pub(crate) async fn fetch_text(url: &str) -> Result<String, String> {
+    let body = fetch_bytes(url, MAX_BYTES).await?;
+    String::from_utf8(body).map_err(|_| "The file is not text.".into())
+}
+
+/// The fetch itself, with a size limit and the timeout.
+pub(crate) async fn fetch_bytes(url: &str, limit: usize) -> Result<Vec<u8>, String> {
     let client = reqwest::Client::builder()
         .timeout(TIMEOUT)
         .build()
@@ -43,8 +57,8 @@ pub(crate) async fn fetch_text(url: &str) -> Result<String, String> {
     if !response.status().is_success() {
         return Err(format!("{url} answered {}.", response.status()));
     }
-    let too_large = || format!("The file is larger than {} KB.", MAX_BYTES / 1024);
-    if response.content_length().is_some_and(|n| n as usize > MAX_BYTES) {
+    let too_large = || format!("The file is larger than {} KB.", limit / 1024);
+    if response.content_length().is_some_and(|n| n as usize > limit) {
         return Err(too_large());
     }
     let mut body = Vec::new();
@@ -54,11 +68,11 @@ pub(crate) async fn fetch_text(url: &str) -> Result<String, String> {
         .map_err(|e| format!("Could not read {url}: {e}"))?
     {
         body.extend_from_slice(&chunk);
-        if body.len() > MAX_BYTES {
+        if body.len() > limit {
             return Err(too_large());
         }
     }
-    String::from_utf8(body).map_err(|_| "The file is not text.".into())
+    Ok(body)
 }
 
 #[cfg(test)]
@@ -120,6 +134,22 @@ mod tests {
         let body = vec![b'x'; MAX_BYTES + 1];
         let url = serve_once(reply("200 OK", &body, false)).await;
         assert!(fetch_text(&url).await.unwrap_err().contains("larger"));
+    }
+
+    /// Code has its own, larger limit — and it holds.
+    #[tokio::test]
+    async fn code_is_held_to_its_own_limit() {
+        let small = vec![b'x'; MAX_BYTES + 1];
+        let url = serve_once(reply("200 OK", &small, true)).await;
+        assert_eq!(fetch_bytes(&url, crate::extensions::store::MAX_CODE_BYTES).await.unwrap().len(), small.len());
+
+        let big = vec![b'x'; crate::extensions::store::MAX_CODE_BYTES + 1];
+        let url = serve_once(reply("200 OK", &big, false)).await;
+        assert!(fetch_bytes(&url, crate::extensions::store::MAX_CODE_BYTES)
+            .await
+            .unwrap_err()
+            .contains("larger"));
+        assert!(read_code("http://example.com/hive.js").await.unwrap_err().contains("https://"));
     }
 
     #[tokio::test]

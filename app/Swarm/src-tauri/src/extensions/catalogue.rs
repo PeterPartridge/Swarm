@@ -34,7 +34,34 @@ pub struct Offer {
     pub publisher: String,
     pub description: String,
     pub problem: Option<String>,
+    /// A Hive from outside: its code, the checksum it must match, what it
+    /// asks to do, and its colour. All empty for an extension Swarm contains.
+    pub entry: Option<String>,
+    pub sha256: Option<String>,
+    pub permissions: Vec<PermissionOffer>,
+    pub color: Option<String>,
 }
+
+/// One permission as the review screen shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionOffer {
+    pub id: String,
+    pub means: String,
+}
+
+/// What a Hive from outside may ask to do — the whole vocabulary (Round 2, Q1).
+/// Each is a hole somebody chose to open in the sandbox, so there are four,
+/// and nothing for AI, files, the terminal, git, settings or the network.
+pub const PERMISSIONS: &[(&str, &str)] = &[
+    ("products:read", "List your Products and read each one."),
+    ("workItems:read", "List and read a Product's work items."),
+    (
+        "workItems:write",
+        "Create work items, and change a work item's description or status. You confirm every change.",
+    ),
+    ("testCases:read", "List a Product's test cases."),
+];
 
 /// What a whole file says, entry by entry.
 ///
@@ -97,6 +124,10 @@ fn offer_for(entry: &Value, swarm: (u32, u32, u32), contained: &[(String, String
         publisher: text(entry, "publisher"),
         description: text(entry, "description"),
         problem: None,
+        entry: entry.get("entry").map(|_| text(entry, "entry")),
+        sha256: sha256_of(entry),
+        permissions: permissions_of(entry),
+        color: entry.get("color").and_then(Value::as_str).map(str::to_string),
     };
     offer.problem = problem(entry, &offer, swarm, contained);
     if offer.name.is_empty() {
@@ -128,10 +159,15 @@ fn problem(entry: &Value, offer: &Offer, swarm: (u32, u32, u32), contained: &[(S
     let Some(min) = parse_version(&text(entry, "minSwarm")) else {
         return Some("Not readable: \"minSwarm\" is not major.minor.patch.".into());
     };
-    // Before "contained": an entry carrying code is refused for that reason
-    // even when its id happens to match one this Swarm has.
+    if let Some(color) = entry.get("color") {
+        if !color.as_str().is_some_and(is_hex_colour) {
+            return Some("Not readable: \"color\" is not written as #rrggbb.".into());
+        }
+    }
     if entry.get("entry").is_some() {
-        return Some("This Swarm can only install extensions it already contains.".into());
+        if let Some(problem) = code_problem(entry, offer, contained) {
+            return Some(problem);
+        }
     }
     if min > swarm {
         return Some(format!(
@@ -142,10 +178,67 @@ fn problem(entry: &Value, offer: &Offer, swarm: (u32, u32, u32), contained: &[(S
             swarm.2
         ));
     }
-    if !contained.iter().any(|(k, i)| *k == offer.kind && *i == offer.id) {
+    if offer.entry.is_none() && !contained.iter().any(|(k, i)| *k == offer.kind && *i == offer.id) {
         return Some("This Swarm does not contain it, and can only install extensions it already contains.".into());
     }
     None
+}
+
+/// What is wrong with an entry that carries code, if anything.
+///
+/// **A built-in id first.** Nothing from outside may take the place of a Hive
+/// this Swarm contains, whatever else it gets right.
+fn code_problem(entry: &Value, offer: &Offer, contained: &[(String, String)]) -> Option<String> {
+    if offer.kind == "cell" {
+        return Some("Cells from outside are not installable yet: only Hives may carry code.".into());
+    }
+    if contained.iter().any(|(k, i)| *k == offer.kind && *i == offer.id) {
+        return Some(format!(
+            "Uses the id \"{}\" of a Hive this Swarm contains, so it cannot be installed.",
+            offer.id
+        ));
+    }
+    if super::fetch::check_url(&text(entry, "entry")).is_err() {
+        return Some("Not readable: \"entry\" must be an https:// address.".into());
+    }
+    if offer.sha256.is_none() {
+        return Some("Not readable: \"sha256\" is missing or is not 64 hex characters.".into());
+    }
+    let Some(asked) = entry.get("permissions").and_then(Value::as_array) else {
+        return Some("Not readable: \"permissions\" is missing or is not a list.".into());
+    };
+    for permission in asked {
+        let known = permission
+            .as_str()
+            .is_some_and(|p| PERMISSIONS.iter().any(|(id, _)| *id == p));
+        if !known {
+            return Some(format!("Not readable: {permission} is not a permission this Swarm knows."));
+        }
+    }
+    None
+}
+
+fn is_hex_colour(s: &str) -> bool {
+    s.len() == 7 && s.starts_with('#') && s[1..].chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// A checksum as 64 lower-case hex characters, or nothing.
+fn sha256_of(entry: &Value) -> Option<String> {
+    let sha = text(entry, "sha256").to_ascii_lowercase();
+    (sha.len() == 64 && sha.chars().all(|c| c.is_ascii_hexdigit())).then_some(sha)
+}
+
+/// The permissions an entry asks for that this Swarm knows, with their words.
+fn permissions_of(entry: &Value) -> Vec<PermissionOffer> {
+    entry
+        .get("permissions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter_map(|p| PERMISSIONS.iter().find(|(id, _)| *id == p))
+        .map(|(id, means)| PermissionOffer { id: id.to_string(), means: means.to_string() })
+        .collect()
 }
 
 /// A field as a trimmed string, empty when missing or not a string.
@@ -208,6 +301,10 @@ mod tests {
                 publisher: "PeterPartridge/Swarm".into(),
                 description: "Plan".into(),
                 problem: None,
+                entry: None,
+                sha256: None,
+                permissions: Vec::new(),
+                color: None,
             }]
         );
     }
@@ -272,15 +369,103 @@ mod tests {
         assert!(only_problem(&file(&[as_cell])).unwrap().contains("does not contain"));
     }
 
-    /// Code from a URL is Round 2. Until then an entry carrying it is refused,
-    /// even when its id is one this Swarm has.
+    const SHA: &str = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+
+    /// A Hive from outside: an id this Swarm does not contain, with code.
+    fn outside(extra: &str) -> String {
+        entry(extra).replace(r#""id":"product""#, r#""id":"studio""#)
+    }
+
+    fn code(sha: &str, permissions: &str) -> String {
+        format!(r#","entry":"https://example.com/studio.js","sha256":"{sha}","permissions":{permissions}"#)
+    }
+
     #[test]
-    fn an_entry_carrying_code_is_refused() {
-        let with_code = entry(r#","entry":"https://example.com/hive.js""#);
-        assert_eq!(
-            only_problem(&file(&[with_code])).unwrap(),
-            "This Swarm can only install extensions it already contains."
-        );
+    fn a_hive_from_outside_with_code_is_installable() {
+        let text = file(&[outside(&code(SHA, r#"["products:read","workItems:write"]"#))]);
+        let offers = read(&text, "0.1.0", &contained()).unwrap();
+        assert_eq!(offers[0].problem, None);
+        assert_eq!(offers[0].entry.as_deref(), Some("https://example.com/studio.js"));
+        assert_eq!(offers[0].sha256.as_deref(), Some(SHA));
+        let ids: Vec<&str> = offers[0].permissions.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(ids, ["products:read", "workItems:write"]);
+        // each permission comes with what it means, for the review screen
+        assert!(offers[0].permissions.iter().all(|p| !p.means.is_empty()));
+    }
+
+    /// No permissions is a Hive that asks for nothing, which is allowed; no
+    /// `permissions` field at all is a file that forgot to say.
+    #[test]
+    fn a_hive_may_ask_for_no_permissions_but_must_say_so() {
+        let none = outside(&code(SHA, "[]"));
+        assert_eq!(only_problem(&file(&[none])), None);
+    }
+
+    #[test]
+    fn each_of_the_three_code_fields_is_required() {
+        let full = outside(&code(SHA, r#"["products:read"]"#));
+        for field in ["sha256", "permissions"] {
+            let mut value: Value = serde_json::from_str(&full).unwrap();
+            value.as_object_mut().unwrap().remove(field);
+            let problem = only_problem(&file(&[value.to_string()])).expect("refused");
+            assert!(problem.contains(field), "{field}: {problem}");
+        }
+        // without `entry` it is not code at all, and this Swarm does not contain it
+        let mut value: Value = serde_json::from_str(&full).unwrap();
+        value.as_object_mut().unwrap().remove("entry");
+        assert!(only_problem(&file(&[value.to_string()])).unwrap().contains("does not contain"));
+    }
+
+    #[test]
+    fn a_bad_checksum_address_or_permission_is_refused() {
+        for sha in ["abc", &SHA[..63], &format!("{}g", &SHA[..63])] {
+            let bad = outside(&code(sha, "[]"));
+            assert!(only_problem(&file(&[bad])).unwrap().contains("sha256"), "{sha}");
+        }
+        let http = outside(&code(SHA, "[]")).replace("https://example.com", "http://example.com");
+        assert!(only_problem(&file(&[http])).unwrap().contains("https://"));
+        let unknown = outside(&code(SHA, r#"["files:write"]"#));
+        assert!(only_problem(&file(&[unknown])).unwrap().contains("files:write"));
+        let not_a_list = outside(&code(SHA, r#""products:read""#));
+        assert!(only_problem(&file(&[not_a_list])).unwrap().contains("permissions"));
+    }
+
+    /// An upper-case checksum is the same checksum.
+    #[test]
+    fn a_checksum_is_read_in_lower_case() {
+        let upper = outside(&code(&SHA.to_uppercase(), "[]"));
+        let offers = read(&file(&[upper]), "0.1.0", &contained()).unwrap();
+        assert_eq!(offers[0].sha256.as_deref(), Some(SHA));
+    }
+
+    /// Nothing from outside can take the place of a Hive this Swarm contains.
+    #[test]
+    fn code_using_a_built_in_hives_id_is_refused() {
+        let product = entry(&code(SHA, "[]"));
+        assert!(only_problem(&file(&[product])).unwrap().contains("this Swarm contains"));
+    }
+
+    /// Cells from outside are Round 3.
+    #[test]
+    fn a_cell_with_code_is_still_refused() {
+        let cell = outside(&code(SHA, "[]")).replace(r#""kind":"hive""#, r#""kind":"cell""#);
+        assert!(only_problem(&file(&[cell])).unwrap().contains("Cells"));
+    }
+
+    #[test]
+    fn a_colour_is_optional_and_must_be_hex() {
+        let red = outside(&format!(r##"{},"color":"#dc2626""##, code(SHA, "[]")));
+        let offers = read(&file(&[red]), "0.1.0", &contained()).unwrap();
+        assert_eq!((offers[0].problem.as_deref(), offers[0].color.as_deref()), (None, Some("#dc2626")));
+        let bad = outside(&format!(r#"{},"color":"red""#, code(SHA, "[]")));
+        assert!(only_problem(&file(&[bad])).unwrap().contains("color"));
+    }
+
+    /// The vocabulary is fixed: four permissions, each with words for it.
+    #[test]
+    fn the_permission_vocabulary_is_the_four_approved() {
+        let ids: Vec<&str> = PERMISSIONS.iter().map(|(id, _)| *id).collect();
+        assert_eq!(ids, ["products:read", "workItems:read", "workItems:write", "testCases:read"]);
     }
 
     #[test]
