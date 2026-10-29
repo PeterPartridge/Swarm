@@ -40,6 +40,12 @@ pub async fn install_extension(
     if let Some(problem) = &offer.problem {
         return Err(problem.clone());
     }
+    // Until the download, checksum and review path is wired (Round 2, steps
+    // 3–4), a Hive with code is refused here rather than recorded as
+    // installed with no code behind it.
+    if offer.entry.is_some() {
+        return Err("Installing a Hive from outside is not finished in this build.".into());
+    }
     let conn = db.0.lock().await;
     installed_extension::install(&conn, &offer.kind, &offer.id, &offer.version, url.trim())
         .await

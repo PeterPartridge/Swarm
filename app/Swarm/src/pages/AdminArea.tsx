@@ -34,7 +34,7 @@ import {
   type TeamMember,
 } from "../lib/backend";
 import { usePermissions } from "../lib/permissions";
-import { HIVES } from "@hives/registry";
+import { useHives } from "../lib/hives";
 
 /** The Hives come first, one column each, from the registry — a Hive added
  *  later gets its column here without this page changing. These are the
@@ -95,7 +95,8 @@ export default function AdminArea() {
   /** Only an installed Hive gets a column: one nobody can open has nothing to
    *  grant. */
   const [installedHives, setInstalledHives] = useState<string[]>([]);
-  const hives = HIVES.filter((h) => installedHives.includes(h.id));
+  const { hives: knownHives, reload: reloadHives } = useHives();
+  const hives = knownHives.filter((h) => installedHives.includes(h.id));
   const { reload: reloadPermissions } = usePermissions();
 
   const refresh = useCallback(async () => {
@@ -299,6 +300,7 @@ export default function AdminArea() {
         <ExtensionsPanel
           onChange={async () => {
             await refresh();
+            await reloadHives(); // a Hive from outside joins or leaves the list
             await reloadPermissions(); // the rail shows only installed Hives
           }}
         />
