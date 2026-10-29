@@ -22,6 +22,7 @@ pub mod emitted_file;
 pub mod model_install;
 pub mod model_price;
 pub mod feature_design;
+pub mod installed_extension;
 pub mod product;
 pub mod product_budget;
 pub mod product_policy;
@@ -118,12 +119,18 @@ pub async fn table_columns(conn: &Connection, table: &str) -> Result<Vec<String>
 /// Creates every table the app uses. Called once at startup (and by tests
 /// that exercise cross-table rules).
 pub async fn create_all_tables(conn: &Connection) -> Result<()> {
+    // Read before anything is made: whether this start is a new Swarm, which
+    // decides what is installed the first time that table exists.
+    let existing_db = !table_columns(conn, "system_settings").await?.is_empty();
     system_setting::create_table(conn).await?;
     solution_management::create_table(conn).await?;
     product::create_table(conn).await?;
     role::create_table(conn).await?;
     // after role: the first start copies the old area columns across
     role_hive::create_table(conn).await?;
+    // after role_hive: an existing database keeps its Hives and Cells; a new
+    // one starts with none
+    installed_extension::create_table(conn, existing_db).await?;
     team_member::create_table(conn).await?;
     deliverable::create_table(conn).await?;
     sprint::create_table(conn).await?;

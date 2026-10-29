@@ -67,6 +67,18 @@ describe("which Hives the rail shows", () => {
     expect(await railOnceLoaded()).toEqual(["Chat", "Develop"]);
   });
 
+  /// A new Swarm has nothing installed, so the backend lists no Hives even for
+  /// Admin: the rail is the chat and Admin, where Hives are installed from.
+  it("shows only the chat and Admin when nothing is installed", async () => {
+    mocked.getActivePermissions.mockResolvedValue(perms({ hives: [], canAdmin: true }));
+    render(
+      <PermissionProvider>
+        <WorkspaceShell />
+      </PermissionProvider>,
+    );
+    expect(await railOnceLoaded()).toEqual(["Chat", "Admin"]);
+  });
+
   /// Admin — and nobody being active — sees every Hive, including one with no
   /// grant row at all, so a Hive added later can never be invisible to everyone.
   it("shows every Hive to a role that sees them all", async () => {

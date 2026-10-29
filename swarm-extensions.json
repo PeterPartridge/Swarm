@@ -1,0 +1,50 @@
+{
+  "format": 1,
+  "extensions": [
+    {
+      "kind": "hive",
+      "id": "product",
+      "name": "Product",
+      "version": "0.1.0",
+      "publisher": "PeterPartridge/Swarm",
+      "description": "Plan products, deliverables, roadmaps and work items.",
+      "minSwarm": "0.1.0"
+    },
+    {
+      "kind": "hive",
+      "id": "develop",
+      "name": "Develop",
+      "version": "0.1.0",
+      "publisher": "PeterPartridge/Swarm",
+      "description": "Build work items with an editor, terminal, repositories and agents.",
+      "minSwarm": "0.1.0"
+    },
+    {
+      "kind": "hive",
+      "id": "test",
+      "name": "Test",
+      "version": "0.1.0",
+      "publisher": "PeterPartridge/Swarm",
+      "description": "Design and run QA test cases around work items.",
+      "minSwarm": "0.1.0"
+    },
+    {
+      "kind": "cell",
+      "id": "wsl",
+      "name": "WSL",
+      "version": "0.1.0",
+      "publisher": "PeterPartridge/Swarm",
+      "description": "Agents run in a Linux distribution this app creates and owns.",
+      "minSwarm": "0.1.0"
+    },
+    {
+      "kind": "cell",
+      "id": "docker",
+      "name": "Docker",
+      "version": "0.1.0",
+      "publisher": "PeterPartridge/Swarm",
+      "description": "Agents run in a container of their own for each run.",
+      "minSwarm": "0.1.0"
+    }
+  ]
+}

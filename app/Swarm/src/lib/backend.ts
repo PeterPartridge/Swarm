@@ -830,6 +830,44 @@ export const setRoleHive = (roleId: number, hiveId: string, allowed: boolean): P
   invoke("set_role_hive", { roleId, hiveId, allowed });
 export const deleteRole = (id: number): Promise<void> =>
   invoke("delete_role", { id });
+
+/** A Hive or Cell this Swarm has installed. `source` is the URL it came from,
+ *  or "built-in" for one an older Swarm was already using. */
+export interface InstalledExtension {
+  kind: "hive" | "cell";
+  id: string;
+  version: string;
+  source: string;
+  installedAt: number;
+}
+
+/** One entry a `swarm-extensions.json` offers. `problem` is why it cannot be
+ *  installed; null means it can. */
+export interface ExtensionOffer {
+  kind: string;
+  id: string;
+  name: string;
+  version: string;
+  publisher: string;
+  description: string;
+  problem: string | null;
+}
+
+/** This repository's own list — the default source in Admin → Extensions. */
+export const SWARM_EXTENSIONS_URL =
+  "https://raw.githubusercontent.com/PeterPartridge/Swarm/main/swarm-extensions.json";
+
+export const listInstalledExtensions = (): Promise<InstalledExtension[]> =>
+  invoke("list_installed_extensions");
+/** Reads a source and says what it offers. Installs nothing. */
+export const readExtensionSource = (url: string): Promise<ExtensionOffer[]> =>
+  invoke("read_extension_source", { url });
+/** Installs one entry. The backend reads the source again and checks it. */
+export const installExtension = (url: string, kind: string, id: string): Promise<void> =>
+  invoke("install_extension", { url, kind, id });
+/** Removes one. A Hive's role grants go with it; its data stays. */
+export const removeExtension = (kind: string, id: string): Promise<void> =>
+  invoke("remove_extension", { kind, id });
 export const getActiveMember = (): Promise<number | null> =>
   invoke("get_active_member");
 export const setActiveMember = (id: number | null): Promise<void> =>

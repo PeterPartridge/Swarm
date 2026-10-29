@@ -364,6 +364,28 @@ red on `rust` because it was built against an older `main`.
 - **Proved:** `npm test` passes (81 files, 852 tests), which includes
   `tsc --noEmit`, and `npm run build` succeeds with mermaid 12.
 
+**2026-10-29 — Extensions, Round 1.** Hives and Cells are installed and
+removed from Admin → Extensions, and a new Swarm starts with none. Spec and
+report: `application/ai-only/Hives/extensions.md`.
+
+- **The standard file.** `swarm-extensions.json` (format 1) is at the
+  repository root and lists the three Hives and two Cells. Swarm builds the same
+  file in as its list of what it contains, so the two cannot drift. A Rust test
+  ties its Cells to `SANDBOXES`, and a Vitest test ties its Hives to `HIVES`.
+- **Reading a source.** `extensions::catalogue` checks every rule purely and
+  `extensions::fetch` gets the file. It accepts HTTPS only, gives up after
+  10 s, and stops reading at 256 KB. An entry that carries code is refused.
+- **What is installed.** The new `installed_extensions` table starts empty on a
+  new database. An existing database gets the five extensions it was using,
+  once. Removing a Hive drops its role grants first.
+- **What it changes.** `get_active_permissions` lists only installed Hives,
+  Admin included, so the rail, palette and chat follow. The role editor shows
+  only installed Hives. The sandbox setting refuses a cell that is not
+  installed. A new run gate, `cell`, refuses agent runs when no cell is
+  installed (O1 (a)). The cell the setting names cannot be removed.
+- **Admin → Extensions** has an Installed card (Remove; a Hive asks first) and
+  an Add card (a source URL defaulting to this repository's `main`, and Read).
+
 ### What I could not do (and what you would need to tell me)
 - I could not dynamically test the CI/CD pipeline or linter tools (`node tools/code-map-lint.mjs`) directly because those require a Node.js environment or GitHub Actions to run, and my task was scoped purely to documentation edits. 
 
@@ -525,6 +547,29 @@ red on `rust` because it was built against an older `main`.
 - **What I did not test:** a mermaid 12 diagram rendering in the running app.
   `DiagramView` calls only `initialize` and `render`, and `tsc` accepts both
   against 12's types, but nobody has looked at a drawn diagram.
+
+**2026-10-29 — Extensions, Round 1.**
+
+- **Swarm's cargo gates ran, in WSL, for the first time on this machine.**
+  GTK, WebKit and libsoup were unpacked into `~/sysroot` without root, from
+  `apt-get download` with a private package index, and pkg-config was pointed
+  at it. `cargo clippy --all-targets -- -D warnings` is clean. `cargo test`:
+  867 pass and 5 fail, and all 5 fail because WSL's git (2.34) has no
+  `merge-tree --write-tree`, which needs 2.38. Unchanged `main`, built the
+  same way, fails the same 5 (832 pass), so they are the machine and not this
+  round. Cells' clippy is clean and its 97 tests pass. CI's git is newer.
+- **"This repository" will not read until this merges.** The default source is
+  `main`'s `swarm-extensions.json`, which does not exist on `main` yet. Until
+  the merge, Read on the default URL answers 404, and installing on a new
+  Swarm has nowhere to come from. The live fetch test is `#[ignore]`d for that
+  reason and has not been run.
+- **Round 2 and Round 3 are outlined, not approved.** Code from a URL, a
+  sandboxed frame for Hives, the permissions prompt and Cells from other
+  people each need your approval before they start.
+- **What I did not test:** the app running. A new Swarm opening on Chat and
+  Admin, the Extensions screen, and an install changing the rail are proved by
+  component tests with a mocked backend, not by pressing them. A real fetch from
+  GitHub was not tested either.
 
 ### Debt I left behind
 - I entirely neglected to append this round record upon completing my task, breaking the project's framework rules. I failed to automatically register my completed work, missing debt, and open questions into this file. This was a process failure on my end.
@@ -812,3 +857,41 @@ red on `rust` because it was built against an older `main`.
   moved it to 12, and nothing checked its release notes against how Swarm
   uses it beyond the type check. A look at a few stored diagrams in the
   running app would close this.
+
+**2026-10-29 — Extensions, Round 1**
+
+- **`ActivePermissions.allHives` is now always false.** The backend's `hives`
+  is the whole answer, because only installed Hives can open, and "sees every
+  Hive" stopped being true for Admin. The field was kept because the
+  frontend's loading default (`FULL_ACCESS`) and `canAccessHive` read it. A
+  side effect: until the permissions load, a new Swarm briefly draws every
+  Hive on the rail. Removing the field and starting the frontend at "nothing
+  open" would make the two agree.
+
+- **The sandbox picker still offers cells that are not installed.** The
+  Admin → AI table (`SandboxTable`, in Cells) lists `wsl` and `docker` from
+  `SANDBOXES` and the machine's state. Choosing an uninstalled one is refused
+  with a message naming Admin → Extensions, but the option is still drawn.
+  Greying it out needs the installed list passed into Cells' panel, which is
+  a change to Cells' interface (`CellsBackend`).
+
+- **Only `prepare_run` checks for an installed cell.** It is the agent-run
+  path, and "start all" goes through it. Anything that starts an agent another
+  way (a future command, or a terminal running `claude` by hand) is not held to
+  the rule. The MCP server, once built, is where that should be enforced
+  rather than requested.
+
+- **Extensions have no update.** Installing again records the newer version
+  and source, but the code is whatever this build contains, so a version
+  number means nothing until Round 2 downloads code. Until then, the version
+  Admin shows is the publisher's claim, not what is running.
+
+- **The live fetch test has not run.** `reads_this_repositorys_file` is
+  `#[ignore]`d and can only pass once `swarm-extensions.json` is on `main`.
+  Running it once after the merge closes this.
+
+- **WSL's git cannot run five of Swarm's tests.** Anybody using the WSL route
+  above for the cargo gates gets five `merge-tree` failures that CI does not.
+  Either the tests skip when git is older than 2.38, or the WSL route gets a
+  newer git. The skip already exists for "git is not usable here"; it could
+  check the version too.

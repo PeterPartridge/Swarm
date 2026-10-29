@@ -14,10 +14,12 @@ import ProductAiPolicy from "../components/ai/ProductAiPolicy";
 import SolutionAiPolicy from "../components/ai/SolutionAiPolicy";
 import ClaudeTiers from "../components/ai/ClaudeTiers";
 import ThemeSetting from "../components/common/ThemeSetting";
+import ExtensionsPanel from "../components/admin/ExtensionsPanel";
 import {
   addTeamMember,
   createRole,
   deleteRole,
+  listInstalledExtensions,
   listProducts,
   listRoles,
   listTeamMembers,
@@ -64,6 +66,9 @@ const ADMIN_SECTIONS = [
   { id: "connections", label: "Connections" },
   { id: "people", label: "People" },
   { id: "appearance", label: "Appearance" },
+  // What is installed decides what the rest of the app shows, so it sits
+  // among the settings rather than with the log.
+  { id: "extensions", label: "Extensions" },
   // **Last, and its own section.** It is read when something did not work, not
   // while setting anything up — and it is the one place that answers "nothing
   // happened", so it must not be buried inside a settings panel.
@@ -87,18 +92,24 @@ export default function AdminArea() {
   const [policyProduct, setPolicyProduct] = useState<number | "">("");
   /// The chosen Product's Solutions, each of which may override its policy.
   const [policySolutions, setPolicySolutions] = useState<Solution[]>([]);
+  /** Only an installed Hive gets a column: one nobody can open has nothing to
+   *  grant. */
+  const [installedHives, setInstalledHives] = useState<string[]>([]);
+  const hives = HIVES.filter((h) => installedHives.includes(h.id));
   const { reload: reloadPermissions } = usePermissions();
 
   const refresh = useCallback(async () => {
     try {
-      const [loadedMembers, loadedRoles, loadedProducts] = await Promise.all([
+      const [loadedMembers, loadedRoles, loadedProducts, loadedExtensions] = await Promise.all([
         listTeamMembers(),
         listRoles(),
         listProducts(),
+        listInstalledExtensions(),
       ]);
       setMembers(loadedMembers);
       setRoles(loadedRoles);
       setProducts(loadedProducts);
+      setInstalledHives(loadedExtensions.filter((e) => e.kind === "hive").map((e) => e.id));
       setPolicyProduct((cur) =>
         cur === "" && loadedProducts.length > 0 ? loadedProducts[0].id : cur,
       );
@@ -284,6 +295,15 @@ export default function AdminArea() {
 
       {section === "appearance" && <ThemeSetting />}
 
+      {section === "extensions" && (
+        <ExtensionsPanel
+          onChange={async () => {
+            await refresh();
+            await reloadPermissions(); // the rail shows only installed Hives
+          }}
+        />
+      )}
+
       {section === "people" && (
         <>
       <section className="admin-card" aria-label="Team members">
@@ -340,7 +360,7 @@ export default function AdminArea() {
           <thead>
             <tr>
               <th>Role</th>
-              {HIVES.map((hive) => (
+              {hives.map((hive) => (
                 <th key={hive.id}>{hive.label}</th>
               ))}
               {AREA_FLAGS.map(([, label]) => (
@@ -356,7 +376,7 @@ export default function AdminArea() {
             {roles.map((role) => (
               <tr key={role.id} aria-label={`Role ${role.name}`}>
                 <td>{role.name}</td>
-                {HIVES.map((hive) => (
+                {hives.map((hive) => (
                   <td key={hive.id}>
                     {/* Admin sees every Hive whatever its grants say, so its
                         boxes are ticked and fixed rather than offering a

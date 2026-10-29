@@ -11,6 +11,7 @@ pub mod debugging;
 pub mod deliverables;
 pub mod design;
 pub mod emit;
+pub mod extensions;
 pub mod feedback;
 pub mod github;
 pub mod inspectors;
