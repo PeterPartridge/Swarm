@@ -698,6 +698,15 @@ pub async fn get_installed_policy(
 /// than one that refuses loudly, so the refusal happens here.
 #[tauri::command]
 pub async fn set_agent_sandbox(db: State<'_, AppDb>, mode: String) -> Result<(), String> {
+    // Installed before set up: a cell this Swarm has not installed is not a
+    // place it offers, whatever the machine has.
+    {
+        let conn = db.0.lock().await;
+        let cells = crate::db::installed_extension::ids_of(&conn, "cell")
+            .await
+            .map_err(to_message)?;
+        crate::extensions::may_choose_sandbox(&mode, &cells)?;
+    }
     if crate::tooling::sandbox::Mode::from_setting(&mode) != crate::tooling::sandbox::Mode::Off {
         let (wsl, docker, policy) = tokio::join!(
             crate::tooling::sandbox_detect::wsl(),

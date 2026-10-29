@@ -957,7 +957,50 @@ mod tests {
         crate::db::product_policy::set_policy(conn, product_id, true, true, true, false, None, "low")
             .await
             .expect("permit the AI to edit");
+        // And a cell is installed. A test database is a new Swarm, which has
+        // none, and a new Swarm does not run agents until it has one — part of
+        // the fixture for the same reason as the policy above.
+        crate::db::installed_extension::install(conn, "cell", "wsl", "0.1.0", "test")
+            .await
+            .expect("install a cell");
         (item_id, solution_id)
+    }
+
+    /// **A new Swarm does not run agents on this machine.** No cell is
+    /// installed, so the gate is unmet, says where to install one, and the
+    /// press refuses in those words. Installing any cell lets `off` proceed.
+    #[tokio::test]
+    async fn a_run_with_no_cell_installed_is_refused() {
+        let Some(dir) = temp_repo("no-cell") else {
+            eprintln!("skipped: git is not usable here");
+            return;
+        };
+        let root = dir.to_str().expect("utf-8");
+        let (conn, product_id) = db_with_product().await;
+        let (item_id, solution_id) =
+            product_with_run(&conn, product_id, root, "Add checkout", "feature/9-checkout").await;
+        crate::db::installed_extension::remove(&conn, "cell", "wsl")
+            .await
+            .expect("no cell");
+
+        let gates = crate::commands::gates::for_run(&conn, item_id, solution_id).await.expect("gates");
+        let cell = gates.iter().find(|g| g.id == "cell").expect("a cell gate");
+        assert!(!cell.ok);
+        assert!(cell.detail.contains("Admin → Extensions"), "got: {}", cell.detail);
+
+        let refusal = prepare_run(&conn, item_id, solution_id)
+            .await
+            .map(|s| s.branch)
+            .expect_err("must refuse");
+        assert_eq!(refusal, cell.detail);
+
+        crate::db::installed_extension::install(&conn, "cell", "docker", "0.1.0", "test")
+            .await
+            .expect("install one");
+        prepare_run(&conn, item_id, solution_id)
+            .await
+            .map(|s| s.branch)
+            .expect("starts once a cell is installed");
     }
 
     /// **The gate.** A run makes a checkout and hands an agent a brief, so it
@@ -1435,7 +1478,7 @@ mod tests {
         assert!(all.iter().all(|g| g.ok), "expected every gate met, got {all:?}");
         assert_eq!(
             all.iter().map(|g| g.id.as_str()).collect::<Vec<_>>(),
-            ["plan", "branch", "approved", "permission", "folder", "repository"],
+            ["plan", "branch", "approved", "permission", "folder", "repository", "cell"],
         );
 
         // Take two away, and the refusal is the first unmet one, word for word.

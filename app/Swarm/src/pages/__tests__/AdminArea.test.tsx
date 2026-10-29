@@ -38,6 +38,7 @@ vi.mock("../../lib/backend", async (importOriginal) => {
     claudeCodeStatus: vi.fn(),
     getProductBudget: vi.fn(),
     sshStatus: vi.fn(),
+    listInstalledExtensions: vi.fn(),
   };
 });
 
@@ -86,7 +87,7 @@ function renderAdmin() {
  *  because setting the AI up is what brings most people to this page. */
 async function openSection(
   user: ReturnType<typeof userEvent.setup>,
-  name: "AI" | "Connections" | "People" | "Appearance",
+  name: "AI" | "Connections" | "People" | "Appearance" | "Extensions",
 ) {
   await user.click(await screen.findByRole("tab", { name }));
 }
@@ -112,6 +113,9 @@ describe("AdminArea", () => {
     mocked.githubStatus.mockResolvedValue({ connected: false });
     mocked.listModelStatus.mockResolvedValue([]);
     mocked.getProductBudget.mockResolvedValue(null);
+    mocked.listInstalledExtensions.mockResolvedValue(
+      HIVES.map((h) => ({ kind: "hive" as const, id: h.id, version: "0.1.0", source: "built-in", installedAt: 0 })),
+    );
     mocked.claudeCodeStatus.mockResolvedValue({
       installed: false,
       version: "",
@@ -193,6 +197,30 @@ describe("AdminArea", () => {
       expect(box).toBeChecked();
       expect(box).toBeDisabled();
     }
+  });
+
+  /// A Hive that is not installed cannot be opened by anyone, so a column
+  /// granting it would be a box that does nothing.
+  it("gives only installed Hives a column", async () => {
+    const user = userEvent.setup();
+    mocked.listInstalledExtensions.mockResolvedValue([
+      { kind: "hive", id: "develop", version: "0.1.0", source: "built-in", installedAt: 0 },
+      { kind: "cell", id: "test", version: "0.1.0", source: "built-in", installedAt: 0 },
+    ]);
+    renderAdmin();
+    await openSection(user, "People");
+    expect(await screen.findByRole("columnheader", { name: "Develop" })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Product" })).toBeNull();
+    // a cell that shares a Hive's id is not that Hive
+    expect(screen.queryByRole("columnheader", { name: "Test" })).toBeNull();
+  });
+
+  it("has an Extensions section", async () => {
+    const user = userEvent.setup();
+    renderAdmin();
+    await openSection(user, "Extensions");
+    expect(await screen.findByRole("region", { name: "Installed extensions" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Add extensions" })).toBeInTheDocument();
   });
 
   it("adds a new role", async () => {

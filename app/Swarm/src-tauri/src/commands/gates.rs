@@ -188,6 +188,20 @@ pub(crate) async fn for_run(
         _ => met("repository", "The folder is a git repository with a commit"),
     });
 
+    // **Somewhere to run that this Swarm has installed.** A new Swarm starts
+    // with no cell, and does not run agents on this machine until one is
+    // installed (extensions.md, O1 (a)). With one installed, `off` is the
+    // choice it always was.
+    const PLACE: &str = "An agent has somewhere installed to run";
+    let mode = super::sandbox_mode(conn).await;
+    let cells = crate::db::installed_extension::ids_of(conn, "cell")
+        .await
+        .map_err(to_message)?;
+    out.push(match crate::extensions::may_run_agent(mode.id(), &cells) {
+        Ok(()) => met("cell", PLACE),
+        Err(detail) => unmet("cell", PLACE, detail),
+    });
+
     Ok(out)
 }
 

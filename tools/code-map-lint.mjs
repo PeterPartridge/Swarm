@@ -105,7 +105,7 @@ const EXPLANATION_MIN = 80;
  *  number is the honest one.
  *
  *  Lower this number. Never raise it. */
-const UNDOCUMENTED_CEILING = 106;
+const UNDOCUMENTED_CEILING = 105;
 
 /** `{a,b}` → two strings. Tauri-side rows write two files that way, and so do
  *  frontend rows for a component and its helper. */

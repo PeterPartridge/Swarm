@@ -11,6 +11,7 @@ mod commands;
 mod db;
 mod debug;
 mod design;
+mod extensions;
 mod files;
 mod mcp;
 mod git;
@@ -243,6 +244,10 @@ fn main() {
             commands::roles::update_role,
             commands::roles::delete_role,
             commands::roles::set_role_hive,
+            commands::extensions::list_installed_extensions,
+            commands::extensions::read_extension_source,
+            commands::extensions::install_extension,
+            commands::extensions::remove_extension,
             commands::chat::chat_turn,
             commands::roles::get_active_member,
             commands::roles::set_active_member,

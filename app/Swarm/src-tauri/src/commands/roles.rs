@@ -3,7 +3,8 @@
 
 use super::{to_message, AppDb};
 use crate::db::role::{self, Role};
-use crate::db::{role_hive, system_setting, team_member};
+use crate::db::{installed_extension, role_hive, system_setting, team_member};
+use crate::extensions::openable_hives;
 use serde::Serialize;
 use tauri::State;
 
@@ -60,8 +61,10 @@ async fn role_dto(conn: &turso::Connection, r: Role) -> Result<RoleDto, String> 
 pub struct ActivePermissions {
     pub member_id: Option<i64>,
     pub role: Option<RoleDto>,
-    /// The Hives the active user may open; `all_hives` overrides it.
+    /// The Hives the active user may open: installed, and granted or Admin.
     pub hives: Vec<String>,
+    /// Always false now — `hives` is the whole answer, since only installed
+    /// Hives can open. Kept so the frontend's loading default still reads.
     pub all_hives: bool,
     pub can_admin: bool,
     pub see_cost: bool,
@@ -167,13 +170,17 @@ pub async fn get_active_permissions(db: State<'_, AppDb>) -> Result<ActivePermis
         },
         None => None,
     };
+    // **Only installed Hives can be opened, Admin included.** So `hives` is
+    // always the exact list, and `all_hives` is never sent true: "every Hive"
+    // would include ones this Swarm has not installed.
+    let installed = installed_extension::ids_of(&conn, "hive").await.map_err(to_message)?;
     Ok(match role {
         Some(r) => {
             let dto = role_dto(&conn, r).await?;
             ActivePermissions {
                 member_id,
-                hives: dto.hives.clone(),
-                all_hives: dto.all_hives,
+                hives: openable_hives(&installed, &dto.hives, dto.all_hives),
+                all_hives: false,
                 can_admin: dto.can_admin,
                 see_cost: dto.see_cost,
                 see_profit: dto.see_profit,
@@ -188,8 +195,8 @@ pub async fn get_active_permissions(db: State<'_, AppDb>) -> Result<ActivePermis
         None => ActivePermissions {
             member_id,
             role: None,
-            hives: Vec::new(),
-            all_hives: true,
+            hives: openable_hives(&installed, &[], true),
+            all_hives: false,
             can_admin: true,
             see_cost: true,
             see_profit: true,
