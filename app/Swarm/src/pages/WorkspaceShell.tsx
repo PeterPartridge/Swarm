@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import TabBar, { DEFAULT_TAB_COLORS, ENVIRONMENTS } from "../components/common/TabBar";
+import TabBar, {
+  DEFAULT_TAB_COLORS,
+  ENVIRONMENTS,
+  defaultTabColorsFor,
+  environmentsFor,
+} from "../components/common/TabBar";
 import CommandPalette, { type PaletteGroup } from "../components/common/CommandPalette";
-import { HIVES } from "@hives/registry";
+import { useHives } from "../lib/hives";
 import AdminArea from "./AdminArea";
 import ChatHome from "../components/chat/ChatHome";
 import ActiveUserPicker from "../components/common/ActiveUserPicker";
@@ -34,10 +39,16 @@ export default function WorkspaceShell() {
    *  same one twice still moves. Null means "leave the Hive where it was". */
   const [requested, setRequested] = useState<{ hive: string; id: string; at: number } | null>(null);
   const { canAccess, canAccessHive } = usePermissions();
+  // Read at run time: an installed Hive from outside is not in the registry.
+  const { hives } = useHives();
+  const environments = useMemo(() => environmentsFor(hives), [hives]);
+  // A colour the person picked wins; otherwise the Hive's own default — which
+  // for one installed after the saved colours were loaded is only known here.
+  const shown = useMemo(() => ({ ...defaultTabColorsFor(hives), ...colors }), [hives, colors]);
 
   useEffect(() => {
-    applyTabColors(colors);
-  }, [colors]);
+    applyTabColors(shown);
+  }, [shown]);
 
   // The saved light/dark choice, stamped on the root before anything is read,
   // so the app opens in the theme that was chosen rather than flashing dark.
@@ -61,7 +72,7 @@ export default function WorkspaceShell() {
   }, []);
 
   // The chat for everyone; a Hive by its grant; Admin by its flag.
-  const visibleTabs = ENVIRONMENTS.filter((e) =>
+  const visibleTabs = environments.filter((e) =>
     e.id === "chat" ? true : e.id === "admin" ? canAccess("admin") : canAccessHive(e.id),
   );
 
@@ -95,8 +106,10 @@ export default function WorkspaceShell() {
     setTheme,
   };
 
-  const activeLabel = ENVIRONMENTS.find((e) => e.id === active)!.label;
-  const activeHive = HIVES.find((h) => h.id === active);
+  // Not found for one render when the open Hive has just left the list; the
+  // fallback above moves to the chat on the next.
+  const activeLabel = environments.find((e) => e.id === active)?.label ?? "";
+  const activeHive = hives.find((h) => h.id === active);
 
   /** What the palette can reach. Built from the areas this user can actually
    *  see — offering a destination their role hides would be a dead end — and
@@ -116,7 +129,7 @@ export default function WorkspaceShell() {
         run: goToArea(t.id),
       })),
     };
-    const views: PaletteGroup[] = HIVES.filter((h) => canAccessHive(h.id)).map((h) => ({
+    const views: PaletteGroup[] = hives.filter((h) => canAccessHive(h.id)).map((h) => ({
       name: h.label,
       items: (h.views ?? []).map((v) => ({
         glyph: v.glyph,
@@ -147,13 +160,13 @@ export default function WorkspaceShell() {
       ],
     };
     return [areas, ...views, commands].filter((g) => g.items.length > 0);
-  }, [visibleTabs, canAccessHive]);
+  }, [visibleTabs, canAccessHive, hives]);
 
   return (
     <div className="workspace-shell">
       {/* The rail is a sibling of the whole main column now, not a bar above
           it — so the areas stay put while the content beside them changes. */}
-      <TabBar active={active} colors={colors} onSelect={setActive} tabs={visibleTabs} />
+      <TabBar active={active} colors={shown} onSelect={setActive} tabs={visibleTabs} />
       <div className="shell-main">
       <div className="shell-topbar">
         {/* The search box is the palette's visible door: people who never learn
@@ -179,7 +192,7 @@ export default function WorkspaceShell() {
         className="environment"
         role="tabpanel"
         aria-label={`${activeLabel} environment`}
-        style={{ "--env-color": colors[active] } as CSSProperties}
+        style={{ "--env-color": shown[active] } as CSSProperties}
       >
         <h1>{activeLabel}</h1>
         {/* Mounted whatever is open, so the conversation is still there when
@@ -200,12 +213,12 @@ export default function WorkspaceShell() {
         ) : null}
       </main>
       <footer className="colour-settings" aria-label="Colour settings">
-        {ENVIRONMENTS.map(({ id, label }) => (
+        {environments.map(({ id, label }) => (
           <label key={id}>
             {label} colour
             <input
               type="color"
-              value={colors[id]}
+              value={shown[id]}
               onChange={(e) => updateColor(id, e.target.value)}
             />
           </label>

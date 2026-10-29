@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
-import { HIVES } from "@hives/registry";
+import { HIVES, type Hive } from "@hives/registry";
 import type { EnvironmentId, TabColors } from "../../lib/theme";
 
 /** One place on the rail. */
@@ -46,18 +46,22 @@ const ADMIN: Environment = {
  *  Each icon is inline SVG drawn rather than lettered — initials in boxes would
  *  read as a list of abbreviations — so nothing is fetched in an offline app,
  *  and the colour follows the button. */
-export const ENVIRONMENTS: Environment[] = [
-  CHAT,
-  ...HIVES.map(({ id, label, icon }) => ({ id, label, icon })),
-  ADMIN,
-];
+export function environmentsFor(hives: readonly Hive[]): Environment[] {
+  return [CHAT, ...hives.map(({ id, label, icon }) => ({ id, label, icon })), ADMIN];
+}
 
 /** Each place's colour until the person picks another. */
-export const DEFAULT_TAB_COLORS: TabColors = Object.fromEntries([
-  [CHAT.id, "#0891b2"],
-  ...HIVES.map((h) => [h.id, h.color]),
-  [ADMIN.id, "#475569"],
-]);
+export function defaultTabColorsFor(hives: readonly Hive[]): TabColors {
+  return Object.fromEntries([
+    [CHAT.id, "#0891b2"],
+    ...hives.map((h) => [h.id, h.color]),
+    [ADMIN.id, "#475569"],
+  ]);
+}
+
+/** The rail and colours for the built-in Hives alone. */
+export const ENVIRONMENTS: Environment[] = environmentsFor(HIVES);
+export const DEFAULT_TAB_COLORS: TabColors = defaultTabColorsFor(HIVES);
 
 interface TabBarProps {
   active: EnvironmentId;

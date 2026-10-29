@@ -133,12 +133,126 @@ Unknown fields are ignored. A file over 256 KB, a URL that is not `https://`, a 
 - **Removing the open Hive needed no change.** The shell already falls back to the first tab it can show (the chat) when the active one disappears.
 - **The catalogue's tests were written alongside its code, not before it.** The table, the panel and the Admin changes were tests first, and each test failed before its code existed.
 
-## Round 2 — Hives from other URLs _(outline; needs its own approval)_
+## Round 2 — Hives from other URLs _(approved 2026-10-29: "yes, use your defaults and build round 2")_
 
-- `entry` points at a built bundle, and `sha256` must match it. The bundle is stored in the app's data folder, never in the repository.
-- The bundle runs in a sandboxed `iframe` with no direct `invoke`. It talks to Swarm only through a fixed message channel. Each kind of message is a permission listed in `permissions` and approved by the person at install, and anything not listed is refused (deny by default).
-- A small Hive toolkit replaces the `@swarm` imports, which a Hive from outside cannot have.
-- The install screen warns that this code was not written by this project, and shows the publisher, the URL and every permission requested.
+**Answers taken (2026-10-29), all the proposed defaults:**
+- **Q1:** the four permissions as listed, with `workItems:write` included and each write confirmed.
+- **Q2:** no network.
+- **Q3:** stacked on #17.
+- **Q4:** an optional `color`, and no SVG from outside.
+- **Q5:** both example Hives, the friendly one and the hostile one.
+- **Q6:** wait for step 8's result before raising the Preview pane.
+
+> Asked for on 2026-10-29 ("start round 2"). The decision already taken is that **anyone** may publish, behind a warning and a permissions prompt. This is the first round in which code this project did not write runs inside Swarm, so the questions at the end decide what gets built. Nothing below is built until they are answered and the spec is approved.
+
+**What Swarm has today that this round rests on** (read from the code on 2026-10-29):
+- **The main window has no Content Security Policy** (`tauri.conf.json`: `"csp": null`).
+- **One capability** (`core:default`, `dialog:default`) applies to every window.
+- **Tauri is 2.11.5.**
+- **Every Hive is static:** `HIVES` is a module constant that the rail (`TabBar.ENVIRONMENTS`), the palette, the chat's actions and Admin all import.
+- **The only iframe is the Preview pane**, framing a dev server with no `sandbox` attribute.
+
+### Spec
+
+**The format gains three fields, all required for a Hive from outside**
+- **`entry`** is the `https://` URL of **one built JavaScript file**, an ES module. It is one file rather than an archive, so there is no unpacking and no paths inside a package to get wrong.
+- **`sha256`** is the hex SHA-256 of that file. A download that does not match is refused and nothing is stored.
+- **`permissions`** lists what the Hive asks to do, from the fixed vocabulary below. An unknown permission makes the entry unreadable. It is not ignored.
+- **The rule that refuses an entry carrying code changes:**
+  - A **Hive** with all three fields becomes installable.
+  - A **Cell** with `entry` is still refused (Round 3).
+  - An entry whose id is the same as a Hive this Swarm contains is refused, so nothing from outside can take the place of Product, Develop or Test.
+
+**Installing one**
+- **Install opens a review before anything is downloaded.** It shows:
+  - the name, the publisher and the source URL;
+  - the `entry` URL and its `sha256`;
+  - every permission requested, each in plain words;
+  - the warning: *"This code was not written by this project. The checksum proves the file is the one this list names, not who wrote it or that it is safe."* Anyone may publish, so a checksum from the same place as the code proves integrity and nothing more.
+- **The person approves the permissions as a set.** Swarm then downloads the file with the same HTTPS-only fetch, at a larger limit (proposed 5 MB). It checks the checksum and stores the file in the app's data folder at `extensions/hive/<id>/<sha256>.js`, never in the repository. The approved permissions are recorded on the install row in a new `permissions` column.
+- **Installing again with different permissions asks again.** With the same permissions and a new checksum, the file is replaced. The old file is deleted when it is replaced or when the Hive is removed.
+- **It arrives granted to no role**, exactly like a built-in Hive. Admin grants it.
+
+**How it runs**
+- **Swarm serves the Hive itself, from a URI scheme of its own** (`swarm-hive://<id>/`). That scheme serves exactly two things:
+  - a fixed host page that Swarm writes;
+  - the stored file, read from disk and checked against its checksum again.
+  Nothing else on disk is reachable through it.
+- **The page is sent with a strict Content Security Policy:** `default-src 'none'; script-src swarm-hive:; style-src 'unsafe-inline'; img-src data:`.
+  - **No network:** no `connect-src`, so no `fetch`, no WebSocket and no beacon. A Hive cannot send what it reads anywhere.
+  - No frames, no forms, no navigation.
+- **The frame is `sandbox="allow-scripts"` and nothing else.** It gets an opaque origin, no access to the parent page, no popups and no top-level navigation.
+- **The only channel is one `MessagePort`**, handed over when the frame loads.
+  - The Hive sends `{ id, op, args }`. Swarm checks `op` against the permissions approved at install and against the active role's grant for that Hive, then answers `{ id, ok, value | error }`.
+  - An op that is not approved is refused and recorded in the activity log. **Deny by default: there is no op that needs no permission**, except receiving the theme and the requested view.
+
+**The permission vocabulary _(proposed: see Q1)_**
+
+| Permission | Lets a Hive | Calls |
+|---|---|---|
+| `products:read` | list Products and read one | `listProducts` |
+| `workItems:read` | list and read a Product's work items | the existing work-item list |
+| `workItems:write` | create a work item, and change its title, description or status. **Swarm asks the person to confirm each write in a dialog of its own**, as the chat does | `createWorkItem` and the existing update |
+| `testCases:read` | list a Product's test cases | the existing test-case list |
+
+Nothing else, in this round:
+- no AI calls (they would spend the Product's budget under its policy on a stranger's say-so);
+- no files, terminal, git, settings, secrets or network.
+
+**A Hive toolkit, `app/Hives/sdk/`**
+- **`hive-sdk.js`**, which Swarm serves into every frame. It offers `swarm.request(op, args)`, `swarm.onView(cb)` and `swarm.theme`.
+- **`hive-sdk.d.ts`**, so a publisher can type against it.
+- **`README.md`**, which documents the format, the vocabulary, how to compute `sha256`, and the limits above.
+
+**Hives become a list read at run time**
+- **The static `HIVES` stays for the three built in.** A new `useHives()` returns those plus the installed ones from outside. Each outside Hive uses its manifest's `name`, a default glyph, a `color` (an optional new field; proposed, see Q4) and an `ExternalHive` screen that draws the frame.
+- **Every place that imports `HIVES` for the rail moves to `useHives()`:** `TabBar`, `WorkspaceShell`'s palette, `chatActions`, `ChatHome` and Admin's role editor. This is the large change of the round. It is done first, with no change in behaviour (step 1 below), before any outside code exists.
+
+**Built in this order, each step its own commit with its tests first:**
+1. `useHives()` and the move to it, with no change in behaviour.
+2. The format's new fields and the checks in `catalogue`, which stays pure.
+3. Download, checksum, storage, and the `permissions` column.
+4. The review-before-install screen.
+5. The `swarm-hive://` scheme, its host page and its CSP.
+6. The `ExternalHive` frame, the port, and the permission checks on every op.
+7. The toolkit and its README.
+8. **The isolation check (see below).**
+
+### Tests (written first)
+
+- [ ] `catalogue`:
+  - a Hive with `entry`, `sha256` and `permissions` is installable;
+  - each of the three missing is refused;
+  - a malformed `sha256`, a non-HTTPS `entry` and an unknown permission are refused;
+  - a Cell with `entry` is still refused;
+  - an outside entry using a built-in Hive's id is refused.
+- [ ] Download:
+  - a checksum mismatch stores nothing;
+  - the 5 MB limit holds;
+  - removing or replacing deletes the old file;
+  - different permissions on reinstall need approval again.
+- [ ] The scheme serves only the host page and the stored file. Any other path is a 404, and a stored file whose checksum no longer matches is refused.
+- [ ] The op check is a pure function with a test for each decision: not approved, approved but the role lacks the Hive, approved and granted. A write without the person's confirmation is refused.
+- [ ] Frontend:
+  - `useHives()` returns the built-ins in order, then the installed outside Hives;
+  - the rail, the palette and the role editor show an outside Hive once it is installed and granted;
+  - the review screen lists every permission and the warning, and Cancel downloads nothing;
+  - `ExternalHive` renders `sandbox="allow-scripts"` and nothing more.
+- [ ] **The isolation check, in the running app, not in jsdom.**
+  - A test Hive tries to call Tauri's `invoke`, to read `window.parent`, to `fetch` an outside URL, and to load a second script from elsewhere. **All four must fail.**
+  - This is the one claim this round makes that only the real webview can prove. Without it, the round is not done.
+  - It runs on Linux under WSLg, now that the app builds there, and needs a person or CI on Windows for WebView2.
+
+### Open questions — these decide what is built
+
+- **Q1 — Is the permission vocabulary right?**
+  - Most of all: should `workItems:write` be in this round? I propose it is, behind a confirm dialog for every write.
+  - Anything you want a Hive from outside to be able to do that is not listed is a new row, and each row is a hole in the sandbox someone chose to open.
+- **Q2 — No network at all.** As specified, a Hive cannot reach the internet, including its own publisher's server. That is what stops a stranger's code sending your Products somewhere. A Hive that needs its own backend would need a `network:<host>` permission. I propose leaving that out of this round.
+- **Q3 — Build on #17 before it merges?** This branch, `feat/extensions-round-2`, is stacked on `feat/extensions`. The alternative is to wait for #17 to merge and start from `main`.
+- **Q4 — How much may an outside Hive style itself?** I propose an optional `color` in the manifest, with Swarm's default glyph as the icon. I propose **no SVG icon from outside**, because drawing a stranger's markup into the rail, outside the sandbox, is the one place this design would let their code out of the frame.
+- **Q5 — An example Hive in this repository?** The isolation check needs a hostile test Hive. A friendly example, a single file listing a Product's work items, would double as the toolkit's worked example and prove the whole path. I propose both, under `app/Hives/sdk/examples/`.
+- **Q6 — The Preview pane's iframe.** It frames whatever address is typed, with no `sandbox` attribute, inside the same window as the app. Step 8's check will show whether a framed page can reach `invoke`. If it can, the Preview pane needs the same fix. That is outside this round, so tell me whether to raise it as its own item now or wait for the result.
 
 ## Round 3 — Cells from other URLs _(outline; needs its own approval, and the user's current answer is "not yet")_
 

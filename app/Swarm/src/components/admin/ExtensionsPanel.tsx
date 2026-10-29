@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { HIVES } from "@hives/registry";
+import { useHives } from "../../lib/hives";
 import {
   installExtension,
   listInstalledExtensions,
@@ -9,11 +9,6 @@ import {
   type ExtensionOffer,
   type InstalledExtension,
 } from "../../lib/backend";
-
-/** A Hive by its label, a cell by its id: the installed table only has ids,
- *  and the registry is what names a Hive everywhere else. */
-const nameOf = (e: InstalledExtension) =>
-  e.kind === "hive" ? (HIVES.find((h) => h.id === e.id)?.label ?? e.id) : e.id;
 
 /** Admin → Extensions: what is installed, and where more comes from.
  *
@@ -34,6 +29,12 @@ export default function ExtensionsPanel({ onChange }: { onChange: () => void | P
   const [confirming, setConfirming] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { hives } = useHives();
+
+  /** A Hive by its label, a cell by its id: the installed table only has ids,
+   *  and the Hive list is what names a Hive everywhere else. */
+  const nameOf = (e: InstalledExtension) =>
+    e.kind === "hive" ? (hives.find((h) => h.id === e.id)?.label ?? e.id) : e.id;
 
   const refresh = useCallback(async () => {
     try {
