@@ -1,4 +1,34 @@
-# Page Spec — Admin Area
+---
+spec: page
+from: Swarm/adminArea.md
+deliverable:
+depends-on: ["workspaceShell.md", "Swarmdb/Role-model.json", "Swarmdb/TeamMember-model.json"]
+---
+objective: set the team up — give each team member a role, and decide which areas each role reaches and which commercial fields it sees; roles gate visibility only [why-exists]
+model: mid-range model, medium effort [model-and-effort]
+action: add and remove team members, and give each a role [actions]
+action: add roles, and edit each role's area access and whether it sees cost, profit and chargeable [actions]
+action: choose the active user through the header's "Working as…" picker; their role decides which tabs and cost fields show [actions]
+look: a team-members card and a roles table — rows are roles, columns are the access and field-visibility toggles — in the Admin environment's own colour [look]
+info: team members and their roles; roles and their permission flags [information]
+access: anyone using the app; the Admin role can always reach this area [who-can-use]
+store: roles — Swarmdb/Role-model.json; team members reference a role — Swarmdb/TeamMember-model.json; the active user is a system setting [data-stored]
+store: the add forms' unsaved input, in memory only [in-memory]
+check: C1 members are listed and can be given a role; roles can be added and their flags toggled [tests]
+check: C2 the Admin role cannot be deleted or weakened [tests]
+check: C3 changing the active user changes which tabs and cost fields the workspace shows [tests]
+limit: gating is advisory visibility, not security — anyone can switch the active user [limits]
+uses: Swarmdb Role and TeamMember models [data-stored]
+> The brief's Part 4 change rounds have no question ID to cite, so what they
+> add beyond the answers above is not translated here. Read them in the brief.
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — Admin Area
 
 > Produced by `/translate` from [`../../Swarm/adminArea.md`](../../Swarm/adminArea.md). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 

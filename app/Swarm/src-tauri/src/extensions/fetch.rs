@@ -31,6 +31,7 @@ pub async fn read_source(url: &str) -> Result<String, String> {
 /// Fetches a Hive's code after checking its address, up to
 /// `store::MAX_CODE_BYTES`. Bytes, not text: the checksum is over the file
 /// exactly as served.
+#[allow(dead_code)] // Reached by Install in the second half of Round 2 step 3.
 pub async fn read_code(url: &str) -> Result<Vec<u8>, String> {
     check_url(url)?;
     fetch_bytes(url.trim(), super::store::MAX_CODE_BYTES).await

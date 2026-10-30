@@ -1,4 +1,34 @@
-# Page Spec — RepoLink (database model)
+---
+spec: model
+from: Swarmdb/RepoLink-model.json
+deliverable:
+depends-on: [Swarmdb/Solution-model.json]
+---
+objective: How two of a Product's Solutions — and so two repositories — depend on one another. Distinct from WorkItemLink, which joins two pieces of work: this joins two systems, outlives any sprint, and answers 'if we change the API, what else moves?' [whatThisModelIs]
+field: id — id / key, required, default auto — unique — The unique identifier [fields.entries.0]
+field: fromSolutionId — id / key, required — must reference a Solution row; must not equal toSolutionId; must share a Product with it — The Solution that depends on the other [fields.entries.1]
+field: toSolutionId — id / key, required — must reference a Solution row — The Solution depended on [fields.entries.2]
+field: kind — list, required, default callsApi — one of: callsApi / sharesSchema / publishesEvent / buildsOn — How they depend on each other. 'buildsOn' means one is compiled or deployed against the other — it orders work, so it must stay acyclic. The rest describe runtime, where mutual dependence is a real and workable arrangement [fields.entries.3]
+field: notes — text, required — Why the dependency exists, in the developer's own words [fields.entries.4]
+field: createdAt — date, required, default now — When the link was recorded [fields.entries.5]
+rel: fromSolutionId — many-to-one to Solution.id (FK_RepoLink_From) [relationships.entries.0]
+rel: toSolutionId — many-to-one to Solution.id (FK_RepoLink_To) [relationships.entries.1]
+index: fromSolutionId [lookupsAndPerformance.answer.0]
+index: toSolutionId [lookupsAndPerformance.answer.1]
+index: kind [lookupsAndPerformance.answer.2]
+retention: Until the link is removed or either Solution is deleted. Deleting a Solution removes every link touching it — a link to a deleted Solution is not a dependency, it is a dangling row. [lifecycleAndRules.retention]
+sensitive: No. [lifecycleAndRules.sensitiveFields]
+invariant: Both Solutions exist, differ, and belong to the same Product — this map is drawn per Product, so a link reaching outside it would be invisible from both ends. 'buildsOn' must never form a cycle, directly or transitively, because neither side could be built first. The other kinds may loop freely: two services calling each other's APIs is a real arrangement, and refusing it would make the map lie about the system it describes. [lifecycleAndRules.invariants]
+> The brief's change rounds record why the model changed; the fields above are
+> its answers as they stand, and the rounds are not restated.
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — RepoLink (database model)
 
 > Produced by `/translate` from [`../../Swarmdb/RepoLink-model.json`](../../Swarmdb/RepoLink-model.json). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 

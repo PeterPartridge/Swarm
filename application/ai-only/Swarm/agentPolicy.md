@@ -1,4 +1,74 @@
-# Page Spec — Agent Policy
+---
+spec: page
+from: Swarm/agentPolicy.md
+deliverable:
+depends-on: ["agentSandbox.md", "adminArea.md", "repositoryManagement.md"]
+---
+objective: name once, in a file kept in the repository, the files an agent must not touch — shareable with a colleague and enforced rather than remembered [why-exists]
+objective: the sandbox says where an agent runs; the policy says what it may not reach once there [why-exists]
+objective: the policy says what; each boundary applies it its own way — under WSL as permissions set by a root script before the agent starts, under Docker as the container's mounts — so the operating system refuses the agent [why-exists]
+objective: keep "asked not to read" and "not permitted to read" apart; only the second survives an agent told not to ask [why-exists]
+model: most capable model, high effort — it makes claims about what an agent cannot do [model-and-effort]
+action: write a policy for a Solution — folders and files an agent must not reach, and commands it must not run [actions]
+action: see per rule which promise it keeps — kept out of reach entirely, or asked of the agent [actions]
+action: save a policy as a file in the Solution's repository, so it travels with the code [actions]
+action: point at where the policy comes from — a GitHub location or a file on this machine — and give the command that installs it, in the "Where agents run" card [actions]
+action: add a script of one's own for what a list cannot express, and be told plainly that a script takes effect only under WSL [actions]
+action: read the whole script before it runs, and see what installing would change before it takes effect [actions]
+action: start a run and see on it which policy was in force [actions]
+action: be told plainly when a rule cannot be enforced here — the sandbox is off, or only the agent can honour it [actions]
+look: inside the "Where agents run" card, under the mode cards, not a separate panel — the source, the install command and what it would do; state first, detail underneath [look]
+look: a list of rules, each showing what it covers and how it is kept — two plainly different words, never one icon; an asked-only rule says so on the rule [look]
+look: buttons to save the policy to the repository and to install one from a file, with what would change shown before anything applies [look]
+info: the rules — paths not to read, paths not to write, commands not to run [information]
+info: per rule, whether the boundary enforces it or the agent is asked [information]
+info: which policy a run used, kept with the run; what installing a file would change, before it changes [information]
+access: anyone using the app; roles gate visibility only and are never described as controlling this [who-can-use]
+store: the policy is JSON at .swarm/policy.json in the Solution's repository, so it can be reviewed in a pull request and shared [data-stored]
+store: the database holds only the pointer and what a run used, so a run's record stays true after the file changes [data-stored]
+store: the policy being edited and the difference a pending install would make, in memory only [in-memory]
+must: under WSL, after the run's copy is made and before the agent gets anything, the app applies the policy as root — a protected path goes to root and is made unreadable; the agent works as an ordinary user that cannot become root [how-it-works]
+must: under Docker, the policy is applied when the container is created, as mounts; a masked path is an empty directory inside [how-it-works]
+must: under WSL a root-owned unreadable file can still be deleted by the agent unless its parent directory is root-owned too — which stops the agent creating anything there [how-it-works, limits]
+must: under Docker root cannot chown to another user, since CAP_CHOWN is dropped; masking with a mount needs no capabilities and cannot be undone from inside [how-it-works]
+check: C1 a protected path cannot be read by the agent — tried from inside, as the agent [tests]
+check: C2 the agent cannot undo it — chmod and chown on a protected path are refused [tests]
+check: C3 where asked, the agent cannot delete it; where that needed the directory, the page said so [tests]
+check: C4 the policy takes effect before anything reaches an agent — WSL permissions first, Docker mounts at creation [tests]
+check: C5 the same policy file restricts for real under both backends, checked from inside each [tests]
+check: C6 a user's script is applied under WSL and reported as not in effect under Docker [tests]
+check: C7 a rule only the agent can honour is labelled so, and never described as enforced [tests]
+check: C8 with the sandbox off, every rule reports as asked-only [tests]
+check: C9 a policy saved to a repository and installed into a second Solution gives the same rules [tests]
+check: C10 installing a file shows what it would change before it applies, and applies nothing until it is [tests]
+check: C11 a malformed policy file is refused with the wrong line, and the existing policy is left alone [tests]
+check: C12 a run records the policy it used, and still reports it after the file moves on [tests]
+check: C13 a rule naming a path outside the repository is refused [tests]
+check: C14 a GitHub source given as a branch is refused, or pinned to the commit it resolves to [tests]
+check: C15 the script is shown in full before it can run, and running is a separate press from fetching [tests]
+check: C16 a run records where its policy came from and at which commit, and reports it afterwards [tests]
+limit: with the sandbox off nothing is enforceable — the agent runs as the person, and every rule reports as asked-only [limits]
+limit: the backends restrict differently — under WSL a protected file is refused, under Docker it is absent — and the page does not pretend otherwise [limits]
+limit: a user's script takes effect only under WSL, reported plainly [limits]
+limit: a policy script runs as root inside the boundary and can weaken it; a GitHub source is allowed only if fetched on this machine, shown whole before it runs, pinned to a commit by address or digest, checked by SHA-256 before writing and before running, and recorded with the run [limits]
+limit: the first fetch of an unpinned source is trust, and the panel says so [limits]
+limit: a .swarm/policy.json deny list bounds a run; the fetched source is an app-wide script run into WSL — a run records both, separately, and the install record is cleared when set-up succeeds [limits]
+limit: a file on this machine is the safer default; a GitHub location makes a policy shareable; which is in use is said plainly [limits]
+limit: a file the agent cannot read the build cannot read either, if it runs as the agent [limits]
+limit: what the agent reaches over the network, or the build pulls in, cannot be kept from it; the policy does not imply otherwise [limits]
+limit: a repository is the wrong place for a secret; hiding .env from an agent is not a substitute [limits]
+limit: the two promises are never blurred, in the panel or in documents [limits]
+skill: operating-system permissions and container mounts — the policy is enforced by each boundary [how-it-works]
+> The brief's Part 4 change rounds have no question ID to cite, so what they
+> add beyond the answers above is not translated here. Read them in the brief.
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — Agent Policy
 
 > Produced by `/translate` from [`../../Swarm/agentPolicy.md`](../../Swarm/agentPolicy.md). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 >

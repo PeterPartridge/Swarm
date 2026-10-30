@@ -1,4 +1,28 @@
-# Page Spec — AIProvider (database model)
+---
+spec: model
+from: Swarmdb/AIProvider-model.json
+deliverable:
+depends-on: []
+---
+objective: A configured AI provider (Claude first, others pluggable): its endpoint, its models, and the alias of its key in the OS credential store — never the key itself. [whatThisModelIs]
+field: id — id / key, required, default auto — unique — The unique identifier [fields.entries.0]
+field: name — text, required — unique — Display name, e.g. Claude [fields.entries.1]
+field: apiBaseUrl — text, required — must be an https URL — The provider's API base URL [fields.entries.2]
+field: models — list, required, default [] — The model names this provider offers to the app [fields.entries.3]
+field: keyAlias — text, required — unique; an alias only — the key value lives in the OS credential store under this alias — The name under which the API key is stored in the OS credential store [fields.entries.4]
+field: createdAt — date, required, default now — When the provider was configured [fields.entries.5]
+index: name [lookupsAndPerformance.answer.0]
+retention: Until the user removes the provider. Removing the row must also remove the key from the OS credential store. [lifecycleAndRules.retention]
+sensitive: The API key itself never enters this table, the database file, config, code, or logs — only its keyAlias is stored here; the value lives in the OS credential store (per the solution's security rules). [lifecycleAndRules.sensitiveFields]
+invariant: Every row's keyAlias is unique and refers to an entry in the OS credential store (or the documented encrypted-file fallback on Linux without Secret Service). [lifecycleAndRules.invariants]
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — AIProvider (database model)
 
 > Produced by `/translate` from [`../../Swarmdb/AIProvider-model.json`](../../Swarmdb/AIProvider-model.json). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 

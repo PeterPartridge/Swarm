@@ -1,4 +1,31 @@
-# Page Spec — ProductPolicy (database model)
+---
+spec: model
+from: Swarmdb/ProductPolicy-model.json
+deliverable:
+depends-on: [Swarmdb/Product-model.json, Swarmdb/AIProvider-model.json]
+---
+objective: What the AI is allowed to do with a whole Product — read its brief and strategy, and create work items — and through which provider. [whatThisModelIs]
+field: id — id / key, required, default auto — unique — The unique identifier [fields.entries.0]
+field: productId — id / key, required — must reference a Product row; one policy per Product — The Product this policy governs [fields.entries.1]
+field: allowRead — yes/no, required, default no — May the AI read this Product's brief, strategy, and deliverables? [fields.entries.2]
+field: allowGenerate — yes/no, required, default no — May the AI create planning work items against this Product? [fields.entries.3]
+field: providerId — id / key, optional — must reference an AIProvider row when set; no provider means blocked — The only AI provider this Product's work may go to [fields.entries.4]
+field: effortTier — list, required, default low — one of: low / medium / high — How much effort the AI may spend on this Product's requests [fields.entries.5]
+field: updatedAt — date, required, default now — updated on every change — When the policy last changed [fields.entries.6]
+rel: productId — one-to-one to Product.id (FK_ProductPolicy_Product) [relationships.entries.0]
+rel: providerId — many-to-one to AIProvider.id (FK_ProductPolicy_AIProvider) [relationships.entries.1]
+index: productId [lookupsAndPerformance.answer.0]
+retention: Kept with its Product. Setting a policy again replaces the previous row, so there is only ever one per Product. [lifecycleAndRules.retention]
+sensitive: This table is itself a protection: it decides whether a Product's brief and strategy may be sent to an AI provider. No secret values are stored here — the provider's API key lives in the OS credential store. [lifecycleAndRules.sensitiveFields]
+invariant: Deny-by-default: a Product with no row here is closed to AI. Generation requires allowRead AND allowGenerate AND a providerId that still exists. One policy per Product; effortTier stays in its list. This policy is deliberately coarser than a work-item policy — allowing generation covers every Deliverable of the Product. [lifecycleAndRules.invariants]
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — ProductPolicy (database model)
 
 > Produced by `/translate` from [`../../Swarmdb/ProductPolicy-model.json`](../../Swarmdb/ProductPolicy-model.json). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 

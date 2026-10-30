@@ -9,6 +9,10 @@
 //! run. Naming it by its checksum means a replaced file can never be mistaken
 //! for the one it replaced.
 
+// Reached by Install in the second half of Round 2 step 3, so nothing outside
+// the tests calls this module yet. Remove this allow when Install uses it.
+#![allow(dead_code)]
+
 use std::path::{Path, PathBuf};
 
 /// Largest Hive accepted. One built JavaScript file; five megabytes is far

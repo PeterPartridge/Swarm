@@ -1,4 +1,37 @@
-# Page Spec — Product Planning (the Product home + workspace)
+---
+spec: page
+from: Swarm/productPlanning.md
+deliverable:
+depends-on: ["workspaceShell.md", "Swarmdb/WorkItem-model.json"]
+---
+objective: let Product plan the product — create and manage the work items (features, bugs, tests, specs) that drive the feature designer, the developers' builds and QA's tests; the entry point of the Product environment and the whole workflow [why-exists]
+model: mid-range model, medium effort [model-and-effort]
+action: Product creates a work item with a title, a type — feature, bug, test or spec — and the repository it belongs to [actions]
+action: Product sees all work items as a board grouped by status, and changes an item's status [actions]
+action: Product edits or deletes a work item [actions]
+action: Product opens a work item to design its feature, in the Feature Designer [actions]
+look: a board in Product — columns by status, cards showing title, type and repository, a button to create an item; Product's tab colour as accent; minimal [look]
+info: work item title, type, status and repository [information]
+access: anyone using the app — single-user, no login [who-can-use]
+store: work items — Swarmdb/WorkItem-model.json [data-stored]
+store: unsaved edits to the item being created or edited, in memory only [in-memory]
+check: C1 a created work item shows on the board and is still there after a restart [tests]
+check: C2 changing an item's status moves it to the right column [tests]
+check: C3 deleting an item removes it from the board and the database [tests]
+check: C4 a work item always has a title and a type [tests]
+limit: the board stays usable with a few hundred work items [limits]
+uses: Swarmdb WorkItem model [data-stored]
+UNKNOWN: the answers above still describe a repository board, but the Product side no longer uses repositories and this page is now the Product home and workspace; which holds? [actions, look, information]
+> The brief's Part 4 change rounds have no question ID to cite, so what they
+> add beyond the answers above is not translated here. Read them in the brief.
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — Product Planning (the Product home + workspace)
 
 > Produced by `/translate` from [`../../Swarm/productPlanning.md`](../../Swarm/productPlanning.md). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 

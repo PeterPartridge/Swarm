@@ -1,4 +1,37 @@
-# Page Spec — ArchitectureDoc (database model)
+---
+spec: model
+from: Swarmdb/ArchitectureDoc-model.json
+deliverable:
+depends-on: [Swarmdb/Product-model.json, Swarmdb/Solution-model.json]
+---
+objective: How a system is put together, as a diagram — a system-interaction map, a component map, an API contract, an event flow, or an infrastructure picture. Attached to a Product as a whole, or to one of its Solutions. [whatThisModelIs]
+field: id — id / key, required, default auto — unique — The unique identifier [fields.entries.0]
+field: productId — id / key, required — must reference a Product row — The Product this document belongs to [fields.entries.1]
+field: solutionId — id / key, optional — must reference a Solution of the same Product when set — The Solution this document describes. Null means it is about the whole Product — a system-interaction map spans several Solutions, an API contract belongs to one [fields.entries.2]
+field: kind — list, required, default systemInteraction — one of: systemInteraction / componentMap / apiContract / eventFlow / infrastructure — What sort of picture this is [fields.entries.3]
+field: name — text, required — not empty; unique per (product, kind) — What the document is called. Regenerating the same name replaces it rather than leaving two [fields.entries.4]
+field: content — text, required — must be valid in its declared format — checked before storing, never after — The diagram source [fields.entries.5]
+field: format — list, required, default mermaid — one of: mermaid / plantuml / jsonGraph — The notation the content is written in [fields.entries.6]
+field: createdAt — date, required, default now — When the document was first stored [fields.entries.7]
+field: updatedAt — date, required, default now — updated on every change — When it last changed [fields.entries.8]
+rel: productId — many-to-one to Product.id (FK_ArchitectureDoc_Product) [relationships.entries.0]
+rel: solutionId — many-to-one to Solution.id (FK_ArchitectureDoc_Solution) [relationships.entries.1]
+index: productId [lookupsAndPerformance.answer.0]
+index: solutionId [lookupsAndPerformance.answer.1]
+index: kind [lookupsAndPerformance.answer.2]
+retention: Until the document or its Product is deleted. Deleting a Solution only unlinks its documents — an architecture document usually outlives the Solution it was drawn for, and is often the only record of why the thing was shaped that way. [lifecycleAndRules.retention]
+sensitive: No. [lifecycleAndRules.sensitiveFields]
+invariant: The content is valid in its declared format, checked before it is stored and never after. A diagram that does not render is worse than no diagram: it looks like documentation, so the gap stops being visible and nobody writes the real thing. A document about a Solution names a Solution of its own Product. [lifecycleAndRules.invariants]
+> The brief's change rounds record why the model changed; the fields above are
+> its answers as they stand, and the rounds are not restated.
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — ArchitectureDoc (database model)
 
 > Produced by `/translate` from [`../../Swarmdb/ArchitectureDoc-model.json`](../../Swarmdb/ArchitectureDoc-model.json). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 

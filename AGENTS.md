@@ -22,7 +22,7 @@ forms, the worked example, the documentation — is in its own repository.
 
 `application/ai-only/` is the AI's workspace for this app. Build from the
 approved spec at `application/ai-only/<solution>/<item>.md`, take project-wide
-constraints from the Project Digest in `application/ai-only/Project_system.md`,
+constraints from the Project Digest in `application/ai-only/Project_digest.md`,
 and append your round report to the item's spec.
 
 ## House rules, as this project defines them

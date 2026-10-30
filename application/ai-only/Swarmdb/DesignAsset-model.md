@@ -1,4 +1,36 @@
-# Page Spec — DesignAsset (database model)
+---
+spec: model
+from: Swarmdb/DesignAsset-model.json
+deliverable:
+depends-on: [Swarmdb/Product-model.json]
+---
+objective: Something the design work actually produced — a token set, a user flow, a component diagram, a wireframe, or brand guidelines. The design strategy says what the design should be; an asset is the thing itself. [whatThisModelIs]
+field: id — id / key, required, default auto — unique — The unique identifier [fields.entries.0]
+field: productId — id / key, required — must reference a Product row — The Product this asset belongs to [fields.entries.1]
+field: kind — list, required, default tokens — one of: tokens / uiFlow / componentDiagram / wireframe / brandGuidelines — What sort of artefact this is. The kind decides the format — see below [fields.entries.2]
+field: name — text, required — not empty; unique per (product, kind) — What this artefact is called. Regenerating the same name replaces it rather than leaving two [fields.entries.3]
+field: content — text, required — must parse as JSON when the kind is tokens; must start with a Mermaid diagram type when the kind is uiFlow or componentDiagram — The artefact itself [fields.entries.4]
+field: format — list, required, default markdown — one of: json / mermaid / markdown; decided by the kind, never by the caller — How the content should be read [fields.entries.5]
+field: figmaFileKey — text, optional — Set once this asset has been pushed into a Figma file [fields.entries.6]
+field: figmaNodeId — text, optional — Where in that file it landed, when known [fields.entries.7]
+field: createdAt — date, required, default now — When the asset was first stored [fields.entries.8]
+field: updatedAt — date, required, default now — updated on every change — When it last changed [fields.entries.9]
+rel: productId — many-to-one to Product.id (FK_DesignAsset_Product) [relationships.entries.0]
+index: productId [lookupsAndPerformance.answer.0]
+index: kind [lookupsAndPerformance.answer.1]
+retention: Until the asset or its Product is deleted. Regenerating an asset of the same name replaces it in place. [lifecycleAndRules.retention]
+sensitive: No. The Figma token that pushes these lives in the operating system's credential store and never touches this table. [lifecycleAndRules.sensitiveFields]
+invariant: The kind decides the format, not whoever called save. A token set must parse as JSON and a flow must start with a Mermaid diagram type, because everything downstream — the emitted file, the Figma push — assumes it. Recording where an asset landed in Figma never changes the asset's content: pushing does not modify the thing, it records that a copy exists elsewhere. [lifecycleAndRules.invariants]
+> The brief's change rounds record why the model changed; the fields above are
+> its answers as they stand, and the rounds are not restated.
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — DesignAsset (database model)
 
 > Produced by `/translate` from [`../../Swarmdb/DesignAsset-model.json`](../../Swarmdb/DesignAsset-model.json). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 

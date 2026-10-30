@@ -1,4 +1,36 @@
-# Page Spec — QA Test Designer
+---
+spec: page
+from: Swarm/qaTestDesigner.md
+deliverable:
+depends-on: ["workItemPolicy.md", "Swarmdb/TestCase-model.json"]
+---
+objective: let QA design tests around work items — plain-English scenarios on a work item that the AI can implement as real tests, within the item's AI policy; the Test environment's main page [why-exists]
+model: mid-range model, medium effort [model-and-effort]
+action: QA picks a work item and sees its test scenarios [actions]
+action: QA adds a scenario in plain English; given / when / then is fine but not required [actions]
+action: QA edits or removes a scenario [actions]
+action: QA asks the AI to implement a scenario as a real test — only if the work item's policy permits generating tests [actions]
+action: QA sees which scenarios are implemented and which are design-only [actions]
+look: in Test — work items on the left, the selected item's scenarios as a list on the right, each showing designed or implemented; Test's tab colour as accent [look]
+info: test scenarios per work item — description, state, and where the implemented test lives [information]
+access: anyone using the app — single-user, no login [who-can-use]
+store: per scenario — the plain-English text, its state (designed or implemented), and the implemented test's file path [data-stored]
+UNKNOWN: are scenarios stored as test work items linked to their parent, or as their own model? The brief left it to build time, and this item depends on the TestCase model [data-stored, Swarmdb/TestCase-model.json#whatThisModelIs]
+store: the scenario being written, in memory only [in-memory]
+check: C1 adding a scenario to a work item saves it, and it survives a restart [tests]
+check: C2 the AI "implement" action is blocked when the item's policy denies generating tests [tests]
+check: C3 an implemented scenario shows where its test file lives [tests]
+limit: AI implementation goes through the same single policy-checked AI call path as everything else [limits]
+> The brief's Part 4 change rounds have no question ID to cite, so what they
+> add beyond the answers above is not translated here. Read them in the brief.
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — QA Test Designer
 
 > Produced by `/translate` from [`../../Swarm/qaTestDesigner.md`](../../Swarm/qaTestDesigner.md). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 

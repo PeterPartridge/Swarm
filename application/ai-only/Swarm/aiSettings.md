@@ -1,4 +1,39 @@
-# Page Spec — AI Settings
+---
+spec: page
+from: Swarm/aiSettings.md
+deliverable:
+depends-on: ["workspaceShell.md", "Swarmdb/AIProvider-model.json"]
+---
+objective: let developers connect the app to AI providers — add one (Claude first, others pluggable) with its API endpoint and key, and choose which models to use [why-exists]
+model: most capable model, high effort — security-sensitive [model-and-effort]
+action: a developer adds a provider with a name, API base URL and API key [actions]
+action: a developer sees the configured providers, never their key values [actions]
+action: a developer picks which models a provider offers to the rest of the app [actions]
+action: a developer tests a provider's connection [actions]
+action: a developer replaces or removes a provider's key [actions]
+look: a settings screen in Develop — one card per provider with its name, URL and models; the key shown only as "stored" or "not stored" [look]
+info: provider name, API base URL and its models [information]
+info: the API key — collected once, then only stored or not stored is shown [information]
+access: anyone using the app — single-user, no login [who-can-use]
+store: provider details with a key alias only — Swarmdb/AIProvider-model.json [data-stored]
+store: the key value goes to the OS credential store through a keyring plugin, under that alias — never the database, config, code or logs [data-stored]
+must: the key value exists only during entry, until it is handed to the credential store, then it is discarded [in-memory]
+check: C1 adding a provider stores its details in the database and its key in the OS credential store [tests]
+check: C2 the key value never appears in the database file, app logs, or the UI after entry [tests]
+check: C3 removing a provider removes its key from the credential store [tests]
+check: C4 test-connection reports success against a valid provider and a clear error against a wrong URL or key [tests]
+limit: Linux without a Secret Service needs a documented fallback — an encrypted local file, never plaintext [limits]
+uses: Swarmdb AIProvider model [data-stored]
+> The brief's Part 4 change rounds have no question ID to cite, so what they
+> add beyond the answers above is not translated here. Read them in the brief.
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — AI Settings
 
 > Produced by `/translate` from [`../../Swarm/aiSettings.md`](../../Swarm/aiSettings.md). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 
