@@ -413,6 +413,16 @@ No item's work fits a deliverable: this is the framework's own upkeep.
   `brief-lint`, `code-map-lint` and `round-record-lint` pass. No code changed,
   so the cargo and npm gates were not run.
 
+**2026-10-30 — CI's Rust job made to pass again (PR #19).**
+
+- **Why it failed:** PR #18 merged the first half of Extensions Round 2 step 3
+  — `store`, `fetch::read_code` and `approval_matches` — before Install calls
+  them. With `-D warnings` the ten unused items failed clippy on `main`, and so
+  on every PR, this docs-only one included.
+- **The fix:** `#[allow(dead_code)]` on `approval_matches` and `read_code`, and
+  on the `store` module, each saying Install reaches it in the second half of
+  step 3. The same pattern `mcp/decide.rs` uses. No behaviour changed.
+
 ### What I could not do (and what you would need to tell me)
 - I could not dynamically test the CI/CD pipeline or linter tools (`node tools/code-map-lint.mjs`) directly because those require a Node.js environment or GitHub Actions to run, and my task was scoped purely to documentation edits. 
 
@@ -621,6 +631,11 @@ No item's work fits a deliverable: this is the framework's own upkeep.
   - `mcpServer`: is the call log kept in the database or only in memory?
 - **AGENTS.md and GEMINI.md were not regenerated.** Only the one wrong line
   changed. `/emit-guardrails` now builds from `Project_digest.md`.
+
+**2026-10-30 — CI's Rust job.**
+
+- **The cargo gates were not run on this machine.** It has no MSVC linker,
+  so cargo cannot build. CI's Rust job is the check.
 
 ### Debt I left behind
 - I entirely neglected to append this round record upon completing my task, breaking the project's framework rules. I failed to automatically register my completed work, missing debt, and open questions into this file. This was a process failure on my end.
@@ -991,3 +1006,10 @@ No item's work fits a deliverable: this is the framework's own upkeep.
 - **`qa/regression.md` and `qa/signoff.md` are blank forms**, with the form's
   placeholder rows. Nobody has said how they relate to the existing
   `Manual_check.md`.
+
+**2026-10-30 — CI's Rust job.**
+
+- **Three `dead_code` allows wait on Install.** When the second half of
+  Extensions Round 2 step 3 wires download and storage into Install, remove
+  the allows on `extensions::approval_matches`, `fetch::read_code` and the
+  `store` module, or clippy will not notice if any of them stops being used.
