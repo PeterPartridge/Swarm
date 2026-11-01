@@ -1,4 +1,46 @@
-# Page Spec — Marketing & Design
+---
+spec: page
+from: Swarm/marketingDesign.md
+deliverable:
+depends-on: []
+---
+objective: keep taking a Product to market, and deciding how it looks, in the workspace beside the planning and code [why-exists]
+objective: Marketing works out audience, positioning, pricing and launch; Design works out branding, tokens, flows and components, producing artefacts a designer or developer can use [why-exists]
+model: whatever the Product's AI policy says — no budget or provider of its own [model-and-effort]
+action: Product or Marketing writes a brief and the AI drafts a marketing strategy from what the Product actually is [actions]
+action: Product or Design writes a brief and the AI drafts a design direction, plus design tokens, user flows and a component inventory [actions]
+action: Design connects a Figma account, points at a file, and the AI reads it before designing [actions]
+action: Design writes the design artefacts out as files under design/ [actions]
+action: Design pushes design tokens into Figma as variables where the plan allows, and posts an artefact onto a Figma file as a comment [actions]
+look: two screens in the Product workspace beside Planning and RoadMap, each able to pop out [look]
+look: a brief box, a Figma panel, a generate button, and on Design the assets listed with their contents visible [look]
+info: the marketing and design strategy documents [information]
+info: design assets — token sets, user flows, component diagrams, wireframes, brand guidelines [information]
+info: whether a Figma account is connected, and a summary of any linked file [information]
+info: a Figma personal access token, kept only in the OS credential store [information, data-stored]
+access: anyone using the app — single-user, no login [who-can-use]
+store: strategy documents — Swarmdb/Strategy-model.json, areas marketing and design [data-stored]
+store: design assets — Swarmdb/DesignAsset-model.json [data-stored]
+store: the brief being typed, the Figma file reference and the digest of the last file read, in memory only [in-memory]
+check: C1 a marketing strategy uses the Product's own description and invents no features [tests]
+check: C2 a design direction produces tokens that parse as JSON and flows that parse as Mermaid [tests]
+check: C3 a Figma file is reduced to a digest before it reaches an AI, and the digest says when it is partial [tests]
+check: C4 a token push the Figma plan forbids says it is the plan, and names the file export as the way through [tests]
+check: C5 the file export writes the path that explanation names [tests]
+limit: Figma's REST API cannot create frames, components or layouts on any plan; tokens can be written as variables only on Enterprise; reading files and posting comments work everywhere [limits]
+limit: a design file can be megabytes, so it is summarised before it nears a prompt [limits]
+uses: Swarmdb Strategy and DesignAsset models [data-stored]
+UNKNOWN: the brief has no front matter; what are its status, deliverable and depends-on? [why-exists]
+> The brief's Part 4 change rounds have no question ID to cite, so what they
+> add beyond the answers above is not translated here. Read them in the brief.
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — Marketing & Design
 
 > Produced by `/translate` from [`../../Swarm/marketingDesign.md`](../../Swarm/marketingDesign.md). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 

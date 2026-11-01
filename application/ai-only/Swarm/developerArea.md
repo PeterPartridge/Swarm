@@ -1,4 +1,35 @@
-# Page Spec — Developer Area
+---
+spec: page
+from: Swarm/developerArea.md
+deliverable:
+depends-on: ["workspaceShell.md", "Swarmdb/TeamMember-model.json"]
+---
+objective: set the team up in one place — Develop's Developer Area holds the team members, name and role, that Planning assigns work to; names, not accounts [why-exists]
+model: cheapest model, low effort [model-and-effort]
+action: a developer adds a team member with a name and a role — Developer, QA, Product or Designer [actions]
+action: a developer sees the team list [actions]
+action: a developer removes a team member; their work items become unassigned [actions]
+look: a simple team list card in Develop — one row per member with name and role, an add form above; Develop's tab colour as accent [look]
+info: team member names and roles only — no contact details, no credentials [information]
+access: anyone using the app — single-user, no login [who-can-use]
+store: team members — Swarmdb/TeamMember-model.json [data-stored]
+store: the add form's unsaved input, in memory only [in-memory]
+check: C1 adding a member with a name and role lists them, and they survive a restart [tests]
+check: C2 duplicate names are rejected [tests]
+check: C3 removing a member clears them from their work items without deleting the items [tests]
+limit: none [limits]
+uses: Swarmdb TeamMember model [data-stored]
+UNKNOWN: the answers above still describe a team list in Develop, but team members and roles are managed in Admin; does this page still hold the team, and what is it for now? [why-exists, actions, Swarm/adminArea.md#actions]
+> The brief's Part 4 change rounds have no question ID to cite, so what they
+> add beyond the answers above is not translated here. Read them in the brief.
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — Developer Area
 
 > Produced by `/translate` from [`../../Swarm/developerArea.md`](../../Swarm/developerArea.md). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 

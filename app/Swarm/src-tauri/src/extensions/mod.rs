@@ -16,6 +16,7 @@ pub mod store;
 /// on the review screen. If the source asks for something different by the
 /// time Install runs (it is read again), the person has not seen what is being
 /// installed, so it is refused and they review it again.
+#[allow(dead_code)] // Reached by Install in the second half of Round 2 step 3.
 pub fn approval_matches(asked: &[catalogue::PermissionOffer], approved: &[String]) -> Result<(), String> {
     let mut asked: Vec<&str> = asked.iter().map(|p| p.id.as_str()).collect();
     let mut approved: Vec<&str> = approved.iter().map(String::as_str).collect();

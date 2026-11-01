@@ -1,4 +1,34 @@
-# Page Spec — Work Item AI Policy
+---
+spec: page
+from: Swarm/workItemPolicy.md
+deliverable:
+depends-on: ["productPlanning.md", "aiSettings.md", "Swarmdb/WorkItemPolicy-model.json"]
+---
+objective: let developers decide how the AI may use each work item — what it may do (read it, edit code for it, generate tests for it), which provider, at what effort; nothing is allowed unless the policy says so [why-exists]
+model: most capable model, high effort — security-sensitive [model-and-effort]
+action: a developer opens a work item's AI policy from the work item [actions]
+action: a developer allows or denies each AI use — read the item, edit code for it, generate tests for it [actions]
+action: a developer picks which configured provider and effort tier the item may use [actions]
+action: a developer sees at a glance which items have no policy yet, so the AI can do nothing with them [actions]
+look: a small panel in Develop attached to a work item — allow and deny switches, a provider picker and an effort picker; minimal [look]
+info: per work item — each AI use allowed or denied, the allowed provider and the effort tier [information]
+access: anyone using the app — single-user, no login [who-can-use]
+store: one policy per work item — Swarmdb/WorkItemPolicy-model.json [data-stored]
+store: nothing in memory [in-memory]
+check: C1 with no policy, every AI action against the item is blocked [tests]
+check: C2 denying read stops the item's content ever reaching a provider [tests]
+check: C3 the item may use only the provider its policy names; a call through any other is blocked [tests]
+check: C4 policy changes take effect on the next AI call [tests]
+limit: the policy check sits in the one code path every AI call passes through, with no way around it [limits]
+uses: Swarmdb WorkItemPolicy model [data-stored]
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — Work Item AI Policy
 
 > Produced by `/translate` from [`../../Swarm/workItemPolicy.md`](../../Swarm/workItemPolicy.md). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 

@@ -1,0 +1,226 @@
+{
+  "purpose": "Named presets a solution spec can adopt instead of hand-writing everything: scaffold presets (file layout, tests, commands) and security baselines (the rules a solution must obey).",
+  "howToUse": "In your solution spec's scaffold block, set boilerplate.answer to a scaffold preset name; in its security block, set baseline.answer to a security baseline name. Scaffold fields you fill in yourself override the preset. Security rules you add are ADDITIONS — they can never weaken the baseline. Versions are pinned in each preset so scaffolding is deliberate — update them here to move; if a preset doesn't pin something, the AI uses the latest stable release and records the exact version in its report-back. These are starting points — edit this file or add your own to match how your team really works.",
+  "securityBaselines": {
+    "website-baseline": {
+      "solutionType": "website",
+      "rules": [
+        "HTTPS only — the site is served over HTTPS and never links to or loads plain-HTTP content.",
+        "No secrets in code or in the browser bundle — anything shipped to the browser is public; the front end may only hold non-secret settings (like the API's URL) referenced by name.",
+        "Never log, display, or store credentials or tokens in plain text (including console logs and error reports).",
+        "All user input is treated as untrusted — rely on the framework's escaping; never build HTML from raw input.",
+        "Auth tokens are sent only to this project's own API, over HTTPS, and never appear in URLs.",
+        "Dependencies are installed from the lockfile; new dependencies are named in the plan for approval."
+      ]
+    },
+    "api-baseline": {
+      "solutionType": "api",
+      "rules": [
+        "HTTPS only — plain-HTTP requests are rejected or redirected, never served.",
+        "No secrets in code, config, or logs — settings are referenced by name from the infrastructure settings list.",
+        "Every endpoint requires authentication unless the endpoint brief explicitly says it is public.",
+        "Every operation enforces the roles/claims its endpoint brief declares — deny by default.",
+        "All input is validated before use; requests that fail validation get a 4xx, not a crash.",
+        "Error responses are generic — no stack traces, no internal details, and no hint whether a username or password was the wrong half of a login.",
+        "CORS is restricted to the project's own front-end origins — never a wildcard with credentials.",
+        "Dependencies are installed from the lockfile; new dependencies are named in the plan for approval."
+      ]
+    },
+    "database-baseline": {
+      "solutionType": "database",
+      "rules": [
+        "Connections are encrypted in transit (TLS); unencrypted connections are refused.",
+        "Data is encrypted at rest where the engine supports it.",
+        "No credentials in code — applications connect using named settings from their infrastructure settings list.",
+        "Least privilege — application accounts can read/write their own data only; they are never database admins.",
+        "All access from application code uses parameterised queries — never SQL built from strings.",
+        "Fields marked sensitive in a database-model brief are stored hashed or encrypted, exactly as the brief says."
+      ]
+    },
+    "embedded-database-baseline": {
+      "solutionType": "database",
+      "description": "For a database engine embedded in the application process (e.g. SQLite, Turso/libSQL, DuckDB) rather than reached over a network.",
+      "rules": [
+        "The database file lives inside the application's own data directory — never a world-readable or shared location.",
+        "Data marked sensitive in a database-model brief is encrypted at rest, using the embedded engine's own encryption if it has one.",
+        "No credentials hard-coded — if the engine supports an at-rest encryption key, it is a named setting, never a literal in code.",
+        "All access from application code uses parameterised queries — never SQL built from strings.",
+        "The application opens the database with the least privilege the engine allows for normal operation (no elevated/admin mode)."
+      ]
+    },
+    "application-baseline": {
+      "solutionType": "application",
+      "description": "For a standalone executable (CLI, TUI, or desktop GUI) rather than a hosted website or API.",
+      "rules": [
+        "No secrets in code or config — settings are referenced by name from the infrastructure settings list, never hard-coded.",
+        "All file paths built from user input are validated — no path traversal outside the application's own data directories.",
+        "Any network calls the application makes use HTTPS only.",
+        "Untrusted input (opened files, pasted content, dragged-in items, CLI arguments) is never executed or interpreted as code.",
+        "Unsafe code (Rust `unsafe` blocks) is avoided; where required, it is isolated, documented with the invariant it relies on, and called out in the plan for approval.",
+        "Dependencies are installed from the lockfile (Cargo.lock); new dependencies are named in the plan for approval.",
+        "Crash reports and logs never include user data or secrets."
+      ]
+    }
+  },
+  "boilerplates": {
+    "react-vite": {
+      "solutionType": "website",
+      "description": "TypeScript + React on Vite, tested with Vitest + React Testing Library. Works with Tailwind or plain CSS.",
+      "versions": { "node": "22 LTS", "typescript": "5", "react": "19", "vite": "6", "vitest": "3" },
+      "fileLayout": [
+        "src/pages/ — one file per page, named after the page brief (CamelCase)",
+        "src/components/ — shared UI components",
+        "src/lib/ — shared helpers (apiClient, auth)",
+        "src/pages/__tests__/ and src/lib/__tests__/ — tests beside what they test",
+        "public/ — static assets",
+        "index.html, vite.config.ts, tsconfig.json — project config"
+      ],
+      "testing": {
+        "framework": "Vitest + React Testing Library",
+        "kinds": "Unit tests for lib helpers and components; per page, one test for each check in the page brief's tests answer."
+      },
+      "commands": {
+        "install": "npm install",
+        "run": "npm run dev",
+        "build": "npm run build",
+        "test": "npm test"
+      }
+    },
+    "go-azure-functions": {
+      "solutionType": "api",
+      "description": "Go HTTP handlers hosted on Azure Functions (custom handler), table-driven tests with the standard library.",
+      "versions": { "go": "1.24", "azureFunctionsCoreTools": "4" },
+      "fileLayout": [
+        "cmd/api/main.go — entry point and router",
+        "internal/handlers/ — one file per resource, matching the endpoint briefs",
+        "internal/auth/ — JWT validation and role checks",
+        "internal/models/ — request/response structs",
+        "internal/handlers/*_test.go — table-driven tests beside each handler",
+        "host.json, local.settings.json — Azure Functions config"
+      ],
+      "testing": {
+        "framework": "Go standard testing package",
+        "kinds": "Table-driven tests per handler: happy path, auth required, wrong role — one case per operation in the endpoint brief."
+      },
+      "commands": {
+        "install": "go mod tidy",
+        "run": "func start",
+        "build": "go build ./...",
+        "test": "go test ./..."
+      }
+    },
+    "dotnet-webapi": {
+      "solutionType": "api",
+      "description": "C# ASP.NET Core Web API tested with xUnit and WebApplicationFactory.",
+      "versions": { "dotnet": "8.0 LTS", "xunit": "2" },
+      "fileLayout": [
+        "src/<Solution>.Api/Controllers/ — one controller per resource, matching the endpoint briefs",
+        "src/<Solution>.Api/Services/ — business logic behind the controllers",
+        "src/<Solution>.Api/Models/ — request/response and data models",
+        "tests/<Solution>.Tests/ — xUnit tests mirroring the src layout"
+      ],
+      "testing": {
+        "framework": "xUnit + WebApplicationFactory",
+        "kinds": "Integration test per endpoint operation (status codes, auth, roles) plus unit tests for services."
+      },
+      "commands": {
+        "install": "dotnet restore",
+        "run": "dotnet run --project src",
+        "build": "dotnet build",
+        "test": "dotnet test"
+      }
+    },
+    "rust-cli-app": {
+      "solutionType": "application",
+      "description": "Rust built as a single native executable (CLI/TUI/desktop) with a plain `cargo new` layout — no GUI webview. For a real windowed GUI (a webview-based UI, e.g. Tauri), use tauri-desktop-app instead; that has a materially different required project layout, not just a different UI folder.",
+      "versions": { "rust": "stable (latest)", "edition": "2021" },
+      "fileLayout": [
+        "src/main.rs — entry point",
+        "src/commands/ — one file per CLI command or terminal action",
+        "src/ui/ — UI/rendering code, in whichever text-mode toolkit the spec names (e.g. ratatui)",
+        "src/db/ — embedded database access, if the solution has one",
+        "tests/ — integration tests; unit tests live beside their module with #[cfg(test)]",
+        "Cargo.toml, Cargo.lock — project manifest and pinned dependencies"
+      ],
+      "testing": {
+        "framework": "Rust's built-in test framework (cargo test)",
+        "kinds": "TDD per the project's dev-rules: a failing test before each new function. Unit tests beside each module; integration tests in tests/ per command or user action from the brief."
+      },
+      "commands": {
+        "install": "cargo fetch",
+        "run": "cargo run",
+        "build": "cargo build --release",
+        "test": "cargo test"
+      }
+    },
+    "tauri-desktop-app": {
+      "solutionType": "application",
+      "description": "A real windowed desktop GUI: a Rust backend (src-tauri/) driving a native window around a web-based frontend (HTML/CSS/JS), via Tauri. Use this — not rust-cli-app — whenever the brief describes an actual window/canvas/drag-and-drop UI rather than a pure terminal tool. An in-app terminal (real shell or otherwise) is a feature rendered inside this same window, not a separate console.",
+      "versions": { "rust": "stable (latest)", "edition": "2021", "tauri": "2 (pin the exact crate version used in Cargo.toml at scaffold time)", "node": "22 LTS (frontend tooling only — not a runtime dependency of the shipped app)", "typescript": "5", "react": "19", "vite": "6", "vitest": "3" },
+      "fileLayout": [
+        "src-tauri/Cargo.toml, src-tauri/tauri.conf.json, src-tauri/build.rs — the Tauri backend manifest and config",
+        "src-tauri/src/main.rs — backend entry point; registers Tauri commands the frontend calls",
+        "src-tauri/src/commands/ — one file per Tauri command (backend logic invoked from the frontend)",
+        "src-tauri/src/db/ — embedded database access, if the solution has one",
+        "src-tauri/src/terminal/ — the embedded shell/PTY integration, if the brief calls for a real terminal",
+        "src-tauri/tests/ — integration tests; unit tests live beside their module with #[cfg(test)]",
+        "src/ — the React + TypeScript frontend (Vite)",
+        "src/pages/ — one component per page/screen brief",
+        "src/components/ — shared UI components",
+        "src/lib/ — shared frontend logic (Tauri command wrappers, theming)",
+        "src/pages/__tests__/ — Vitest tests mirroring src/pages/",
+        "package.json, vite.config.ts, tsconfig.json — frontend dependencies, build, and TypeScript config"
+      ],
+      "testing": {
+        "framework": "Rust's built-in test framework (cargo test) for src-tauri/; Vitest for the React frontend",
+        "kinds": "TDD per the project's dev-rules for backend commands: a failing test before each new function. Frontend component tests per screen brief (render, interaction, state) with Vitest."
+      },
+      "commands": {
+        "install": "cargo fetch (in src-tauri/) and npm install (frontend)",
+        "run": "npm run tauri dev — or cargo run from src-tauri/ if only the backend is being exercised",
+        "build": "npm run tauri build — produces platform-specific release binaries",
+        "test": "cargo test (from src-tauri/) and npm test (Vitest, frontend)"
+      }
+    },
+    "sql-server-database-project": {
+      "solutionType": "database",
+      "description": "SQL Server database project (DACPAC) — one .sql file per table, deployed with sqlpackage.",
+      "versions": { "sqlServerTarget": "2022", "dotnetSdk": "8.0 (Microsoft.Build.Sql)" },
+      "fileLayout": [
+        "Tables/ — one CREATE TABLE .sql per database-model brief",
+        "StoredProcedures/ — one .sql per procedure, if any",
+        "Scripts/ — post-deployment seeds and reference data",
+        "<Solution>.sqlproj — the database project file"
+      ],
+      "testing": {
+        "framework": "tSQLt (or plain verification scripts if tSQLt is unavailable)",
+        "kinds": "Per model: uniqueness, nullability, defaults, and relationship constraints from the database-model brief."
+      },
+      "commands": {
+        "install": "",
+        "build": "dotnet build",
+        "deploy": "sqlpackage /Action:Publish",
+        "test": "run the tSQLt test classes"
+      }
+    },
+    "turso-embedded": {
+      "solutionType": "database",
+      "description": "Turso (libSQL) opened as a local embedded file from the host application — no separate database server or connection string over the network.",
+      "versions": { "turso-crate": "latest stable — pin the exact version used in Cargo.toml at scaffold time" },
+      "fileLayout": [
+        "src/db/schema.rs (or migrations/) — one migration per database-model brief",
+        "src/db/queries.rs — parameterised queries, grouped by model",
+        "tests/db/ — one test module per database-model brief: uniqueness, nullability, relationships"
+      ],
+      "testing": {
+        "framework": "Rust's built-in test framework (cargo test), against a temporary database file per test run",
+        "kinds": "Per model: uniqueness, nullability, defaults, and relationship constraints from the database-model brief."
+      },
+      "commands": {
+        "install": "cargo fetch",
+        "build": "cargo build --release",
+        "test": "cargo test --lib db"
+      }
+    }
+  }
+}

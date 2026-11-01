@@ -1,4 +1,30 @@
-# Page Spec — Creation Page
+---
+spec: page
+from: Swarm/Creation Page.md
+deliverable:
+depends-on: ["SolutionManagement.md"]
+---
+objective: a page to create a solution [why-exists]
+model: high effort [model-and-effort]
+UNKNOWN: which model tier? The brief gives only "High" [model-and-effort]
+action: create a solution [actions]
+look: a desktop page with a box in the centre showing a drop-down of solution types [look]
+look: choosing a type opens a form whose goal is creating and filling in the required files in the templates folder [look]
+info: everything needed to create a set of files the AI can turn into instructions to create the project [information]
+access: anyone using the app — single-user, no login [who-can-use]
+store: all files go in a .Swarm folder [data-stored]
+store: all answers, in memory while the page is open [in-memory]
+check: C1 a project with 3 AI endpoints and 1 database file is created [tests]
+UNKNOWN: what is an "AI endpoint" in this check — an endpoint brief, or something else? [tests]
+limit: none [limits]
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — Creation Page
 
 > Produced by `/translate` from [`../../Swarm/Creation Page.md`](../../Swarm/Creation%20Page.md). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 

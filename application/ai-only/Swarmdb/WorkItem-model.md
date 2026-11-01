@@ -1,4 +1,49 @@
-# Page Spec — WorkItem (database model)
+---
+spec: model
+from: Swarmdb/WorkItem-model.json
+deliverable:
+depends-on: [Swarmdb/Product-model.json, Swarmdb/TeamMember-model.json, Swarmdb/Sprint-model.json]
+---
+objective: A unit of planned work on a Product's planning board — an epic, feature, user story, task, bug, or test — arranged in a hierarchy, optionally assigned to a team member and scheduled into a sprint or dates. [whatThisModelIs]
+field: id — id / key, required, default auto — unique — The unique identifier [fields.entries.0]
+field: title — text, required — not empty — Short title of the work item [fields.entries.1]
+field: itemType — list, required, default feature — one of: epic / feature / userStory / task / bug / test — What kind of work item this is. epic/feature/userStory/task form the planning hierarchy (which levels exist comes from the planningHierarchy setting); bug and test may attach at any level [fields.entries.2]
+field: status — list, required, default planned — one of: planned / designing / building / testing / done — Where the item is in the workflow [fields.entries.3]
+field: description — text, optional — Plain-English description of the work [fields.entries.4]
+field: productId — id / key, required — must reference a Product row — The Product this work belongs to [fields.entries.5]
+field: parentItemId — id / key, optional — must reference a WorkItem row when set; a hierarchy child's type must sit deeper in the active planning hierarchy than its parent's type (bug/test attach anywhere) — The parent work item [fields.entries.6]
+field: assigneeId — id / key, optional — must reference a TeamMember row when set — The team member the work is assigned to [fields.entries.7]
+field: sprintId — id / key, optional — must reference a Sprint row of the same Product when set — The sprint the item is scheduled into [fields.entries.8]
+field: startDate — date, optional — Optional start date — teams that don't set times leave this empty [fields.entries.9]
+field: endDate — date, optional — must not be before startDate when both are set — Optional target date [fields.entries.10]
+field: risk — text, required — What could go wrong with this piece of work, in the planner's own words. Free text on purpose — a risk that has to be picked from a dropdown is a risk nobody writes down [fields.entries.11]
+field: solutionId — id / key, optional — must reference a Solution of the same Product when set — The Solution this work touches, and so the repository it lands in. Nullable because plenty of work is not code [fields.entries.12]
+field: createdAt — date, required, default now — When the item was created [fields.entries.13]
+field: updatedAt — date, required, default now — updated on every change — When the item last changed [fields.entries.14]
+rel: productId — many-to-one to Product.id (FK_WorkItem_Product) [relationships.entries.0]
+rel: parentItemId — many-to-one to WorkItem.id (FK_WorkItem_Parent) [relationships.entries.1]
+rel: assigneeId — many-to-one to TeamMember.id (FK_WorkItem_Assignee) [relationships.entries.2]
+rel: sprintId — many-to-one to Sprint.id (FK_WorkItem_Sprint) [relationships.entries.3]
+rel: solutionId — many-to-one to Solution.id (FK_WorkItem_Solution) [relationships.entries.4]
+index: productId [lookupsAndPerformance.answer.0]
+index: status [lookupsAndPerformance.answer.1]
+index: itemType [lookupsAndPerformance.answer.2]
+index: parentItemId [lookupsAndPerformance.answer.3]
+index: sprintId [lookupsAndPerformance.answer.4]
+index: assigneeId [lookupsAndPerformance.answer.5]
+retention: Until the user deletes the item or its Product. Removing a team member or sprint clears the reference — never deletes the item. [lifecycleAndRules.retention]
+sensitive: No. [lifecycleAndRules.sensitiveFields]
+invariant: A work item always has a title, a type, and a Product. A hierarchy child sits deeper in the active planning hierarchy than its parent (bug/test attach anywhere). A work item with no WorkItemPolicy row is completely closed to AI (deny-by-default). Dates are optional; when both are set, endDate is not before startDate. [lifecycleAndRules.invariants]
+> The brief's change rounds record why the model changed; the fields above are
+> its answers as they stand, and the rounds are not restated.
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — WorkItem (database model)
 
 > Produced by `/translate` from [`../../Swarmdb/WorkItem-model.json`](../../Swarmdb/WorkItem-model.json). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest. **Round 2**: planning attaches to Products, not repositories.
 

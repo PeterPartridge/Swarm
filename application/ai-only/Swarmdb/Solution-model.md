@@ -1,4 +1,35 @@
-# Page Spec — Solution (database model)
+---
+spec: model
+from: Swarmdb/Solution-model.json
+deliverable:
+depends-on: [Swarmdb/Product-model.json]
+---
+objective: A Solution created in the Develop tab — linked to a Product and filled in from the solution-spec questions (what kind of solution, its purpose, hosting, language, frameworks). [whatThisModelIs]
+field: id — id / key, required, default auto — unique — The unique identifier [fields.entries.0]
+field: name — text, required — not empty; unique within its Product — The Solution's name [fields.entries.1]
+field: productId — id / key, required — must reference a Product row — The Product this Solution belongs to [fields.entries.2]
+field: solutionType — list, required, default application — one of: website / api / database / application — What kind of solution it is (same list as the framework's solution spec) [fields.entries.3]
+field: answers — text, required, default {} — valid JSON keyed by solution-spec question ids (purpose, hosting, language, frameworks) — The developer's plain-English solution-spec answers [fields.entries.4]
+field: origin — list, required, default created — one of: created / imported — Whether we created this Solution's repository or imported (linked) an existing one [fields.entries.5]
+field: githubUrl — text, optional — the repository's web URL when one is linked — The GitHub repository linked to this Solution [fields.entries.6]
+field: githubVisibility — list, optional — one of: private / public; unknown (null) for imported repos — Whether the linked repository is private or public [fields.entries.7]
+field: createdAt — date, required, default now — When the Solution was created [fields.entries.8]
+field: updatedAt — date, required, default now — updated on every change — When the Solution last changed [fields.entries.9]
+rel: productId — many-to-one to Product.id (FK_Solution_Product) [relationships.entries.0]
+index: productId [lookupsAndPerformance.answer.0]
+retention: Deleted with its Product, or when the user removes the Solution. [lifecycleAndRules.retention]
+sensitive: No. The GitHub repository URL is not sensitive; the GitHub token that creates repositories is never stored in this table — it lives in the OS credential store, like the AI provider keys. [lifecycleAndRules.sensitiveFields]
+invariant: A Solution always belongs to an existing Product; solutionType stays in its list; answers always parses as JSON; origin is 'created' or 'imported', and githubVisibility (when set) is 'private' or 'public'. [lifecycleAndRules.invariants]
+> The brief's change rounds record why the model changed; the fields above are
+> its answers as they stand, and the rounds are not restated.
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — Solution (database model)
 
 > Produced by `/translate` from [`../../Swarmdb/Solution-model.json`](../../Swarmdb/Solution-model.json). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 

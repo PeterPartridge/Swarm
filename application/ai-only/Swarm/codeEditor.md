@@ -1,4 +1,37 @@
-# Page Spec — Code Editor
+---
+spec: page
+from: Swarm/codeEditor.md
+deliverable:
+depends-on: ["repositoryManagement.md"]
+---
+objective: let developers read and write code in the app — a real code editor over the active repository's files, with a file tree [why-exists]
+model: most capable model, high effort [model-and-effort]
+action: a developer browses the active repository's files in a tree [actions]
+action: a developer opens a file in the editor with syntax highlighting [actions]
+action: a developer edits and saves a file [actions]
+action: a developer keeps several files open in tabs and switches between them [actions]
+look: in Develop — file tree on the left, editor filling the rest, open-file tabs above it; like VS Code but minimal; Develop's tab colour as accent [look]
+info: the active repository's folder and file names [information]
+info: the contents of open files, and whether each has unsaved changes [information]
+access: anyone using the app — single-user, no login [who-can-use]
+store: nothing new in the database — files are read from and written to the repository on disk; the active repository comes from Repository Management [data-stored]
+store: open tabs, unsaved edits and the file tree's expanded state, in memory only [in-memory]
+check: C1 the file tree shows the active repository's files and folders [tests]
+check: C2 opening a file shows its content highlighted for its language [tests]
+check: C3 saving writes the change to disk, verified by reading the file back [tests]
+check: C4 a file with unsaved changes is clearly marked, and switching tabs keeps edits [tests]
+check: C5 files outside the active repository cannot be opened through this page [tests]
+limit: use Monaco, loaded lazily — it is heavy and the app must stay light on low-spec machines [limits]
+limit: very large files open read-only or warn [limits]
+UNKNOWN: how large is "very large", and which — read-only or a warning? [limits]
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — Code Editor
 
 > Produced by `/translate` from [`../../Swarm/codeEditor.md`](../../Swarm/codeEditor.md). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 

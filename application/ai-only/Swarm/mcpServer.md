@@ -1,4 +1,66 @@
-# Page Spec — MCP Server
+---
+spec: page
+from: Swarm/mcpServer.md
+deliverable:
+depends-on: ["adminArea.md", "workItemPolicy.md", "productPlanning.md", "agentSandbox.md"]
+---
+objective: let an AI working elsewhere — Claude Code in a terminal, another editor, a colleague's agent — read this workspace's plan and work to it, instead of being told second-hand [why-exists]
+objective: the source of truth is offered outward on purpose and under control, and here somebody can see and revoke what has been offered [why-exists]
+model: none — the page makes no AI calls; the AI is on the other end of the server [model-and-effort]
+action: Admin turns the server on and off; it is off until switched on, not on because the app runs [actions]
+action: Admin sees the exact configuration another tool needs, to copy, told plainly that copying it hands that tool this access [actions]
+action: Admin chooses what is offered — which Products, and whether anything may be written; reading and writing are separate switches [actions]
+action: Admin sees what has connected and what it asked for, with refusals [actions]
+action: Admin revokes — turns it off or rotates the token — and every connected client stops working at once [actions]
+look: in Admin beside "Where agents run", in the same shape — the state first, the detail underneath [look]
+look: the state line says in words, not a badge, which is true — off, reading only, or reading and writing [look]
+look: the connection details sit under it, collapsed until asked for, because they hold a token [look]
+look: the call log is a plain list — when, which tool, which Product, and "answered" or the refusal; refusals are not styled as errors [look]
+info: whether the server runs and on which port; the token, hidden until revealed; which Products are offered; whether writing is allowed; the recent calls [information]
+access: Admin only, like the rest of Admin; the page repeats that roles gate visibility, not access — this is a setting on the machine, not a permission given to a person [who-can-use]
+store: system setting mcpServer — enabled, port, allowWrite, productIds, tokenAlias; off, no write and no Products by default [data-stored]
+store: the token never goes in the database — it goes to the OS credential store and the setting holds its alias [data-stored]
+store: a call log of a bounded number of recent entries — time, tool name, Product touched, outcome; no arguments and no returned content [data-stored]
+store: the running server handle and the recent call log, in memory only — closing the app forgets the log, on purpose [in-memory]
+UNKNOWN: is the call log kept in the database or only in memory? The answers say both [data-stored, in-memory]
+must: HTTP on loopback, not stdio — the server is the open app holding a locked database, so it cannot be spawned; it listens on 127.0.0.1 and refuses any request not from loopback [how-it-works]
+must: every request carries a bearer token, made when the server is first switched on, kept in the OS credential store, and checkable without a database read [how-it-works]
+op: list_products — the Products offered, and nothing about the others [how-it-works]
+op: list_work_items — work items of an offered Product, with state, kind and what the AI may do with each [how-it-works]
+op: get_work_item — one item in full, with its policy [how-it-works]
+op: read_brief — one page brief as it stands in the repository [how-it-works]
+op: list_solutions — Solutions and where their code lives [how-it-works]
+op: report_progress — write; records that outside work happened against an item, a note and not a state change [how-it-works]
+must: every tool resolves the work item's own AI policy first; an item whose policy does not allow reading is neither returned nor listed as withheld [how-it-works]
+must: report_progress cannot change state, approve a plan or start a run [how-it-works]
+must: the server stops when the app does, when the setting is switched off and when the token is rotated; there is no daemon [how-it-works]
+check: C1 a request with no token and one with a wrong token are refused the same way, without saying which [tests]
+check: C2 a request from a non-loopback address is refused even with the right token [tests]
+check: C3 a work item whose policy forbids reading is absent from list_work_items [tests]
+check: C4 a Product not offered is absent from list_products, and naming its id in another tool is refused [tests]
+check: C5 with allowWrite off, report_progress is refused and nothing is written [tests]
+check: C6 report_progress cannot change a work item's state, approve a plan or start a run — asserted against the database [tests]
+check: C7 switching the server off stops it answering, proved by a call that then fails [tests]
+check: C8 rotating the token makes the previous one fail [tests]
+check: C9 the call log holds no arguments and no returned content [tests]
+check: C10 with the server off — the default — nothing listens on the port [tests]
+limit: a loopback token is not a boundary against the person at the machine; it stops other software stumbling in, and the page does not imply more [limits]
+limit: one token for the machine, not per person, said plainly [limits]
+limit: an outside agent reading the plan is not one following it; connecting an agent does not constrain it [limits]
+limit: rmcp is the dependency this uses; if this is not built it is removed rather than left as a marker [limits]
+UNKNOWN: the limits say rmcp is already a dependency; has it since been removed? [limits]
+limit: a port already in use is a refusal that names the port, not a silent fallback [limits]
+skill: Model Context Protocol servers over HTTP — the page serves the plan to outside agents [how-it-works]
+> The brief's Part 4 change rounds have no question ID to cite, so what they
+> add beyond the answers above is not translated here. Read them in the brief.
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — MCP Server
 
 > Produced by `/translate` from [`../../Swarm/mcpServer.md`](../../Swarm/mcpServer.md). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 

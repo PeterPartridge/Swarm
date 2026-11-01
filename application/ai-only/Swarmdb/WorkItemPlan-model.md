@@ -1,4 +1,40 @@
-# Page Spec — WorkItemPlan (database model)
+---
+spec: model
+from: Swarmdb/WorkItemPlan-model.json
+deliverable:
+depends-on: [Swarmdb/WorkItem-model.json, Swarmdb/Solution-model.json]
+---
+objective: What one work item requires of one Solution it affects: the changes needed there, the tests that must prove them, the branch to work on and the branch it is cut from, any UI pictures — and the API and page schemas the AI generates from all of that. [whatThisModelIs]
+field: id — id / key, required, default auto — unique — The unique identifier [fields.entries.0]
+field: workItemId — id / key, required — must reference a WorkItem row — The work item being planned [fields.entries.1]
+field: solutionId — id / key, required — must reference a Solution of the work item's own Product; unique with workItemId — The Solution this work item affects [fields.entries.2]
+field: changesRequired — text, required — What has to change in this Solution, in the team's own words [fields.entries.3]
+field: unitTests — text, required — What must be proved — written before the thing that proves it [fields.entries.4]
+field: branchName — text, required — The branch this work lands on. Prefilled from the Develop Strategy's naming pattern [fields.entries.5]
+field: cloneFrom — text, required — The branch it is cut from — obvious to whoever set it up, a guess to everyone else. Prefilled from the Develop Strategy [fields.entries.6]
+field: mockups — text, required, default [] — must be a JSON array of file paths — UI pictures for this Solution's part of the work [fields.entries.7]
+field: apiSchema — text, required — written only by generation, never by the form — AI-generated: endpoints, payloads and status codes [fields.entries.8]
+field: pageSchema — text, required — written only by generation, never by the form — AI-generated: pages, their fields, and which endpoints they call [fields.entries.9]
+field: filesToChange — text, required — written only by generation, never by the form — AI-generated: the paths the work is expected to touch [fields.entries.10]
+field: createdAt — date, required, default now — When the Solution was attached to this work item [fields.entries.11]
+field: updatedAt — date, required, default now — updated on every change — When it last changed [fields.entries.12]
+rel: workItemId — many-to-one to WorkItem.id (FK_WorkItemPlan_WorkItem) [relationships.entries.0]
+rel: solutionId — many-to-one to Solution.id (FK_WorkItemPlan_Solution) [relationships.entries.1]
+index: workItemId [lookupsAndPerformance.answer.0]
+index: solutionId [lookupsAndPerformance.answer.1]
+retention: Until the Solution is detached from the work item, or the work item is deleted. [lifecycleAndRules.retention]
+sensitive: No. [lifecycleAndRules.sensitiveFields]
+invariant: One row per (work item, Solution): work touching two repositories needs two sets of changes, branches and tests, and one row each is the only honest shape for that. The written half (changes, tests, branch, mockups) and the generated half (the schemas) are set by separate calls and never overwrite each other in either direction — regenerating schemas must not eat what a person typed, and re-saving a typed field must not blank the schemas. A plan can only name a Solution of the work item's own Product. [lifecycleAndRules.invariants]
+> The brief's change rounds record why the model changed; the fields above are
+> its answers as they stand, and the rounds are not restated.
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — WorkItemPlan (database model)
 
 > Produced by `/translate` from [`../../Swarmdb/WorkItemPlan-model.json`](../../Swarmdb/WorkItemPlan-model.json). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 

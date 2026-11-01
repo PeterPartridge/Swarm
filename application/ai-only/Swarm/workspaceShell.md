@@ -1,4 +1,37 @@
-# Page Spec — Workspace Shell
+---
+spec: page
+from: Swarm/workspaceShell.md
+deliverable:
+depends-on: []
+---
+objective: the app's main window — a top menu of environment tabs, Product, Develop, Test and Admin, each with its own colour; clicking a tab enters that environment, and everything else lives inside one [why-exists]
+model: mid-range model, medium effort [model-and-effort]
+action: anyone clicks the Product, Develop or Test tab to enter that environment [actions]
+action: anyone can always see which environment they are in from the active tab and its colour [actions]
+action: anyone customises the app's colours, including each tab's colour [actions]
+look: minimal; a horizontal menu bar across the top with four tabs — Product, Develop, Test, Admin — each a distinct colour [look]
+look: the active tab's colour accents the environment below it [look]
+look: a "Working as…" picker at the right-hand end of the bar; the rest of the window is the current environment [look]
+info: which environment is active; the user's colour choices [information]
+access: anyone using the app — single-user, no login [who-can-use]
+store: the user's colour choices, a small set of named colours, kept locally across restarts; nothing else — the tabs are fixed [data-stored]
+store: which tab is active, in memory only [in-memory]
+check: C1 the app opens straight into the workspace with the tabs visible — no login screen [tests]
+check: C2 clicking Product, Develop, Test or Admin switches to that environment [tests]
+check: C3 the "Working as…" picker changes which tabs show; choosing nobody shows them all [tests]
+check: C4 each tab shows its own colour, and the active tab is clearly marked [tests]
+check: C5 changing a colour updates the UI and is remembered after a restart [tests]
+limit: stay light — the shell is always loaded; heavy panels such as the editor and terminal load only when their environment needs them [limits]
+> The brief's Part 4 change rounds have no question ID to cite, so what they
+> add beyond the answers above is not translated here. Read them in the brief.
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — Workspace Shell
 
 > Produced by `/translate` from [`../../Swarm/workspaceShell.md`](../../Swarm/workspaceShell.md). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 

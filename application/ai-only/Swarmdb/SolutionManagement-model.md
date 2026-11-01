@@ -1,4 +1,29 @@
-# Page Spec — Solution Management (database model)
+---
+spec: model
+from: Swarmdb/SolutionManagement-model.json
+deliverable:
+depends-on: []
+---
+objective: A solution management model for tracking files and versions [whatThisModelIs]
+field: id — id / key, required, default auto — unique — The unique identifier [fields.entries.0]
+field: Filename — string, required, default auto — string [fields.entries.1]
+field: Filepath — string, required, default auto — string [fields.entries.2]
+field: Version — string, required, default auto — string [fields.entries.3]
+field: CreatedAt — date, required, default auto — date [fields.entries.4]
+field: UpdatedAt — date, required, default auto — date [fields.entries.5]
+index: id [lookupsAndPerformance.answer.0]
+index: Filename [lookupsAndPerformance.answer.1]
+index: Filepath [lookupsAndPerformance.answer.2]
+index: Version [lookupsAndPerformance.answer.3]
+retention: until the file is deleted from the solution, or the solution is deleted. [lifecycleAndRules.retention]
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — Solution Management (database model)
 
 > Produced by `/translate` from [`../../Swarmdb/SolutionManagement-model.json`](../../Swarmdb/SolutionManagement-model.json). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 

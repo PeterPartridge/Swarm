@@ -1,4 +1,34 @@
-# Page Spec — Solution Creation
+---
+spec: page
+from: Swarm/solutionCreation.md
+deliverable:
+depends-on: ["workspaceShell.md", "Swarmdb/Solution-model.json"]
+---
+objective: let developers create a Solution in Develop and link it to a Product, answering the solution-spec questions — kind, purpose, hosting, language, frameworks; the developer-side counterpart of the Product's plan [why-exists]
+model: mid-range model, medium effort [model-and-effort]
+action: a developer creates a Solution with a name, its Product, its type — website, api, database or application — and the core solution questions [actions]
+action: a developer sees existing Solutions grouped by Product [actions]
+action: a developer deletes a Solution [actions]
+look: a "Create a Solution" card in Develop — name, Product drop-down, type drop-down and the question fields; below it the Solutions grouped by Product; Develop's tab colour as accent [look]
+info: Solution name, linked Product, type, and the plain-English answers — purpose, hosting, language, frameworks [information]
+access: anyone using the app — single-user, no login [who-can-use]
+store: Solutions — Swarmdb/Solution-model.json [data-stored]
+store: the form's unsaved answers, in memory only [in-memory]
+check: C1 creating a Solution needs a name, an existing Product and a valid type [tests]
+check: C2 a created Solution appears under its Product and survives a restart [tests]
+check: C3 deleting a Solution leaves the Product and its work items untouched [tests]
+limit: this makes the planning-level Solution record; writing the framework's solution files to disk stays with the Creation Page [limits]
+uses: Swarmdb Solution model [data-stored]
+> The brief's Part 4 change rounds have no question ID to cite, so what they
+> add beyond the answers above is not translated here. Read them in the brief.
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — Solution Creation
 
 > Produced by `/translate` from [`../../Swarm/solutionCreation.md`](../../Swarm/solutionCreation.md). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 

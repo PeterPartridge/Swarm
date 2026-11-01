@@ -1,0 +1,212 @@
+{
+  "form": "application-spec",
+  "solutionName": "",
+  "solutionType": "",
+  "status": "blank",
+  "instructions": {
+    "whoFillsThisIn": "Developers (Product weighs in on look & feel / user interface for website and application solutions).",
+    "when": "Once per solution. This file sits at the root of the solution's folder and defines how the whole solution is built. Each item (page, endpoint, or database-model) is a separate file in the same folder.",
+    "how": "Set solutionType first: website | api | database | application. It tells you which of the fields below apply — each one that isn't relevant to your type says so in its guidance; leave those blank. Answer the rest in plain English, then hand it to your AI using the bridge in ai-only/1-translate-for-ai.md.",
+    "note": "Solution = the folder this file sits in. One form now covers every solution type, replacing what used to be separate Website-spec.json / API-spec.json / Database-spec.json / Application-spec.json files — every solution folder's spec is named application-spec.json, whatever its solutionType."
+  },
+  "core": {
+    "purpose": {
+      "question": "What is the purpose of this solution?",
+      "example": {
+        "website": "The storefront customers use to browse and buy clothes, and to manage their account.",
+        "api": "The single API for all requests from the clothing website.",
+        "database": "Stores every clothing-store data model — accounts, orders, products.",
+        "application": "A desktop tool that lets a small team plan and track work without a server."
+      },
+      "answer": ""
+    },
+    "hosting": {
+      "question": "Where will it be hosted, deployed, or distributed?",
+      "example": {
+        "website": "Azure Static Web Apps, Vercel, Netlify.",
+        "api": "Azure Function App, AWS Lambda, a container.",
+        "database": "Firebase, Azure SQL, Azure Elastic Pool, Azure Cosmos DB — or 'embedded inside <solution>' if it isn't separately hosted.",
+        "application": "A downloadable native executable; no server-side hosting."
+      },
+      "answer": ""
+    },
+    "language": {
+      "question": "What language will it use?",
+      "guidance": "For a database solution, put the database engine here instead.",
+      "example": "TypeScript, Go, C#, Rust — or PostgreSQL, SQLite, Turso for a database.",
+      "answer": ""
+    },
+    "frameworks": {
+      "question": "What frameworks, libraries, or UI toolkit should it use?",
+      "guidance": "Not applicable to most database solutions — leave blank.",
+      "example": "React (website), ratatui/egui/Tauri (application), ASP.NET Core (api).",
+      "answer": ""
+    }
+  },
+  "accessAndInterface": {
+    "guidance": "Who or what is allowed to use this solution, and how they interact with it. Each field says which solutionType it applies to — leave the rest blank.",
+    "authType": {
+      "question": "How does this solution authenticate or authorise callers/users?",
+      "guidance": "Website, API, application. Not applicable to most database solutions — leave blank.",
+      "example": {
+        "website": "JWT returned by the API, stored client-side; roles gate which pages are shown.",
+        "api": "JWT, API keys, OAuth.",
+        "application": "Local roles enforced in-app, no login — or the OS user account."
+      },
+      "answer": ""
+    },
+    "rolesOrClaims": {
+      "question": "Does it authorise by Claims or Roles?",
+      "guidance": "Website, API, application. The roles/claims vocabulary itself is listed in the Project Brief. Not applicable to most database solutions.",
+      "answer": ""
+    },
+    "apisItTalksTo": {
+      "question": "Which API(s) does it talk to?",
+      "guidance": "Website solutions only — name the API solution(s) it calls.",
+      "answer": ""
+    },
+    "lookAndFeel": {
+      "question": "What is the overall look and feel?",
+      "guidance": "Website and application solutions only.",
+      "answer": ""
+    },
+    "stylingOrToolkit": {
+      "question": "What styling approach, component library, or UI toolkit?",
+      "guidance": "Website and application solutions only.",
+      "example": "Tailwind, Material UI (website) — ratatui, egui, Tauri, iced (application).",
+      "answer": ""
+    },
+    "interactionModel": {
+      "question": "How do people interact with it?",
+      "guidance": "Application solutions only.",
+      "example": "Typed commands, mouse drag-and-drop, or both.",
+      "answer": ""
+    },
+    "customisation": {
+      "question": "Any customisation users control?",
+      "guidance": "Application (and sometimes website) solutions.",
+      "example": "Colour themes, layout.",
+      "answer": ""
+    }
+  },
+  "conventions": {
+    "guidance": "Technical conventions. Each field says which solutionType it applies to — leave the rest blank.",
+    "basePath": {
+      "question": "What is the main URL path?",
+      "guidance": "API solutions only.",
+      "example": "/api/",
+      "answer": ""
+    },
+    "versionedFolders": {
+      "question": "Are endpoints organised into version-specific folders?",
+      "guidance": "API solutions only.",
+      "example": "/api/v1/… — yes / no.",
+      "answer": ""
+    },
+    "configLocation": {
+      "question": "Where does it read/write its own config and data on disk?",
+      "guidance": "Application solutions only.",
+      "example": "The OS-appropriate app-data folder, overridable by an environment variable.",
+      "answer": ""
+    },
+    "errorLogging": {
+      "question": "How do we log errors and issues?",
+      "guidance": "Website, API, application.",
+      "example": "Azure Application Insights.",
+      "answer": ""
+    },
+    "documentation": {
+      "question": "How is this solution documented for its users or callers?",
+      "guidance": "API and application solutions.",
+      "example": "OpenAPI/Swagger (API) — a README/user guide (application).",
+      "answer": ""
+    }
+  },
+  "standardResponses": {
+    "guidance": "API solutions only — one entry per status code the whole API uses consistently. Leave empty otherwise.",
+    "entries": [
+      { "code": 200, "meaning": "Success" }
+    ]
+  },
+  "scaffold": {
+    "guidance": "How this solution's repo is laid out and driven, so the AI can create the skeleton on the first build and verify its work on every build. Pick a boilerplate from _forms/boilerplates.json by name, or fill the fields in yourself — anything you fill in overrides the boilerplate's version of it.",
+    "boilerplate": {
+      "question": "Start from a named boilerplate?",
+      "example": "react-vite, go-azure-functions, dotnet-webapi, sql-server-database-project, turso-embedded, rust-cli-app.",
+      "answer": ""
+    },
+    "fileLayout": {
+      "question": "What is the folder and file layout of this solution's repo?",
+      "guidance": "One entry per folder or key file, with what belongs in it.",
+      "answer": []
+    },
+    "testing": {
+      "question": "What test framework should be used, and what kinds of tests?",
+      "answer": ""
+    },
+    "commands": {
+      "question": "The commands the AI should use to work with this repo.",
+      "guidance": "Fill in whichever apply — a database solution might only need build/test/deploy; a website/API/application typically needs install/run/build/test too.",
+      "install": "",
+      "run": "",
+      "build": "",
+      "deploy": "",
+      "test": "",
+      "regression": ""
+    },
+    "regressionNote": "regression runs QA's automated regression tests (qa/regression.md), on every PR. Leave it blank until QA has automated tests; /qa proposes it."
+  },
+  "security": {
+    "guidance": "The security rules this solution must obey on every build. Pick a named baseline from _forms/boilerplates.json (securityBaselines) and add any extra rules — extra rules are additions and can never weaken the baseline. The AI treats every rule here like a test: a build that breaks one is not done.",
+    "baseline": {
+      "question": "Start from a named security baseline?",
+      "example": "website-baseline, api-baseline, database-baseline, embedded-database-baseline, application-baseline.",
+      "answer": ""
+    },
+    "rules": {
+      "question": "Any extra security rules for this solution?",
+      "guidance": "One entry per rule, in plain English.",
+      "entries": []
+    }
+  },
+  "infrastructure": {
+    "guidance": "What this solution runs on (or needs to build/sign/distribute), so the AI can create missing infrastructure and a pipeline deliberately — always as its own approved plan, never as a side effect of building an item. SECRETS ARE NEVER WRITTEN INTO CODE OR COMMITTED CONFIG: list every setting by name and where its value lives; the AI only ever references them by name.",
+    "resources": {
+      "question": "What infrastructure resources does this solution need?",
+      "guidance": "One entry per resource. Mark whether it already exists or the AI should create it. Leave empty if none.",
+      "exampleEntry": { "name": "clothing-api", "type": "Azure Function App", "existsAlready": false, "notes": "" },
+      "entries": []
+    },
+    "provisioning": {
+      "question": "How is infrastructure created, and by whom?",
+      "example": "Bicep files in infra/, deployed by the pipeline — or 'a person creates resources in the portal; the AI never provisions' — or 'N/A, no infrastructure'.",
+      "answer": ""
+    },
+    "environments": {
+      "question": "What environments exist, and which may the AI deploy to?",
+      "example": "dev (AI may deploy), production (people deploy after review).",
+      "answer": ""
+    },
+    "settings": {
+      "question": "What named settings and secrets does this solution need at build or run time?",
+      "guidance": "Names and where each value lives — NEVER the values themselves.",
+      "exampleEntry": { "name": "SQL_CONNECTION_STRING", "whatItIs": "Connection to the database solution", "secret": true, "where": "Azure Key Vault, referenced from application settings" },
+      "entries": []
+    },
+    "pipeline": {
+      "question": "What CI/CD pipeline should this solution have?",
+      "example": "GitHub Actions: on PR → install, build, test; on merge to main → deploy to dev.",
+      "answer": ""
+    }
+  },
+  "notes": {
+    "mustNotDo": {
+      "question": "Anything this solution must NOT do / cannot deploy?",
+      "answer": ""
+    },
+    "limits": {
+      "question": "Any limits (rate limits, payload size, memory, startup time, supported platforms)?",
+      "answer": ""
+    }
+  }
+}

@@ -1,4 +1,30 @@
-# Page Spec — Repository (database model)
+---
+spec: model
+from: Swarmdb/Repository-model.json
+deliverable:
+depends-on: []
+---
+objective: A code repository the user has registered to work on in the app (multi-repository support). [whatThisModelIs]
+field: id — id / key, required, default auto — unique — The unique identifier [fields.entries.0]
+field: name — text, required — unique — Display name of the repository [fields.entries.1]
+field: localPath — text, required — unique; must be an existing directory when saved — The repository's local folder path [fields.entries.2]
+field: remoteUrl — text, optional — The repository's remote URL, if any [fields.entries.3]
+field: defaultBranch — text, optional — The default branch name, e.g. main [fields.entries.4]
+field: isActive — true/false, required, default false — at most one repository is active at a time — Whether this is the currently active repository [fields.entries.5]
+field: createdAt — date, required, default now — When the repository was registered [fields.entries.6]
+index: name [lookupsAndPerformance.answer.0]
+index: isActive [lookupsAndPerformance.answer.1]
+retention: Until the user removes the repository from the app. Removing the entry never deletes the folder on disk. [lifecycleAndRules.retention]
+sensitive: No. [lifecycleAndRules.sensitiveFields]
+invariant: At most one repository has isActive = true. localPath is validated (exists, is a directory) before being saved. [lifecycleAndRules.invariants]
+
+## Round history — kept from the spec before the re-translation
+
+> The spec this file held before the re-translation, kept whole: its body,
+> then every plan, build report and round, under the heading styles it used.
+> It is history. The spec above is what a build reads.
+
+### The old spec — Page Spec — Repository (database model)
 
 > Produced by `/translate` from [`../../Swarmdb/Repository-model.json`](../../Swarmdb/Repository-model.json). Project constraints: [`../Project_system.md`](../Project_system.md) → Project Digest.
 
